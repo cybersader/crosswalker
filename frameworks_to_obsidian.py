@@ -262,7 +262,7 @@ if __name__ == "__main__":
     # TODO - include data source URLs
     file_cri = "./Frameworks/Final-CRI-Profile-v2.0-Public-CRI.xlsx"
     file_cri_extra_columns = "./Frameworks/Final-CRI-Profile-v2.0-Public.-Date-2024.02.29-2.xlsx"
-    file_financial_mapping_custom_1 = "./Frameworks/Jonathans_Framework Mapping.xlsx"
+    file_financial_mapping_custom_1 = ""
 
     file_nist_controls = "./Frameworks/sp800-53r5-control-catalog.xlsx"
     file_nist_assessment = "./Frameworks/sp800-53ar5-assessment-procedures.xlsx"
@@ -284,7 +284,7 @@ if __name__ == "__main__":
     file_cis_controls = "./Frameworks/CIS_Controls_Version_8.1_6_24_2024.xlsx"
     file_mapping_cis_controls_to_csf2 = "./Frameworks/CIS_Controls_v8_Mapping_to_NIST_CSF_2_2023.xlsx"
 
-    file_jonathans_xw = "./Frameworks/Jonathans_Framework Mapping.xlsx"
+    file_financial_xw_1 = "./Frameworks/Custom_financial_crosswalk_1.xlsx"
 
     # ----------------------------------------------------------------------
     # 1) CRI
@@ -629,7 +629,7 @@ if __name__ == "__main__":
     # 8) Jonathan's Crosswalk
     # ----------------------------------------------------------------------
 
-    df_custom_xw = pd.read_excel(file_jonathans_xw, sheet_name="Framework Mapping", header=2)
+    df_custom_xw = pd.read_excel(file_financial_xw_1, sheet_name="Framework Mapping", header=2)
 
     # ----------------------------------------------------------------------
     # Prepare mapping/crosswalk tables to be used for linking

@@ -1,0 +1,12 @@
+---
+name: Critical Infrastructure Plan
+text: Address information security and privacy issues in the development, documentation,
+  and updating of a critical infrastructure and key resources protection plan.
+discussion: Protection strategies are based on the prioritization of critical assets
+  and resources. The requirement and guidance for defining critical infrastructure
+  and key resources and for preparing an associated critical infrastructure protection
+  plan are found in applicable laws, executive orders, directives, policies, regulations,
+  standards, and guidelines.
+---
+
+%% Waypoint %%
