@@ -29,6 +29,8 @@ GRC involves a lot of knowledge work; keeping structured frameworks side-by-side
 - Format-Agnostic: produces Markdown with YAML front-matter and relative wikilinks or markdown links for graph-based exploration.  Plaintext files work in all sorts of places.
 - The goal is to have a 2-way engine that can map frameworks to a hierarchical and related structure of notes useful for Knowledge Platforms (e.g. Obsidian, Notion), then be able to map from notes back to tabular framework files or other useful tabular reports that can be pivoted on in Excel.
 
+> If I was cringe cyber salesmen, then I would term this whole system as something like a COaPN (cybersecurity ontologies as plaintext notes) or CFaN (cyber frameworks as notes)
+
 ## 🏗️ Architecture & Workflow
 1. Load framework spreadsheets (CSV/XLSX) from the `Frameworks/` directory into pandas DataFrames.
 2. Clean & normalize columns (strip whitespace, unify casing, forward-fill hierarchies).
