@@ -2,6 +2,8 @@
 
 > A Python toolkit to translate tabular cybersecurity framework data into Obsidian-ready taxonomic folder structures and interconnected markdown notes.
 
+Essentially, a **Framework crosswalk engine** — crosswalks/maps and translates NIST, CIS, ISO, etc., into linked Markdown pages so you can evidence-map, explore, and automate straight from plaintext notes.  I'm already 1500 lines of Python code in on this one.  Way harder than expected.  So far, I've got MITRE ATT&CK + D3FEND + ENGAGE, NIST800-53, CSFv2, CISv8, and the CRI Profile started.
+
 ## 🚀 Features
 - Supports CRI, NIST CSF, NIST SP-800-53, MITRE ATT&CK, MITRE EngAGE, MITRE D3FEND, CIS Controls v8, and custom crosswalks.
 - Configurable `FrameworkConfig` and `LinkConfig` for modular addition of new frameworks and link mappings.
