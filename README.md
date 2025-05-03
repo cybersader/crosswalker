@@ -3,6 +3,8 @@
 
 # Crosswalker
 
+## Tool Overview
+
 > A Python toolkit to translate tabular cybersecurity framework data into Obsidian-ready taxonomic folder structures and interconnected markdown notes.
 
 Essentially, a **Framework crosswalk engine** — crosswalks/maps and translates NIST, CIS, ISO, etc., into linked Markdown pages so you can evidence-map, explore, and automate straight from plaintext notes.  I'm already 1500 lines of Python code in on this one.  Way harder than expected.  So far, I've got MITRE ATT&CK + D3FEND + ENGAGE, NIST800-53, CSFv2, CISv8, and the CRI Profile started.
@@ -20,11 +22,12 @@ GRC involves a lot of knowledge work; keeping structured frameworks side-by-side
 - Configurable `FrameworkConfig` and `LinkConfig` for modular addition of new frameworks and link mappings.
 - Generates hierarchical folders and `.md` files with YAML front-matter and optional body content.
 
-## 💡 Philosophy & Approach
+## 💡 Philosophy, Approach, and Goals
 - First Principles: treat frameworks as taxonomic hierarchies, mapping them to file-system folders and YAML metadata.
 - Config-Driven: minimal code changes are required to onboard new frameworks via `FrameworkConfig` and `LinkConfig`.
 - Interoperable: leverages pandas and simple CSV/XLSX mapping tables, keeping data sources separate and extensible.
 - Obsidian-Friendly: produces Markdown with YAML front-matter and relative wikilinks for graph-based exploration.
+- The goal is to have a 2-way engine that can map frameworks to a hierarchical and related structure of notes useful for Knowledge Platforms (e.g. Obsidian, Notion), then be able to map from notes back to tabular framework files or other useful tabular reports that can be pivoted on in Excel.
 
 ## 🏗️ Architecture & Workflow
 1. Load framework spreadsheets (CSV/XLSX) from the `Frameworks/` directory into pandas DataFrames.
