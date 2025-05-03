@@ -23,7 +23,7 @@ GRC involves a lot of knowledge work; keeping structured frameworks side-by-side
 - Generates hierarchical folders and `.md` files with YAML front-matter and optional body content.
 
 ## 💡 Philosophy, Approach, and Goals
-- First Principles: treat frameworks as taxonomic hierarchies, mapping them to file-system folders and YAML metadata.
+- First Principles: treat frameworks as taxonomic hierarchies, mapping them to file-system folders and YAML metadata/frontmatter/properties(Obsidian).
 - Config-Driven: minimal code changes are required to onboard new frameworks via `FrameworkConfig` and `LinkConfig`.
 - Interoperable: leverages pandas and simple CSV/XLSX mapping tables, keeping data sources separate and extensible.
 - Format-Agnostic: produces Markdown with YAML front-matter and relative wikilinks or markdown links for graph-based exploration.  Plaintext files work in all sorts of places.
