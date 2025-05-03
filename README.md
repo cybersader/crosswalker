@@ -38,7 +38,8 @@ GRC involves a lot of knowledge work; keeping structured frameworks side-by-side
 8. Run the taxonomy builder to generate an Obsidian-compatible folder structure of `.md` files.
 9. Drop the generated folders into your Obsidian vault and visualize the framework graph.
 
-## 📦 Installation
+## 📦 Installation & Environment
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/cybersader/crosswalker
