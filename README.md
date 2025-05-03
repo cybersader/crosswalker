@@ -31,6 +31,9 @@ GRC involves a lot of knowledge work; keeping structured frameworks side-by-side
 
 > If I was cringe cyber salesmen, then I would term this whole system as something like a COaPN (cybersecurity ontologies as plaintext notes) or CFaN (cyber frameworks as notes)
 
+## Motivation
+Evidence mapping in GRC is rough.  Often, you're forced to lock all of the data into one database-backed platform and managing the linking of evidence to that platform can be error-prone, non-intuitive, and not super extensible.  My thought was, why not put the evidence right next to your knowledge work.  If you take notes enough and essentially build a "2nd-brain" in digital format, then mapping the evidence in it to all your various frameworks could be done in the same place.  Let's put the knowledge/evidence right next to the framework in a system where they link seamlessly, then build automations and systems around that knowledge platform (e.g. Obsidian, Notion).
+
 ## 🏗️ Architecture & Workflow
 1. Load framework spreadsheets (CSV/XLSX) from the `Frameworks/` directory into pandas DataFrames.
 2. Clean & normalize columns (strip whitespace, unify casing, forward-fill hierarchies).
