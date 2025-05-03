@@ -1,0 +1,13 @@
+# Output from scripts
+cri_framework/
+# Exported Excel workbooks
+frameworks_export.xlsx
+# Optionally ignore generated Obsidian-taxonomy markdown folders
+# obsidian_vault/  # uncomment if using this for generated notes
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.env/
+.ipynb_checkpoints/
+.DS_Store

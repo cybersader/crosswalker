@@ -1,0 +1,8 @@
+# Python package dependencies
+pandas
+pyyaml
+tqdm
+numpy
+xlsxwriter
+openpyxl
+xlsxwriter
