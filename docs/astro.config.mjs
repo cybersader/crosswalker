@@ -1,51 +1,52 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import tailwindcss from '@tailwindcss/vite';
+import nova from 'starlight-theme-nova';
+import starlightSiteGraph from 'starlight-site-graph';
+import starlightBlog from 'starlight-blog';
+import starlightAnnouncement from 'starlight-announcement';
+import starlightImageZoom from 'starlight-image-zoom';
+import starlightHeadingBadges from 'starlight-heading-badges';
+import starlightClientMermaid from '@pasqal-io/starlight-client-mermaid';
+import remarkObsidianCallout from 'remark-obsidian-callout';
+import remarkWikiLink from 'remark-wiki-link';
+import rehypeExternalLinks from 'rehype-external-links';
 
 export default defineConfig({
   site: 'https://cybersader.github.io',
   base: '/Crosswalker',
+  vite: {
+    plugins: [tailwindcss()],
+  },
+  markdown: {
+    remarkPlugins: [
+      remarkObsidianCallout,
+      [remarkWikiLink, { aliasDivider: '|' }],
+    ],
+    rehypePlugins: [
+      [rehypeExternalLinks, { target: '_blank', rel: ['noopener', 'noreferrer'] }],
+    ],
+  },
   integrations: [
     starlight({
       title: 'Crosswalker',
       description: 'Import structured ontologies into Obsidian with folder structures, typed links, and metadata',
-      head: [
-        { tag: 'script', attrs: { type: 'module' }, content: `
-          import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-          function getTheme() {
-            return document.documentElement.dataset.theme === 'light' ? 'default' : 'dark';
-          }
-          function initMermaid() {
-            document.querySelectorAll('pre[data-language="mermaid"]').forEach(pre => {
-              const figure = pre.closest('figure');
-              const target = figure || pre;
-              const lines = [];
-              pre.querySelectorAll('.ec-line .code').forEach(line => {
-                lines.push(line.textContent);
-              });
-              const text = lines.length > 0 ? lines.join('\\n') : pre.textContent;
-              const div = document.createElement('div');
-              div.classList.add('mermaid');
-              div.textContent = text;
-              target.replaceWith(div);
-            });
-            mermaid.initialize({ startOnLoad: false, theme: getTheme() });
-            mermaid.run({ querySelector: '.mermaid' });
-          }
-          window.addEventListener('load', initMermaid);
-          new MutationObserver(() => {
-            document.querySelectorAll('.mermaid[data-processed]').forEach(el => {
-              el.removeAttribute('data-processed');
-              el.innerHTML = el.dataset.original || el.textContent;
-            });
-            mermaid.initialize({ startOnLoad: false, theme: getTheme() });
-            mermaid.run({ querySelector: '.mermaid' });
-          }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-        ` },
+      plugins: [
+        nova({
+          nav: [
+            { label: 'Docs', href: '/Crosswalker/getting-started/installation/' },
+            { label: 'GitHub', href: 'https://github.com/cybersader/Crosswalker' },
+          ],
+        }),
+        // starlightClientMermaid(),
       ],
-      customCss: ['./src/styles/brand.css'],
-      social: {
-        github: 'https://github.com/cybersader/Crosswalker',
-      },
+      customCss: [
+        './src/styles/global.css',
+        './src/styles/brand.css',
+      ],
+      social: [
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/cybersader/Crosswalker' },
+      ],
       sidebar: [
         {
           label: 'Getting started',

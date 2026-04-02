@@ -1,35 +1,45 @@
-/* Crosswalker brand colors */
+/* Crosswalker — cybersecurity-themed dark palette */
+
+/* Dark mode (primary) — near-black backgrounds, cyan/teal accent */
 :root {
-  --sl-color-accent-low: #1a3a4a;
-  --sl-color-accent: #2596be;
-  --sl-color-accent-high: #b3e0f2;
-  --sl-color-white: #ffffff;
-  --sl-color-gray-1: #eceef2;
-  --sl-color-gray-2: #c0c2c7;
-  --sl-color-gray-3: #888b96;
-  --sl-color-gray-4: #545861;
-  --sl-color-gray-5: #353841;
-  --sl-color-gray-6: #24272f;
-  --sl-color-black: #17181c;
+  --sl-color-accent-low: #0a2a2a;
+  --sl-color-accent: #00d4aa;
+  --sl-color-accent-high: #7ff5d8;
+  --sl-color-white: #e8edf2;
+  --sl-color-gray-1: #c8cdd4;
+  --sl-color-gray-2: #8b929c;
+  --sl-color-gray-3: #5c636e;
+  --sl-color-gray-4: #3d434e;
+  --sl-color-gray-5: #252a33;
+  --sl-color-gray-6: #161a22;
+  --sl-color-black: #0d1117;
 }
 
+/* Light mode — inverted for readability */
 :root[data-theme='light'] {
-  --sl-color-accent-low: #d6eef7;
-  --sl-color-accent: #1a7fa8;
-  --sl-color-accent-high: #0d3f54;
-  --sl-color-white: #17181c;
-  --sl-color-gray-1: #24272f;
-  --sl-color-gray-2: #353841;
-  --sl-color-gray-3: #545861;
-  --sl-color-gray-4: #888b96;
-  --sl-color-gray-5: #c0c2c7;
+  --sl-color-accent-low: #d0f5eb;
+  --sl-color-accent: #0a8f6f;
+  --sl-color-accent-high: #064d3c;
+  --sl-color-white: #0d1117;
+  --sl-color-gray-1: #161a22;
+  --sl-color-gray-2: #252a33;
+  --sl-color-gray-3: #3d434e;
+  --sl-color-gray-4: #5c636e;
+  --sl-color-gray-5: #c8cdd4;
   --sl-color-gray-6: #eceef2;
-  --sl-color-black: #ffffff;
+  --sl-color-black: #f8f9fa;
 }
 
-/* Mermaid diagrams */
-.mermaid {
-  background: transparent !important;
-  text-align: center;
-  margin: 1em 0;
+/* Obsidian-style callouts */
+.callout {
+  padding: 1rem;
+  border-radius: 0.5rem;
+  margin: 1rem 0;
+  border-left: 4px solid var(--sl-color-accent);
+  background: var(--sl-color-gray-6);
+}
+
+.callout-title {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
 }
