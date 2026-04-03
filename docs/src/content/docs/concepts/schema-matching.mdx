@@ -1,0 +1,135 @@
+---
+title: Schema matching & alignment
+description: How systems discover correspondences between different data structures — the formal foundation for column detection and framework crosswalking.
+---
+
+## What is schema matching?
+
+Schema matching finds correspondences between elements of two different schemas. When Crosswalker's import wizard detects that a column named "Control Family" should be a hierarchy level, it's performing a simple form of schema matching. When NIST maps CSF subcategories to 800-53 controls, that's [ontology alignment](/Crosswalker/concepts/ontology-evolution/).
+
+## Terminology distinctions
+
+These terms are often used interchangeably but have distinct meanings in the literature:
+
+| Term | Scope | Output | Example |
+|------|-------|--------|---------|
+| **Schema matching** | Find corresponding elements between schemas | Set of element pairs | "Column A maps to Column B" |
+| **Schema mapping** | Define how to transform data between schemas | Executable transformation | "Split Column A by comma, map each to Column B" |
+| **Ontology alignment** | Find corresponding concepts between ontologies | Alignment (set of correspondences with confidence) | "CSF PR.AC-1 corresponds to 800-53 AC-1 (0.85 confidence)" |
+| **Ontology matching** | The process of finding an alignment | Algorithm + heuristics | OAEI competition entries |
+| **Ontology merging** | Combine two ontologies into one | Unified ontology | SCF combining 175+ frameworks |
+
+## Matching strategies
+
+### String-based
+Compare element names using string similarity metrics:
+- **Edit distance** (Levenshtein) — "Access Control" ↔ "Access Ctrl" = 4 edits
+- **Token-based** — split into words, compare sets: {"Access", "Control"} ∩ {"Access", "Management"}
+- **Prefix/suffix** — "AC-2" matches "AC-2(1)" by prefix
+
+This is what Crosswalker's column analysis does when suggesting column types based on header names.
+
+### Structure-based
+Use the hierarchical structure of schemas:
+- **Graph matching** — compare the shape of two taxonomies
+- **Children similarity** — if children match, parents likely correspond
+- **Path similarity** — "Function > Category > Subcategory" in CSF ≈ "Family > Control > Enhancement" in 800-53
+
+### Instance-based
+Compare actual data values:
+- **Value overlap** — columns sharing values like "AC-2" are likely related
+- **Distribution similarity** — columns with similar statistical profiles
+- **Pattern matching** — regex patterns in values (e.g., `\w{2}-\d+` for control IDs)
+
+Crosswalker uses this approach in its fingerprinting system for [config matching](/Crosswalker/features/config-system/).
+
+### Semantic
+Use external knowledge to find correspondences:
+- **Thesaurus/dictionary lookup** — "safeguard" ≈ "control" ≈ "requirement"
+- **Embedding similarity** — vector representations of concepts
+- **Taxonomic distance** — how far apart concepts are in a shared hierarchy
+
+## Key algorithms and tools
+
+| Algorithm/Tool | Approach | Key Innovation |
+|----------------|----------|---------------|
+| **COMA++** | Composite matcher, combines multiple strategies | Reuse of previous match results |
+| **Similarity Flooding** | Graph-based propagation of similarity | Similarity "flows" through schema graphs |
+| **Cupid** | Linguistic + structural matching | Tree-based schema comparison |
+| **AgreementMaker** | Extensible framework of matchers | Combines any number of matching strategies |
+| **LogMap** | Large-scale ontology matching | Handles biomedical ontologies with 100K+ concepts |
+
+### The OAEI initiative
+
+The [Ontology Alignment Evaluation Initiative](http://oaei.ontologymatching.org/) runs annual competitions where matching systems are evaluated against benchmark datasets. Tracks include:
+- **Conference** — aligning conference organization ontologies
+- **Anatomy** — matching adult mouse anatomy to human anatomy (large-scale)
+- **Knowledge graphs** — aligning cross-lingual knowledge graphs
+
+The OAEI results provide the best objective comparison of matching approaches. Relevant to Crosswalker because framework matching is a specialized form of the problems OAEI evaluates.
+
+## The interlingua / pivot approach
+
+Instead of creating pairwise mappings between every framework combination (N² problem), map each framework to a single **pivot ontology**:
+
+```
+Framework A ──→ Pivot ←── Framework B
+Framework C ──→ Pivot ←── Framework D
+```
+
+With N frameworks and a pivot, you need only N mappings instead of N×(N-1)/2.
+
+### Real-world pivot approaches
+
+| Pivot System | Frameworks Covered | Methodology |
+|-------------|-------------------|-------------|
+| [SCF (Secure Controls Framework)](https://securecontrolsframework.com/) | 175+ | [STRM (Set Theory Relationship Mapping)](https://securecontrolsframework.com/set-theory-relationship-mapping-strm/) |
+| [NIST OLIR](https://csrc.nist.gov/projects/olir/informative-reference-catalog) | ~50 | Submission-based informative references |
+| [NIST CSF](https://www.nist.gov/cyberframework) | ~30 | Community profiles and crosswalks |
+| [HITRUST CSF](https://hitrustalliance.net/hitrust-framework) | ~50 | Commercial mappings |
+
+SCF's STRM is the most comprehensive — it uses set theory to define relationships between controls: subset, superset, intersection, and equivalence. This mathematical rigor makes mappings more precise than simple "maps to" relationships.
+
+## How this applies to Crosswalker
+
+### Column detection as schema matching
+When a user imports a CSV, Crosswalker analyzes columns to suggest types (hierarchy, frontmatter, link, body). This is a lightweight schema matching problem:
+- **String analysis** of header names
+- **Instance analysis** of column values (unique counts, patterns)
+- **Structural hints** from column ordering
+
+The [config fingerprinting system](/Crosswalker/features/config-system/) extends this by comparing new files against previously matched schemas.
+
+### Framework crosswalking as ontology alignment
+When Crosswalker generates links between imported frameworks, it's performing [ontology alignment](/Crosswalker/concepts/ontology-evolution/). The matching methods (exact, array-contains, regex) in the [crosswalks system](/Crosswalker/agent-context/framework-crosswalks/) are specialized schema matching strategies.
+
+### Future: automated crosswalk generation
+Currently, crosswalk mappings must be provided (from NIST, SCF, or user-defined). A future version could use schema matching algorithms to *suggest* crosswalk mappings between arbitrary imported frameworks — similar to how COMA++ or AgreementMaker work.
+
+---
+
+## Resources
+
+### Surveys and foundational papers
+- Rahm & Bernstein, "A survey of approaches to automatic schema matching" (2001) — the foundational survey
+- Euzenat & Shvaiko, "Ontology Matching" (2013) — comprehensive textbook
+- Shvaiko & Euzenat, "Ontology matching: state of the art and future challenges" (2013) — IEEE survey
+
+### Tools and initiatives
+- [OAEI](http://oaei.ontologymatching.org/) — Ontology Alignment Evaluation Initiative (annual competition)
+- [AgreementMaker](https://agreementmaker.github.io/) — open-source ontology matching framework
+- [LogMap](https://www.cs.ox.ac.uk/isg/tools/LogMap/) — large-scale ontology matching (Oxford)
+
+### Framework-specific mapping tools
+- [SCF STRM](https://securecontrolsframework.com/set-theory-relationship-mapping-strm/) — Set Theory Relationship Mapping methodology
+- [NIST OLIR Catalog](https://csrc.nist.gov/projects/olir/informative-reference-catalog) — official framework crosswalks
+- [NIST CPRT](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters) — interactive framework reference tool
+- [ATT&CK Mappings Explorer](https://center-for-threat-informed-defense.github.io/mappings-explorer/external/) — cross-framework technique mappings
+- [Apptega](https://www.apptega.com/platform/framework-crosswalking) — commercial crosswalking platform
+
+### Related pages
+- [Ontology evolution](/Crosswalker/concepts/ontology-evolution/)
+- [Framework versioning](/Crosswalker/concepts/framework-versioning/)
+- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/)
+- [Framework standards & tools](/Crosswalker/concepts/framework-standards/)
+- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/)

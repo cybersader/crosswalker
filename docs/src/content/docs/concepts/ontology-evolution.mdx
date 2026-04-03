@@ -1,0 +1,110 @@
+---
+title: Ontology evolution
+description: How structured knowledge systems change over time — the fundamental problem of maintaining data models, taxonomies, and framework mappings.
+---
+
+## The problem in one sentence
+
+Every structured data import becomes stale the moment the source structure changes — and in cybersecurity, frameworks change constantly.
+
+## Key terminology
+
+| Term | Definition | Example |
+|------|-----------|---------|
+| **Ontology evolution** | Modifying an ontology in response to changes in the domain while preserving consistency | NIST adding the GOVERN function to CSF 2.0 |
+| **Ontology versioning** | Managing and tracking different states of an ontology over time | ATT&CK v14 → v15 → v16 |
+| **Schema evolution** | Changing a database schema while preserving existing data | Adding a `supply_chain` control family to 800-53 |
+| **Schema migration** | Transforming data from an old schema to a new one | Converting CSF 1.1 assessments to CSF 2.0 format |
+| **Concept drift** | Gradual change in the meaning or scope of a concept | "Access Control" expanding to include cloud IAM |
+| **Breaking change** | A modification that invalidates existing data or mappings | Renumbering ATT&CK technique IDs |
+| **Backward compatibility** | New version can consume data from old version | CSF 2.0 preserving all CSF 1.1 meaning |
+
+## How data warehouses handle this: Slowly Changing Dimensions
+
+The data warehouse community formalized this problem decades ago as [Slowly Changing Dimensions](https://en.wikipedia.org/wiki/Slowly_changing_dimension) (SCD). The types map directly to framework versioning strategies:
+
+| SCD Type | Strategy | Framework Example | Crosswalker Application |
+|----------|----------|-------------------|------------------------|
+| **Type 0** | Fixed — never update | "This assessment was against CSF 1.1, period" | Archive old imports, never modify |
+| **Type 1** | Overwrite — replace old with new | Re-import NIST 800-53 Rev 5, delete Rev 4 | Simple re-import (current behavior) |
+| **Type 2** | Add row — keep full history | Both CSF 1.1 and CSF 2.0 folders coexist with timestamps | Version-tagged import folders |
+| **Type 3** | Add column — store previous value | Frontmatter tracks `previous_id: AC-2` alongside `id: AC-02` | ID aliasing in `_crosswalker` metadata |
+| **Type 4** | History table — separate current from historical | Active framework in main folder, archived versions elsewhere | Separate `archive/` folder per framework |
+| **Type 6** | Hybrid (1+2+3) — current flag + history + previous | Full version tracking with "current" marker | Most complete but most complex |
+
+For Crosswalker, **Type 2 (version-tagged folders)** is the most practical default, with Type 3 (ID aliasing) for crosswalk continuity.
+
+## Temporal modeling
+
+When a framework exists in multiple versions simultaneously, you need temporal awareness:
+
+### Valid time vs. transaction time
+
+| Dimension | Question it answers | Example |
+|-----------|-------------------|---------|
+| **Valid time** | When was this true in reality? | "CSF 2.0 was published February 2024" |
+| **Transaction time** | When did we record this? | "We imported CSF 2.0 on March 15, 2024" |
+| **Bitemporal** | Both | "CSF 2.0 (valid from Feb 2024) was imported (recorded) on March 15" |
+
+Crosswalker's `_crosswalker.imported` timestamp provides transaction time. Adding `_crosswalker.framework_version` and `_crosswalker.framework_date` would provide valid time — enabling bitemporal queries like "show me what our compliance looked like on date X against framework version Y."
+
+## The translation analogy
+
+[Framework crosswalking](/Crosswalker/agent-context/framework-crosswalks/) is structurally analogous to **language translation**:
+
+| Translation Concept | Framework Equivalent |
+|---------------------|---------------------|
+| Source language | Source framework (e.g., NIST CSF) |
+| Target language | Target framework (e.g., CIS Controls) |
+| Dictionary | Crosswalk mapping table |
+| Interlingua / pivot language | Meta-framework (SCF, NIST OLIR) |
+| Machine translation | Automated [schema matching](/Crosswalker/concepts/schema-matching/) |
+| Translation memory | Saved Crosswalker configs with fingerprints |
+| Back-translation (verification) | Bidirectional crosswalk validation |
+
+The **interlingua approach** is particularly relevant: rather than translating between every pair of N frameworks (requiring N² mappings), map each framework to a single pivot (requiring only N mappings). The [Secure Controls Framework (SCF)](https://securecontrolsframework.com/) does exactly this with its [STRM methodology](https://securecontrolsframework.com/set-theory-relationship-mapping-strm/) — mapping 175+ frameworks through a single meta-framework.
+
+## Semantic versioning for data
+
+Can [SemVer](https://semver.org/) apply to ontologies? The analogy:
+
+| SemVer | Ontology Change | Example |
+|--------|----------------|---------|
+| **MAJOR** (breaking) | Restructure hierarchy, rename IDs, remove concepts | ATT&CK sub-technique migration (2020) |
+| **MINOR** (additive) | Add new concepts, extend hierarchy | NIST 800-53 Rev 5 adding PT and SR families |
+| **PATCH** (fix) | Correct descriptions, fix typos | ATT&CK un-deprecating a technique |
+
+MITRE ATT&CK effectively uses this (v14.0 → v14.1 → v15.0). Most frameworks don't, which makes automated version detection harder — a problem Crosswalker could eventually solve through [schema matching](/Crosswalker/concepts/schema-matching/).
+
+## Implications for Crosswalker
+
+See [data model resilience](/Crosswalker/agent-context/data-model-resilience/) for how these concepts translate into Crosswalker design decisions.
+
+The key insight: **Crosswalker doesn't just import data — it creates a temporal snapshot of a framework version.** The `_crosswalker` metadata in every generated note should be rich enough to support version-aware operations: re-import, diff, migration, and staleness detection.
+
+---
+
+## Resources
+
+### Standards & specifications
+- [NIST IR 8477](https://csrc.nist.gov/pubs/ir/8477/final) — Mapping Relationships Between Documentary Standards (formal methodology)
+- [OWL 2 Web Ontology Language](https://www.w3.org/TR/owl2-overview/) — W3C standard for ontology representation
+- [SKOS Reference](https://www.w3.org/TR/skos-reference/) — Simple Knowledge Organization System (W3C)
+- [OSCAL](https://pages.nist.gov/OSCAL/) — Machine-readable security control format with versioning
+
+### Tools
+- [Protégé](https://protege.stanford.edu/) — Open-source ontology editor (Stanford)
+- [OAEI](http://oaei.ontologymatching.org/) — Ontology Alignment Evaluation Initiative
+- [SCF STRM Bundle](https://securecontrolsframework.com/strm-bundle/) — Meta-framework mapping dataset
+
+### Academic references
+- Flouris et al., "Ontology change: classification and survey" (2008) — foundational survey
+- Noy & Klein, "Ontology Evolution: Not the Same as Schema Evolution" (2004) — key distinction paper
+- Kimball & Ross, "The Data Warehouse Toolkit" — SCD patterns reference
+
+### Related pages
+- [Schema matching & alignment](/Crosswalker/concepts/schema-matching/)
+- [Framework versioning](/Crosswalker/concepts/framework-versioning/)
+- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/)
+- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/)
+- [The problem](/Crosswalker/concepts/problem/)

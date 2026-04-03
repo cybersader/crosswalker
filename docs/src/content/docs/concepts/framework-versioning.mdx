@@ -1,0 +1,166 @@
+---
+title: Framework versioning
+description: How NIST, MITRE, CIS, and CRI handle version changes — migration guides, what breaks, and lessons for Crosswalker.
+---
+
+## Why this matters
+
+When you import a framework with Crosswalker, you create a snapshot. When that framework publishes a new version, your snapshot is stale. Your crosswalk links may point to renamed or removed controls. Your assessments reference outdated IDs. This page documents how each major framework handles versioning — so Crosswalker can eventually handle it too.
+
+## NIST CSF 1.1 → 2.0 (February 2024)
+
+### What changed
+- Added **GOVERN** as a sixth core function (previously governance was scattered across other functions)
+- Broadened scope beyond critical infrastructure to all organizations
+- Reorganized subcategories — some merged, split, or moved between functions
+- **No content was removed** — all CSF 1.1 meaning is preserved in 2.0
+
+### Migration resources
+- [CSF 1.1 to 2.0 Core Transition Changes](https://www.nist.gov/document/csf-11-csf-20-core-transition-changes) — Excel spreadsheet mapping every subcategory
+- [OLIR Crosswalk Spreadsheet](https://csrc.nist.gov/projects/olir/informative-reference-catalog) — machine-readable mapping
+- [CSF 2.0 Quick Start Guides](https://www.nist.gov/quick-start-guides)
+- [CPRT Reference Tool](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters)
+
+### Impact
+- FFIEC CAT was retired (August 2025) rather than updated — tools built on it became obsolete
+- HITRUST created CSF 2.0 as an add-on certification — prior CSF 1.1 assessments don't auto-transfer
+- Organizations needed to manually re-map their evidence to the new structure
+
+## NIST 800-53 Rev 4 → Rev 5 (September 2020)
+
+### What changed
+- **65 new base controls** and **204 new control enhancements**
+- Two entirely new control families: **PT** (PII Processing and Transparency) and **SR** (Supply Chain Risk Management)
+- 63 existing controls received 149 new enhancements
+- Priority system eliminated; baselines moved to separate document (SP 800-53B)
+- Rev 4 is officially **withdrawn**
+
+### Migration resources
+- [Rev 4 to Rev 5 Comparison Workbook](https://csrc.nist.gov/files/pubs/sp/800/53/r5/upd1/final/docs/sp800-53r4-to-r5-comparison-workbook.xlsx) — describes changes to each control with significance assessment
+- [SP 800-53 Downloads](https://csrc.nist.gov/Projects/risk-management/sp800-53-controls/downloads)
+- [Control Overlays](https://csrc.nist.gov/Projects/risk-management/sp800-53-controls/overlay-repository)
+
+## MITRE ATT&CK — the gold standard :badge[Best Practice]
+
+ATT&CK has the **most mature versioning system** of any cybersecurity framework:
+
+### Release cadence
+- **Biannual releases** (April and October) with major.minor versioning
+- Current: v16.1 (as of late 2025)
+- Every version gets an [archived website](https://attack.mitre.org/resources/versions/)
+
+### Lifecycle states
+| State | Meaning | Example |
+|-------|---------|---------|
+| **Active** | Current, maintained | Most techniques |
+| **Revoked** | Replaced by another object | T1086 (PowerShell) → T1059.001 |
+| **Deprecated** | Retired, no replacement | Techniques deemed too broad |
+| **Un-deprecated** | Brought back after deprecation | Techniques reconsidered based on community feedback |
+
+### Machine-readable changelogs
+ATT&CK publishes changelogs in both human-readable and **STIX JSON format**, enabling automated migration tooling. This is unique among frameworks.
+
+### The sub-technique migration (July 2020)
+The largest structural change: 266 techniques consolidated into 156 parent techniques with 272 sub-techniques. IDs changed to dot notation:
+- `T1086` (PowerShell) → `T1059.001` (Command and Scripting Interpreter: PowerShell)
+
+MITRE preserved the pre-sub-technique version separately for backward compatibility and corrected ID errors based on community feedback.
+
+### Resources
+- [ATT&CK Versions](https://attack.mitre.org/resources/versions/) — archived versions of every release
+- [ATT&CK Data & Tools](https://attack.mitre.org/resources/attack-data-and-tools/) — STIX data bundles
+- [MITRE ATT&CK GitHub](https://github.com/mitre-attack) — machine-readable data
+- [Mappings Explorer](https://center-for-threat-informed-defense.github.io/mappings-explorer/external/) — cross-framework mappings
+
+## CIS Controls v7 → v8 (May 2021)
+
+### What changed
+- Consolidated from **20 controls to 18**
+- Reorganized by activity type rather than by who implements
+- New emphasis on cloud, mobile, and third-party risk
+- Implementation Groups (IG1/IG2/IG3) became the primary organizational layer
+
+### Migration resources
+- [CIS Controls v8 Change Log](https://www.cisecurity.org/insights/white-papers/cis-controls-v8-change-log) — white paper describing all changes
+- **No automated migration** available due to substantial structural differences
+- [CIS Controls Navigator](https://www.cisecurity.org/controls/cis-controls-navigator) — interactive comparison
+
+## CRI Profile v1.2 → v2.0 (February 2024)
+
+### What changed
+- "Most expansive revision to date"
+- Expanded scope to enterprise technology, third-party risk, business continuity
+- Added new **Extend** function
+- Added subject tags and global regulatory mappings
+- v2.1 kept all v2.0 diagnostic statements unchanged
+
+### Migration resources
+- [CRI Profile v2.0 Mapping](https://cyberriskinstitute.org/cri-issues-profile-version-2-0/) — v1.2.1 to v2.0 mapping document
+- [The Profile](https://cyberriskinstitute.org/the-profile/) — latest version download
+
+## Who maintains crosswalks?
+
+### NIST OLIR program
+The [OLIR (Online Informative References)](https://csrc.nist.gov/projects/olir/informative-reference-catalog) program is **submission-based**: the submitting organization is responsible for maintaining their mappings. There is no automatic mechanism to flag stale crosswalks when either side updates.
+
+**Implication**: Crosswalks can become stale silently. If CSF updates but the CSF-to-800-53 crosswalk doesn't, tools relying on it give incorrect results.
+
+### SCF's meta-framework approach
+The [Secure Controls Framework](https://securecontrolsframework.com/) solves this by acting as a **central hub**: when a framework updates, only the SCF-to-that-framework mapping needs updating (see [interlingua approach](/Crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach)). This propagates the change to all 175+ mapped frameworks automatically.
+
+## What breaks when a framework updates
+
+| What | How it breaks | Severity |
+|------|--------------|----------|
+| **Imported folder structure** | Hierarchy may not match new version | Medium — old version still readable |
+| **Crosswalk links** | May point to renamed/removed controls | High — broken references |
+| **Assessment status** | "Compliant with CSF 1.1" ≠ "Compliant with CSF 2.0" | High — compliance claims invalid |
+| **Tool configurations** | Hardcoded IDs, column names, regex patterns | Medium — requires manual update |
+| **Reports and dashboards** | Queries return stale or incomplete data | Medium — misleading results |
+| **GRC platform mappings** | Vendor must release update | Variable — depends on vendor timeline |
+
+## How GRC tools handle updates
+
+| Tool | Approach |
+|------|----------|
+| **CISO Assistant** | Library versioning with incremental upgrade steps; OLIR-based mappings |
+| **SCF** | Meta-framework absorbs changes centrally using STRM methodology |
+| **ServiceNow/Archer** | Content packs updated per vendor timeline; migration tools |
+| **Apptega** | Commercial crosswalk updates as a service |
+
+## The "framework changelog" concept
+
+There is **no universal standard** for framework changelogs. Each framework handles it differently:
+
+| Framework | Changelog Format | Machine-Readable |
+|-----------|-----------------|-----------------|
+| MITRE ATT&CK | STIX JSON + human-readable | Yes |
+| NIST 800-53 | Excel workbook | Partially |
+| NIST CSF | Excel spreadsheet | Partially |
+| CIS Controls | PDF white paper | No |
+| CRI Profile | PDF mapping document | No |
+
+A future Crosswalker feature could ingest machine-readable changelogs (ATT&CK STIX, OSCAL diffs) to automate migration detection.
+
+---
+
+## Resources
+
+### Migration documents
+- [CSF 1.1→2.0 Transition](https://www.nist.gov/document/csf-11-csf-20-core-transition-changes)
+- [800-53 Rev 4→5 Comparison](https://csrc.nist.gov/files/pubs/sp/800/53/r5/upd1/final/docs/sp800-53r4-to-r5-comparison-workbook.xlsx)
+- [ATT&CK Versions Archive](https://attack.mitre.org/resources/versions/)
+- [CIS v8 Change Log](https://www.cisecurity.org/insights/white-papers/cis-controls-v8-change-log)
+- [CRI v2.0 Mapping](https://cyberriskinstitute.org/cri-issues-profile-version-2-0/)
+
+### Crosswalk maintenance
+- [NIST OLIR Catalog](https://csrc.nist.gov/projects/olir/informative-reference-catalog)
+- [OLIR FAQ](https://csrc.nist.gov/projects/olir/faqs)
+- [SCF STRM](https://securecontrolsframework.com/set-theory-relationship-mapping-strm/)
+
+### Related pages
+- [Ontology evolution](/Crosswalker/concepts/ontology-evolution/) — the general problem
+- [Schema matching](/Crosswalker/concepts/schema-matching/) — how systems find correspondences
+- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/) — Crosswalker's design response
+- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/) — current crosswalk implementation
+- [Framework standards & tools](/Crosswalker/concepts/framework-standards/) — links to all framework resources

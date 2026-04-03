@@ -41,3 +41,11 @@ Organizations need to import these structures, link workspace notes to framework
 - **Graph databases**: Overkill, separate from notes
 
 Crosswalker bridges this gap: structured data in, Obsidian-native notes out, queryable with standard tools.
+
+## The temporal dimension
+
+The hierarchy-vs-graph tension is compounded by **time**: frameworks evolve. NIST publishes new CSF versions. MITRE adds and deprecates ATT&CK techniques. CIS consolidates controls. Every import is a snapshot that becomes stale.
+
+This introduces [ontology evolution](/Crosswalker/concepts/ontology-evolution/) — the challenge of maintaining data models as the underlying structures change. It connects to formal problems like [schema matching](/Crosswalker/concepts/schema-matching/) (how do you map between versions?) and [framework versioning](/Crosswalker/concepts/framework-versioning/) (how does each framework actually handle this?).
+
+See [data model resilience](/Crosswalker/agent-context/data-model-resilience/) for how Crosswalker approaches this architecturally.

@@ -1,0 +1,172 @@
+---
+title: Data model resilience
+description: How Crosswalker should handle framework updates, re-imports, version tracking, and stale crosswalk detection — architecture decisions for long-term data integrity.
+---
+
+## The re-import problem
+
+A user imports NIST 800-53 Rev 5 today. Six months later, NIST publishes an update. The user has:
+- 1000+ generated notes with frontmatter
+- Evidence notes with typed links pointing to specific control IDs
+- Crosswalk links to CIS Controls and ATT&CK
+- Custom annotations and notes added to generated pages
+
+What happens when they re-import? This is the central [ontology evolution](/Crosswalker/concepts/ontology-evolution/) challenge for Crosswalker.
+
+## Strategy options
+
+### 1. Version-tagged folders (SCD Type 2) :badge[Recommended]
+
+Import each version into a separate folder:
+```
+Ontologies/
+├── NIST-800-53-r5/          ← imported 2024-03
+│   ├── AC/AC-2.md
+│   └── ...
+├── NIST-800-53-r5-upd1/     ← imported 2025-01
+│   ├── AC/AC-2.md
+│   └── ...
+```
+
+**Pros**: No data loss, full history, both versions queryable
+**Cons**: Doubles folder count, evidence links must specify version, crosswalks need updating
+
+### 2. Overwrite in place (SCD Type 1)
+
+Re-import over the existing folder, replacing changed notes:
+```
+Ontologies/
+├── NIST-800-53-r5/          ← re-imported, now reflects update
+│   ├── AC/AC-2.md           ← frontmatter updated
+│   └── ...
+```
+
+**Pros**: Simple, single source of truth
+**Cons**: Loses history, user annotations overwritten, evidence links may break if IDs change
+
+### 3. Diff and merge (SCD Type 6 hybrid)
+
+Compare old and new imports, show a diff, let the user choose:
+- **Added controls**: create new notes
+- **Removed controls**: mark as deprecated (don't delete)
+- **Changed controls**: update frontmatter, preserve user content
+- **Renamed IDs**: create alias in `_crosswalker` metadata
+
+**Pros**: Most precise, preserves user work
+**Cons**: Most complex to implement, requires reliable diff algorithm
+
+## `_crosswalker` metadata for version tracking
+
+Every generated note already includes `_crosswalker` metadata. Extending it for version resilience:
+
+```yaml
+_crosswalker:
+  source: nist-800-53-r5.csv
+  imported: 2025-01-15T12:00:00Z
+  config: my-nist-config
+  # Version resilience additions:
+  framework_version: "5.1.1"
+  framework_date: "2024-12-10"
+  source_hash: "sha256:abc123..."
+  previous_ids: ["AC-2"]          # ID aliasing for renamed controls
+  status: "active"                 # active | deprecated | superseded
+  superseded_by: null              # link to replacement if superseded
+```
+
+### ID aliasing (SCD Type 3)
+
+When a framework renames a control (e.g., ATT&CK `T1086` → `T1059.001`), the old ID should be preserved as an alias:
+
+```yaml
+_crosswalker:
+  id: "T1059.001"
+  previous_ids: ["T1086"]
+```
+
+This enables:
+- Evidence links using old IDs still resolve
+- Queries can search both old and new IDs
+- Migration reports show what changed
+
+## Stale crosswalk detection
+
+When one side of a crosswalk updates, the mapping may be invalid. Detection approaches:
+
+### Source hash comparison
+Store a hash of the source file when a crosswalk is created. On re-import, compare hashes — if either source has changed, flag the crosswalk as potentially stale.
+
+### Framework version tracking
+If `_crosswalker.framework_version` is stored, compare against known latest versions. Flag notes imported against outdated versions.
+
+### Machine-readable changelog ingestion
+For frameworks that publish machine-readable changelogs (MITRE ATT&CK STIX data), Crosswalker could:
+1. Download the latest changelog
+2. Compare against imported version
+3. Show a diff of affected controls
+4. Suggest re-import or migration
+
+See [framework versioning](/Crosswalker/concepts/framework-versioning/) for which frameworks support this.
+
+## How GRC tools handle this
+
+| Tool | Version strategy | Migration support |
+|------|-----------------|-------------------|
+| [CISO Assistant](https://github.com/intuitem/ciso-assistant-community) | Library versioning with incremental upgrades | OLIR-based cross-version mappings |
+| [SCF](https://securecontrolsframework.com/) | Central [STRM mapping](https://securecontrolsframework.com/set-theory-relationship-mapping-strm/) absorbs changes for 175+ frameworks | Single update propagates everywhere |
+| ServiceNow | Content packs per vendor timeline | Migration tools (Precision Bridge) |
+| [RegScale](https://regscale.com/) | OSCAL-native with version tracking | Automated compliance drift detection |
+
+## Proposed Crosswalker features (roadmap)
+
+### Near-term
+- **Version field in settings** — user specifies framework version on import
+- **Source hash storage** — detect when source files have changed
+- **Re-import warning** — "This framework was previously imported on [date]. Overwrite or create new version?"
+
+### Medium-term
+- **Diff preview** — before re-import, show what notes would be added/changed/removed
+- **ID alias generation** — when re-importing a renamed framework, auto-create `previous_ids` entries
+- **Deprecation marking** — instead of deleting removed controls, mark them `status: deprecated`
+
+### Long-term
+- **Changelog ingestion** — consume ATT&CK STIX changelogs, OSCAL diffs
+- **Migration wizard** — guided process for updating evidence links to new framework version
+- **Crosswalk staleness dashboard** — show which crosswalks may be outdated based on version tracking
+
+## The deeper question
+
+This is fundamentally the same problem as [schema evolution](/Crosswalker/concepts/ontology-evolution/) in databases, [ontology alignment](/Crosswalker/concepts/schema-matching/) in knowledge systems, and **translation maintenance** in localization. The Crosswalker solution should draw from all three:
+
+- From **databases**: [SCD patterns](/Crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions), temporal metadata
+- From **ontologies**: version IRIs, deprecation lifecycle, [alignment tools](/Crosswalker/concepts/schema-matching/#key-algorithms-and-tools)
+- From **translation**: [interlingua/pivot approach](/Crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach) (SCF as the "Esperanto" of frameworks), translation memory (saved configs)
+
+---
+
+## Resources
+
+### Machine-readable framework data
+- [MITRE ATT&CK STIX Bundles](https://attack.mitre.org/resources/attack-data-and-tools/) — JSON changelogs and versioned data
+- [OSCAL Registry](https://pages.nist.gov/OSCAL/) — machine-readable security controls
+- [OSCAL Viewer](https://viewer.oscal.io/) — browse OSCAL catalogs
+- [NIST CSF Core JSON](https://csrc.nist.gov/extensions/nudp/services/json/csf/download?olirids=all) — CSF with informative references
+
+### Version management patterns
+- [Semantic Versioning](https://semver.org/) — SemVer specification
+- [Data Contracts](https://datacontract.com/) — versioning for data schemas
+- [Slowly Changing Dimensions](https://en.wikipedia.org/wiki/Slowly_changing_dimension) — data warehouse patterns
+- [Temporal Database](https://en.wikipedia.org/wiki/Temporal_database) — bitemporal modeling
+
+### GRC tools with versioning
+- [CISO Assistant](https://github.com/intuitem/ciso-assistant-community) — open-source, library versioning
+- [SCF](https://securecontrolsframework.com/) — meta-framework with central version management
+- [RegScale](https://regscale.com/) — OSCAL-native compliance
+
+### Related pages
+- [Ontology evolution](/Crosswalker/concepts/ontology-evolution/) — the general problem and terminology
+- [Schema matching](/Crosswalker/concepts/schema-matching/) — how systems discover correspondences
+- [Framework versioning](/Crosswalker/concepts/framework-versioning/) — how each framework handles changes
+- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/) — current crosswalk implementation
+- [Open questions](/Crosswalker/agent-context/open-questions/) — unresolved design questions
+- [Architecture](/Crosswalker/design/architecture/) — current system design
+- [Roadmap](/Crosswalker/reference/roadmap/) — planned features
