@@ -1,2 +1,3 @@
-@layer base, starlight, nova, theme, components, utilities;
-@import 'tailwindcss' layer(base);
+@import 'tailwindcss';
+@source '../../node_modules/starlight-theme-nova/src';
+@source '../../node_modules/starlight-theme-nova/components';
