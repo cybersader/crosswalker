@@ -1,201 +1,328 @@
 ---
 title: Crosswalker
-description: Import structured ontologies into Obsidian with folder structures, typed links, and metadata.
+description: Turn your Obsidian vault into an operational compliance knowledge graph.
 template: splash
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-<div class="cw-hero">
-  <div class="cw-hero-flow">
-    <div class="cw-sources">
-      <div class="cw-source-item cw-float-1">
-        <div class="cw-icon">🛡️</div>
-        <span>NIST 800-53</span>
-      </div>
-      <div class="cw-source-item cw-float-2">
-        <div class="cw-icon">🎯</div>
-        <span>MITRE ATT&CK</span>
-      </div>
-      <div class="cw-source-item cw-float-3">
-        <div class="cw-icon">🔒</div>
-        <span>CIS Controls</span>
-      </div>
-      <div class="cw-source-item cw-float-4">
-        <div class="cw-icon">📊</div>
-        <span>CSV / XLSX</span>
-      </div>
-      <div class="cw-source-item cw-float-5">
-        <div class="cw-icon">🏛️</div>
-        <span>CRI Profile</span>
+<div class="cw-hero" role="img" aria-label="Crosswalker transforms compliance frameworks into a queryable Obsidian knowledge graph">
+
+  {/* === ROW 1: The transformation story === */}
+  <div class="cw-transform">
+    <div class="cw-from">
+      <div class="cw-from-label">Frameworks & Evidence</div>
+      <div class="cw-sources">
+        <div class="cw-src cw-s1">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          NIST
+        </div>
+        <div class="cw-src cw-s2">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5 2 7L12 16l-6.5 4.5 2-7L2 9h7z"/></svg>
+          ATT&CK
+        </div>
+        <div class="cw-src cw-s3">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+          CIS
+        </div>
+        <div class="cw-src cw-s4">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+          CSV
+        </div>
+        <div class="cw-src cw-s5">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M3 10h18M3 7l9-4 9 4M4 10v11M20 10v11"/></svg>
+          CRI
+        </div>
       </div>
     </div>
-    <div class="cw-pipeline">
+
+    <div class="cw-arrow-section">
       <div class="cw-arrow-track">
-        <div class="cw-particle"></div>
-        <div class="cw-particle cw-particle-2"></div>
-        <div class="cw-particle cw-particle-3"></div>
+        <div class="cw-dot cw-d1"></div>
+        <div class="cw-dot cw-d2"></div>
+        <div class="cw-dot cw-d3"></div>
       </div>
-      <div class="cw-pipeline-label">Crosswalker</div>
-    </div>
-    <div class="cw-vault">
-      <div class="cw-vault-icon">
-        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+      <div class="cw-engine-badge">
+        <svg class="cw-obs" viewBox="0 0 65 100" width="20" height="30">
+          <path d="M32.5 0L65 50L32.5 100L0 50Z" fill="var(--sl-color-accent)" opacity="0.9"/>
+          <path d="M32.5 20L50 50L32.5 80L15 50Z" fill="var(--sl-color-black)" opacity="0.4"/>
         </svg>
       </div>
-      <div class="cw-vault-tree">
-        <div class="cw-tree-item cw-tree-folder">📁 Frameworks/</div>
-        <div class="cw-tree-item cw-tree-sub">📁 NIST-800-53/</div>
-        <div class="cw-tree-item cw-tree-file">📄 AC-2.md</div>
-        <div class="cw-tree-item cw-tree-sub">📁 CIS-v8/</div>
-        <div class="cw-tree-item cw-tree-link">🔗 crosswalk links</div>
-        <div class="cw-tree-item cw-tree-meta">⚙️ _crosswalker metadata</div>
+    </div>
+
+    <div class="cw-to">
+      <div class="cw-to-label">Obsidian Knowledge Graph</div>
+      <div class="cw-vault-mini">
+        <span class="cw-vm-f">Frameworks/</span>
+        <span class="cw-vm-n">AC-2.md</span>
+        <span class="cw-vm-l">↔ crosswalk links</span>
+        <span class="cw-vm-e">Evidence/</span>
+        <span class="cw-vm-n cw-vm-ev">MFA-Policy.md</span>
       </div>
+    </div>
+  </div>
+
+  {/* === ROW 2: Interactive Knowledge Graph === */}
+  <div class="cw-graph-wrap">
+    <svg class="cw-g" viewBox="0 0 700 240" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      {/* Edges */}
+      <line class="cw-e" x1="100" y1="90" x2="260" y2="60"/>
+      <line class="cw-e" x1="100" y1="90" x2="220" y2="170"/>
+      <line class="cw-e cw-e-hi" x1="260" y1="60" x2="420" y2="80"/>
+      <line class="cw-e" x1="220" y1="170" x2="420" y2="80"/>
+      <line class="cw-e cw-e-hi" x1="420" y1="80" x2="570" y2="60"/>
+      <line class="cw-e cw-e-ev" x1="420" y1="80" x2="580" y2="170"/>
+      <line class="cw-e cw-e-ev" x1="100" y1="90" x2="580" y2="170"/>
+      <line class="cw-e" x1="220" y1="170" x2="570" y2="60"/>
+
+      {/* Edge labels */}
+      <rect class="cw-el-bg" x="148" y="62" width="52" height="14" rx="3"/>
+      <text class="cw-el" x="174" y="72">maps_to</text>
+
+      <rect class="cw-el-bg" x="310" y="56" width="62" height="14" rx="3"/>
+      <text class="cw-el" x="341" y="66">crosswalk</text>
+
+      <rect class="cw-el-bg" x="460" y="58" width="70" height="14" rx="3"/>
+      <text class="cw-el" x="495" y="68">implements</text>
+
+      <rect class="cw-el-bg" x="128" y="136" width="46" height="14" rx="3"/>
+      <text class="cw-el" x="151" y="146">covers</text>
+
+      {/* Metadata badges on edges */}
+      <rect class="cw-mb" x="280" y="115" width="90" height="18" rx="4"/>
+      <text class="cw-mt" x="325" y="127">sufficient: true</text>
+
+      <rect class="cw-mb" x="460" y="130" width="80" height="18" rx="4"/>
+      <text class="cw-mt" x="500" y="142">reviewer: "Alice"</text>
+
+      <rect class="cw-mb" x="300" y="175" width="76" height="18" rx="4"/>
+      <text class="cw-mt" x="338" y="187">status: "verified"</text>
+
+      {/* Nodes */}
+      <g class="cw-n cw-n-fw" filter="url(#glow)">
+        <circle cx="100" cy="90" r="28"/>
+        <text x="100" y="85" class="cw-ni">AC-2</text>
+        <text x="100" y="101" class="cw-ns">NIST 800-53</text>
+      </g>
+      <g class="cw-n cw-n-fw">
+        <circle cx="260" cy="60" r="24"/>
+        <text x="260" y="55" class="cw-ni">PR.AC-07</text>
+        <text x="260" y="69" class="cw-ns">CSF 2.0</text>
+      </g>
+      <g class="cw-n cw-n-fw">
+        <circle cx="220" cy="170" r="22"/>
+        <text x="220" y="165" class="cw-ni">6.3</text>
+        <text x="220" y="179" class="cw-ns">CIS v8</text>
+      </g>
+      <g class="cw-n cw-n-atk" filter="url(#glow)">
+        <circle cx="420" cy="80" r="28"/>
+        <text x="420" y="75" class="cw-ni">T1078</text>
+        <text x="420" y="91" class="cw-ns">ATT&CK</text>
+      </g>
+      <g class="cw-n cw-n-ev">
+        <circle cx="570" cy="60" r="24"/>
+        <text x="570" y="55" class="cw-ni">MFA</text>
+        <text x="570" y="69" class="cw-ns">Policy</text>
+      </g>
+      <g class="cw-n cw-n-ev" filter="url(#glow)">
+        <circle cx="580" cy="170" r="24"/>
+        <text x="580" y="165" class="cw-ni">Audit</text>
+        <text x="580" y="181" class="cw-ns">Q1 Report</text>
+      </g>
+
+      {/* Pulse rings */}
+      <circle class="cw-pr" cx="100" cy="90" r="28"/>
+      <circle class="cw-pr cw-pr2" cx="420" cy="80" r="28"/>
+      <circle class="cw-pr cw-pr3" cx="580" cy="170" r="24"/>
+    </svg>
+
+    <div class="cw-graph-caption">
+      <span class="cw-gc-fw">● Framework controls</span>
+      <span class="cw-gc-atk">● ATT&CK techniques</span>
+      <span class="cw-gc-ev">● Evidence & policies</span>
+      <span class="cw-gc-meta">◆ Edge metadata</span>
     </div>
   </div>
 </div>
 
 <style>{`
-  .cw-hero {
-    margin: 0 auto 2rem;
-    max-width: 800px;
-    overflow: hidden;
+  .cw-hero { margin: -0.5rem auto 2rem; max-width: 880px; padding: 0 0.5rem; }
+  @media (prefers-reduced-motion: reduce) { .cw-hero * { animation: none !important; } }
+
+  /* === Transform row === */
+  .cw-transform {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-bottom: 0.75rem; min-height: 120px;
   }
-  .cw-hero-flow {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 1.5rem 0;
+  .cw-from, .cw-to { flex: 1; }
+  .cw-from-label, .cw-to-label {
+    font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--sl-color-gray-3); margin-bottom: 0.4rem;
   }
-  /* Sources */
-  .cw-sources {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    min-width: 140px;
+  .cw-sources { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  .cw-src {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.5rem; border-radius: 5px; font-size: 0.68rem; font-weight: 600;
+    background: var(--sl-color-gray-6); border: 1px solid var(--sl-color-gray-5);
+    color: var(--sl-color-white); animation: cw-bob 3s ease-in-out infinite;
   }
-  .cw-source-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.35rem 0.7rem;
-    border-radius: 8px;
-    background: var(--sl-color-gray-6);
-    border: 1px solid var(--sl-color-gray-5);
-    font-size: 0.75rem;
-    font-weight: 500;
-    white-space: nowrap;
-    animation: cw-float 3s ease-in-out infinite;
+  .cw-src svg { color: var(--sl-color-accent); }
+  .cw-s1 { animation-delay: 0s; }
+  .cw-s2 { animation-delay: 0.3s; }
+  .cw-s3 { animation-delay: 0.6s; }
+  .cw-s4 { animation-delay: 0.9s; }
+  .cw-s5 { animation-delay: 1.2s; }
+  @keyframes cw-bob {
+    0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); }
   }
-  .cw-icon { font-size: 1rem; }
-  .cw-float-1 { animation-delay: 0s; }
-  .cw-float-2 { animation-delay: 0.4s; }
-  .cw-float-3 { animation-delay: 0.8s; }
-  .cw-float-4 { animation-delay: 1.2s; }
-  .cw-float-5 { animation-delay: 1.6s; }
-  @keyframes cw-float {
-    0%, 100% { transform: translateX(0); opacity: 0.85; }
-    50% { transform: translateX(4px); opacity: 1; }
-  }
-  /* Pipeline */
-  .cw-pipeline {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    min-width: 100px;
+
+  /* Arrow */
+  .cw-arrow-section {
+    display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+    min-width: 80px; position: relative;
   }
   .cw-arrow-track {
-    width: 100%;
-    height: 3px;
-    background: var(--sl-color-gray-5);
-    border-radius: 2px;
-    position: relative;
-    overflow: hidden;
+    width: 80px; height: 4px; background: var(--sl-color-gray-5);
+    border-radius: 2px; position: relative; overflow: hidden;
   }
-  .cw-particle {
-    position: absolute;
-    width: 20px;
-    height: 3px;
+  .cw-dot {
+    position: absolute; width: 16px; height: 4px; border-radius: 2px;
     background: var(--sl-color-accent);
-    border-radius: 2px;
-    animation: cw-flow 2s linear infinite;
-    box-shadow: 0 0 8px var(--sl-color-accent);
+    box-shadow: 0 0 12px var(--sl-color-accent), 0 0 4px var(--sl-color-accent);
+    animation: cw-fly 1.8s linear infinite;
   }
-  .cw-particle-2 { animation-delay: 0.7s; }
-  .cw-particle-3 { animation-delay: 1.4s; }
-  @keyframes cw-flow {
-    0% { left: -20px; }
-    100% { left: 100%; }
+  .cw-d2 { animation-delay: 0.6s; }
+  .cw-d3 { animation-delay: 1.2s; }
+  @keyframes cw-fly { 0% { left: -16px; } 100% { left: 80px; } }
+  .cw-engine-badge {
+    display: flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 2px solid var(--sl-color-accent); background: var(--sl-color-gray-6);
+    animation: cw-breathe 3s ease-in-out infinite;
+    box-shadow: 0 0 16px color-mix(in srgb, var(--sl-color-accent) 30%, transparent);
   }
-  .cw-pipeline-label {
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-    color: var(--sl-color-accent);
+  @keyframes cw-breathe {
+    0%,100% { box-shadow: 0 0 8px color-mix(in srgb, var(--sl-color-accent) 20%, transparent); }
+    50% { box-shadow: 0 0 20px color-mix(in srgb, var(--sl-color-accent) 50%, transparent); }
   }
-  /* Vault */
-  .cw-vault {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    min-width: 170px;
+
+  /* Vault mini */
+  .cw-to { text-align: right; }
+  .cw-vault-mini {
+    display: inline-flex; flex-direction: column; gap: 0;
+    background: var(--sl-color-gray-6); border: 1px solid var(--sl-color-gray-5);
+    border-radius: 6px; padding: 0.35rem 0.6rem;
+    font-family: var(--sl-font-mono, monospace); font-size: 0.62rem; line-height: 1.5;
+    text-align: left;
   }
-  .cw-vault-icon {
-    color: var(--sl-color-accent);
-    animation: cw-pulse 2s ease-in-out infinite;
+  .cw-vm-f { color: var(--sl-color-gray-1); font-weight: 700; }
+  .cw-vm-n { color: var(--sl-color-accent); padding-left: 0.6rem; }
+  .cw-vm-l { color: var(--sl-color-accent-high); padding-left: 0.6rem; font-style: italic; font-size: 0.58rem; }
+  .cw-vm-e { color: var(--sl-color-gray-1); font-weight: 700; margin-top: 0.15rem; }
+  .cw-vm-ev { color: #98c379; }
+
+  /* === Knowledge Graph === */
+  .cw-graph-wrap {
+    background: var(--sl-color-black); border: 1px solid var(--sl-color-gray-5);
+    border-radius: 12px; padding: 0.5rem 0.5rem 0.3rem; overflow: hidden;
   }
-  @keyframes cw-pulse {
-    0%, 100% { opacity: 0.7; transform: scale(1); }
-    50% { opacity: 1; transform: scale(1.05); }
+  .cw-g { width: 100%; height: auto; display: block; }
+
+  /* Edges */
+  .cw-e {
+    stroke: var(--sl-color-gray-4); stroke-width: 1.5;
+    stroke-dasharray: 8 4; animation: cw-dash 2s linear infinite;
   }
-  .cw-vault-tree {
+  .cw-e-hi { stroke: var(--sl-color-accent); stroke-width: 2; opacity: 0.7; }
+  .cw-e-ev { stroke: #98c379; stroke-width: 1.5; opacity: 0.6; }
+  @keyframes cw-dash { to { stroke-dashoffset: -24; } }
+
+  /* Edge labels */
+  .cw-el-bg { fill: var(--sl-color-gray-6); opacity: 0.85; }
+  .cw-el {
+    font-size: 8px; fill: var(--sl-color-gray-2);
+    font-family: var(--sl-font-mono, monospace); text-anchor: middle; font-weight: 600;
+  }
+
+  /* Metadata badges */
+  .cw-mb {
+    fill: var(--sl-color-accent-low); stroke: var(--sl-color-accent);
+    stroke-width: 1; opacity: 0.85;
+    animation: cw-mp 4s ease-in-out infinite;
+  }
+  .cw-mt {
+    font-size: 8px; fill: var(--sl-color-accent-high);
+    font-family: var(--sl-font-mono, monospace); text-anchor: middle; font-weight: 600;
+  }
+  @keyframes cw-mp { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
+
+  /* Nodes */
+  .cw-n circle { stroke-width: 2.5; fill: var(--sl-color-black); }
+  .cw-n-fw circle { stroke: var(--sl-color-accent); }
+  .cw-n-atk circle { stroke: #e06c75; }
+  .cw-n-ev circle { stroke: #98c379; }
+  .cw-ni { font-size: 11px; font-weight: 800; text-anchor: middle; fill: var(--sl-color-white); }
+  .cw-ns {
+    font-size: 7px; text-anchor: middle; fill: var(--sl-color-gray-3);
     font-family: var(--sl-font-mono, monospace);
-    font-size: 0.7rem;
-    line-height: 1.5;
-    background: var(--sl-color-gray-6);
-    border: 1px solid var(--sl-color-gray-5);
-    border-radius: 8px;
-    padding: 0.6rem 0.8rem;
   }
-  .cw-tree-item { white-space: nowrap; }
-  .cw-tree-sub { padding-left: 1rem; }
-  .cw-tree-file { padding-left: 2rem; color: var(--sl-color-accent); }
-  .cw-tree-link { padding-left: 1rem; color: var(--sl-color-accent-high); font-style: italic; }
-  .cw-tree-meta { padding-left: 1rem; color: var(--sl-color-gray-3); font-style: italic; }
+
+  /* Pulse rings */
+  .cw-pr {
+    fill: none; stroke: var(--sl-color-accent); stroke-width: 2; opacity: 0;
+    animation: cw-ring 3.5s ease-out infinite;
+  }
+  .cw-pr2 { animation-delay: 1.2s; stroke: #e06c75; }
+  .cw-pr3 { animation-delay: 2.4s; stroke: #98c379; }
+  @keyframes cw-ring {
+    0% { r: inherit; opacity: 0.7; stroke-width: 2; }
+    100% { r: 50; opacity: 0; stroke-width: 0.5; }
+  }
+
+  /* Legend */
+  .cw-graph-caption {
+    display: flex; gap: 1rem; justify-content: center;
+    padding: 0.3rem 0 0; font-size: 0.6rem; color: var(--sl-color-gray-3);
+  }
+  .cw-gc-fw { color: var(--sl-color-accent); }
+  .cw-gc-atk { color: #e06c75; }
+  .cw-gc-ev { color: #98c379; }
+  .cw-gc-meta { color: var(--sl-color-accent-high); }
+
   /* Responsive */
   @media (max-width: 640px) {
-    .cw-hero-flow { flex-direction: column; }
-    .cw-sources { flex-direction: row; flex-wrap: wrap; justify-content: center; }
-    .cw-arrow-track { width: 3px; height: 40px; }
-    .cw-particle { width: 3px; height: 20px; animation-name: cw-flow-v; }
-    @keyframes cw-flow-v {
-      0% { top: -20px; left: 0; }
-      100% { top: 100%; left: 0; }
-    }
+    .cw-transform { flex-direction: column; gap: 0.5rem; }
+    .cw-to { text-align: center; }
+    .cw-arrow-track { width: 4px; height: 30px; }
+    .cw-dot { width: 4px; height: 12px; animation-name: cw-fly-v; }
+    @keyframes cw-fly-v { 0% { top: -12px; left: 0; } 100% { top: 30px; left: 0; } }
+    .cw-sources { justify-content: center; }
   }
 `}</style>
 
 ## What is Crosswalker?
 
-Crosswalker is an Obsidian plugin that imports structured data (CSV, XLSX, JSON) into your vault as organized folder hierarchies with rich metadata. While designed with compliance frameworks in mind (NIST, CIS, MITRE), it works with any structured ontology or taxonomy.
+Crosswalker turns your Obsidian vault into an **operational compliance knowledge graph**. Import structured frameworks, crosswalk between standards, link evidence to controls with structured metadata, and query everything — all in plain markdown you own.
 
 <CardGrid>
   <Card title="Import wizard" icon="rocket">
-    Step-by-step wizard guides you through file selection, column mapping, preview, and generation.
+    Step-by-step wizard: file selection, column mapping, preview, and generation.
+  </Card>
+  <Card title="Evidence mapping" icon="document">
+    Link policies, audit findings, and technical docs directly to framework controls with edge metadata.
   </Card>
   <Card title="Smart config" icon="setting">
-    Save and reuse import configurations. Fingerprint-based matching suggests configs for similar files.
-  </Card>
-  <Card title="Rich metadata" icon="document">
-    Generate notes with YAML frontmatter, typed links, and hierarchical folder structures.
+    Save and reuse import configs. Fingerprint-based matching for similar files.
   </Card>
   <Card title="Tool-agnostic" icon="puzzle">
-    Output works with Obsidian Bases, Dataview, or plain markdown. No lock-in.
+    Works with Obsidian Bases, Dataview, or plain markdown. No lock-in.
   </Card>
 </CardGrid>
 
