@@ -1,0 +1,94 @@
+---
+title: For GRC teams
+description: How Crosswalker turns your Obsidian vault into a compliance knowledge graph — import frameworks, link evidence, and query everything.
+---
+
+## The problem
+
+GRC teams juggle dozens of frameworks (NIST, CIS, MITRE, ISO, CRI, FFIEC), thousands of controls, and mountains of evidence. The typical workflow:
+
+- **Spreadsheet hell** — massive Excel files mapping controls to evidence, with no linking between them
+- **Tool lock-in** — enterprise GRC platforms (ServiceNow, Archer, Drata) own your data in proprietary databases
+- **Crosswalk chaos** — when one framework updates, every mapping spreadsheet needs manual revision
+- **Evidence disconnect** — policies, audit reports, and technical docs live separately from the frameworks they support
+
+## The solution
+
+Crosswalker imports any compliance framework into your Obsidian vault as a **queryable knowledge graph**:
+
+```
+Your Vault
+├── Frameworks/
+│   ├── NIST-800-53/
+│   │   ├── Access Control/
+│   │   │   ├── AC-1.md          ← imported control with full metadata
+│   │   │   └── AC-2.md          ← linked to CIS, ATT&CK, your evidence
+│   │   └── ...
+│   ├── CIS-Controls-v8/
+│   └── MITRE-ATT&CK/
+├── Evidence/
+│   ├── MFA-Policy.md            ← links to AC-2, CIS 6.3, PR.AC-07
+│   └── Audit-Report-Q1.md       ← links to multiple controls
+└── Reports/
+    └── Compliance-Dashboard.md   ← Bases/Dataview queries across everything
+```
+
+## What makes this powerful
+
+### Everything is linked
+
+Your evidence notes link directly to framework controls. Framework controls crosswalk to each other. When someone asks "what evidence supports AC-2?", it's one query — not a spreadsheet search.
+
+### Plain text, no lock-in
+
+Every control is a markdown file you own. Move vaults, switch tools, version control with git — your compliance data is never trapped.
+
+### Frameworks crosswalk automatically
+
+Import NIST 800-53 and CIS Controls, and Crosswalker generates the links between them. When ATT&CK maps to D3FEND, those connections live in your vault as queryable WikiLinks.
+
+### Queryable with Obsidian tools
+
+Use [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) for compliance dashboards:
+- "Which controls have no evidence?" (filter by backlink count)
+- "Show all Access Control family controls" (filter by folder)
+- "What was last imported?" (sort by `_crosswalker.import_date`)
+
+Use Dataview for deeper analysis:
+- "Trace the crosswalk chain from CRI → CSF → 800-53"
+- "Find controls where evidence links have `sufficient: true`"
+
+### Updates don't break everything
+
+When NIST publishes a new CSF version, re-import alongside the old one. Your evidence links stay intact. Migrate on your timeline, not theirs. See [framework versioning](/Crosswalker/concepts/framework-versioning/) and [data model resilience](/Crosswalker/agent-context/data-model-resilience/).
+
+## Supported frameworks
+
+Crosswalker imports **any structured data** from CSV or XLSX. The Python tool has pre-built support for:
+
+| Framework | Controls | Crosswalks |
+|-----------|----------|------------|
+| NIST SP 800-53 Rev 5 | 1000+ controls + enhancements | ↔ CSF, ATT&CK |
+| NIST CSF 2.0 | 106 subcategories | ↔ 800-53, CIS, CRI |
+| CIS Controls v8 | 153 safeguards | ↔ CSF |
+| MITRE ATT&CK | 200+ techniques | ↔ D3FEND, 800-53 |
+| MITRE D3FEND | 200+ countermeasures | ↔ ATT&CK, 800-53 |
+| MITRE ENGAGE | Engagement activities | ↔ ATT&CK |
+| CRI Profile v2.0 | Diagnostic statements | ↔ CSF, FFIEC |
+
+See [framework data sources](/Crosswalker/reference/framework-data-sources/) for details.
+
+## Getting started
+
+1. [Install Crosswalker](/Crosswalker/getting-started/installation/)
+2. [Import your first framework](/Crosswalker/getting-started/quick-start/)
+3. Start linking evidence notes to controls
+4. Build compliance dashboards with Bases or Dataview
+
+---
+
+## Resources
+
+- [The problem](/Crosswalker/concepts/problem/) — why filesystems and knowledge graphs don't mix
+- [Framework standards & tools](/Crosswalker/concepts/framework-standards/) — comprehensive reference links
+- [Ecosystem](/Crosswalker/concepts/ecosystem/) — where Crosswalker fits in the GRC landscape
