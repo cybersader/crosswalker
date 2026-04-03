@@ -15,7 +15,7 @@ import rehypeExternalLinks from 'rehype-external-links';
 
 export default defineConfig({
   site: 'https://cybersader.github.io',
-  base: '/Crosswalker',
+  base: '/crosswalker',
   vite: {
     plugins: [tailwindcss()],
     define: {
@@ -38,14 +38,14 @@ export default defineConfig({
       title: 'Crosswalker',
       description: 'Import structured ontologies into Obsidian with folder structures, typed links, and metadata',
       editLink: {
-        baseUrl: 'https://github.com/cybersader/Crosswalker/edit/main/docs/',
+        baseUrl: 'https://github.com/cybersader/crosswalker/edit/main/docs/',
       },
       plugins: [
         nova({
           nav: [
-            { label: 'Docs', href: '/Crosswalker/getting-started/installation/' },
-            { label: 'Blog', href: '/Crosswalker/blog/' },
-            { label: 'GitHub', href: 'https://github.com/cybersader/Crosswalker' },
+            { label: 'Docs', href: '/crosswalker/getting-started/installation/' },
+            { label: 'Blog', href: '/crosswalker/blog/' },
+            { label: 'GitHub', href: 'https://github.com/cybersader/crosswalker' },
           ],
         }),
         starlightClientMermaid(),
@@ -63,7 +63,7 @@ export default defineConfig({
         './src/styles/brand.css',
       ],
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/cybersader/Crosswalker' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/cybersader/crosswalker' },
       ],
       sidebar: [
         {

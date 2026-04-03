@@ -5,7 +5,7 @@ const BASE = '/Crosswalker';
 test.describe('Smoke tests', () => {
   test('homepage loads', async ({ page }) => {
     await page.goto(`${BASE}/`);
-    await expect(page).toHaveTitle(/Crosswalker/);
+    await expect(page).toHaveTitle(/crosswalker/);
   });
 
   test('homepage has hero content', async ({ page }) => {

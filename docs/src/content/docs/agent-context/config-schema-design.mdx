@@ -148,21 +148,21 @@ Configs can be exported as JSON for sharing:
 
 ## Relation to saved configs
 
-The current [config system](/Crosswalker/features/config-system/) uses fingerprinting to auto-match saved configs to new imports. FrameworkConfig extends this with:
+The current [config system](/crosswalker/features/config-system/) uses fingerprinting to auto-match saved configs to new imports. FrameworkConfig extends this with:
 
 - **Source file pattern matching**: Detect which framework a file contains by its name or column patterns
 - **Sheet-level configuration**: Auto-select the right sheets for multi-sheet frameworks
 - **Transform presets**: Apply framework-specific transforms without manual configuration
 
-The [config selection algorithm](/Crosswalker/design/config-selection/) would score FrameworkConfig matches higher than generic column-mapping matches, enabling "one-click re-import" for known frameworks.
+The [config selection algorithm](/crosswalker/design/config-selection/) would score FrameworkConfig matches higher than generic column-mapping matches, enabling "one-click re-import" for known frameworks.
 
 ---
 
 ## Resources
 
 ### Related pages
-- [Config system](/Crosswalker/features/config-system/) — current save/load/match
-- [Config selection](/Crosswalker/design/config-selection/) — fingerprinting and scoring
-- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/) — crosswalk mapping details
-- [Helper functions](/Crosswalker/agent-context/helper-functions/) — transform implementations
-- [Framework data sources](/Crosswalker/reference/framework-data-sources/) — per-framework specifications
+- [Config system](/crosswalker/features/config-system/) — current save/load/match
+- [Config selection](/crosswalker/design/config-selection/) — fingerprinting and scoring
+- [Framework crosswalks](/crosswalker/agent-context/framework-crosswalks/) — crosswalk mapping details
+- [Helper functions](/crosswalker/agent-context/helper-functions/) — transform implementations
+- [Framework data sources](/crosswalker/reference/framework-data-sources/) — per-framework specifications

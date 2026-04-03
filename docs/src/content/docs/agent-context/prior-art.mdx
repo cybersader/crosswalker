@@ -42,7 +42,7 @@ A key discovery during research: **no existing Obsidian plugin can attach data t
 | **Semantic Canvas** | Another graph view with link types | Display-only |
 | **Supercharged Links** | CSS styling based on target note YAML | Visual only, no edge data |
 
-This gap is what motivated the [link metadata system](/Crosswalker/agent-context/link-metadata-system/) — using Dataview inline fields with dot notation and JSON to encode structured metadata on links.
+This gap is what motivated the [link metadata system](/crosswalker/agent-context/link-metadata-system/) — using Dataview inline fields with dot notation and JSON to encode structured metadata on links.
 
 ## Existing tools in this space
 
@@ -57,7 +57,7 @@ This gap is what motivated the [link metadata system](/Crosswalker/agent-context
 - **Apptega** — Commercial crosswalking platform
 - **HITRUST MyCSF** — Compliance framework tool
 - **RegScale** — OSCAL-native compliance automation
-- See [framework standards](/Crosswalker/concepts/framework-standards/) for full list
+- See [framework standards](/crosswalker/concepts/framework-standards/) for full list
 
 ### Knowledge/note tools
 - **Obsidian + Dataview** — Flexible but no structured import
@@ -95,7 +95,7 @@ No tool bridges structured framework data and a personal/team knowledge base wit
 - **D3FEND**: Hierarchical forward-fill for ontology structure
 - **CIS v8**: Preamble extraction from control descriptions
 
-See [helper functions](/Crosswalker/agent-context/helper-functions/) for algorithm specifications and [framework data sources](/Crosswalker/reference/framework-data-sources/) for per-framework sheet and column details.
+See [helper functions](/crosswalker/agent-context/helper-functions/) for algorithm specifications and [framework data sources](/crosswalker/reference/framework-data-sources/) for per-framework sheet and column details.
 
 ## Cross-project learnings: DFD-Excalidraw System
 
@@ -103,11 +103,11 @@ The [DFD-Excalidraw System](https://github.com/cybersader/DFD-Excalidraw-System)
 
 | Shared Problem | DFD Solution | Crosswalker Application |
 |---------------|-------------|------------------------|
-| [File-based graph database](/Crosswalker/concepts/file-based-graph-database/) | Markdown files as nodes (Assets) and edges (Transfers) | Framework notes as nodes, WikiLinks as edges |
+| [File-based graph database](/crosswalker/concepts/file-based-graph-database/) | Markdown files as nodes (Assets) and edges (Transfers) | Framework notes as nodes, WikiLinks as edges |
 | No referential integrity | Defensive scripts that self-heal on each run | Import wizard validates before generating |
 | Schema versioning | `dfd-asset-v1`, `dfd-transfer-v1` identifiers | `_crosswalker.schema_version` field |
 | Orphan detection | Forward scan + Bases audit views | Backlink-count detection via Bases |
-| Data model resilience | [4-tier metadata system](/Crosswalker/agent-context/constraint-enforcement/#metadata-tiers) | `_crosswalker` metadata tiers |
-| [Eventual consistency](/Crosswalker/concepts/consistency-models/) | Manual sync via script runs | Manual sync via re-import |
+| Data model resilience | [4-tier metadata system](/crosswalker/agent-context/constraint-enforcement/#metadata-tiers) | `_crosswalker` metadata tiers |
+| [Eventual consistency](/crosswalker/concepts/consistency-models/) | Manual sync via script runs | Manual sync via re-import |
 
 Key insight from DFD: **design for lazy detection, not eager prevention**. File-based systems can never be ACID-compliant, so the focus should be on surfacing inconsistencies (via Bases views) and providing repair tools (re-import, link cleanup), not trying to prevent all invalid states.

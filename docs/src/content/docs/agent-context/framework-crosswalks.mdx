@@ -92,16 +92,16 @@ Interactive tool for browsing CSF 2.0 with informative references: [CPRT Filters
 
 ## Crosswalk staleness
 
-A critical problem: crosswalks become stale when either framework updates. See [framework versioning](/Crosswalker/concepts/framework-versioning/) for how each framework handles changes.
+A critical problem: crosswalks become stale when either framework updates. See [framework versioning](/crosswalker/concepts/framework-versioning/) for how each framework handles changes.
 
 ### The OLIR maintenance problem
 NIST's [OLIR program](https://csrc.nist.gov/projects/olir/informative-reference-catalog) is submission-based — the submitting organization maintains their mappings. There's no automatic mechanism to flag stale crosswalks. High-profile crosswalks (CSF↔800-53) get updated eventually, but on NIST's timeline.
 
 ### The pivot solution
-The [Secure Controls Framework (SCF)](https://securecontrolsframework.com/) solves this with a [meta-framework / interlingua approach](/Crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach) — mapping 175+ frameworks through a single hub. When one framework updates, only one mapping needs updating, and the change propagates to all others.
+The [Secure Controls Framework (SCF)](https://securecontrolsframework.com/) solves this with a [meta-framework / interlingua approach](/crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach) — mapping 175+ frameworks through a single hub. When one framework updates, only one mapping needs updating, and the change propagates to all others.
 
 ### Detection strategies
-See [data model resilience](/Crosswalker/agent-context/data-model-resilience/) for proposed detection mechanisms: source hash comparison, version tracking in `_crosswalker` metadata, and [machine-readable changelog ingestion](/Crosswalker/concepts/framework-versioning/#the-framework-changelog-concept).
+See [data model resilience](/crosswalker/agent-context/data-model-resilience/) for proposed detection mechanisms: source hash comparison, version tracking in `_crosswalker` metadata, and [machine-readable changelog ingestion](/crosswalker/concepts/framework-versioning/#the-framework-changelog-concept).
 
 ## Implementation in Crosswalker
 
@@ -111,4 +111,4 @@ The Crosswalker plugin currently imports individual frameworks. Cross-framework 
 3. Use a crosswalk config to generate typed links between matching nodes
 4. Links carry metadata about the mapping relationship (exact, partial, related)
 
-The [ontology evolution](/Crosswalker/concepts/ontology-evolution/) problem means these links need version awareness — see [open questions](/Crosswalker/agent-context/open-questions/#data-model-resilience) for unresolved design decisions.
+The [ontology evolution](/crosswalker/concepts/ontology-evolution/) problem means these links need version awareness — see [open questions](/crosswalker/agent-context/open-questions/#data-model-resilience) for unresolved design decisions.

@@ -106,7 +106,7 @@ MITRE preserved the pre-sub-technique version separately for backward compatibil
 - Every OSCAL document has a **UUID** that regenerates on every change
 - `last-modified`, `version`, and revision history fields are built-in
 - A **metaschema** framework generates XML, JSON, and YAML schemas simultaneously — migration between formats is easier because all derive from the same abstract definition
-- See also: [SchemaVer](/Crosswalker/concepts/ontology-evolution/#schemaver-an-alternative-to-semver-for-data) as an alternative versioning model
+- See also: [SchemaVer](/crosswalker/concepts/ontology-evolution/#schemaver-an-alternative-to-semver-for-data) as an alternative versioning model
 
 ### CRI Profile v2.1: separating content from mappings
 
@@ -120,7 +120,7 @@ The [OLIR (Online Informative References)](https://csrc.nist.gov/projects/olir/i
 **Implication**: Crosswalks can become stale silently. If CSF updates but the CSF-to-800-53 crosswalk doesn't, tools relying on it give incorrect results.
 
 ### SCF's meta-framework approach
-The [Secure Controls Framework](https://securecontrolsframework.com/) solves this by acting as a **central hub**: when a framework updates, only the SCF-to-that-framework mapping needs updating (see [interlingua approach](/Crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach)). This propagates the change to all 175+ mapped frameworks automatically.
+The [Secure Controls Framework](https://securecontrolsframework.com/) solves this by acting as a **central hub**: when a framework updates, only the SCF-to-that-framework mapping needs updating (see [interlingua approach](/crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach)). This propagates the change to all 175+ mapped frameworks automatically.
 
 ## What breaks when a framework updates
 
@@ -173,8 +173,8 @@ A future Crosswalker feature could ingest machine-readable changelogs (ATT&CK ST
 - [SCF STRM](https://securecontrolsframework.com/set-theory-relationship-mapping-strm/)
 
 ### Related pages
-- [Ontology evolution](/Crosswalker/concepts/ontology-evolution/) — the general problem
-- [Schema matching](/Crosswalker/concepts/schema-matching/) — how systems find correspondences
-- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/) — Crosswalker's design response
-- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/) — current crosswalk implementation
-- [Framework standards & tools](/Crosswalker/concepts/framework-standards/) — links to all framework resources
+- [Ontology evolution](/crosswalker/concepts/ontology-evolution/) — the general problem
+- [Schema matching](/crosswalker/concepts/schema-matching/) — how systems find correspondences
+- [Data model resilience](/crosswalker/agent-context/data-model-resilience/) — Crosswalker's design response
+- [Framework crosswalks](/crosswalker/agent-context/framework-crosswalks/) — current crosswalk implementation
+- [Framework standards & tools](/crosswalker/concepts/framework-standards/) — links to all framework resources

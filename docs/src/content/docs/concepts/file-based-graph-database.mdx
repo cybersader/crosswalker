@@ -63,7 +63,7 @@ nist_csf.maps_to:: [[AC-2]]
 
 When Crosswalker generates both forward links (note A references note B) and frontmatter properties that duplicate relationship data, it creates a **materialized view** — cached relationship data for quick access that must be kept in sync with the source.
 
-This is the denormalization tax: every re-import must update all copies, or the data becomes inconsistent. See [data model resilience](/Crosswalker/agent-context/data-model-resilience/) for strategies.
+This is the denormalization tax: every re-import must update all copies, or the data becomes inconsistent. See [data model resilience](/crosswalker/agent-context/data-model-resilience/) for strategies.
 
 ## Relationship storage patterns
 
@@ -87,7 +87,7 @@ This enables efficient local queries ("what does this control relate to?") witho
 
 ### Materialized views
 
-[Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) and Dataview function as **materialized views** over the file graph — they compute and display aggregated data from individual files. Unlike a SQL materialized view, they recompute on every query (no staleness risk, but no persistence either).
+[Obsidian Bases](/crosswalker/concepts/metadata-ecosystem/) and Dataview function as **materialized views** over the file graph — they compute and display aggregated data from individual files. Unlike a SQL materialized view, they recompute on every query (no staleness risk, but no persistence either).
 
 ## Trade-offs of file-based storage
 
@@ -104,9 +104,9 @@ This enables efficient local queries ("what does this control relate to?") witho
 
 Crosswalker generates a file-based graph database every time it imports a framework. Understanding this model explains:
 
-1. **Why re-import is complex** — updating a materialized view across hundreds of files requires careful coordination. See [ontology evolution](/Crosswalker/concepts/ontology-evolution/).
-2. **Why crosswalk links can become stale** — no foreign key constraints mean broken links accumulate silently. See [constraint enforcement](/Crosswalker/agent-context/constraint-enforcement/).
-3. **Why frontmatter-first is the right approach** — [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) can query frontmatter but not inline fields, making YAML properties the most queryable storage location.
+1. **Why re-import is complex** — updating a materialized view across hundreds of files requires careful coordination. See [ontology evolution](/crosswalker/concepts/ontology-evolution/).
+2. **Why crosswalk links can become stale** — no foreign key constraints mean broken links accumulate silently. See [constraint enforcement](/crosswalker/agent-context/constraint-enforcement/).
+3. **Why frontmatter-first is the right approach** — [Obsidian Bases](/crosswalker/concepts/metadata-ecosystem/) can query frontmatter but not inline fields, making YAML properties the most queryable storage location.
 4. **Why the `_crosswalker` metadata exists** — it provides the schema versioning and provenance tracking that file-based systems lack natively.
 
 ---
@@ -122,7 +122,7 @@ Crosswalker generates a file-based graph database every time it imports a framew
 - [Apache TinkerPop](https://tinkerpop.apache.org/) — open property graph computing framework
 
 ### Related pages
-- [The problem](/Crosswalker/concepts/problem/) — hierarchy vs. graph tension
-- [Consistency models](/Crosswalker/concepts/consistency-models/) — ACID, CAP, and eventual consistency
-- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/) — handling framework updates
-- [Metadata ecosystem](/Crosswalker/concepts/metadata-ecosystem/) — Properties, Dataview, Bases, Datacore
+- [The problem](/crosswalker/concepts/problem/) — hierarchy vs. graph tension
+- [Consistency models](/crosswalker/concepts/consistency-models/) — ACID, CAP, and eventual consistency
+- [Data model resilience](/crosswalker/agent-context/data-model-resilience/) — handling framework updates
+- [Metadata ecosystem](/crosswalker/concepts/metadata-ecosystem/) — Properties, Dataview, Bases, Datacore

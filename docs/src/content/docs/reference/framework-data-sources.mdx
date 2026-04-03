@@ -140,7 +140,7 @@ CRI diagnostic statements have subject tags (`#access_management`, `#data_protec
 
 ### Hierarchical forward-fill
 
-The Structure sheet uses merged cells for Function/Category levels. Requires [hierarchical forward-fill](/Crosswalker/agent-context/helper-functions/#hierarchical_ffilldataframe-columns) with columns `["Function", "Category", "Subcategory"]`.
+The Structure sheet uses merged cells for Function/Category levels. Requires [hierarchical forward-fill](/crosswalker/agent-context/helper-functions/#hierarchical_ffilldataframe-columns) with columns `["Function", "Category", "Subcategory"]`.
 
 ## MITRE ATT&CK Enterprise
 
@@ -189,7 +189,7 @@ ATT&CK uses Tactic → Technique → Sub-technique. The `tactics` column contain
 
 ### Special transform: Hierarchical forward-fill
 
-D3FEND has a deeply nested ontology with merged cells across multiple levels. Requires [hierarchical forward-fill](/Crosswalker/agent-context/helper-functions/#hierarchical_ffilldataframe-columns) across all Level columns.
+D3FEND has a deeply nested ontology with merged cells across multiple levels. Requires [hierarchical forward-fill](/crosswalker/agent-context/helper-functions/#hierarchical_ffilldataframe-columns) across all Level columns.
 
 ### Additional data
 
@@ -234,14 +234,14 @@ Crosswalks between frameworks require separate mapping files:
 | CSF 2.0 ↔ CIS v8 | [CIS Controls Mapping to CSF 2.0](https://www.cisecurity.org/controls/v8) |
 | D3FEND ↔ NIST 800-53 | D3FEND semantic mappings (d3fend_to_nist80053.csv) |
 
-See [framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/) for matching methods and configuration details.
+See [framework crosswalks](/crosswalker/agent-context/framework-crosswalks/) for matching methods and configuration details.
 
 ---
 
 ## Resources
 
 ### Related pages
-- [Framework standards & tools](/Crosswalker/concepts/framework-standards/) — links to all framework sources
-- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/) — crosswalk configuration
-- [Helper functions](/Crosswalker/agent-context/helper-functions/) — transform implementations
-- [Config schema design](/Crosswalker/agent-context/config-schema-design/) — FrameworkConfig structure
+- [Framework standards & tools](/crosswalker/concepts/framework-standards/) — links to all framework sources
+- [Framework crosswalks](/crosswalker/agent-context/framework-crosswalks/) — crosswalk configuration
+- [Helper functions](/crosswalker/agent-context/helper-functions/) — transform implementations
+- [Config schema design](/crosswalker/agent-context/config-schema-design/) — FrameworkConfig structure

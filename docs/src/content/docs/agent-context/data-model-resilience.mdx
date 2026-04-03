@@ -12,17 +12,17 @@ A user imports NIST 800-53 Rev 5 today. Six months later, NIST publishes an upda
 - Crosswalk links to CIS Controls and ATT&CK
 - Custom annotations and notes added to generated pages
 
-What happens when they re-import? This is the central [ontology evolution](/Crosswalker/concepts/ontology-evolution/) challenge for Crosswalker.
+What happens when they re-import? This is the central [ontology evolution](/crosswalker/concepts/ontology-evolution/) challenge for Crosswalker.
 
 ## Formal foundations
 
-Obsidian vaults are [file-based graph databases](/Crosswalker/concepts/file-based-graph-database/) — property graphs stored as markdown files with no built-in referential integrity. From a [consistency model](/Crosswalker/concepts/consistency-models/) perspective:
+Obsidian vaults are [file-based graph databases](/crosswalker/concepts/file-based-graph-database/) — property graphs stored as markdown files with no built-in referential integrity. From a [consistency model](/crosswalker/concepts/consistency-models/) perspective:
 
 - **Not ACID**: Imports can fail partway through, leaving partial state
 - **AP system** (CAP theorem): Available and partition-tolerant, but not strongly consistent
 - **Eventually consistent**: Convergence requires explicit re-import, not automatic propagation
 
-The practical insight: **design for idempotent operations and lazy detection, not transactions**. Every import should be safe to re-run. Inconsistencies should be surfaced via [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) views, not prevented via locks. See [constraint enforcement](/Crosswalker/agent-context/constraint-enforcement/) for the full strategy framework and [metadata tiers](/Crosswalker/agent-context/constraint-enforcement/#metadata-tiers) for progressive `_crosswalker` enrichment.
+The practical insight: **design for idempotent operations and lazy detection, not transactions**. Every import should be safe to re-run. Inconsistencies should be surfaced via [Obsidian Bases](/crosswalker/concepts/metadata-ecosystem/) views, not prevented via locks. See [constraint enforcement](/crosswalker/agent-context/constraint-enforcement/) for the full strategy framework and [metadata tiers](/crosswalker/agent-context/constraint-enforcement/#metadata-tiers) for progressive `_crosswalker` enrichment.
 
 ## Strategy options
 
@@ -116,7 +116,7 @@ For frameworks that publish machine-readable changelogs (MITRE ATT&CK STIX data)
 3. Show a diff of affected controls
 4. Suggest re-import or migration
 
-See [framework versioning](/Crosswalker/concepts/framework-versioning/) for which frameworks support this.
+See [framework versioning](/crosswalker/concepts/framework-versioning/) for which frameworks support this.
 
 ## How GRC tools handle this
 
@@ -146,11 +146,11 @@ See [framework versioning](/Crosswalker/concepts/framework-versioning/) for whic
 
 ## The deeper question
 
-This is fundamentally the same problem as [schema evolution](/Crosswalker/concepts/ontology-evolution/) in databases, [ontology alignment](/Crosswalker/concepts/schema-matching/) in knowledge systems, and **translation maintenance** in localization. The Crosswalker solution should draw from all three:
+This is fundamentally the same problem as [schema evolution](/crosswalker/concepts/ontology-evolution/) in databases, [ontology alignment](/crosswalker/concepts/schema-matching/) in knowledge systems, and **translation maintenance** in localization. The Crosswalker solution should draw from all three:
 
-- From **databases**: [SCD patterns](/Crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions), temporal metadata
-- From **ontologies**: version IRIs, deprecation lifecycle, [alignment tools](/Crosswalker/concepts/schema-matching/#key-algorithms-and-tools)
-- From **translation**: [interlingua/pivot approach](/Crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach) (SCF as the "Esperanto" of frameworks), translation memory (saved configs)
+- From **databases**: [SCD patterns](/crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions), temporal metadata
+- From **ontologies**: version IRIs, deprecation lifecycle, [alignment tools](/crosswalker/concepts/schema-matching/#key-algorithms-and-tools)
+- From **translation**: [interlingua/pivot approach](/crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach) (SCF as the "Esperanto" of frameworks), translation memory (saved configs)
 
 ---
 
@@ -174,10 +174,10 @@ This is fundamentally the same problem as [schema evolution](/Crosswalker/concep
 - [RegScale](https://regscale.com/) — OSCAL-native compliance
 
 ### Related pages
-- [Ontology evolution](/Crosswalker/concepts/ontology-evolution/) — the general problem and terminology
-- [Schema matching](/Crosswalker/concepts/schema-matching/) — how systems discover correspondences
-- [Framework versioning](/Crosswalker/concepts/framework-versioning/) — how each framework handles changes
-- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/) — current crosswalk implementation
-- [Open questions](/Crosswalker/agent-context/open-questions/) — unresolved design questions
-- [Architecture](/Crosswalker/design/architecture/) — current system design
-- [Roadmap](/Crosswalker/reference/roadmap/) — planned features
+- [Ontology evolution](/crosswalker/concepts/ontology-evolution/) — the general problem and terminology
+- [Schema matching](/crosswalker/concepts/schema-matching/) — how systems discover correspondences
+- [Framework versioning](/crosswalker/concepts/framework-versioning/) — how each framework handles changes
+- [Framework crosswalks](/crosswalker/agent-context/framework-crosswalks/) — current crosswalk implementation
+- [Open questions](/crosswalker/agent-context/open-questions/) — unresolved design questions
+- [Architecture](/crosswalker/design/architecture/) — current system design
+- [Roadmap](/crosswalker/reference/roadmap/) — planned features

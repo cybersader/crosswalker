@@ -9,10 +9,10 @@ tags: [development, architecture]
 - [x] **Import wizard** — 4-step flow: file select, column config, preview, generate
 - [x] **CSV parsing** — PapaParse with streaming for large files
 - [x] **Column type detection** — auto-detect hierarchy, ID, text, numeric, date, tags, URL
-- [x] **[Config system](/Crosswalker/features/config-system/)** — save, load, and auto-match import configurations
-- [x] **[Generation engine](/Crosswalker/features/generation-engine/)** — create folders and notes with `_crosswalker` metadata
+- [x] **[Config system](/crosswalker/features/config-system/)** — save, load, and auto-match import configurations
+- [x] **[Generation engine](/crosswalker/features/generation-engine/)** — create folders and notes with `_crosswalker` metadata
 - [x] **Debug logging** — toggle-able logging to vault file
-- [x] **Documentation site** — 46-page knowledge base with [graph view](/Crosswalker/concepts/file-based-graph-database/), search, and [edit links](/Crosswalker/development/contributing/)
+- [x] **Documentation site** — 46-page knowledge base with [graph view](/crosswalker/concepts/file-based-graph-database/), search, and [edit links](/crosswalker/development/contributing/)
 - [x] **Unit tests** — Jest + mocked Obsidian API, 14 tests passing
 - [x] **CI/CD** — GitHub Actions for releases, tests, and docs deployment
 - [ ] Bug fixes and UI polish
@@ -22,25 +22,25 @@ tags: [development, architecture]
 
 - [ ] **XLSX parser** — Excel file support (`xlsx` package installed, needs integration into wizard)
 - [ ] **JSON parser** — import from JSON/JSONL for frameworks in structured data formats
-- [ ] **[Config export/import](/Crosswalker/agent-context/config-schema-design/)** — share configurations as `.crosswalker.json` files
+- [ ] **[Config export/import](/crosswalker/agent-context/config-schema-design/)** — share configurations as `.crosswalker.json` files
 - [ ] **Improved preview** — expandable folder tree and full note preview in Step 3
 
-## Medium-term — [Evidence mapping](/Crosswalker/getting-started/grc-teams/) and cross-framework linking
+## Medium-term — [Evidence mapping](/crosswalker/getting-started/grc-teams/) and cross-framework linking
 
 This is the core value proposition for GRC teams: linking frameworks to each other and to your evidence.
 
-- [ ] **[Cross-framework linking](/Crosswalker/agent-context/framework-crosswalks/)** — generate typed WikiLinks between imported frameworks using crosswalk data
-- [ ] **[Link insertion commands](/Crosswalker/agent-context/link-metadata-system/)** — "Insert framework link" command with search modal and metadata form
+- [ ] **[Cross-framework linking](/crosswalker/agent-context/framework-crosswalks/)** — generate typed WikiLinks between imported frameworks using crosswalk data
+- [ ] **[Link insertion commands](/crosswalker/agent-context/link-metadata-system/)** — "Insert framework link" command with search modal and metadata form
 - [ ] **Autocomplete** — suggestions for framework references as you type
-- [ ] **[Batch re-import](/Crosswalker/agent-context/data-model-resilience/)** — update existing framework folders with version awareness and diff preview
-- [ ] **[FrameworkConfig presets](/Crosswalker/agent-context/config-schema-design/)** — per-framework configurations with sheet selection, custom transforms, and column overrides
+- [ ] **[Batch re-import](/crosswalker/agent-context/data-model-resilience/)** — update existing framework folders with version awareness and diff preview
+- [ ] **[FrameworkConfig presets](/crosswalker/agent-context/config-schema-design/)** — per-framework configurations with sheet selection, custom transforms, and column overrides
 
 ## Long-term — Interoperability and community
 
 - [ ] **[OSCAL export](https://pages.nist.gov/OSCAL/)** — export to Open Security Controls Assessment Language for GRC tool integration
-- [ ] **[Community config templates](/Crosswalker/agent-context/config-schema-design/#community-sharing-model)** — shareable configs for common frameworks
-- [ ] **[Framework update/sync](/Crosswalker/concepts/framework-versioning/)** — detect upstream framework changes, apply updates with [data model resilience](/Crosswalker/agent-context/data-model-resilience/) patterns
-- [ ] **Compliance dashboards** — gap analysis and coverage views using [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/)
+- [ ] **[Community config templates](/crosswalker/agent-context/config-schema-design/#community-sharing-model)** — shareable configs for common frameworks
+- [ ] **[Framework update/sync](/crosswalker/concepts/framework-versioning/)** — detect upstream framework changes, apply updates with [data model resilience](/crosswalker/agent-context/data-model-resilience/) patterns
+- [ ] **Compliance dashboards** — gap analysis and coverage views using [Obsidian Bases](/crosswalker/concepts/metadata-ecosystem/)
 - [ ] **Report generation** — exportable compliance reports for auditors
 
 ## Infrastructure
@@ -48,8 +48,8 @@ This is the core value proposition for GRC teams: linking frameworks to each oth
 - [ ] **E2E testing in CI** — [wdio-obsidian-service](https://github.com/jesse-r-s-hines/wdio-obsidian-service) (local setup done, CI deferred)
 - [ ] **Community plugin submission** — publish to the Obsidian plugin registry
 - [ ] **Automated changelog** — generate from conventional commits
-- [ ] **Docs CI tests** — [Playwright](/Crosswalker/development/testing/) smoke tests in GitHub Actions
+- [ ] **Docs CI tests** — [Playwright](/crosswalker/development/testing/) smoke tests in GitHub Actions
 
 ---
 
-See also: [ROADMAP.md on GitHub](https://github.com/cybersader/Crosswalker/blob/main/ROADMAP.md)
+See also: [ROADMAP.md on GitHub](https://github.com/cybersader/crosswalker/blob/main/ROADMAP.md)

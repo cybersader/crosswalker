@@ -29,12 +29,12 @@ tags: [architecture, data-model-evolution, evidence-mapping]
 
 ## Data model resilience
 
-These are the hardest open questions. See [data model resilience](/Crosswalker/agent-context/data-model-resilience/) and [ontology evolution](/Crosswalker/concepts/ontology-evolution/) for background research.
+These are the hardest open questions. See [data model resilience](/crosswalker/agent-context/data-model-resilience/) and [ontology evolution](/crosswalker/concepts/ontology-evolution/) for background research.
 
-- **Version-tagged vs. overwrite**: Should re-import create a new version folder ([SCD Type 2](/Crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions)) or overwrite in place (Type 1)? Or let the user choose?
+- **Version-tagged vs. overwrite**: Should re-import create a new version folder ([SCD Type 2](/crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions)) or overwrite in place (Type 1)? Or let the user choose?
 - **User annotations**: If a user adds custom content to a generated note and then re-imports, how do we preserve their additions while updating the generated parts?
-- **ID aliasing**: When a framework renames an ID (e.g., ATT&CK [sub-technique migration](/Crosswalker/concepts/framework-versioning/#mitre-attck--the-gold-standard-badge)), how should old links resolve? Frontmatter aliases? Redirect notes?
-- **Crosswalk staleness**: If Framework A updates but the A↔B crosswalk doesn't, how do we detect and surface this? See [OLIR maintenance model](/Crosswalker/concepts/framework-versioning/#who-maintains-crosswalks).
+- **ID aliasing**: When a framework renames an ID (e.g., ATT&CK [sub-technique migration](/crosswalker/concepts/framework-versioning/#mitre-attck--the-gold-standard-badge)), how should old links resolve? Frontmatter aliases? Redirect notes?
+- **Crosswalk staleness**: If Framework A updates but the A↔B crosswalk doesn't, how do we detect and surface this? See [OLIR maintenance model](/crosswalker/concepts/framework-versioning/#who-maintains-crosswalks).
 - **Changelog ingestion**: ATT&CK publishes machine-readable STIX changelogs. Should Crosswalker consume these to automate migration? What about frameworks without machine-readable changelogs?
 - **Bitemporal queries**: Should `_crosswalker` metadata support both valid-time (when the framework version was published) and transaction-time (when we imported it)?
 
@@ -42,4 +42,4 @@ These are the hardest open questions. See [data model resilience](/Crosswalker/a
 
 - **OSCAL output**: What subset of OSCAL should we target? Full catalog or just control mappings?
 - **Community configs**: How to distribute and discover shared import configurations?
-- **Pivot framework**: Should Crosswalker support importing [SCF's STRM data](/Crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach) as a meta-framework that enables automatic crosswalking between any frameworks mapped through it?
+- **Pivot framework**: Should Crosswalker support importing [SCF's STRM data](/crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach) as a meta-framework that enables automatic crosswalking between any frameworks mapped through it?

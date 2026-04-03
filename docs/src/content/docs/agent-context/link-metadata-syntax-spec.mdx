@@ -6,7 +6,7 @@ sidebar:
 tags: [evidence-mapping-links, obsidian-metadata, architecture]
 ---
 
-This is the **formal specification** for Crosswalker's typed-link syntax. For the conceptual overview, see [link metadata system](/Crosswalker/agent-context/link-metadata-system/).
+This is the **formal specification** for Crosswalker's typed-link syntax. For the conceptual overview, see [link metadata system](/crosswalker/agent-context/link-metadata-system/).
 
 ## Anatomy of a typed link
 
@@ -162,7 +162,7 @@ After inline fields, lower-priority sources fill in remaining properties:
 | Priority merging | No | Via DataviewJS | No | TBD |
 | Tabular display of results | No | TABLE/DataviewJS | Yes (native) | TBD |
 
-**Key insight**: The full typed-link system requires DataviewJS (or future Datacore) for parsing and priority resolution. [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) can surface notes based on frontmatter properties but cannot process inline field syntax or edge metadata.
+**Key insight**: The full typed-link system requires DataviewJS (or future Datacore) for parsing and priority resolution. [Obsidian Bases](/crosswalker/concepts/metadata-ecosystem/) can surface notes based on frontmatter properties but cannot process inline field syntax or edge metadata.
 
 This is an intentional design trade-off: frontmatter for queryable flat metadata, inline fields for relationship-level metadata that needs custom processing.
 
@@ -175,6 +175,6 @@ This is an intentional design trade-off: frontmatter for queryable flat metadata
 - [Obsidian: Internal Links](https://help.obsidian.md/Linking+notes+and+files/Internal+links) — WikiLink syntax
 
 ### Related pages
-- [Link metadata system](/Crosswalker/agent-context/link-metadata-system/) — conceptual overview
-- [Metadata ecosystem](/Crosswalker/concepts/metadata-ecosystem/) — Properties, Dataview, Bases, Datacore
-- [Tradeoffs](/Crosswalker/agent-context/tradeoffs/) — design decisions
+- [Link metadata system](/crosswalker/agent-context/link-metadata-system/) — conceptual overview
+- [Metadata ecosystem](/crosswalker/concepts/metadata-ecosystem/) — Properties, Dataview, Bases, Datacore
+- [Tradeoffs](/crosswalker/agent-context/tradeoffs/) — design decisions

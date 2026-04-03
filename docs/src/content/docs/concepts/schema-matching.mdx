@@ -6,7 +6,7 @@ tags: [frameworks-mapping, data-model-evolution]
 
 ## What is schema matching?
 
-Schema matching finds correspondences between elements of two different schemas. When Crosswalker's import wizard detects that a column named "Control Family" should be a hierarchy level, it's performing a simple form of schema matching. When NIST maps CSF subcategories to 800-53 controls, that's [ontology alignment](/Crosswalker/concepts/ontology-evolution/).
+Schema matching finds correspondences between elements of two different schemas. When Crosswalker's import wizard detects that a column named "Control Family" should be a hierarchy level, it's performing a simple form of schema matching. When NIST maps CSF subcategories to 800-53 controls, that's [ontology alignment](/crosswalker/concepts/ontology-evolution/).
 
 ## Terminology distinctions
 
@@ -42,7 +42,7 @@ Compare actual data values:
 - **Distribution similarity** — columns with similar statistical profiles
 - **Pattern matching** — regex patterns in values (e.g., `\w{2}-\d+` for control IDs)
 
-Crosswalker uses this approach in its fingerprinting system for [config matching](/Crosswalker/features/config-system/).
+Crosswalker uses this approach in its fingerprinting system for [config matching](/crosswalker/features/config-system/).
 
 ### Semantic
 Use external knowledge to find correspondences:
@@ -103,7 +103,7 @@ NIST's OLIR program uses [Set Theory Relationship Mapping](https://csrc.nist.gov
 | **Superset** | Source fully contains target | 800-53 control is broader than a CSF subcategory |
 | **Not related** | No meaningful correspondence | Explicitly documented non-relationships |
 
-This is the domain-specific instantiation of [ontology alignment](/Crosswalker/concepts/ontology-evolution/) for cybersecurity — and the formal model that Crosswalker's crosswalk metadata should eventually support.
+This is the domain-specific instantiation of [ontology alignment](/crosswalker/concepts/ontology-evolution/) for cybersecurity — and the formal model that Crosswalker's crosswalk metadata should eventually support.
 
 ### Formal Concept Analysis (FCA)
 
@@ -117,10 +117,10 @@ When a user imports a CSV, Crosswalker analyzes columns to suggest types (hierar
 - **Instance analysis** of column values (unique counts, patterns)
 - **Structural hints** from column ordering
 
-The [config fingerprinting system](/Crosswalker/features/config-system/) extends this by comparing new files against previously matched schemas.
+The [config fingerprinting system](/crosswalker/features/config-system/) extends this by comparing new files against previously matched schemas.
 
 ### Framework crosswalking as ontology alignment
-When Crosswalker generates links between imported frameworks, it's performing [ontology alignment](/Crosswalker/concepts/ontology-evolution/). The matching methods (exact, array-contains, regex) in the [crosswalks system](/Crosswalker/agent-context/framework-crosswalks/) are specialized schema matching strategies.
+When Crosswalker generates links between imported frameworks, it's performing [ontology alignment](/crosswalker/concepts/ontology-evolution/). The matching methods (exact, array-contains, regex) in the [crosswalks system](/crosswalker/agent-context/framework-crosswalks/) are specialized schema matching strategies.
 
 ### Future: automated crosswalk generation
 Currently, crosswalk mappings must be provided (from NIST, SCF, or user-defined). A future version could use schema matching algorithms to *suggest* crosswalk mappings between arbitrary imported frameworks — similar to how COMA++ or AgreementMaker work.
@@ -128,7 +128,7 @@ Currently, crosswalk mappings must be provided (from NIST, SCF, or user-defined)
 Recent [OAEI evaluations](http://oaei.ontologymatching.org/) show LLM-based systems (MILA, GenOM) achieving F1 scores of 0.83-0.95 on ontology matching benchmarks. This opens the possibility of using LLMs within Crosswalker to suggest crosswalk correspondences between arbitrary imported frameworks — a significant capability leap.
 
 ### SSSOM: a standard for sharing mappings
-[SSSOM (Simple Standard for Sharing Ontology Mappings)](https://mapping-commons.github.io/sssom/) represents mappings as TSV/CSV with standardized metadata columns — essentially the same format Crosswalker already works with. Adopting SSSOM as an export format would make Crosswalker's crosswalk data interoperable with the broader [ontology evolution](/Crosswalker/concepts/ontology-evolution/) ecosystem.
+[SSSOM (Simple Standard for Sharing Ontology Mappings)](https://mapping-commons.github.io/sssom/) represents mappings as TSV/CSV with standardized metadata columns — essentially the same format Crosswalker already works with. Adopting SSSOM as an export format would make Crosswalker's crosswalk data interoperable with the broader [ontology evolution](/crosswalker/concepts/ontology-evolution/) ecosystem.
 
 ---
 
@@ -152,8 +152,8 @@ Recent [OAEI evaluations](http://oaei.ontologymatching.org/) show LLM-based syst
 - [Apptega](https://www.apptega.com/platform/framework-crosswalking) — commercial crosswalking platform
 
 ### Related pages
-- [Ontology evolution](/Crosswalker/concepts/ontology-evolution/)
-- [Framework versioning](/Crosswalker/concepts/framework-versioning/)
-- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/)
-- [Framework standards & tools](/Crosswalker/concepts/framework-standards/)
-- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/)
+- [Ontology evolution](/crosswalker/concepts/ontology-evolution/)
+- [Framework versioning](/crosswalker/concepts/framework-versioning/)
+- [Framework crosswalks](/crosswalker/agent-context/framework-crosswalks/)
+- [Framework standards & tools](/crosswalker/concepts/framework-standards/)
+- [Data model resilience](/crosswalker/agent-context/data-model-resilience/)

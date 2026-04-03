@@ -51,7 +51,7 @@ Crosswalker's `_crosswalker.imported` timestamp provides transaction time. Addin
 
 ## The translation analogy
 
-[Framework crosswalking](/Crosswalker/agent-context/framework-crosswalks/) is structurally analogous to **language translation**:
+[Framework crosswalking](/crosswalker/agent-context/framework-crosswalks/) is structurally analogous to **language translation**:
 
 | Translation Concept | Framework Equivalent |
 |---------------------|---------------------|
@@ -59,7 +59,7 @@ Crosswalker's `_crosswalker.imported` timestamp provides transaction time. Addin
 | Target language | Target framework (e.g., CIS Controls) |
 | Dictionary | Crosswalk mapping table |
 | Interlingua / pivot language | Meta-framework (SCF, NIST OLIR) |
-| Machine translation | Automated [schema matching](/Crosswalker/concepts/schema-matching/) |
+| Machine translation | Automated [schema matching](/crosswalker/concepts/schema-matching/) |
 | Translation memory | Saved Crosswalker configs with fingerprints |
 | Back-translation (verification) | Bidirectional crosswalk validation |
 
@@ -75,11 +75,11 @@ Can [SemVer](https://semver.org/) apply to ontologies? The analogy:
 | **MINOR** (additive) | Add new concepts, extend hierarchy | NIST 800-53 Rev 5 adding PT and SR families |
 | **PATCH** (fix) | Correct descriptions, fix typos | ATT&CK un-deprecating a technique |
 
-MITRE ATT&CK effectively uses this (v14.0 → v14.1 → v15.0). Most frameworks don't, which makes automated version detection harder — a problem Crosswalker could eventually solve through [schema matching](/Crosswalker/concepts/schema-matching/).
+MITRE ATT&CK effectively uses this (v14.0 → v14.1 → v15.0). Most frameworks don't, which makes automated version detection harder — a problem Crosswalker could eventually solve through [schema matching](/crosswalker/concepts/schema-matching/).
 
 ## Implications for Crosswalker
 
-See [data model resilience](/Crosswalker/agent-context/data-model-resilience/) for how these concepts translate into Crosswalker design decisions.
+See [data model resilience](/crosswalker/agent-context/data-model-resilience/) for how these concepts translate into Crosswalker design decisions.
 
 The key insight: **Crosswalker doesn't just import data — it creates a temporal snapshot of a framework version.** The `_crosswalker` metadata in every generated note should be rich enough to support version-aware operations: re-import, diff, migration, and staleness detection.
 
@@ -112,7 +112,7 @@ The industry standard for zero-downtime schema migration in databases:
 2. **Migrate** — move data from old to new (update evidence links to point to new version)
 3. **Contract** — optionally remove old structure (archive old version folder)
 
-This maps cleanly to Crosswalker's [re-import strategies](/Crosswalker/agent-context/data-model-resilience/).
+This maps cleanly to Crosswalker's [re-import strategies](/crosswalker/agent-context/data-model-resilience/).
 
 ## SchemaVer: an alternative to SemVer for data
 
@@ -163,8 +163,8 @@ Recent OAEI evaluations show LLM-based systems (MILA, GenOM) achieving F1 scores
 - [Formal Concept Analysis](https://en.wikipedia.org/wiki/Formal_concept_analysis) — lattice theory for structural correspondences
 
 ### Related pages
-- [Schema matching & alignment](/Crosswalker/concepts/schema-matching/)
-- [Framework versioning](/Crosswalker/concepts/framework-versioning/)
-- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/)
-- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/)
-- [The problem](/Crosswalker/concepts/problem/)
+- [Schema matching & alignment](/crosswalker/concepts/schema-matching/)
+- [Framework versioning](/crosswalker/concepts/framework-versioning/)
+- [Data model resilience](/crosswalker/agent-context/data-model-resilience/)
+- [Framework crosswalks](/crosswalker/agent-context/framework-crosswalks/)
+- [The problem](/crosswalker/concepts/problem/)

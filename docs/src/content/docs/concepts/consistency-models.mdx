@@ -98,15 +98,15 @@ _crosswalker:
       changes: [description_updated, related_controls_added]
 ```
 
-This enables point-in-time queries ("what did this control look like when we imported it?") and rollback ("revert to the pre-update state"). See [ontology evolution](/Crosswalker/concepts/ontology-evolution/) for the temporal modeling foundations.
+This enables point-in-time queries ("what did this control look like when we imported it?") and rollback ("revert to the pre-update state"). See [ontology evolution](/crosswalker/concepts/ontology-evolution/) for the temporal modeling foundations.
 
 ## Implications for Crosswalker design
 
 1. **Design for idempotency**: Every import operation should produce the same result whether run once or ten times
 2. **Expect partial failures**: If an import crashes at note 347 of 1000, the next run should detect and resume
 3. **Track provenance**: `_crosswalker` metadata is the compensation for lacking ACID — it tells you what state you're in
-4. **Version, don't overwrite**: [SCD Type 2](/Crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions) (keep history) is safer than Type 1 (overwrite) because it preserves the ability to diff and rollback
-5. **Use Bases for detection**: [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) can surface notes with stale `import_date` or missing `source_hash` — lazy consistency checking via tabular views
+4. **Version, don't overwrite**: [SCD Type 2](/crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions) (keep history) is safer than Type 1 (overwrite) because it preserves the ability to diff and rollback
+5. **Use Bases for detection**: [Obsidian Bases](/crosswalker/concepts/metadata-ecosystem/) can surface notes with stale `import_date` or missing `source_hash` — lazy consistency checking via tabular views
 
 ---
 
@@ -126,7 +126,7 @@ This enables point-in-time queries ("what did this control look like when we imp
 - [CouchDB Replication Protocol](https://docs.couchdb.org/en/stable/replication/protocol.html)
 
 ### Related pages
-- [File-based graph databases](/Crosswalker/concepts/file-based-graph-database/) — the data model
-- [Ontology evolution](/Crosswalker/concepts/ontology-evolution/) — SCD types and temporal modeling
-- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/) — practical strategies
-- [Constraint enforcement](/Crosswalker/agent-context/constraint-enforcement/) — integrity patterns
+- [File-based graph databases](/crosswalker/concepts/file-based-graph-database/) — the data model
+- [Ontology evolution](/crosswalker/concepts/ontology-evolution/) — SCD types and temporal modeling
+- [Data model resilience](/crosswalker/agent-context/data-model-resilience/) — practical strategies
+- [Constraint enforcement](/crosswalker/agent-context/constraint-enforcement/) — integrity patterns

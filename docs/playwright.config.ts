@@ -23,7 +23,7 @@ export default defineConfig({
 
   webServer: process.env.TEST_URL ? undefined : {
     command: 'bun run preview',
-    url: 'http://localhost:4321/Crosswalker/',
+    url: 'http://localhost:4321/crosswalker/',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },

@@ -8,7 +8,7 @@ tags: [data-model-consistency, data-model-graph, architecture]
 
 ## The referential integrity gap
 
-Obsidian vaults have no foreign keys, no cascade deletes, no schema validation on write. When Crosswalker generates 500 interconnected notes, nothing prevents a user from deleting one and leaving broken WikiLinks everywhere. This is the fundamental constraint of [file-based graph databases](/Crosswalker/concepts/file-based-graph-database/).
+Obsidian vaults have no foreign keys, no cascade deletes, no schema validation on write. When Crosswalker generates 500 interconnected notes, nothing prevents a user from deleting one and leaving broken WikiLinks everywhere. This is the fundamental constraint of [file-based graph databases](/crosswalker/concepts/file-based-graph-database/).
 
 Understanding constraint enforcement strategies helps Crosswalker design for resilience rather than hoping for perfect consistency.
 
@@ -63,7 +63,7 @@ views:
 ```
 
 > [!note] Bases limitation
-> [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) can only do tabular views of frontmatter properties. It cannot traverse typed links, check edge metadata, or do graph queries. Use DataviewJS or Datacore for relationship-level integrity checks.
+> [Obsidian Bases](/crosswalker/concepts/metadata-ecosystem/) can only do tabular views of frontmatter properties. It cannot traverse typed links, check edge metadata, or do graph queries. Use DataviewJS or Datacore for relationship-level integrity checks.
 
 ### Compensating transactions (undo/repair)
 
@@ -151,7 +151,7 @@ _crosswalker:
       changes: [description_updated]
 ```
 
-Enables: full audit trail, point-in-time queries, rollback. See [event sourcing in consistency models](/Crosswalker/concepts/consistency-models/#event-sourcing-pattern).
+Enables: full audit trail, point-in-time queries, rollback. See [event sourcing in consistency models](/crosswalker/concepts/consistency-models/#event-sourcing-pattern).
 
 ## Orphan detection mechanisms
 
@@ -176,7 +176,7 @@ Following the DFD-Excalidraw pattern of `dfd-asset-v1`, Crosswalker notes includ
 1. New imports use the new schema version
 2. Old notes retain their original schema version
 3. A migration script can detect old versions and update them
-4. [SchemaVer](/Crosswalker/concepts/ontology-evolution/#schemaver-an-alternative-to-semver-for-data) (MODEL-REVISION-ADDITION) tracks compatibility
+4. [SchemaVer](/crosswalker/concepts/ontology-evolution/#schemaver-an-alternative-to-semver-for-data) (MODEL-REVISION-ADDITION) tracks compatibility
 
 ---
 
@@ -187,8 +187,8 @@ Following the DFD-Excalidraw pattern of `dfd-asset-v1`, Crosswalker notes includ
 - [Referential Integrity](https://en.wikipedia.org/wiki/Referential_integrity) — Wikipedia overview
 
 ### Related pages
-- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/) — re-import strategies
-- [Consistency models](/Crosswalker/concepts/consistency-models/) — ACID, CAP, BASE
-- [File-based graph databases](/Crosswalker/concepts/file-based-graph-database/) — the data model
-- [Framework versioning](/Crosswalker/concepts/framework-versioning/) — what happens when frameworks update
-- [Open questions](/Crosswalker/agent-context/open-questions/) — unresolved design decisions
+- [Data model resilience](/crosswalker/agent-context/data-model-resilience/) — re-import strategies
+- [Consistency models](/crosswalker/concepts/consistency-models/) — ACID, CAP, BASE
+- [File-based graph databases](/crosswalker/concepts/file-based-graph-database/) — the data model
+- [Framework versioning](/crosswalker/concepts/framework-versioning/) — what happens when frameworks update
+- [Open questions](/crosswalker/agent-context/open-questions/) — unresolved design decisions
