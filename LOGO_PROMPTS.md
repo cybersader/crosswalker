@@ -71,6 +71,84 @@ A custom typographic ligature of the letters C and W where they share a common v
 
 ---
 
+## Concept F: CW Graph Letterforms (PRIMARY DIRECTION)
+
+The letters C and W are each constructed from graph nodes (small circles) connected by edges (thin lines). The C curves through 5-6 nodes; the W zigzags through 5-7 nodes. Together they read as "CW" but also as two interconnected sub-graphs — two ontologies linked together.
+
+### F.1 Base prompt
+
+```
+Two letters "C" and "W" side by side, where each letter is formed entirely from small circles (graph nodes) connected by thin straight lines (graph edges). The C is built from 5-6 evenly-spaced nodes arranged in a semicircular arc, connected sequentially by edges. The W is built from 5-7 nodes arranged in a zigzag pattern (down-up-down-up-down), connected sequentially by edges. The nodes are perfectly circular, uniform size. The edges are thin, straight, connecting adjacent nodes. The two letters are aligned on a common baseline. Clean geometric construction — like a graph theory diagram that happens to spell CW. Teal (#00d4aa) nodes and edges on dark (#0d1117) background. No fill, just stroke. Software product logo quality.
+```
+
+### F.2 Geometric cleanup variations
+
+```
+Same CW graph letterform concept. Generate a 2x2 grid of variations:
+Top-left: Thin strokes (1px edges, small 4px nodes) — delicate, technical
+Top-right: Bold strokes (3px edges, large 8px nodes) — confident, heavy
+Bottom-left: Nodes only, no edges — the letter shapes implied by dot placement alone
+Bottom-right: Edges only, no visible nodes — the letter shapes drawn as connected line segments
+All variations: teal (#00d4aa) on dark (#0d1117). Same letter proportions in each.
+```
+
+### F.3 Node style grid
+
+```
+Same CW graph letterform layout. Generate a 2x2 grid exploring node styles:
+Top-left: Filled circles (solid teal nodes, thin teal edges)
+Top-right: Hollow circles (teal stroke, dark fill, thin teal edges)
+Bottom-left: Square nodes (tiny teal squares instead of circles, thin edges)
+Bottom-right: Mixed — C uses filled circles, W uses hollow circles (two different graph types meeting)
+All on dark (#0d1117) background.
+```
+
+### F.4 Connection patterns
+
+```
+Same CW graph letterform base. Generate a 2x2 grid exploring how C and W connect to each other:
+Top-left: Separate — C and W are independent sub-graphs with a small gap between them
+Top-right: Bridged — one thin edge connects the last node of C to the first node of W (the crosswalk!)
+Bottom-left: Shared node — C and W share one node where they meet (the ligature approach)
+Bottom-right: Overlapping — C and W overlap slightly, with 2-3 cross-edges between them forming an X pattern at the intersection
+All: teal (#00d4aa) on dark (#0d1117). The connection style IS the brand decision.
+```
+
+### F.5 Perspective and depth
+
+```
+Same CW graph letterform. Generate a 2x2 grid exploring visual depth:
+Top-left: Flat 2D (current concept — nodes and edges on a plane)
+Top-right: Subtle 3D — nodes have a slight drop shadow, edges have depth, like the graph floats above the background
+Bottom-left: Isometric — the CW letters are tilted in isometric perspective, nodes are spheres
+Bottom-right: Layered — C is slightly behind W with a subtle overlap/parallax effect, suggesting two layers of a knowledge graph
+All: teal (#00d4aa) on dark (#0d1117).
+```
+
+### F.6 Color variation grid
+
+```
+Same CW graph letterform (use the best node/edge style from earlier). Generate a 2x2 color grid:
+Top-left: Teal (#00d4aa) on near-black (#0d1117) — primary dark mode
+Top-right: Dark teal (#0a6b56) on white (#f8f9fa) — light mode
+Bottom-left: Multi-color — C nodes in teal (#00d4aa), W nodes in coral (#e06c75), bridge edge in green (#98c379) — three systems meeting
+Bottom-right: Monochrome — single color (#0d1117) on transparent — for favicon/print
+```
+
+### F.7 With wordmark
+
+```
+The CW graph letterform logo (best variation) centered above the word "CROSSWALKER" in a clean geometric sans-serif font (Inter, Geist, or similar), 600 weight, 0.12em letter-spacing. Below that in smaller muted text: "ontology lifecycle management". Teal (#00d4aa) logo, white text, dark (#0d1117) background. The logo mark should be roughly 2x the height of the text. Software product branding quality — like Linear, Raycast, or Vercel lockups.
+```
+
+### F.8 Favicon/micro simplification
+
+```
+The CW graph letterform simplified to work at 16x16 and 32x32 pixels. Reduce to minimum viable nodes: C = 3-4 nodes in an arc, W = 3-4 nodes in a zigzag. Edges as single-pixel lines. Must be recognizable as "CW made of dots and lines" even at tiny size. Single color on transparent background.
+```
+
+---
+
 ## Variant modifiers (append to any concept)
 
 | Variant | Append this |
@@ -83,14 +161,15 @@ A custom typographic ligature of the letters C and W where they share a common v
 
 ## Usage map
 
-| Context | Concept | Variant | Size |
-|---------|---------|---------|------|
-| GitHub repo avatar | A or C | Dark | 400×400 |
-| Obsidian plugin listing | D | Dark | 256×256 |
-| Favicon | A or E | Mono/Favicon | 32×32 |
-| Social/OG image | A or C | Multi + Wordmark | 1200×630 |
-| Docs header | E | Dark + Wordmark | Variable |
-| Print/sticker | C | Mono | Variable |
+| Context | Concept | Variant/Prompt | Size |
+|---------|---------|----------------|------|
+| **GitHub repo avatar** | **F (CW Graph)** | F.4 top-right (bridged) | 400×400 |
+| **Obsidian plugin listing** | **F (CW Graph)** | F.1 base or F.4 shared-node | 256×256 |
+| **Favicon** | **F (CW Graph)** | F.8 (micro simplified) | 32×32 |
+| **Social/OG image** | **F (CW Graph)** | F.7 (with wordmark) | 1200×630 |
+| **Docs header** | **F (CW Graph)** | F.7 (with wordmark) | Variable |
+| Print/sticker | F or C | F.6 monochrome | Variable |
+| Alternate/secondary | A-E | See above | Various |
 
 ## Tools
 
