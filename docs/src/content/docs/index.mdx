@@ -2,6 +2,8 @@
 title: Crosswalker
 description: Turn your Obsidian vault into an operational compliance knowledge graph.
 template: splash
+hero:
+  title: ' '
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
@@ -126,37 +128,49 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
       <rect class="cw-mb" x="300" y="175" width="76" height="18" rx="4"/>
       <text class="cw-mt" x="338" y="187">status: "verified"</text>
 
-      {/* Nodes */}
-      <g class="cw-n cw-n-fw">
-        <circle cx="100" cy="90" r="24"/>
-        <text x="100" y="85" class="cw-ni">AC-2</text>
-        <text x="100" y="99" class="cw-ns">NIST 800-53</text>
-      </g>
-      <g class="cw-n cw-n-fw">
-        <circle cx="260" cy="60" r="24"/>
-        <text x="260" y="55" class="cw-ni">PR.AC-07</text>
-        <text x="260" y="69" class="cw-ns">CSF 2.0</text>
-      </g>
-      <g class="cw-n cw-n-fw">
-        <circle cx="220" cy="170" r="24"/>
-        <text x="220" y="165" class="cw-ni">6.3</text>
-        <text x="220" y="179" class="cw-ns">CIS v8</text>
-      </g>
-      <g class="cw-n cw-n-atk">
-        <circle cx="420" cy="80" r="24"/>
-        <text x="420" y="75" class="cw-ni">T1078</text>
-        <text x="420" y="89" class="cw-ns">ATT&CK</text>
-      </g>
-      <g class="cw-n cw-n-ev">
-        <circle cx="570" cy="60" r="24"/>
-        <text x="570" y="55" class="cw-ni">MFA</text>
-        <text x="570" y="69" class="cw-ns">Policy</text>
-      </g>
-      <g class="cw-n cw-n-ev">
-        <circle cx="580" cy="170" r="24"/>
-        <text x="580" y="165" class="cw-ni">Audit</text>
-        <text x="580" y="179" class="cw-ns">Q1 Report</text>
-      </g>
+      {/* Nodes — clickable, link to relevant docs */}
+      <a href="/Crosswalker/concepts/framework-standards/">
+        <g class="cw-n cw-n-fw">
+          <circle cx="100" cy="90" r="24"/>
+          <text x="100" y="85" class="cw-ni">AC-2</text>
+          <text x="100" y="99" class="cw-ns">NIST 800-53</text>
+        </g>
+      </a>
+      <a href="/Crosswalker/concepts/framework-versioning/">
+        <g class="cw-n cw-n-fw">
+          <circle cx="260" cy="60" r="24"/>
+          <text x="260" y="55" class="cw-ni">PR.AC-07</text>
+          <text x="260" y="69" class="cw-ns">CSF 2.0</text>
+        </g>
+      </a>
+      <a href="/Crosswalker/agent-context/framework-crosswalks/">
+        <g class="cw-n cw-n-fw">
+          <circle cx="220" cy="170" r="24"/>
+          <text x="220" y="165" class="cw-ni">6.3</text>
+          <text x="220" y="179" class="cw-ns">CIS v8</text>
+        </g>
+      </a>
+      <a href="/Crosswalker/agent-context/framework-landscape/">
+        <g class="cw-n cw-n-atk">
+          <circle cx="420" cy="80" r="24"/>
+          <text x="420" y="75" class="cw-ni">T1078</text>
+          <text x="420" y="89" class="cw-ns">ATT&CK</text>
+        </g>
+      </a>
+      <a href="/Crosswalker/getting-started/grc-teams/">
+        <g class="cw-n cw-n-ev">
+          <circle cx="570" cy="60" r="24"/>
+          <text x="570" y="55" class="cw-ni">MFA</text>
+          <text x="570" y="69" class="cw-ns">Policy</text>
+        </g>
+      </a>
+      <a href="/Crosswalker/agent-context/link-metadata-system/">
+        <g class="cw-n cw-n-ev">
+          <circle cx="580" cy="170" r="24"/>
+          <text x="580" y="165" class="cw-ni">Audit</text>
+          <text x="580" y="179" class="cw-ns">Q1 Report</text>
+        </g>
+      </a>
 
       {/* Pulse rings */}
       <circle class="cw-pr" cx="260" cy="60" r="24"/>
@@ -315,7 +329,10 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   @keyframes cw-mp { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
 
   /* Nodes */
-  .cw-n circle { stroke-width: 2.5; fill: var(--sl-color-black); }
+  .cw-g a { cursor: pointer; }
+  .cw-g a:hover .cw-n circle { stroke-width: 3.5; filter: drop-shadow(0 0 8px currentColor); }
+  .cw-g a:hover .cw-ni { fill: var(--sl-color-accent-high); }
+  .cw-n circle { stroke-width: 2.5; fill: var(--sl-color-black); transition: stroke-width 0.2s, filter 0.2s; }
   .cw-n-fw circle { stroke: var(--sl-color-accent); }
   .cw-n-atk circle { stroke: #e06c75; }
   .cw-n-ev circle { stroke: #98c379; }
