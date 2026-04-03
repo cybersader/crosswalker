@@ -75,6 +75,44 @@ A custom typographic ligature of the letters C and W where they share a common v
 
 The letters C and W are each constructed from graph nodes (small circles) connected by edges (thin lines). The C curves through 5-6 nodes; the W zigzags through 5-7 nodes. Together they read as "CW" but also as two interconnected sub-graphs — two ontologies linked together.
 
+### F.0 Sketch-to-digital (pair with screenshot)
+
+Upload the hand-drawn sketch alongside these prompts. Use image-to-image / reference image mode in your tool of choice.
+
+**Direct cleanup:**
+```
+Clean up this hand-drawn logo sketch into a precise digital vector version. The sketch shows two letters "C" and "W" where each letter is made from small circular nodes connected by straight line edges, like a graph/network diagram that spells CW. Keep the exact same node positions and proportions from the sketch but make everything geometrically precise: perfectly circular nodes, straight uniform edges, consistent node sizes, aligned baseline. Black on white background. Clean vector style. Do not change the design — just digitize and align it.
+```
+
+**Aligned + improved:**
+```
+Based on this hand-drawn CW logo sketch, create 4 refined digital variations in a 2x2 grid. The original shows C and W formed from graph nodes and edges. For each variation: keep the same fundamental layout (C as a curved arc of nodes, W as a zigzag of nodes) but improve geometric precision, alignment, and proportions.
+Top-left: Faithful cleanup — closest to the original sketch, just cleaner
+Top-right: Tighter spacing — nodes closer together, more compact letterforms
+Bottom-left: More nodes — add 1-2 extra nodes per letter for smoother curves
+Bottom-right: Bolder — thicker edges, larger nodes, heavier visual weight
+All: black on white, clean vector, no fills.
+```
+
+**Style exploration from sketch:**
+```
+Using this hand-drawn CW logo as the base design, create 4 stylistic variations in a 2x2 grid. Same node-and-edge letter construction, same basic C and W shapes.
+Top-left: Technical blueprint style — thin precise lines, small dots, like an engineering diagram
+Top-right: Neon/glow style — teal (#00d4aa) glowing nodes and edges on dark (#0d1117), cybersecurity aesthetic
+Bottom-left: Minimal — reduce to fewest possible nodes while still reading as CW, single stroke weight
+Bottom-right: Connected — add a bridge edge between C and W, plus 1-2 internal cross-connections within each letter
+All: maintain the proportions and character of the original sketch.
+```
+
+**Color application from sketch:**
+```
+Take this hand-drawn CW graph-letter logo and create 4 color variations in a 2x2 grid. Clean up the sketch into precise geometric forms first.
+Top-left: Teal (#00d4aa) on near-black (#0d1117) — primary brand
+Top-right: White on near-black (#0d1117) — monochrome dark
+Bottom-left: Dark teal (#0a6b56) on white — light mode
+Bottom-right: Multi-color — C nodes teal (#00d4aa), W nodes coral (#e06c75), any bridge edge green (#98c379)
+```
+
 ### F.1 Base prompt
 
 ```
