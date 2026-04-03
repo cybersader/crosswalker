@@ -103,3 +103,66 @@ Federal Financial Institutions Examination Council Cybersecurity Assessment Tool
 
 ### Enterprise Risk Management
 - [NIST IR 8286 (Integrating Cyber into ERM)](https://csrc.nist.gov/pubs/ir/8286/final)
+
+## Technical configuration mapping
+
+### The STIG ↔ NIST problem
+Mapping technical security configurations (STIGs, benchmarks) to control frameworks is a key workflow for security engineers:
+- [DISA STIGs](https://public.cyber.mil/stigs/downloads/) — Security Technical Implementation Guides
+- [DISA CCI List](https://public.cyber.mil/stigs/cci/) — Control Correlation Identifiers (bridge between STIGs and NIST 800-53)
+- [STIG Compilations](https://public.cyber.mil/stigs/compilations/) — bundled STIG packages
+- [CCI List Rev 5](https://public.cyber.mil/announcement/disa-releases-the-cci-list-revision-5/) — updated for 800-53 Rev 5
+
+### SCAP (Security Content Automation Protocol)
+Machine-readable format for expressing security configuration checklists:
+- [SCAP Project](https://csrc.nist.gov/projects/security-content-automation-protocol/)
+- [Security Configuration Settings](https://csrc.nist.gov/Projects/risk-management/about-rmf/implement-step/security-configuration-settings)
+- [NIST Checklist Repository](https://ncp.nist.gov/repository) — national checklist database
+
+### RMF (Risk Management Framework)
+- [About RMF](https://csrc.nist.gov/Projects/risk-management/about-rmf)
+- [RMF Database](https://rmfdb.com/search) — community search tool
+- [RMF Implement Step FAQ](https://csrc.nist.gov/CSRC/media/Projects/risk-management/documents/04-Implement%20Step/NIST%20RMF%20Implement%20Step-FAQs.pdf)
+
+### Automated STIG-to-NIST mapping
+- [OpenRMF](https://www.openrmf.io/) — open-source tool that [auto-relates NIST controls to DISA STIG checklists](https://dale-bingham-soteriasoftware.medium.com/automatically-relate-nist-families-and-controls-to-your-disa-stig-checklists-with-openrmf-330e1a944e7b)
+- [OpenRMF GitHub](https://github.com/Cingulara/openrmf-docs/releases)
+
+## OSCAL ecosystem (expanded)
+
+### Core tools
+- [NIST OSCAL GitHub](https://github.com/usnistgov/OSCAL) — official repository
+- [OSCAL Registry](https://registry.oscal.io/documents) — document registry
+- [OSCAL Viewer](https://viewer.oscal.io/) — browse catalogs
+- [OSCAL Resources](https://pages.nist.gov/OSCAL/resources/)
+- [oscal.io](https://oscal.io/) — community portal
+
+### OSCAL-compatible tools
+- [CIS Controls in OSCAL](https://github.com/CISecurity/CISControls_OSCAL) — CIS v8 in OSCAL format
+- [SCKG](https://github.com/sckg/sckg) — Security Controls Knowledge Graph
+- [awesome-oscal](https://github.com/oscal-club/awesome-oscal) — curated OSCAL resources
+- [EasyDynamics OSCAL](https://www.easydynamics.com/oscal/) — OSCAL development tools
+- [RegScale](https://regscale.com/) — OSCAL-native compliance platform
+- [DRT Confidence](https://www.drtconfidence.com/) — OSCAL tooling
+- [OpenRMF](https://www.openrmf.io/) — open-source RMF/OSCAL tool
+- [CyberESI OSCAL-CPRT](https://cyberesi-cg.com/oscal-cprt-catalog-project/) — OSCAL catalog project
+
+## Audit & compliance tools
+
+### Open source
+- [OpenRMF](https://www.openrmf.io/) — STIG management + NIST control mapping
+- [Chef InSpec](https://community.chef.io/tools/chef-inspec) — infrastructure compliance testing
+- [OpenSCAP](https://www.open-scap.org/) — SCAP-based security scanner ([tools](https://www.open-scap.org/tools/))
+- [Lynis](https://cisofy.com/lynis/) — Linux/macOS security auditing
+- [CISO Assistant](https://github.com/intuitem/ciso-assistant-community) — GRC with 80+ frameworks
+
+### Enterprise platforms
+- [RegScale](https://regscale.com/) — OSCAL-native, engineer-focused
+- [DRT Confidence](https://www.drtconfidence.com/) — OSCAL tooling
+- [Vanta](https://www.vanta.com/) — automated compliance
+- [Drata](https://drata.com/) — automated security compliance
+- [AuditBoard](https://www.auditboard.com/) — audit management
+- [Hyperproof](https://hyperproof.io/) — compliance operations
+- [Secureframe](https://secureframe.com/) — SOC 2 / ISO 27001 automation
+- [Sprinto](https://sprinto.com/) — continuous compliance
+- [Strike Graph](https://www.strikegraph.com/) — cybersecurity compliance SaaS
