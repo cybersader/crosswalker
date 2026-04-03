@@ -1,0 +1,35 @@
+---
+title: Programmatic logo generation
+description: The CW graph letterform logo could be generated programmatically with precise control over node positions, edge weights, and export formats.
+tags: [development]
+sidebar:
+  label: "04-03 · Programmatic logo gen"
+  order: -20260403
+---
+
+## The idea
+
+Instead of relying on AI image generation (which introduces randomness), the CW graph letterform logo could be generated programmatically. The logo IS a graph — nodes at computed positions, edges as lines. Code gives pixel-perfect control.
+
+## Possible approaches
+
+- **SVG math** — compute node positions along a C-curve and W-zigzag, output SVG directly. Simplest, most portable.
+- **D3.js** — force-directed or manually positioned graph, export as SVG
+- **Three.js / WebGL** — for 3D/isometric variations, export as PNG or render live on the docs site
+- **p5.js / Canvas** — quick prototyping of variations
+- **Figma plugin** — generate variations inside Figma for final cleanup
+
+## Why this is interesting
+
+- Every variation in LOGO_PROMPTS.md (proportion, weight, alignment, connection style, color) becomes a parameter
+- Could generate a grid of 100 variations instantly by sweeping parameters
+- The logo could be a live interactive element on the docs homepage (WebGL)
+- SVG output means true vector at any size — no AI upscaling needed
+- Version-controllable — the logo IS code
+
+## When to explore
+
+Low priority — AI generation with the sketch-to-digital prompts is faster for now. Revisit if:
+- AI outputs aren't precise enough
+- We want an animated/interactive logo on the site
+- We need hundreds of size/color/weight variations for a brand kit
