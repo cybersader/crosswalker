@@ -1,0 +1,71 @@
+---
+title: Institutional ontology landscape — planning
+description: Planning the documentation of how institutions create, maintain, map, regulate, and consume ontologies — the human side of ontology evolution.
+tags: [architecture, frameworks, grc]
+sidebar:
+  label: "04-03 · Institutional landscape"
+  order: -20260403
+---
+
+## What needs documenting
+
+The KB explains the TECHNICAL side of ontology evolution well (SCD types, schema matching, version patterns). But it doesn't explain the HUMAN/INSTITUTIONAL side:
+
+### Entities (actors)
+
+- **Standard bodies** (NIST, ISO, MITRE) — create and publish frameworks
+- **Industry groups** (CRI, FS-ISAC, OWASP) — create domain-specific frameworks
+- **Mapping organizations** (NIST OLIR, SCF, Center for Threat-Informed Defense) — create and maintain crosswalks
+- **Regulators** (SEC, FFIEC, NYDFS, EU NIS2) — mandate which frameworks to use
+- **GRC vendors** (ServiceNow, Archer, Drata, CISO Assistant) — implement frameworks in software
+- **Consulting firms** (Big 4, boutique GRC firms) — help organizations adopt frameworks
+- **Your organization** — consumes frameworks, maps evidence, proves compliance
+- **Auditors** (internal + external) — verify framework adoption
+
+### Relationship types
+
+- **Creates/publishes** — standard body → framework
+- **Mandates** — regulator → "you must use this framework"
+- **Maps/crosswalks** — mapping org → "framework A relates to framework B"
+- **Implements** — GRC vendor → "our tool supports this framework"
+- **Adopts** — your org → "we comply with this framework"
+- **Verifies** — auditor → "prove your compliance"
+- **Advises** — consultant → "here's how to adopt this framework"
+
+### Scenarios (how it works in practice)
+
+1. **Financial institution**: CRI mandated by board → maps to NIST CSF (regulator expects) → maps to FFIEC CAT (examiner uses) → evidence scattered across wiki/SharePoint
+2. **Tech company**: SOC 2 for customers → maps to ISO 27001 (international clients) → maps to CIS for operational controls → Dataroom for auditors
+3. **Government contractor**: NIST 800-171 mandated by DFARS → maps to 800-53 for deeper controls → STIG/SCAP for technical implementation → continuous monitoring via OSCAL
+4. **Healthcare**: HIPAA Security Rule → maps to NIST CSF → CIS for implementation → audit trail for HHS
+
+### Terminology to establish
+
+- **Framework publisher** — who creates the framework
+- **Framework steward** — who maintains it over time (may differ from publisher)
+- **Crosswalk maintainer** — who keeps mappings between frameworks current
+- **Mandate authority** — regulator or body that requires framework adoption
+- **Compliance consumer** — org that must prove adherence
+- **Evidence producer** — team that creates compliance artifacts
+- **Verification authority** — auditor or examiner that checks compliance
+
+## Where this lives in the KB
+
+Options:
+1. New concept page: `concepts/institutional-landscape.mdx` — the who/what/why of ontology management
+2. Expand existing: `concepts/ecosystem.mdx` — currently thin, could become the institutional home
+3. New section: multiple pages under a `concepts/institutions/` subfolder
+
+## Diagram approach
+
+These diagrams need to be interactive — hover over an entity to see its relationships, click to drill into scenarios. This is the diagram strategy decision in action.
+
+Candidates:
+- **Entity relationship diagram** — all actors and how they connect
+- **Scenario swimlane diagrams** — walk through each real-world scenario
+- **Lifecycle participation chart** — which actors are involved at each [lifecycle phase](/crosswalker/concepts/ontology-lifecycle/)
+- **Framework family tree** — who created what, who mandates what
+
+## User's direction
+
+> "I want ones to help understand how institutions have relationships with other institutions and call out the various entities involved with managing ontologies. Set some terminology for this. Explain different situations of how it can work in practice. Organized well into the KB. Represented intuitively with good HTML diagrams. Preferably interactive."
