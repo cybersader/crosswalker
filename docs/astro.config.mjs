@@ -84,7 +84,7 @@ export default defineConfig({
         },
         {
           label: 'Agent context & exploration',
-          autogenerate: { directory: 'agent-context' },
+          autogenerate: { directory: 'agent-context', collapsed: true },
         },
         {
           label: 'Development',

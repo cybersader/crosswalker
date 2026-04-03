@@ -38,8 +38,13 @@ Every log entry should have:
 title: Short descriptive title
 description: One sentence about what this captures.
 tags: [relevant-tags]
+sidebar:
+  label: "MM-DD · Short title"     # date prefix shows in sidebar
+  order: YYYYMMDD                   # numeric sort keeps chronological order
 ---
 ```
+
+The `sidebar.label` shows a compact date in the nav so entries are scannable. The `order` field ensures chronological sorting (newest at bottom by default).
 
 Use the existing [tag taxonomy](/crosswalker/tags/) — tags are what make log entries discoverable. A note about OSCAL export ideas should be tagged `[frameworks, architecture]` so it surfaces alongside the structured OSCAL content.
 
