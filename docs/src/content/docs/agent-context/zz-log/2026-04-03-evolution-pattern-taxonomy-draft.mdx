@@ -1,0 +1,107 @@
+---
+title: EvolutionPattern taxonomy draft v0.1
+description: First draft of the novel spec — 8 taxonomy fields classifying how ontologies evolve, applied to 7 frameworks, with SCD type mapping and as-code format.
+tags: [architecture, data-model-evolution, frameworks]
+sidebar:
+  label: "04-03 · EvolutionPattern draft v0.1"
+  order: -20260403
+---
+
+## Status
+
+**Draft v0.1** — ready for architecture review. This is the foundational spec that [FrameworkConfig v2](/crosswalker/agent-context/config-schema-design/) and [`_crosswalker` metadata v2](/crosswalker/agent-context/constraint-enforcement/#metadata-tiers) will build on.
+
+## The 8 taxonomy fields
+
+Derived from three foundational questions:
+
+1. **How often does it change?** → `release_cadence`
+2. **What breaks when it changes?** → `breaking_change_policy`, `id_stability`, `hierarchy_stability`, `deprecation_mechanism`
+3. **How much context is available to handle the change?** → `changelog_format`, `crosswalk_maintenance`, `scope_expansion`
+
+### Fields
+
+| Field | Type | Values | Why it matters |
+|-------|------|--------|----------------|
+| `release_cadence` | enum | ad_hoc, annual, biannual, quarterly, continuous | How often to check for staleness |
+| `breaking_change_policy` | enum | forbidden, rare, managed, unrestricted | Whether old imports survive updates |
+| `id_stability` | enum | immutable, additive, evolving, unstable | Whether crosswalk links survive |
+| `changelog_format` | enum | none, prose_only, structured_incomplete, structured_complete | Whether migration can be automated |
+| `hierarchy_stability` | enum | frozen, conservative, dynamic, radical | Whether folder structure survives |
+| `scope_expansion` | enum | none, incremental, major, metamorphic | Whether old imports become incomplete |
+| `deprecation_mechanism` | enum | none, soft_delete, versioned_chain, forward_migration | How removed concepts are handled |
+| `crosswalk_maintenance` | enum | self_maintained, submission_based, pivot_hub, delegated | Who keeps crosswalks current |
+
+## Framework profiles
+
+| Framework | Cadence | Breaking | IDs | Changelog | Hierarchy | Scope | Deprecation | Crosswalks | SCD Type |
+|-----------|---------|----------|-----|-----------|-----------|-------|-------------|------------|----------|
+| [NIST 800-53](/crosswalker/concepts/framework-versioning/#nist-800-53-rev-4--5-september-2020) | ad_hoc | managed | immutable | structured_incomplete | conservative | incremental | soft_delete | submission | **Type 3** |
+| [NIST CSF 2.0](/crosswalker/concepts/framework-versioning/#nist-csf-11--20-february-2024) | ad_hoc | managed | additive | structured_incomplete | conservative | major | soft_delete | submission | **Type 2** |
+| CIS v8 | ad_hoc | unrestricted | evolving | prose_only | radical | incremental | none | delegated | **Type 1** |
+| [MITRE ATT&CK](/crosswalker/concepts/framework-versioning/#mitre-attck--the-gold-standard) | biannual | rare | evolving | structured_complete | dynamic | none | versioned_chain | self | **Type 4** |
+| MITRE D3FEND | continuous | managed | immutable | structured_incomplete | frozen | none | soft_delete | self | **Type 3** |
+| MITRE ENGAGE | ad_hoc | rare | immutable | structured_incomplete | frozen | none | soft_delete | delegated | **Type 2** |
+| [CRI Profile](/crosswalker/concepts/framework-versioning/#cri-profile) | ad_hoc | managed | additive | structured_incomplete | frozen | major | soft_delete | submission | **Type 2** |
+
+## SCD type decision logic
+
+```
+IF breaking == "forbidden" AND changelog == "structured_complete"
+  → Type 6 (full hybrid)
+ELSE IF breaking in [rare, managed] AND deprecation == "versioned_chain"
+  → Type 4 (history table with revocation chains)
+ELSE IF breaking == "managed" AND ids in [immutable, additive]
+  → Type 2 or 3 (version-tagged folders / ID aliasing)
+ELSE
+  → Type 1 or 0 (overwrite / archive only)
+```
+
+## As-code format
+
+Framework evolution profiles are YAML files:
+
+```yaml
+framework_id: mitre-attack-enterprise
+name: "MITRE ATT&CK Enterprise"
+version: "16.1"
+published_date: 2025-10-15
+
+evolution:
+  release_cadence: biannual
+  breaking_change_policy: rare
+  id_stability: evolving
+  changelog_format: structured_complete
+  hierarchy_stability: dynamic
+  scope_expansion: none
+  deprecation_mechanism: versioned_chain
+  crosswalk_maintenance: self_maintained
+
+recommended_scd_type: 4
+handling_strategy: "history-table-with-current-flag"
+```
+
+Full examples for all 7 frameworks are in the spec draft.
+
+## Core insight
+
+> An ontology's evolution is not a property of the ontology itself, but of how it's **stewarded by its community**.
+
+MITRE publishes biannual with STIX changelogs → automation possible. CIS publishes infrequently with prose → human-driven. The taxonomy captures this stewardship pattern.
+
+## Open questions
+
+1. **Staleness detection algorithm** — time-based? hash-based? version-aware?
+2. **Crosswalk versioning** — should crosswalks carry their own evolution pattern?
+3. **SCD type automation** — can the decision tree be fully automated from the taxonomy?
+4. **Community governance** — who maintains the evolution profile registry?
+5. **LLM-assisted detection** — can LLMs analyze changelogs and suggest evolution patterns?
+6. **Pivot/interlingua strategy** — should Crosswalker adopt SCF as a meta-framework?
+
+## Related
+
+- [Ontology evolution](/crosswalker/concepts/ontology-evolution/) — the problem domain
+- [Framework versioning](/crosswalker/concepts/framework-versioning/) — per-framework details
+- [Ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) — the Maintain phase implements this
+- [Config schema design](/crosswalker/agent-context/config-schema-design/) — FrameworkConfig v2 builds on this
+- [Roadmap: Foundation](/crosswalker/reference/roadmap/#foundation--get-the-architecture-right) — this is the first spec item
