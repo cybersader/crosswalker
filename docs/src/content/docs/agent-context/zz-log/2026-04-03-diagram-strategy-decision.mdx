@@ -1,0 +1,44 @@
+---
+title: Diagram strategy decision needed
+description: Mermaid SVGs are ugly. Need custom interactive HTML/CSS/JS diagrams for concept pages. Planning the approach.
+tags: [development, architecture]
+sidebar:
+  label: "04-03 · Diagram strategy"
+  order: -20260403
+---
+
+## Context
+
+Mermaid diagrams now render (switched from broken client-side plugin to build-time rehype-mermaid). But the output is generic SVG boxes and arrows — not the quality we want for a knowledge base showcasing ontology lifecycle management.
+
+## The problem
+
+13 Mermaid diagrams on the [ontology evolution](/crosswalker/concepts/ontology-evolution/) page alone. More across other concept pages. All functional but visually underwhelming. The user wants "awesome looking interactive diagrams and HTML."
+
+## Options to evaluate
+
+1. **Inline HTML/CSS/JS per diagram** — like the [hero visual](/crosswalker/) on the homepage. Custom, beautiful, but labor-intensive per diagram.
+2. **Reusable Astro components** — `<GraphDiagram>`, `<FlowDiagram>`, `<ActorsMap>` that take data props. Build once, reuse.
+3. **D3.js force-directed graphs** — actual interactive visualizations via Astro Islands (`client:visible`). Drag nodes, hover for details.
+4. **Hybrid** — Mermaid for simple/temporary diagrams, custom components for key showcases.
+5. **CSS-only styled Mermaid** — keep Mermaid but override styles heavily with custom CSS to match the brand.
+
+## Decisions needed
+
+- Which concept pages need custom diagrams vs which can stay text/tables?
+- Should we build reusable components or one-off per page?
+- How interactive? (static SVG, CSS animations, or full JS interactivity?)
+- Does this block Foundation phase work, or is it polish for later?
+- Full audit of concept pages needed to identify which diagrams are actually useful vs noise
+
+## Pages with Mermaid currently
+
+- ontology-evolution.mdx — 13 diagrams (the biggest)
+- ontology-lifecycle.mdx — 2 diagrams
+- design/architecture.mdx — 1 diagram
+- Various log entries reference pipeline/lifecycle diagrams
+
+## Related
+
+- [Hero visual iterations](/crosswalker/agent-context/zz-log/2026-04-03-hero-visual-iterations/) — the custom CSS/SVG approach we used for the homepage
+- [Why Obsidian, why files](/crosswalker/agent-context/zz-log/2026-04-03-why-obsidian-why-files/) — filesystem-first means diagrams should also work as plain markdown fallback
