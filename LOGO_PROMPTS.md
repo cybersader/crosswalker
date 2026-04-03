@@ -1,139 +1,92 @@
-# Crosswalker Logo Generation Prompts
+# Crosswalker Logo Prompts
 
-Brand identity derived from "crosswalk" — the GRC term for mapping relationships between compliance frameworks. Visual language: intersecting paths forming a network/graph, compliance shield motifs, the concept of bridging between structured systems.
+## Brand Core
 
-Subtle thematic layer: crossing paths, a bridge between worlds (structured frameworks ↔ human knowledge).
+**Name origin**: "Crosswalk" = GRC term for mapping between compliance frameworks.
+**Visual language**: Intersecting paths, network graph, bridging structured systems.
+**Vibe**: Professional, techy, cybersecurity. Not playful — authoritative.
 
-## Color Palette (matches docs brand.css)
+## Colors
 
-| Role | Color | Hex | Usage |
-|------|-------|-----|-------|
-| Background Dark | Near-black | `#0d1117` | Dark mode backgrounds |
-| Surface | Dark gray | `#161a22` | Panels, surfaces |
-| Accent Primary | Teal/Cyan | `#00d4aa` | Primary accent, edges, highlights |
-| Accent Glow | Light teal | `#7ff5d8` | Glow effects, hover |
-| Accent Deep | Dark teal | `#0a2a2a` | Accent backgrounds |
-| ATT&CK Red | Soft red | `#e06c75` | Secondary accent (technique nodes) |
-| Evidence Green | Soft green | `#98c379` | Tertiary accent (evidence nodes) |
-| Text Light | Off-white | `#e8edf2` | Text on dark |
+| Name | Hex | Role |
+|------|-----|------|
+| Void | `#0d1117` | Dark bg |
+| Accent | `#00d4aa` | Primary teal |
+| Glow | `#7ff5d8` | Highlights |
+| Red | `#e06c75` | ATT&CK / threat |
+| Green | `#98c379` | Evidence |
+| White | `#e8edf2` | Text |
 
----
+## Base Prompt (prepend to all)
 
-## Concept 1: Crosswalk Graph — Primary Logo Mark
-
-The core identity: a small network graph where nodes are connected by typed edges, forming a shape that subtly suggests intersecting paths or a bridge.
-
-### Dark Background (Primary)
 ```
-A minimal geometric logo mark: 5-6 small circles (nodes) connected by thin lines (edges) forming an interconnected graph pattern. The nodes are arranged so the connecting lines create a subtle cross or intersection pattern at the center. Nodes are teal (#00d4aa) with slight glow. Edges are thinner, lighter teal. The overall shape is compact, roughly square proportions. One or two edges have tiny rectangular badges on them (representing edge metadata). Dark background (#0d1117). Clean flat vector style. No text. Suitable for a software product icon at 64px and 512px.
+Clean flat vector logo. No gradients except subtle glow. Software product icon style (like Linear, Vercel, Notion). Must work at 32px and 512px.
 ```
 
-### Light Background
+## Concepts × Variants Grid
+
+Each concept row + each variant column = one prompt. Combine base + concept + variant.
+
+### Concepts
+
+| # | Concept | Core Prompt |
+|---|---------|------------|
+| 1 | **Graph** | 5-6 small circles (nodes) connected by thin lines (edges) forming a compact interconnected graph. Connecting lines create a subtle cross/intersection pattern at center. 1-2 edges have tiny rectangular metadata badges. |
+| 2 | **Shield+Graph** | Minimal shield outline (rounded bottom, flat top) containing a small 4-5 node network graph with crossing lines inside. Feel: "protected knowledge network." |
+| 3 | **Crossroads** | Two horizontal parallel lines connected by 3-4 diagonal crossing lines forming a bridge/X pattern. Small glowing dots at intersection points. Geometric, architectural. |
+| 4 | **Diamond+Graph** | Obsidian-style rotated square/rhombus outline with network graph nodes extending beyond its bounds. Diamond = Obsidian; extending graph = knowledge Crosswalker creates. |
+| 5 | **CW Mono** | Letters "CW" where strokes are made of thin lines and small circles (graph network elements). C curves around nodes, W peaks connect to nodes with short edges. |
+
+### Variants
+
+| Variant | Modifiers |
+|---------|-----------|
+| **Dark** | Teal (#00d4aa) elements, dark (#0d1117) bg. Subtle glow on nodes. |
+| **Light** | Dark teal (#0a6b56) elements, white (#f8f9fa) bg. No glow. |
+| **Mono** | Single color (#0d1117) on transparent. Works at 16px favicon. |
+| **Multi-color** | Teal nodes (#00d4aa) + red node (#e06c75) + green node (#98c379). Shows multi-domain concept. |
+| **+ Wordmark** | Below icon: "CROSSWALKER" in geometric sans-serif, 0.15em spacing. Below that: "compliance knowledge graph" in muted gray. |
+
+### Quick Reference: Concept × Variant
+
+| | Dark | Light | Mono | Multi | +Word |
+|---|---|---|---|---|---|
+| Graph | Primary | Docs | Favicon | Hero | Social |
+| Shield | Alt | Print | - | - | Landing |
+| Crossroads | Alt | Alt | - | - | - |
+| Diamond | Plugin listing | - | - | - | - |
+| CW Mono | Avatar | Print | Favicon | - | Header |
+
+## Full Prompt Examples
+
+**Primary (Concept 1 × Dark)**:
 ```
-Same graph pattern as above — 5-6 interconnected nodes with crossing edge lines and tiny metadata badges on select edges. Nodes are dark teal (#0a6b56). Edges are medium gray (#5c636e). Clean white (#f8f9fa) background. Flat vector, no gradients. No text. The intersection/crossing pattern of the edges should be the focal point.
-```
-
-### Monochrome (Print/Favicon)
-```
-Same graph topology — 5-6 nodes connected by edges forming a cross/intersection pattern. All elements in a single dark color (#0d1117) on transparent background. Thin, clean strokes. Works at 16x16 favicon size — the overall shape should read as a connected cluster even at tiny sizes.
-```
-
----
-
-## Concept 2: Shield + Graph — GRC Identity
-
-Combines the compliance/security shield with the knowledge graph concept.
-
-### Dark Background
-```
-A minimal shield outline (rounded bottom, flat top) in teal (#00d4aa), with a small network graph pattern inside it — 4-5 nodes connected by crossing lines. The graph nodes are slightly lighter teal. The shield has a subtle glow. The overall feel is "protected knowledge network." Dark background (#0d1117). Clean flat vector. No text. Suitable as a software icon.
-```
-
-### Light Background
-```
-Same shield + graph concept. Shield outline in dark teal (#0a6b56) on white background. Internal graph nodes in teal, edges in gray. Clean, minimal. No gradients.
-```
-
----
-
-## Concept 3: Crossroads/Bridge — Abstract
-
-More abstract: two parallel horizontal bars (representing frameworks) connected by diagonal crossing lines (crosswalks), forming an "X" or bridge pattern.
-
-### Dark Background
-```
-Two horizontal parallel lines in muted gray (#3d434e) representing framework hierarchies. Between them, 3-4 diagonal connecting lines in teal (#00d4aa) cross each other, forming a bridge or crosswalk pattern. Small dots at the intersection points glow subtly. Dark background (#0d1117). Minimal, geometric, architectural. No text. The diagonal crossing lines are the hero — they represent the crosswalk mappings.
-```
-
-### Light Background
-```
-Same concept — two parallel horizontals with crossing diagonal connectors. Dark teal connectors on white background. Intersection dots as accent marks.
-```
-
----
-
-## Concept 4: Obsidian-Integrated — Diamond + Graph
-
-For contexts where the Obsidian connection matters (plugin listings, community).
-
-### Dark Background
-```
-An Obsidian-style diamond (rotated square/rhombus) in teal (#00d4aa) outline, with a small network graph pattern emerging from or contained within the diamond shape. 3-4 nodes with connecting edges extend beyond the diamond's bounds, suggesting knowledge growing beyond the container. Dark background (#0d1117). The diamond references Obsidian; the extending graph represents the knowledge graph Crosswalker creates.
+Clean flat vector logo, software product icon style. 5-6 small circles connected by thin lines forming a compact graph with crossing pattern at center. 1-2 edges have tiny metadata badges. Teal (#00d4aa) nodes with subtle glow. Dark (#0d1117) background. No text. Works at 32px and 512px.
 ```
 
----
-
-## Concept 5: CW Monogram — Lettermark
-
-For social media, favicons, and compact contexts.
-
-### Dark Background
+**Plugin Listing (Concept 4 × Dark)**:
 ```
-The letters "CW" intertwined with thin connecting lines between them, as if the letters are nodes in a graph. Small dots at connection points. Teal (#00d4aa) on dark (#0d1117). The connecting lines between C and W suggest the crosswalk/bridge concept. Modern geometric font weight. Clean vector.
+Clean flat vector logo. Obsidian-style rotated square outline in teal (#00d4aa) with 3-4 graph nodes and edges extending beyond the diamond. Teal on dark (#0d1117). No text.
 ```
 
-### Refined CW Graph
+**Favicon (Concept 1 × Mono)**:
 ```
-Stylized "CW" where the strokes of both letters are made of thin lines and small circles (like a graph network). The C curves around several small nodes, and the W's peaks connect to nodes with short edges. Teal (#00d4aa) lines and nodes on dark (#0d1117) background. The overall effect: letters made of the same graph elements that Crosswalker creates. Minimal, tech-forward.
-```
-
----
-
-## Variation Modifiers
-
-Add these to any prompt above for specific contexts:
-
-### With Tagline
-```
-[base prompt] Below the icon, the text "CROSSWALKER" in a clean geometric sans-serif font, letter-spacing 0.15em, in off-white (#e8edf2). Below that in smaller text: "compliance knowledge graph" in muted gray (#5c636e).
+Extremely simplified: 4-5 dots connected by lines forming a compact cluster with crossing pattern. Single color (#0d1117) on transparent. Recognizable at 16x16.
 ```
 
-### Animated (for web/docs)
-```
-[base prompt] The graph edges have a subtle animated dash pattern flowing along them, and the nodes have a gentle periodic pulse/glow animation. 
-```
+## Usage
 
-### With Framework Colors
-```
-[base prompt] Different nodes use different accent colors: teal (#00d4aa) for framework controls, soft red (#e06c75) for ATT&CK techniques, soft green (#98c379) for evidence. This shows the multi-domain knowledge graph concept.
-```
+| Context | Recipe | Size |
+|---------|--------|------|
+| Obsidian plugin | C4 × Dark | 256×256 |
+| GitHub repo | C1 × Dark | 400×400 |
+| Favicon | C1 × Mono | 32×32 |
+| Social/OG | C1 × Multi + Word | 1200×630 |
+| Docs header | C5 × Dark + Word | Variable |
 
----
+## Tools
 
-## Usage Guidelines
-
-| Context | Concept | Size |
-|---------|---------|------|
-| Obsidian plugin listing | Concept 4 (Diamond + Graph) | 256x256 |
-| GitHub repo | Concept 1 (Crosswalk Graph) or 5 (CW Monogram) | 400x400 |
-| Docs site favicon | Concept 1 (simplified) or 5 | 32x32, 192x192 |
-| Social/Open Graph | Concept 1 + tagline | 1200x630 |
-| Print/monochrome | Any concept, monochrome variant | Variable |
-
-## Tools for Generation
-
-- [ChatGPT / DALL-E](https://chat.openai.com) — best for iterative refinement
-- [Midjourney](https://midjourney.com) — `--style raw` for cleaner vectors
-- [Obsidian Logo Maker](https://obsidian.md/logo) — for the Obsidian-integrated variant
-- [Figma](https://figma.com) — for final vector cleanup after AI generation
-- SVG trace tools — convert raster to vector for final production use
+- ChatGPT/DALL-E — iterative refinement
+- Midjourney — `--style raw` for vectors
+- [Obsidian Logo Maker](https://obsidian.md/logo) — Concept 4
+- Figma — final vector cleanup
