@@ -1,1 +1,2 @@
-@import 'tailwindcss';
+@layer base, starlight, nova, theme, components, utilities;
+@import 'tailwindcss' layer(base);
