@@ -1,0 +1,73 @@
+---
+title: Knowledge organization
+description: How to organize framework knowledge in Obsidian — structural primitives, meta-frameworks, and the hierarchy vs. graph tension.
+---
+
+## The organization problem
+
+Compliance frameworks are structured hierarchies, but the knowledge work around them (evidence, reviews, policies) is graph-shaped. Organizing this in a filesystem requires choosing between competing structural primitives.
+
+## Structural primitives in Obsidian
+
+### Folders
+- **Strict hierarchy** — each item has exactly one parent
+- Best for: consumable outputs, framework taxonomies, published structures
+- Limitation: single classification only
+
+### Tags
+- **Overlapping hierarchies** — items can belong to multiple categories
+- Best for: clustering, cross-cutting concerns (e.g., `#access-management` across multiple frameworks)
+- Nested tags enable sub-classification: `#framework/nist/ac`
+
+### Links
+- **Flexible relationships** — any note can link to any other
+- Best for: evidence mapping, cross-references, ad-hoc connections
+- Limitation: no metadata about the relationship (Crosswalker addresses this)
+
+### Metadata / Properties
+- **Structured information** — typed key-value pairs in YAML frontmatter
+- Best for: queryable attributes (status, reviewer, date, framework version)
+- Powers Dataview queries and Obsidian Bases views
+
+## How Crosswalker uses each
+
+| Primitive | Crosswalker Usage |
+|-----------|------------------|
+| **Folders** | Framework hierarchy (Family → Control → Enhancement) |
+| **Tags** | Cross-cutting categories from framework data |
+| **Links** | Cross-framework references and evidence mapping |
+| **Metadata** | Frontmatter properties from source columns + `_crosswalker` tracking |
+
+## SEACOWr meta-framework
+
+A thinking tool for organizing knowledge platforms, applicable to how Crosswalker structures output:
+
+- **S**ystem — the platform (Obsidian, with its specific capabilities)
+- **E**ntity — the user (GRC analyst, security engineer, auditor)
+- **A**ctivities:
+  - **C**apture — how knowledge enters (Crosswalker import wizard)
+  - **O**utput — how knowledge exits (reports, queries, exports)
+  - **W**ork — how knowledge is processed (evidence mapping, gap analysis)
+  - **(r)elation** — how concepts connect (typed links, crosswalks)
+
+This framework helps answer "where should this go?" when structuring imported data.
+
+## PARA + Taxonomies
+
+The classic PARA system (Projects, Areas, Resources, Archive) can be extended with a Taxonomies/Ontologies category for framework structures. In a Crosswalker context:
+
+| Category | Content |
+|----------|---------|
+| Projects | Active compliance assessments |
+| Areas | Ongoing security domains |
+| Resources | Reference materials, policies |
+| Archive | Completed assessments |
+| **Taxonomies** | Imported framework hierarchies (Crosswalker output) |
+
+## Design implications for Crosswalker
+
+1. **Output path should be configurable** — different users organize differently
+2. **Frameworks should be self-contained** — each import in its own folder subtree
+3. **Cross-references via links, not folders** — crosswalks don't need shared folder hierarchy
+4. **Metadata enables querying** — frontmatter properties make frameworks queryable without specific plugins
+5. **Tags for cross-cutting concerns** — framework categories that span multiple hierarchies

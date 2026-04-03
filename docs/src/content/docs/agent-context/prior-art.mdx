@@ -5,26 +5,63 @@ description: Existing tools, research, and the history of the Crosswalker projec
 
 ## Project history
 
-Crosswalker started as a Python script (`frameworks_to_obsidian.py`) for importing cybersecurity frameworks into Obsidian. The Python tool successfully imports NIST 800-53, CIS Controls v8, MITRE ATT&CK/D3FEND/ENGAGE, and CRI Profile.
+### Origins: Obsidian Frameworker
+The project began as "Frameworker" — a concept for mapping plaintext markdown files to taxonomical frameworks with CSV import, YAML frontmatter, and 2-way sync. The core insight: GRC involves massive knowledge work, and keeping structured frameworks side-by-side with the knowledge we create could change how compliance teams operate.
 
-The Obsidian plugin extends this to a general-purpose import wizard with a UI, config system, and broader file format support.
+### Python tool (1500+ lines)
+The `frameworks_to_obsidian.py` script was the first implementation. It takes tabular framework data (CSV/XLSX) and translates it into hierarchical Obsidian vault structures with:
+- Folder taxonomy generation from hierarchy columns
+- Markdown notes with YAML frontmatter
+- WikiLinks between framework nodes (crosswalks)
+- Custom transforms per framework (tag aggregation, regex normalization, hierarchical forward-fill)
+
+**Supported frameworks**: MITRE ATT&CK + D3FEND + ENGAGE, NIST 800-53, CSF v2, CIS v8, CRI Profile
+
+**Architecture**: Load → Clean → Transform → Deduplicate → Configure → Generate → Link
+
+### Obsidian plugin
+The plugin extends the Python tool into a general-purpose import wizard with a UI, config system, and broader format support. It makes the import process accessible to non-developers.
+
+### Obsidian & Cyber Working Group
+An open-source community building resources for using Obsidian in cybersecurity:
+- Framework crosswalk engine
+- Starter vaults for SecOps, GRC, and personal branding
+- Knowledge organization meta-framework (SEACOWr)
+
+## The edge metadata gap
+
+A key discovery during research: **no existing Obsidian plugin can attach data to relationships between notes**. Every plugin evaluated falls short:
+
+| Plugin | What it does | Why it's not enough |
+|--------|-------------|-------------------|
+| **Breadcrumbs V4** | Edge fields and field groups | Individual key:value pairs per edge only — no structured JSON metadata |
+| **Juggl** | Graph visualization with typed links | No powerful query/reasoning over the graph; needs export/import |
+| **Excalibrain** | Visual graph like Juggl/Breadcrumbs | Display-only, no metadata encoding |
+| **Graph Link Types** | Turns Dataview inline tags into graph edges | Display-only, no additional metadata |
+| **Semantic Canvas** | Another graph view with link types | Display-only |
+| **Supercharged Links** | CSS styling based on target note YAML | Visual only, no edge data |
+
+This gap is what motivated the [link metadata system](/Crosswalker/agent-context/link-metadata-system/) — using Dataview inline fields with dot notation and JSON to encode structured metadata on links.
 
 ## Existing tools in this space
 
 ### GRC platforms
 - **ServiceNow GRC**, **Archer**, **LogicGate** — Enterprise GRC with proprietary databases
 - **Drata**, **Vanta** — Automated compliance, SaaS-locked
-- Trade-off: Full-featured but expensive, locked-in, rigid
+- **CISO Assistant** — Open-source, 80+ frameworks, auto-mapping between standards
+- Trade-off: Full-featured but expensive (commercial) or limited UI (open-source), locked-in
+
+### Framework mapping tools
+- **SCF with STRM** — Set Theory Relationship Mapping, mathematical approach to crosswalking
+- **Apptega** — Commercial crosswalking platform
+- **HITRUST MyCSF** — Compliance framework tool
+- **RegScale** — OSCAL-native compliance automation
+- See [framework standards](/Crosswalker/concepts/framework-standards/) for full list
 
 ### Knowledge/note tools
 - **Obsidian + Dataview** — Flexible but no structured import
 - **Notion databases** — Good structure but no graph navigation
 - **Roam Research** — Graph-first but no filesystem
-
-### Framework-specific tools
-- **NIST OSCAL** — Machine-readable framework format (XML/JSON)
-- **ATT&CK Navigator** — Visualization for MITRE ATT&CK
-- **CIS Controls Navigator** — Interactive CIS tool
 
 ### Gap
 No tool bridges structured framework data and a personal/team knowledge base with typed, queryable links. That's the Crosswalker niche.
@@ -37,3 +74,22 @@ No tool bridges structured framework data and a personal/team knowledge base wit
 | Folder Notes | Folder-as-note pattern | No import or generation |
 | Metadata Menu | Property management | No bulk import from external files |
 | Database Folder | Table views | No external data import wizard |
+| Obsidian Bases | Built-in table/card views | No external data import |
+
+## Python tool technical details
+
+### Helper functions
+- `match_value()` — flexible string/array/regex matcher for crosswalking
+- `build_full_path_components()` / `split_folders()` — path construction
+- `sanitize_column_name()` — normalize column headers
+- `hierarchical_ffill()` — grouped forward-fill for merged cells in Excel
+
+### Core engine
+- **Taxonomy builder** — DataFrame + config → folders + markdown files
+- **Linker** — two frameworks + matching rules → inject WikiLinks
+
+### Per-framework transforms
+- **CRI**: Tag aggregation from subject areas
+- **NIST 800-53**: Regex ID normalization for assessment procedures
+- **D3FEND**: Hierarchical forward-fill for ontology structure
+- **CIS v8**: Preamble extraction from control descriptions

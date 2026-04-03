@@ -1,0 +1,98 @@
+---
+title: Link metadata system
+description: The theoretical foundation for typed links with edge metadata in Obsidian — how relationships between notes can carry structured data.
+---
+
+## The core problem
+
+Traditional markdown links only store a destination. You can link to `AC-2.md` but you can't express *why* — is it evidence? An implementation? A review? Crosswalker's future link system encodes **metadata about relationships**, not just the relationships themselves.
+
+## Edge metadata
+
+Edge metadata is additional information stored *about* a link between two notes:
+
+- A **dotKey** (e.g., `framework_here.reviewer`) naming the relationship type
+- A **value** — boolean, string, or JSON object with richer details
+- A **destination** — WikiLink or markdown link to the target note
+
+### Syntax examples
+
+```
+# Boolean (implied true)
+framework_here.applies_to:: [[AC-2]]
+
+# String value
+framework_here.reviewer:: "Alice"
+
+# JSON metadata
+framework_here.applies_to:: [[AC-2]] {"sufficient": true, "reviewer": "Alice"}
+
+# Markdown link style
+framework_here.applies_to:: [AC-2](path/to/AC-2.md) {"status": "complete"}
+
+# Wrapped (hidden in Obsidian reading view)
+[framework_here.applies_to:: [[AC-2]]]
+(framework_here.applies_to:: [[AC-2]] {"sufficient": true})
+```
+
+## Dot notation use cases
+
+The dot notation in `framework_here.applies_to` serves three purposes:
+
+1. **Default value for outgoing links** — sets a default that applies to all links from this note
+2. **Boolean flag** — when no JSON follows, the relationship is implicitly `true`
+3. **Object default** — when JSON follows without a link, sets default properties for all links of that type
+
+## Priority structure
+
+When edge metadata appears in multiple places (frontmatter, inline tags, folder attributes), a priority hierarchy resolves conflicts:
+
+| Priority | Source | Example |
+|----------|--------|---------|
+| 1 (highest) | Inline tag + link + JSON | `type:: [[Target]] {"key": "val"}` |
+| 2 | Inline tag + link (implied boolean) | `type:: [[Target]]` |
+| 3 | Inline tag (child/leaf) + link + JSON | Nested folder context |
+| 4 | Inline tag (parent/root) + link + JSON | Parent folder context |
+| 5 | Inline tag without link + value | `type:: "default_value"` |
+| 6 | YAML frontmatter | `type: value` in frontmatter |
+| 7 (lowest) | Folder-level defaults | Inherited from parent folder |
+
+## Regex parsing
+
+The system uses regex to extract structured data from inline link syntax:
+
+```
+framework_here.applies_to:: [[ID 12]] {"sufficient": true, "control": true}
+```
+
+Captured groups:
+- **dotKey**: `framework_here.applies_to`
+- **destination**: `[[ID 12]]` (WikiLink), `[ID 12](path.md)` (markdown), or plain text
+- **metadata**: `{"sufficient": true, "control": true}` (JSON) or `"quoted value"`
+
+## Query levels
+
+Relationships can be queried at different hierarchical levels:
+
+### Leaf-level query
+At a specific framework node (e.g., `AC-2.md`), find all notes that link to it with their metadata.
+
+### Folder-level query
+Aggregate all inbound links for an entire folder (e.g., all Access Control family controls), merging or grouping results.
+
+### Global query
+Search the entire vault for any note linking to any part of the framework, producing a compliance-wide view.
+
+## Relationship aggregation
+
+When multiple notes link to the same framework node, their metadata must be aggregated:
+
+- A single control might be referenced by 5 evidence notes, each with different reviewers and coverage levels
+- The aggregation uses the priority structure to merge conflicting values
+- Output can be nested (JSON/YAML), tabular, or pivoted by category
+
+## Current implementation status
+
+The link metadata system is **designed but not yet implemented** in the Crosswalker plugin. The current MVP focuses on importing structured data. The link system is planned for Phase 2 — see the [roadmap](/Crosswalker/reference/roadmap/).
+
+The Python tool (`frameworks_to_obsidian.py`) generates basic WikiLinks between framework nodes. The plugin will eventually support the full typed-link syntax described here.

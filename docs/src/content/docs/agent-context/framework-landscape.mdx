@@ -45,3 +45,38 @@ description: Overview of common compliance frameworks and their data structures.
 | MITRE ATT&CK | `T1059`, `T1059.001` | 2-3 (tactic/technique/sub) |
 
 Understanding these patterns informs column type detection and auto-mapping.
+
+## Real-world adoption: CRI Profile
+
+From an FS-ISAC Spring Summit 2024 session on adopting CRI Profile v2.0:
+
+### Implementation challenges
+- **Scale**: The CRI Profile is a massive spreadsheet with hundreds of diagnostic statements across multiple mapping sheets
+- **Tooling gap**: Organizations like Sallie Mae adopted CRI using tools like Axio, but many still rely on large Excel files
+- **SaaS demand**: Strong demand for SaaS solutions that can handle CRI's complexity without manual spreadsheet management
+
+### Mapping complexity
+- CRI maps to NIST CSF, FFIEC CAT, CISA CPG, and other financial-sector standards
+- Organizations need to maintain continuous compliance across all mapped frameworks simultaneously
+- Evidence collection must link back to specific diagnostic statements — exactly what Crosswalker's typed-link system is designed for
+
+### Maturity assessment
+- CRI provides a maturity model for assessing control implementation
+- GRC policy alignment requires mapping organizational policies to CRI framework categories
+- The assessment process is iterative — not a one-time mapping but ongoing evidence management
+
+## Additional frameworks
+
+### OWASP Top 10
+Application security risks — relevant for AppSec teams mapping to broader frameworks.
+
+### DETT&CT
+Detection and analytics framework building on MITRE ATT&CK.
+
+### Cyber Kill Chain
+Lockheed Martin's attack lifecycle model — commonly referenced alongside ATT&CK.
+
+### Diamond Model
+Threat intelligence framework for analyzing cyber intrusions — complements ATT&CK's technique focus.
+
+See [framework standards](/Crosswalker/concepts/framework-standards/) for complete links and resources.

@@ -1,0 +1,105 @@
+---
+title: Framework standards & tools
+description: Reference guide to compliance frameworks, mapping standards, and GRC tools relevant to Crosswalker.
+---
+
+## NIST ecosystem
+
+### Cybersecurity Framework (CSF) 2.0
+High-level cybersecurity outcomes organized as Function → Category → Subcategory. The foundational framework that most others map to.
+- [CSF 2.0 Quick Start Guides](https://www.nist.gov/quick-start-guides)
+- [CSF Core (JSON download with OLIR)](https://csrc.nist.gov/extensions/nudp/services/json/csf/download?olirids=all)
+- [Community Profiles](https://www.nccoe.nist.gov/framework-resource-center)
+
+### SP 800-53 Rev. 5
+Detailed security and privacy controls catalog. Family → Control → Enhancement structure with ~1000+ items.
+- [Controls and Baselines](https://csrc.nist.gov/Projects/risk-management/sp800-53-controls)
+- [800-53A Rev. 5 (Assessment Procedures)](https://csrc.nist.gov/pubs/sp/800/53/a/r5/final)
+- [Control Overlays](https://csrc.nist.gov/Projects/risk-management/sp800-53-controls/overlay-repository)
+- [Downloads](https://csrc.nist.gov/Projects/risk-management/sp800-53-controls/downloads)
+
+### OSCAL (Open Security Controls Assessment Language)
+Machine-readable format for security controls in JSON/XML. Enables automated compliance workflows.
+- [OSCAL Concepts](https://pages.nist.gov/OSCAL/resources/concepts/layer/)
+- [OSCAL Viewer](https://viewer.oscal.io/)
+- [OSCAL Registry](https://pages.nist.gov/OSCAL/)
+- [EasyDynamics OSCAL tools](https://www.easydynamics.com/oscal/)
+- [awesome-oscal](https://github.com/oscal-club/awesome-oscal)
+
+### OLIR (Online Informative References)
+NIST's official framework crosswalk program — the authoritative source for how frameworks map to each other.
+- [Informative Reference Catalog](https://csrc.nist.gov/projects/olir/informative-reference-catalog)
+- [OLIR FAQ](https://csrc.nist.gov/projects/olir/faqs)
+- [OLIR Validation Tool](https://csrc.nist.gov/Projects/olir/validation-tool)
+
+### NIST CPRT (Cybersecurity and Privacy Reference Tool)
+Interactive tool for browsing frameworks with cross-references.
+- [CPRT Filters](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters)
+
+### IR 8477
+"Mapping Relationships Between Documentary Standards, Regulations, Frameworks, and Guidelines" — the theoretical foundation for how NIST approaches framework crosswalking.
+- [IR 8477 Publication](https://csrc.nist.gov/pubs/ir/8477/final)
+
+### NIST RMF Database
+Community tool for searching risk management controls.
+- [RMF Database](https://rmfdb.com/search)
+
+## MITRE frameworks
+
+### ATT&CK
+Adversary tactics and techniques. Tactic → Technique → Sub-technique.
+- [ATT&CK Matrix](https://attack.mitre.org/)
+- [Data & Tools](https://attack.mitre.org/resources/attack-data-and-tools/)
+- [Mappings Explorer](https://center-for-threat-informed-defense.github.io/mappings-explorer/external/) — cross-framework mappings
+
+### D3FEND
+Defensive countermeasures mapped to ATT&CK techniques.
+- [D3FEND Ontology](https://d3fend.mitre.org/resources/ontology/)
+- [D3FEND Resources](https://d3fend.mitre.org/resources/)
+
+### ENGAGE
+Cyber denial and deception framework.
+- [ENGAGE Matrix](https://engage.mitre.org/matrix/)
+- [ENGAGE Data (Excel)](https://github.com/mitre/engage/blob/main/Data/Engage-Data-V1.0.xlsx)
+
+## CIS Controls v8
+18 controls with 153 safeguards, organized by Implementation Group (IG1/IG2/IG3).
+- [CIS Controls](https://www.cisecurity.org/controls/v8)
+- [CIS Controls in OSCAL](https://github.com/CISecurity/CISControls_OSCAL)
+
+## CRI Profile v2.0
+The Cyber Risk Institute's meta-framework for financial institutions. Maps to NIST CSF, FFIEC CAT, CISA CPG, and other standards.
+- [CRI Profile](https://cyberriskinstitute.org/the-profile/)
+- Function → Category → Subcategory → Diagnostic Statement structure
+
+## Mapping tools & platforms
+
+### Secure Controls Framework (SCF)
+Open framework with Set Theory Relationship Mapping (STRM) — a mathematical approach to framework crosswalking.
+- [SCF Home](https://securecontrolsframework.com/)
+- [STRM Bundle (Excel)](https://securecontrolsframework.com/strm-bundle/)
+- [STRM Methodology](https://securecontrolsframework.com/set-theory-relationship-mapping-strm/)
+
+### CISO Assistant
+Open-source GRC tool supporting 80+ frameworks with auto-mapping.
+- [GitHub](https://github.com/intuitem/ciso-assistant-community)
+- Decoupling principle enables framework reuse
+- API-first architecture
+
+### Commercial tools
+- [Apptega](https://www.apptega.com/platform/framework-crosswalking) — framework crosswalking platform
+- [HITRUST MyCSF](https://hitrustalliance.net/mycsf) — compliance framework tool
+- [RegScale](https://regscale.com/) — OSCAL-native compliance automation
+- [DRT Confidence](https://www.drtconfidence.com/) — OSCAL tooling
+- [Unified Compliance](https://www.unifiedcompliance.com/) — common controls hub
+
+## Financial sector
+
+### FFIEC CAT
+Federal Financial Institutions Examination Council Cybersecurity Assessment Tool.
+- [FFIEC CAT](https://www.ffiec.gov/cyberassessmenttool.htm)
+- [CAT Appendix A](https://www.ffiec.gov/pdf/cybersecurity/FFIEC_CAT_Appendix_A_May_2017.pdf)
+- [CAT to NIST CSF Mapping](https://www.ffiec.gov/pdf/cybersecurity/FFIEC_CAT_App_B_Map_to_NIST_CSF_June_2015_PDF4.pdf)
+
+### Enterprise Risk Management
+- [NIST IR 8286 (Integrating Cyber into ERM)](https://csrc.nist.gov/pubs/ir/8286/final)

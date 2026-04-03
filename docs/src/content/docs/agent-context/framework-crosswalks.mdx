@@ -1,0 +1,98 @@
+---
+title: Framework crosswalks
+description: How frameworks map to each other — specific crosswalk tables, column mapping strategies, and matching methods.
+---
+
+## What is a crosswalk?
+
+A crosswalk maps relationships between two or more frameworks, showing how controls, requirements, or concepts in one standard correspond to another. For example, NIST CSF subcategory "PR.AC-1" maps to NIST 800-53 controls "AC-1, AC-2, AC-3..."
+
+## Supported framework crosswalks
+
+The Python tool (`frameworks_to_obsidian.py`) implements these cross-framework mappings:
+
+### CRI Profile v2.0 ↔ NIST CSF 2.0
+
+| Source | Target | Match Column | Match Type |
+|--------|--------|-------------|-----------|
+| CRI Diagnostic Statement | CSF Subcategory | CSF reference column | Array contains |
+
+The CRI Community Profile is a meta-framework designed for financial institutions that maps to multiple standards. Its "CRI Profile v2.0 Structure" sheet provides the primary mapping.
+
+### NIST 800-53 ↔ MITRE ATT&CK
+
+| Source | Target | Match Column | Match Type |
+|--------|--------|-------------|-----------|
+| 800-53 Control | ATT&CK Technique | Mapping spreadsheet | Exact match |
+
+Uses the Center for Threat-Informed Defense's [Mappings Explorer](https://center-for-threat-informed-defense.github.io/mappings-explorer/external/) as the authoritative source.
+
+### MITRE ATT&CK ↔ D3FEND
+
+| Source | Target | Match Column | Match Type |
+|--------|--------|-------------|-----------|
+| ATT&CK Technique | D3FEND Countermeasure | D3FEND mapping data | Regex |
+
+D3FEND provides defensive countermeasures mapped to ATT&CK techniques.
+
+### NIST CSF 2.0 ↔ CIS Controls v8
+
+| Source | Target | Match Column | Match Type |
+|--------|--------|-------------|-----------|
+| CSF Subcategory | CIS Safeguard | CIS mapping spreadsheet | Array contains |
+
+## Matching methods
+
+### Exact match
+Column value in source must exactly equal a value in target. Used when both frameworks use standardized IDs.
+
+### Array contains
+Source column contains a comma-separated list; check if any item matches the target ID. Common when frameworks list multiple related controls.
+
+### Regex
+Pattern-based matching for complex ID formats. Used for NIST control enhancements like `AC-2(1)` where parenthetical notation needs special handling.
+
+## Column mapping challenges
+
+### Common pitfalls
+
+| Issue | Example | Solution |
+|-------|---------|----------|
+| Merged cells | CRI Profile Excel has merged category rows | Forward-fill blank cells (`hierarchical_ffill()`) |
+| Inconsistent IDs | "AC-2" vs "AC-02" vs "AC 2" | Regex normalization before matching |
+| Multi-value cells | "AC-1, AC-2, AC-3" in one cell | Split into array, match each |
+| Sheet structure | Multiple sheets per framework | Merge relevant sheets by primary key |
+| Encoding issues | Special characters in control names | UTF-8 normalization |
+
+### Data format expectations
+
+| Framework | ID Format | Hierarchy | Sheets |
+|-----------|----------|-----------|--------|
+| NIST 800-53 | `AC-2`, `AC-2(1)` | Family → Control → Enhancement | Controls, Assessment |
+| NIST CSF 2.0 | `PR.AC-01` | Function → Category → Subcategory | Core |
+| CIS v8 | `1.1` | Control → Safeguard | Controls, IG mapping |
+| MITRE ATT&CK | `T1059`, `T1059.001` | Tactic → Technique → Sub-technique | Enterprise matrix |
+| CRI Profile | Diagnostic statement text | Function → Category → Subcategory → Statement | Structure, Mappings |
+
+## NIST mapping resources
+
+### OLIR (Online Informative References)
+NIST's [National Online Informative References Program](https://csrc.nist.gov/projects/olir/informative-reference-catalog) provides official crosswalks between frameworks. These are the authoritative mapping source.
+
+### OSCAL (Open Security Controls Assessment Language)
+Machine-readable framework data in JSON/XML format. Resources:
+- [OSCAL concepts](https://pages.nist.gov/OSCAL/resources/concepts/layer/)
+- [OSCAL viewer](https://viewer.oscal.io/)
+- [NIST OSCAL registry](https://pages.nist.gov/OSCAL/)
+- [awesome-oscal](https://github.com/oscal-club/awesome-oscal)
+
+### NIST CPRT (Cybersecurity and Privacy Reference Tool)
+Interactive tool for browsing CSF 2.0 with informative references: [CPRT Filters](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters)
+
+## Implementation in Crosswalker
+
+The Crosswalker plugin currently imports individual frameworks. Cross-framework linking is planned — it will:
+1. Import framework A with Crosswalker
+2. Import framework B
+3. Use a crosswalk config to generate typed links between matching nodes
+4. Links carry metadata about the mapping relationship (exact, partial, related)
