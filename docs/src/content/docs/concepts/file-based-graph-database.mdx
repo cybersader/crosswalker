@@ -1,0 +1,127 @@
+---
+title: File-based graph databases
+description: How markdown vaults function as property graph databases — formal model, trade-offs, and patterns for storing structured relationships in files.
+sidebar:
+  order: 50
+---
+
+## What kind of database is an Obsidian vault?
+
+When Crosswalker generates folders and notes with frontmatter properties and WikiLinks, it's building a **file-based graph database**. Understanding this helps explain both the power and the limitations of the approach.
+
+An Obsidian vault is a hybrid data model combining concepts from three database paradigms: property graphs, document stores, and file-based databases.
+
+## Property graph model
+
+A property graph is a directed, labeled multigraph where both nodes and edges can have key-value properties.
+
+**Formal structure:**
+```
+G = (V, E, ρ, λ, σ)
+where:
+  V = set of vertices (nodes)
+  E = set of edges
+  ρ: E → V × V (edge endpoint mapping)
+  λ: V ∪ E → Σ (labeling function)
+  σ: V ∪ E → Properties (property assignment)
+```
+
+**Crosswalker's implementation:**
+- **Nodes (V)**: Markdown files in generated folders (one per framework control, technique, safeguard)
+- **Edges (E)**: WikiLinks between notes (crosswalk relationships, hierarchy links)
+- **Properties (σ)**: YAML frontmatter on each file
+- **Labels (λ)**: Folder location + `_crosswalker.type` metadata
+
+## Comparison to established databases
+
+| Concept | Neo4j | MongoDB | Obsidian Vault |
+|---------|-------|---------|----------------|
+| **Node/Document** | Node in node store | BSON document | Markdown file |
+| **Edge/Relationship** | Relationship store | Manual references | WikiLink |
+| **Properties** | Property store | JSON fields | YAML frontmatter |
+| **Collection/Table** | Labels | Collections | Folders |
+| **Primary key** | Internal ID | `_id` field | File path |
+| **Foreign key** | Relationship | `$ref` / manual | `[[WikiLink]]` |
+| **Query language** | Cypher | MQL | Dataview DQL / Bases formulas |
+| **Index** | Native indexes | B-tree indexes | Obsidian cache + folder structure |
+| **Transactions** | ACID transactions | ACID (single doc) | None |
+| **Graph traversal** | Native O(1) | Manual joins | WikiLink following |
+
+## The denormalization tax
+
+**Denormalization** is the deliberate introduction of redundancy into a data model to optimize read performance at the cost of write complexity.
+
+In Crosswalker's output:
+```yaml
+# Source of truth: the crosswalk link in the note
+nist_csf.maps_to:: [[AC-2]]
+
+# Derived: AC-2.md's backlinks show this note links to it
+# (Obsidian computes this automatically from WikiLinks)
+```
+
+When Crosswalker generates both forward links (note A references note B) and frontmatter properties that duplicate relationship data, it creates a **materialized view** — cached relationship data for quick access that must be kept in sync with the source.
+
+This is the denormalization tax: every re-import must update all copies, or the data becomes inconsistent. See [data model resilience](/Crosswalker/agent-context/data-model-resilience/) for strategies.
+
+## Relationship storage patterns
+
+### Forward and reverse pointers
+
+In graph databases, edges can be traversed in both directions:
+- **Forward pointer**: Source note links to target (`maps_to:: [[AC-2]]`)
+- **Reverse pointer**: Target note's backlinks show incoming references (Obsidian computes this)
+
+### Adjacency lists
+
+Frontmatter arrays function as adjacency lists — each note stores a list of its connections:
+```yaml
+related_controls:
+  - "[[AC-1]]"
+  - "[[AC-3]]"
+  - "[[AC-5]]"
+```
+
+This enables efficient local queries ("what does this control relate to?") without scanning all files.
+
+### Materialized views
+
+[Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) and Dataview function as **materialized views** over the file graph — they compute and display aggregated data from individual files. Unlike a SQL materialized view, they recompute on every query (no staleness risk, but no persistence either).
+
+## Trade-offs of file-based storage
+
+| Advantage | Disadvantage |
+|-----------|-------------|
+| Human-readable (plain markdown) | No ACID transactions |
+| Git-friendly (version control) | No built-in constraints |
+| Portable (copy the folder) | No query optimization |
+| No server needed | Manual relationship maintenance |
+| Works offline | No referential integrity |
+| Obsidian-native (graph view, backlinks, search) | Eventual consistency only |
+
+## Why this matters for Crosswalker
+
+Crosswalker generates a file-based graph database every time it imports a framework. Understanding this model explains:
+
+1. **Why re-import is complex** — updating a materialized view across hundreds of files requires careful coordination. See [ontology evolution](/Crosswalker/concepts/ontology-evolution/).
+2. **Why crosswalk links can become stale** — no foreign key constraints mean broken links accumulate silently. See [constraint enforcement](/Crosswalker/agent-context/constraint-enforcement/).
+3. **Why frontmatter-first is the right approach** — [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) can query frontmatter but not inline fields, making YAML properties the most queryable storage location.
+4. **Why the `_crosswalker` metadata exists** — it provides the schema versioning and provenance tracking that file-based systems lack natively.
+
+---
+
+## Resources
+
+### Database theory
+- Robinson, Webber, Eifrem — "Graph Databases" (O'Reilly, 2015)
+- Codd, E.F. — "A Relational Model of Data for Large Shared Data Banks" (1970)
+
+### Property graphs
+- [Neo4j Graph Data Science](https://neo4j.com/docs/graph-data-science/current/) — property graph reference implementation
+- [Apache TinkerPop](https://tinkerpop.apache.org/) — open property graph computing framework
+
+### Related pages
+- [The problem](/Crosswalker/concepts/problem/) — hierarchy vs. graph tension
+- [Consistency models](/Crosswalker/concepts/consistency-models/) — ACID, CAP, and eventual consistency
+- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/) — handling framework updates
+- [Metadata ecosystem](/Crosswalker/concepts/metadata-ecosystem/) — Properties, Dataview, Bases, Datacore

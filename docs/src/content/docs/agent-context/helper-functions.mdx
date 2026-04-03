@@ -1,0 +1,180 @@
+---
+title: Helper function specifications
+description: Reusable data transformation functions — matching, path building, normalization, and hierarchical forward-fill.
+sidebar:
+  order: 45
+---
+
+These functions were developed during the Python tool phase and define the core transformation logic. The TypeScript plugin equivalents follow the same algorithms.
+
+## match_value(source, target, mode)
+
+Compares two values using one of three matching strategies. Used for crosswalk linking — determining whether a control in Framework A corresponds to one in Framework B.
+
+**Parameters:**
+- `source` — the value to search for
+- `target` — the value to search within
+- `mode` — matching strategy: `"exact"`, `"array-contains"`, or `"regex"`
+
+**Pseudocode:**
+```
+function match_value(source, target, mode):
+  if source is null or target is null:
+    return false
+  
+  s = trim(string(source))
+  t = trim(string(target))
+  
+  if mode == "exact":
+    return s == t
+  
+  if mode == "array-contains":
+    tokens = split(t, /[,\s]+/)  // split on comma or whitespace
+    return s in tokens
+  
+  if mode == "regex":
+    return regex_search(s, t) is not null
+  
+  return false
+```
+
+**Edge cases:**
+- Null/empty values always return false (no match)
+- `array-contains` splits on both commas AND whitespace — `"AC-1, AC-2 AC-3"` produces `["AC-1", "AC-2", "AC-3"]`
+- `regex` treats the source as the pattern and target as the string to search
+
+**Used in:** Crosswalk linking pipeline, config matching fingerprints.
+
+## build_full_path_components(code)
+
+Builds cumulative path components from a dotted/hyphenated ID. Used to create the folder hierarchy from a single control ID.
+
+**Input/Output examples:**
+```
+"ID.AM-1"  →  ["ID", "ID.AM", "ID.AM-1"]
+"AC-2(1)"  →  ["AC", "AC-2", "AC-2(1)"]
+"GV.OC-01" →  ["GV", "GV.OC", "GV.OC-01"]
+```
+
+**Pseudocode:**
+```
+function build_full_path_components(code):
+  // Find positions of all separators (. and -)
+  separator_positions = find_all_positions(code, /[.-]/)
+  
+  parts = []
+  for each position in separator_positions:
+    parts.append(code[0..position])  // substring up to separator
+  parts.append(code)  // full code as final element
+  
+  return parts
+```
+
+**Why cumulative?** Each path component represents a level in the hierarchy. `"ID"` is the function, `"ID.AM"` is the category, `"ID.AM-1"` is the subcategory. The cumulative approach preserves the full context at each level.
+
+## split_folders(code)
+
+Simple split for folder creation — separates an ID into individual segments.
+
+**Input/Output examples:**
+```
+"ID.AM-1"  →  ["ID", "AM", "1"]
+"AC-2"     →  ["AC", "2"]
+"T1059.003" → ["T1059", "003"]
+```
+
+**Pseudocode:**
+```
+function split_folders(code):
+  return split(code, /[.-]/)
+```
+
+**Difference from build_full_path_components:** `split_folders` produces folder names (`ID/AM/1/`), while `build_full_path_components` produces cumulative IDs for hierarchy preservation. Use `split_folders` when each segment is a standalone folder name; use `build_full_path_components` when folder names should show their full path context.
+
+## sanitize_column_name(column)
+
+Normalizes column headers from source spreadsheets into clean frontmatter property keys.
+
+**Transformation rules:**
+1. Strip leading/trailing whitespace
+2. Convert to lowercase
+3. Replace whitespace and `/` with `_`
+4. Remove all characters except word characters, `-`, and `_`
+
+**Input/Output examples:**
+```
+"Profile Id"              → "profile_id"
+"Category / Subcategory"  → "category_subcategory"
+"Control Name (English)"  → "control_name_english"
+"CRI Profile Subject Tags" → "cri_profile_subject_tags"
+```
+
+**Pseudocode:**
+```
+function sanitize_column_name(col):
+  name = trim(col)
+  name = lowercase(name)
+  name = regex_replace(name, /[\s/]+/, "_")
+  name = regex_replace(name, /[^\w_-]/, "")
+  return name
+```
+
+**Used in:** Column mapping during import wizard, frontmatter key generation.
+
+## hierarchical_ffill(dataframe, columns)
+
+Grouped forward-fill for hierarchical data with merged cells. This is the most complex helper — standard forward-fill fails for hierarchical data because it doesn't respect group boundaries.
+
+**The problem:** Framework spreadsheets often use merged cells for hierarchy levels. When loaded into a table, merged cells become empty:
+
+| Function | Category | Subcategory |
+|----------|----------|-------------|
+| GOVERN | Organizational Context | GV.OC-01 |
+| | | GV.OC-02 |
+| | Risk Management | GV.RM-01 |
+| | | GV.RM-02 |
+| PROTECT | Access Control | PR.AC-01 |
+
+A naive forward-fill on "Function" correctly fills `GOVERN` down. But a naive forward-fill on "Category" would incorrectly fill `Organizational Context` into the `Risk Management` rows if "Function" changed.
+
+**The solution:** Fill each column grouped by its parent columns.
+
+**Pseudocode:**
+```
+function hierarchical_ffill(df, columns):
+  // columns = ["Function", "Category", "Subcategory"] (ordered high→low)
+  
+  // Replace empty strings with null
+  df = replace_empty_with_null(df)
+  
+  // Step 1: Forward-fill the top column globally
+  df[columns[0]] = forward_fill(df[columns[0]])
+  
+  // Step 2: Forward-fill each subsequent column within its parent group
+  for i from 1 to length(columns) - 1:
+    parent_columns = columns[0..i]  // all columns above this level
+    df[columns[i]] = group_by(df, parent_columns).forward_fill(df[columns[i]])
+  
+  return df
+```
+
+**After hierarchical forward-fill:**
+
+| Function | Category | Subcategory |
+|----------|----------|-------------|
+| GOVERN | Organizational Context | GV.OC-01 |
+| GOVERN | Organizational Context | GV.OC-02 |
+| GOVERN | Risk Management | GV.RM-01 |
+| GOVERN | Risk Management | GV.RM-02 |
+| PROTECT | Access Control | PR.AC-01 |
+
+**Used for:** D3FEND ontology (deeply nested hierarchy), CRI Profile structure, any framework with merged Excel cells.
+
+---
+
+## Resources
+
+### Related pages
+- [Prior art](/Crosswalker/agent-context/prior-art/) — Python tool implementation history
+- [Framework data sources](/Crosswalker/reference/framework-data-sources/) — which frameworks use which helpers
+- [Transformation system](/Crosswalker/design/transformation/) — column roles and naming styles

@@ -96,3 +96,21 @@ When multiple notes link to the same framework node, their metadata must be aggr
 The link metadata system is **designed but not yet implemented** in the Crosswalker plugin. The current MVP focuses on importing structured data. The link system is planned for Phase 2 — see the [roadmap](/Crosswalker/reference/roadmap/).
 
 The Python tool (`frameworks_to_obsidian.py`) generates basic WikiLinks between framework nodes. The plugin will eventually support the full typed-link syntax described here.
+
+For the complete syntax reference including wrapping styles, link types, the production regex, and the two-tier priority system, see the [link metadata syntax specification](/Crosswalker/agent-context/link-metadata-syntax-spec/).
+
+## Ecosystem compatibility
+
+The typed-link syntax relies on Dataview inline fields. The [Obsidian metadata ecosystem](/Crosswalker/concepts/metadata-ecosystem/) is evolving:
+
+| Component | Properties (native) | Dataview | Bases (native) | Datacore |
+|-----------|:------------------:|:--------:|:--------------:|:--------:|
+| Frontmatter queries | Read only | Full | Full + formulas | Full |
+| Inline field queries | No | Yes | **No** | TBD |
+| Edge metadata extraction | No | Via DataviewJS | **No** | TBD |
+| Tabular display | No | TABLE queries | Native views | TBD |
+
+> [!important] Bases limitation
+> [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) is tabular-only — it can query frontmatter properties but **cannot** process inline fields, traverse typed links, or extract edge metadata. DataviewJS (or future Datacore) is required for relationship-level queries.
+
+**Design principle**: Store all non-link metadata as YAML frontmatter (queryable everywhere). Reserve inline fields for typed-link edge metadata only (requires Dataview/Datacore).

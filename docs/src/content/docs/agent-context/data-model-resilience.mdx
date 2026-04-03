@@ -13,6 +13,16 @@ A user imports NIST 800-53 Rev 5 today. Six months later, NIST publishes an upda
 
 What happens when they re-import? This is the central [ontology evolution](/Crosswalker/concepts/ontology-evolution/) challenge for Crosswalker.
 
+## Formal foundations
+
+Obsidian vaults are [file-based graph databases](/Crosswalker/concepts/file-based-graph-database/) — property graphs stored as markdown files with no built-in referential integrity. From a [consistency model](/Crosswalker/concepts/consistency-models/) perspective:
+
+- **Not ACID**: Imports can fail partway through, leaving partial state
+- **AP system** (CAP theorem): Available and partition-tolerant, but not strongly consistent
+- **Eventually consistent**: Convergence requires explicit re-import, not automatic propagation
+
+The practical insight: **design for idempotent operations and lazy detection, not transactions**. Every import should be safe to re-run. Inconsistencies should be surfaced via [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) views, not prevented via locks. See [constraint enforcement](/Crosswalker/agent-context/constraint-enforcement/) for the full strategy framework and [metadata tiers](/Crosswalker/agent-context/constraint-enforcement/#metadata-tiers) for progressive `_crosswalker` enrichment.
+
 ## Strategy options
 
 ### 1. Version-tagged folders (SCD Type 2) :badge[Recommended]

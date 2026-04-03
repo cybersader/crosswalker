@@ -1,0 +1,167 @@
+---
+title: Config schema design
+description: Proposed FrameworkConfig and LinkConfig structures for the plugin's configuration system.
+sidebar:
+  order: 46
+---
+
+## Current state
+
+The plugin's `CrosswalkerConfig` (in `src/types/config.ts`) handles column mapping for a single import session. But it doesn't support framework-specific transforms, crosswalk link definitions, or community config sharing. This page proposes the extended config schema.
+
+## Proposed FrameworkConfig
+
+Defines how to import a specific framework — which sheets to load, how to map columns, and what transforms to apply.
+
+```typescript
+interface FrameworkConfig {
+  // Identity
+  name: string;                    // "NIST SP 800-53 Rev 5"
+  version: string;                 // "Rev 5 Update 1"
+  id: string;                      // "nist-800-53-r5" (machine-readable)
+  
+  // Source specification
+  sourceFilePattern?: string;      // "sp800-53*.xlsx" (glob for auto-detection)
+  sheets?: SheetConfig[];          // Which sheets to load and how
+  
+  // Column mapping overrides
+  columnOverrides?: Record<string, ColumnRole>;
+  
+  // Custom transforms (per-framework logic)
+  transforms?: TransformConfig[];
+  
+  // Output preferences
+  outputPath?: string;             // "Frameworks/NIST-800-53-r5"
+  noteTemplate?: string;           // Handlebars template for note body
+  
+  // Metadata
+  author?: string;                 // Config author for sharing
+  description?: string;
+  tags?: string[];                 // ["compliance", "nist", "security-controls"]
+}
+
+interface SheetConfig {
+  name: string;                    // "SP 800-53 Revision 5"
+  headerRow?: number;              // 0-indexed (default 0)
+  purpose: "primary" | "mapping" | "supplementary";
+  mergeKey?: string;               // Column to join on when merging sheets
+}
+
+interface TransformConfig {
+  type: "tag-aggregation" | "id-normalization" | "hierarchical-ffill" | 
+        "preamble-extraction" | "custom";
+  params: Record<string, any>;     // Transform-specific parameters
+}
+```
+
+**Example: CRI Profile config**
+```json
+{
+  "name": "CRI Profile v2.0",
+  "version": "2.0",
+  "id": "cri-profile-v2",
+  "sheets": [
+    { "name": "CRI Profile v2.0 Structure", "headerRow": 2, "purpose": "primary" },
+    { "name": "Diagnostic Statements by Tag", "headerRow": 3, "purpose": "supplementary", "mergeKey": "Profile Id" }
+  ],
+  "transforms": [
+    { "type": "tag-aggregation", "params": { "sourceColumn": "CRI Profile Subject Tags", "prefix": "cri/" } },
+    { "type": "hierarchical-ffill", "params": { "columns": ["Function", "Category", "Subcategory"] } }
+  ]
+}
+```
+
+## Proposed LinkConfig
+
+Defines how to create crosswalk links between two imported frameworks.
+
+```typescript
+interface LinkConfig {
+  // Endpoints
+  sourceFramework: string;         // "cri-profile-v2"
+  targetFramework: string;         // "nist-csf-v2"
+  
+  // Matching
+  sourceColumn: string;            // Column in source to match from
+  targetColumn: string;            // Column in target to match against
+  matchMode: "exact" | "array-contains" | "regex";
+  
+  // Output
+  linkDirection: "source-to-target" | "target-to-source" | "both";
+  linkProperty: string;            // Frontmatter key: "nist_csf_mapping"
+  
+  // Optional metadata template
+  metadataTemplate?: Record<string, any>;  // Default metadata for all links
+  
+  // For typed-link syntax (advanced)
+  inlineSyntax?: {
+    dotKey: string;                // "cri.maps_to"
+    wrapStyle: "none" | "brackets" | "parentheses";
+  };
+}
+```
+
+**Example: CRI ↔ CSF crosswalk**
+```json
+{
+  "sourceFramework": "cri-profile-v2",
+  "targetFramework": "nist-csf-v2",
+  "sourceColumn": "Profile Id",
+  "targetColumn": "CSF Subcategory",
+  "matchMode": "exact",
+  "linkDirection": "both",
+  "linkProperty": "csf_mapping"
+}
+```
+
+## Composition
+
+A full `CrosswalkerConfig` wraps a `FrameworkConfig` plus optional `LinkConfig[]`:
+
+```typescript
+interface CrosswalkerConfig {
+  // Current fields (column mapping, output settings)
+  // ...existing CrosswalkerConfig fields...
+  
+  // Extended
+  frameworkConfig?: FrameworkConfig;
+  linkConfigs?: LinkConfig[];
+  
+  // Sharing metadata
+  exportedAt?: string;
+  exportedFrom?: string;           // Plugin version
+  compatibility?: string;          // Minimum plugin version
+}
+```
+
+## Community sharing model
+
+Configs can be exported as JSON for sharing:
+
+1. **Export**: User configures an import, saves config, exports as `.crosswalker.json`
+2. **Share**: Upload to GitHub, share in community forums, include in template vaults
+3. **Import**: Another user imports the config file, adjusting paths as needed
+4. **Version pinning**: Config includes `compatibility` field for minimum plugin version
+
+**Future**: A community config registry (like npm for framework configs) where users can `crosswalker install nist-800-53-r5` to get a pre-built import configuration.
+
+## Relation to saved configs
+
+The current [config system](/Crosswalker/features/config-system/) uses fingerprinting to auto-match saved configs to new imports. FrameworkConfig extends this with:
+
+- **Source file pattern matching**: Detect which framework a file contains by its name or column patterns
+- **Sheet-level configuration**: Auto-select the right sheets for multi-sheet frameworks
+- **Transform presets**: Apply framework-specific transforms without manual configuration
+
+The [config selection algorithm](/Crosswalker/design/config-selection/) would score FrameworkConfig matches higher than generic column-mapping matches, enabling "one-click re-import" for known frameworks.
+
+---
+
+## Resources
+
+### Related pages
+- [Config system](/Crosswalker/features/config-system/) — current save/load/match
+- [Config selection](/Crosswalker/design/config-selection/) — fingerprinting and scoring
+- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/) — crosswalk mapping details
+- [Helper functions](/Crosswalker/agent-context/helper-functions/) — transform implementations
+- [Framework data sources](/Crosswalker/reference/framework-data-sources/) — per-framework specifications

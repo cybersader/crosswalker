@@ -1,0 +1,131 @@
+---
+title: Consistency models
+description: ACID, CAP theorem, eventual consistency, and BASE — applied to Obsidian vaults and Crosswalker imports.
+sidebar:
+  order: 51
+---
+
+## Why consistency matters for Crosswalker
+
+Every Crosswalker import creates hundreds of interconnected files. When a framework updates and you re-import, every file potentially needs updating — but file systems have no transaction support. Understanding formal consistency models explains why certain operations are safe, which can fail partway through, and how to design for recovery.
+
+## ACID analysis for file-based systems
+
+**ACID** guarantees reliable database transactions. Obsidian vaults provide only one of four:
+
+| Property | Definition | Obsidian Vault Status |
+|----------|------------|----------------------|
+| **Atomicity** | All operations succeed or all fail | Partial — a script can crash mid-import, leaving half-updated files |
+| **Consistency** | Database moves between valid states | No — orphaned links, stale crosswalks, missing properties can accumulate |
+| **Isolation** | Concurrent operations don't interfere | No — user can edit files while a script runs |
+| **Durability** | Committed changes survive failures | Yes — filesystem persistence, plus Obsidian Sync or git |
+
+**Implication**: Crosswalker cannot assume any import operation is atomic. Every operation should be designed to be **idempotent** (safe to re-run) and **resumable** (can pick up where it left off).
+
+## CAP theorem positioning
+
+**CAP theorem** (Brewer, 2000): A distributed system can provide at most two of three guarantees:
+
+| Guarantee | Definition |
+|-----------|-----------|
+| **Consistency** | Every read receives the most recent write |
+| **Availability** | Every request receives a response |
+| **Partition tolerance** | System operates despite network failures |
+
+**Obsidian vaults are AP systems** — they prioritize availability and partition tolerance:
+- **Available**: Users can always read and edit files, even offline
+- **Partition tolerant**: Vaults work across devices with sync, surviving network interruptions
+- **Not consistent**: Files can get out of sync between devices, or between import runs
+
+This is the correct trade-off for a personal/team knowledge base. Strong consistency would require locking files during imports — unacceptable for a tool people use throughout the day.
+
+## BASE model
+
+The alternative to ACID for distributed systems:
+
+| Property | Definition | Crosswalker Application |
+|----------|-----------|------------------------|
+| **Basically Available** | System is always usable | Vault is always readable/editable, even during imports |
+| **Soft state** | State may change without input | Obsidian cache updates, sync propagates changes asynchronously |
+| **Eventually consistent** | Given enough time, all copies converge | After re-import, all files reflect the new framework version |
+
+Crosswalker operates under **manual eventual consistency** — convergence requires explicit action (running the import), not automatic propagation:
+
+```
+Framework updated → User triggers re-import → Files updated → Consistency achieved
+                          ↑
+                  (Manual trigger, not automatic)
+```
+
+## CouchDB MVCC analogy
+
+**Multi-Version Concurrency Control (MVCC)**: Maintaining multiple versions of data to handle concurrent access without locking.
+
+CouchDB's approach maps well to Crosswalker's version-tagged imports:
+
+| CouchDB | Crosswalker |
+|---------|-------------|
+| Document revision (`_rev: "3-a7b2f9c1"`) | `_crosswalker.source_hash` on each note |
+| Conflict detection (divergent revisions) | Re-import detects changed vs. unchanged notes |
+| Conflict resolution (user picks winner) | User chooses overwrite vs. keep vs. merge |
+| Eventual consistency via replication | Re-import propagates framework changes |
+
+The key insight: **version-tagged folders** (importing NIST 800-53 Rev 5 alongside Rev 4) is essentially MVCC at the folder level — multiple versions coexist until the user is ready to migrate.
+
+## Event sourcing pattern
+
+**Event sourcing** stores state changes as an immutable sequence of events, reconstructing current state by replaying them.
+
+Applied to Crosswalker's `_crosswalker` metadata:
+
+```yaml
+# Minimal (current): just the latest state
+_crosswalker:
+  source_file: nist-800-53.csv
+  import_date: 2026-04-02
+  framework_version: "Rev 5"
+
+# Event-sourced (future): full change history
+_crosswalker:
+  history:
+    - event: imported
+      date: 2026-04-02
+      source: nist-800-53-rev5.csv
+    - event: re-imported
+      date: 2026-10-15
+      source: nist-800-53-rev5-update1.csv
+      changes: [description_updated, related_controls_added]
+```
+
+This enables point-in-time queries ("what did this control look like when we imported it?") and rollback ("revert to the pre-update state"). See [ontology evolution](/Crosswalker/concepts/ontology-evolution/) for the temporal modeling foundations.
+
+## Implications for Crosswalker design
+
+1. **Design for idempotency**: Every import operation should produce the same result whether run once or ten times
+2. **Expect partial failures**: If an import crashes at note 347 of 1000, the next run should detect and resume
+3. **Track provenance**: `_crosswalker` metadata is the compensation for lacking ACID — it tells you what state you're in
+4. **Version, don't overwrite**: [SCD Type 2](/Crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions) (keep history) is safer than Type 1 (overwrite) because it preserves the ability to diff and rollback
+5. **Use Bases for detection**: [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) can surface notes with stale `import_date` or missing `source_hash` — lazy consistency checking via tabular views
+
+---
+
+## Resources
+
+### Distributed systems theory
+- Brewer, E. (2000) — "Towards Robust Distributed Systems" (CAP theorem keynote)
+- [CAP Twelve Years Later](https://www.infoq.com/articles/cap-twelve-years-later-how-the-rules-have-changed/) — Eric Brewer's retrospective
+- Kleppmann, M. (2017) — "Designing Data-Intensive Applications" (O'Reilly) — chapters 5, 7, 9
+
+### Event sourcing
+- [Fowler: Event Sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) — foundational article
+- [CQRS Documents](https://cqrs.files.wordpress.com/2010/11/cqrs_documents.pdf) — Greg Young
+
+### CouchDB / MVCC
+- [CouchDB: The Definitive Guide](https://guide.couchdb.org/) — replication and conflict resolution
+- [CouchDB Replication Protocol](https://docs.couchdb.org/en/stable/replication/protocol.html)
+
+### Related pages
+- [File-based graph databases](/Crosswalker/concepts/file-based-graph-database/) — the data model
+- [Ontology evolution](/Crosswalker/concepts/ontology-evolution/) — SCD types and temporal modeling
+- [Data model resilience](/Crosswalker/agent-context/data-model-resilience/) — practical strategies
+- [Constraint enforcement](/Crosswalker/agent-context/constraint-enforcement/) — integrity patterns

@@ -1,0 +1,246 @@
+---
+title: Framework data sources
+description: Source files, sheet names, column mappings, and ID formats for each supported framework.
+sidebar:
+  order: 10
+---
+
+This reference documents the specific data sources, sheet structures, and transformation requirements for each framework that Crosswalker's Python tool supports (and the plugin will support).
+
+## NIST SP 800-53 Rev 5
+
+**Source**: [sp800-53r5-control-catalog.xlsx](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final)
+
+### Sheets
+
+| Sheet | Purpose | Header Row |
+|-------|---------|-----------|
+| SP 800-53 Revision 5 | Control catalog | 0 |
+
+### Key columns
+
+| Column | Example | Role |
+|--------|---------|------|
+| Control Identifier | `AC-2` | Primary ID |
+| Control (or Enhancement) Name | `Account Management` | Display name |
+| Control Text | (long text) | Body content |
+| Discussion | (long text) | Body content |
+| Related Controls | `AC-3, AC-5, IA-4` | Links (array-contains matching) |
+| Control Family | `Access Control` | Hierarchy level 1 |
+
+### ID format
+
+Pattern: `[A-Z]{2}-\d+(\(\d+\))?`
+- Family: `AC`, `AU`, `CA`, etc.
+- Control: `AC-1`, `AC-2`
+- Enhancement: `AC-2(1)`, `AC-2(2)`
+
+### Assessment procedures
+
+**Source**: [sp800-53ar5-assessment-procedures.xlsx](https://csrc.nist.gov/pubs/sp/800/53/a/r5/final)
+
+Assessment IDs need normalization to merge with controls:
+```
+AC-01_ODP[01]  →  AC-1    (strip leading zero, remove suffix)
+Pattern: /^([A-Za-z]+)-0?(\d+)/
+```
+
+## NIST CSF 2.0
+
+**Source**: [csf2.xlsx](https://www.nist.gov/cyberframework)
+
+### Key columns
+
+| Column | Example | Role |
+|--------|---------|------|
+| Function | `GOVERN` | Hierarchy level 1 |
+| Category | `Organizational Context` | Hierarchy level 2 |
+| Subcategory | `GV.OC-01` | Primary ID |
+| Implementation Examples | (text) | Body content |
+
+### ID format
+
+Pattern: `[A-Z]{2}\.[A-Z]{2}-\d{2}`
+- Function prefix: `GV`, `ID`, `PR`, `DE`, `RS`, `RC`
+- Category: `GV.OC`, `ID.AM`, `PR.AC`
+- Subcategory: `GV.OC-01`, `ID.AM-01`
+
+## CIS Controls v8
+
+**Source**: [CIS_Controls_Version_8.1_6_24_2024.xlsx](https://www.cisecurity.org/controls/v8)
+
+### Sheets
+
+| Sheet | Purpose |
+|-------|---------|
+| Controls V8 | Control and safeguard catalog |
+
+### Key columns
+
+| Column | Example | Role |
+|--------|---------|------|
+| CIS Control | `1` | Hierarchy level 1 |
+| CIS Safeguard | `1.1` | Primary ID |
+| Title | `Establish and Maintain Detailed Enterprise Asset Inventory` | Display name |
+| Description | (text) | Body content |
+| Asset Type | `Devices` | Frontmatter |
+| Security Function | `Identify` | Frontmatter |
+| IG1 / IG2 / IG3 | `TRUE` / `FALSE` | Frontmatter (implementation groups) |
+
+### ID format
+
+Pattern: `\d+\.\d+`
+- Control: `1`, `2`, `3` (18 total)
+- Safeguard: `1.1`, `1.2`, `3.5` (153 total)
+
+### Special transform: Preamble extraction
+
+CIS data includes control-level descriptions as "preamble" rows before the safeguards. The extraction algorithm:
+1. Detect rows where the safeguard field matches the control number (e.g., safeguard `1` for control `1`)
+2. Extract the title and description from these preamble rows
+3. Attach them as metadata to the control folder note
+4. Remove preamble rows from the safeguard list
+
+## CRI Profile v2.0
+
+**Source**: [Final-CRI-Profile-v2.0-Public-CRI.xlsx](https://cyberriskinstitute.org/the-profile/)
+
+### Sheets
+
+| Sheet | Header Row | Purpose |
+|-------|-----------|---------|
+| CRI Profile v2.0 Structure | 2 | Core hierarchy |
+| Diagnostic Statements by Tag | 3 | Tag-based grouping |
+| NIST CSF v2 Mapping | 3 | Crosswalk |
+| FFIEC CAT to Profile Mapping | 3 | Crosswalk |
+| FFIEC AIO Mapping | 3 | Crosswalk |
+| FFIEC BCM Mapping | 3 | Crosswalk |
+| CISA CPG 1.0.1 Mapping | 3 | Crosswalk |
+| NIST Ransomware Profile | 3 | Crosswalk |
+
+### Key columns (Structure sheet)
+
+| Column | Example | Role |
+|--------|---------|------|
+| Outline Id | `GV.OC-01.01` | Alternative ID |
+| Level | `4` | Hierarchy depth |
+| Profile Id | `GV.OC-01` | Primary ID |
+| Category / Subcategory | `Organizational Context` | Hierarchy |
+| Diagnostic Statement | (text) | Body content |
+
+### Special transform: Tag aggregation
+
+CRI diagnostic statements have subject tags (`#access_management`, `#data_protection`, etc.) that need aggregation:
+
+1. Group diagnostic statements by `Profile Id`
+2. Collect all unique tags across grouped rows
+3. Prefix tags with `cri/` namespace: `#access_management` → `#cri/access_management`
+4. Merge aggregated tags back to the structure sheet
+
+### Hierarchical forward-fill
+
+The Structure sheet uses merged cells for Function/Category levels. Requires [hierarchical forward-fill](/Crosswalker/agent-context/helper-functions/#hierarchical_ffilldataframe-columns) with columns `["Function", "Category", "Subcategory"]`.
+
+## MITRE ATT&CK Enterprise
+
+**Source**: [enterprise-attack-v16.1.xlsx](https://attack.mitre.org/resources/attack-data-and-tools/)
+
+### Sheets
+
+| Sheet | Purpose |
+|-------|---------|
+| techniques | Technique catalog |
+
+### Key columns
+
+| Column | Example | Role |
+|--------|---------|------|
+| ID | `T1059` | Primary ID |
+| name | `Command and Scripting Interpreter` | Display name |
+| description | (text) | Body content |
+| tactics | `execution` | Hierarchy / tags |
+| platforms | `Windows, Linux, macOS` | Frontmatter |
+| is sub-technique | `TRUE` / `FALSE` | Hierarchy indicator |
+| url | `https://attack.mitre.org/techniques/T1059` | Frontmatter |
+
+### ID format
+
+Pattern: `T\d{4}(\.\d{3})?`
+- Technique: `T1059`, `T1548`
+- Sub-technique: `T1059.001`, `T1059.003`
+
+### Hierarchy
+
+ATT&CK uses Tactic → Technique → Sub-technique. The `tactics` column contains the parent tactic(s). Sub-techniques are identified by the `is sub-technique` flag and dot notation in the ID.
+
+## MITRE D3FEND
+
+**Source**: [d3fend.csv](https://d3fend.mitre.org/resources/)
+
+### Key columns
+
+| Column | Example | Role |
+|--------|---------|------|
+| D3FEND Technique | `D3-DENCR` | Primary ID |
+| Level 0 | `Harden` | Hierarchy level 1 |
+| Level 1 | `Application Hardening` | Hierarchy level 2 |
+| (additional levels) | varies | Deeper hierarchy |
+
+### Special transform: Hierarchical forward-fill
+
+D3FEND has a deeply nested ontology with merged cells across multiple levels. Requires [hierarchical forward-fill](/Crosswalker/agent-context/helper-functions/#hierarchical_ffilldataframe-columns) across all Level columns.
+
+### Additional data
+
+Full mappings file (`d3fend-full-mappings.csv`) and D3FEND-to-NIST mapping (`d3fend_to_nist80053.csv`) provide crosswalk data for linking to ATT&CK techniques and NIST controls.
+
+## MITRE ENGAGE
+
+**Source**: [Engage-Data-V1.0.xlsx](https://engage.mitre.org/)
+
+### Sheets (multi-sheet merge required)
+
+| Sheet | Purpose | Key Column |
+|-------|---------|-----------|
+| Activities | Individual engagement activities | ID |
+| Approaches | Grouping of activities | ID |
+| Goals | High-level objectives | ID |
+| Goal Approach Mappings | Goal → Approach links | |
+| Approach Activity Mappings | Approach → Activity links | |
+| Enterprise ATT&CK Mappings | ENGAGE → ATT&CK crosswalk | |
+
+### Merge pattern
+
+ENGAGE requires a three-level merge to build the full hierarchy:
+1. Join Goals with Goal-Approach mappings
+2. Join result with Approaches
+3. Join result with Approach-Activity mappings
+4. Join result with Activities
+5. Clean up duplicate columns (use `_remove` suffix tracking)
+
+---
+
+## Crosswalk data sources
+
+Crosswalks between frameworks require separate mapping files:
+
+| Crosswalk | Source |
+|-----------|--------|
+| CRI ↔ CSF 2.0 | CRI Excel (NIST CSF v2 Mapping sheet) |
+| CSF 2.0 ↔ NIST 800-53 | [NIST Concept Crosswalk](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters) |
+| NIST 800-53 ↔ ATT&CK | [Center for Threat-Informed Defense](https://github.com/center-for-threat-informed-defense/attack-control-framework-mappings) |
+| ATT&CK ↔ D3FEND | [d3fend.mitre.org mapping data](https://d3fend.mitre.org/resources/) |
+| CSF 2.0 ↔ CIS v8 | [CIS Controls Mapping to CSF 2.0](https://www.cisecurity.org/controls/v8) |
+| D3FEND ↔ NIST 800-53 | D3FEND semantic mappings (d3fend_to_nist80053.csv) |
+
+See [framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/) for matching methods and configuration details.
+
+---
+
+## Resources
+
+### Related pages
+- [Framework standards & tools](/Crosswalker/concepts/framework-standards/) — links to all framework sources
+- [Framework crosswalks](/Crosswalker/agent-context/framework-crosswalks/) — crosswalk configuration
+- [Helper functions](/Crosswalker/agent-context/helper-functions/) — transform implementations
+- [Config schema design](/Crosswalker/agent-context/config-schema-design/) — FrameworkConfig structure

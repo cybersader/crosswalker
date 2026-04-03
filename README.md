@@ -143,4 +143,4 @@ See the [contributing guide](https://cybersader.github.io/Crosswalker/developmen
 
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE) for details.

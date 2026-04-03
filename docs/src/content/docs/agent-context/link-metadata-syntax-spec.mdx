@@ -1,0 +1,179 @@
+---
+title: Link metadata syntax specification
+description: Complete specification of the typed-link syntax — wrapping styles, link types, regex patterns, and the two-tier priority system.
+sidebar:
+  order: 25
+---
+
+This is the **formal specification** for Crosswalker's typed-link syntax. For the conceptual overview, see [link metadata system](/Crosswalker/agent-context/link-metadata-system/).
+
+## Anatomy of a typed link
+
+```
+[framework_here.applies_to:: [[AC-2]] {"sufficient": true}]
+ ├─ wrapper ──────────────────────────────────────────────┤
+  ├─ dotKey ────────────┤  ├─ dest ┤  ├─ metadata ───────┤
+```
+
+| Component | Required | Description |
+|-----------|----------|-------------|
+| **Wrapper** | Optional | `[...]`, `(...)`, or none |
+| **dotKey** | Required | Namespace + relationship type (dot notation) |
+| **`::`** | Required | Dataview inline field separator |
+| **Destination** | Optional | WikiLink, Markdown link, or plain text |
+| **Metadata** | Optional | JSON object or quoted string |
+
+## Wrapping styles
+
+| Style | Syntax | Obsidian reading mode | Obsidian live preview | Use case |
+|-------|--------|----------------------|----------------------|----------|
+| **None** | `key:: value` | Visible as block | Visible as block | Explicit, always visible |
+| **Square brackets** | `[key:: value]` | Hidden (shows link only) | Partially hidden | Clean reading experience |
+| **Parentheses** | `(key:: value)` | Inline, less intrusive | Inline | Compact inline annotations |
+
+All three are valid Dataview inline fields. The choice is purely presentational — all are parsed identically.
+
+## Link types
+
+### WikiLink
+
+```
+framework_here.applies_to:: [[AC-2]]
+framework_here.applies_to:: [[AC-2|Account Management]]
+```
+- Standard Obsidian internal link
+- Optional alias after `|`
+- Resolves via Obsidian's link resolution
+
+### Markdown link
+
+```
+framework_here.applies_to:: [AC-2](Frameworks/NIST-800-53/AC-2.md)
+framework_here.applies_to:: [AC-2](ID%2012.md)
+```
+- Standard markdown link syntax
+- Path may be URL-encoded
+- Works with external URLs too
+
+### Plain text
+
+```
+framework_here.reviewer:: "Person_1"
+framework_here.score:: 9
+framework_here.approved:: True
+```
+- No link destination — just a value
+- Sets a default property for all links from this note
+
+## Metadata values
+
+| Type | Syntax | Example |
+|------|--------|---------|
+| **JSON object** | `{...}` after destination | `[[AC-2]] {"sufficient": true, "reviewer": "Alice"}` |
+| **Quoted string** | `"..."` | `"Person_1"` |
+| **Boolean** | Implied by link presence | `[[AC-2]]` (no metadata = boolean true) |
+| **Number** | Bare number | `9` |
+
+## Syntax examples matrix
+
+| Syntax | Link type | Wrapper | Metadata |
+|--------|-----------|---------|----------|
+| `framework_here.reviewer:: "Person_1"` | Plain (default for page) | None | Quoted string |
+| `[framework_here.applies_to:: [AC-2](AC-2.md)]` | Markdown link (boolean flag) | `[]` | Implied true |
+| `(framework_here.applies_to:: [[AC-2]] {"sufficient": true})` | WikiLink + JSON | `()` | JSON object |
+| `framework_here.reviewed:: [[AC-2]]` | WikiLink (boolean flag) | None | Implied true |
+| `[framework_here.approved:: True]` | Plain (default for page) | `[]` | Boolean |
+| `(framework_here.score:: 9)` | Plain (default for page) | `()` | Number |
+| `[framework_here.score:: [[AC-2]] {9}]` | WikiLink + number | `[]` | Number |
+
+## Production regex
+
+The following regex extracts all components from any valid typed-link syntax:
+
+```javascript
+/^(?:\[|\()?(?<dotKey>framework_here(?:\.\w+)*)::\s*(?:\[\[(?<wikilink>[^|\]]+)(?:\|(?<wikiAlias>[^\]]+))?\]\]|\[(?<mdText>[^\]]+?)\]\((?<mdLink>[^)]+?)\)|(?<plainLink>[^"\[\]\(\)\s{}]+))?\s*(?:(?<json>\{[^}]*\})|"(?<quotedValue>[^"]+)")?(?=\]|\)|$)/
+```
+
+### Named capture groups
+
+| Group | Matches | Example capture |
+|-------|---------|----------------|
+| `dotKey` | Full dot-notation key | `framework_here.applies_to` |
+| `wikilink` | WikiLink target (without alias) | `AC-2` |
+| `wikiAlias` | WikiLink alias (after `\|`) | `Account Management` |
+| `mdText` | Markdown link display text | `AC-2` |
+| `mdLink` | Markdown link path/URL | `Frameworks/NIST-800-53/AC-2.md` |
+| `plainLink` | Plain text link or value | `Person_1` |
+| `json` | JSON object string | `{"sufficient": true}` |
+| `quotedValue` | Quoted string value | `Person_1` |
+
+### What the regex handles
+
+- Optional wrapper: `[`, `(`, or nothing at start
+- Dot-notation keys of any depth: `fw`, `fw.type`, `fw.type.subtype`
+- All three link types: WikiLink (with optional alias), Markdown, plain
+- Optional trailing metadata: JSON object or quoted string
+- Closing wrapper lookahead: `]`, `)`, or end of line
+
+## Two-tier priority system
+
+When multiple inline fields reference the same framework, a priority system determines how metadata merges. The system has two tiers based on whether an explicit link destination is present.
+
+### Tier 1: With link (higher priority)
+
+From highest to lowest:
+
+1. **Inline tag (dot notation) + link + explicit value/JSON**
+   `framework_here.applies_to:: [[AC-2]] {"sufficient": true}`
+2. **Inline tag (dot notation) + link + implied boolean**
+   `framework_here.applies_to:: [[AC-2]]`
+3. **Inline tag (leaf/child dot key) + link + JSON**
+   `framework_here.applies_to.coverage:: [[AC-2]] {"full": true}`
+4. **Inline tag (root/parent dot key) + link + JSON**
+   `framework_here:: [[AC-2]] {"reviewer": "Alice"}`
+
+### Tier 2: Without link (lower priority)
+
+1. **Inline tag (dot notation) + explicit value**
+   `framework_here.reviewer:: "Person_1"`
+2. **Inline tag (dot notation) + implied boolean**
+   `framework_here.approved:: True`
+3. **Inline tag (leaf/child) + JSON**
+   `framework_here.defaults.coverage:: {"threshold": 80}`
+4. **Inline tag (root/parent) + JSON**
+   `framework_here:: {"reviewer": "Bob", "status": "draft"}`
+
+### Fallback chain
+
+After inline fields, lower-priority sources fill in remaining properties:
+
+5. **YAML frontmatter** — `framework_here` keys in the note's frontmatter
+6. **Folder-level defaults** — inherited from parent folder notes (if implemented)
+7. **Global defaults** — plugin settings
+
+## Ecosystem compatibility
+
+| Component | Properties (native) | Dataview | Bases | Datacore |
+|-----------|:------------------:|:--------:|:-----:|:--------:|
+| dotKey parsing | No | Yes (inline fields) | No | TBD |
+| WikiLink resolution | Yes (backlinks) | Yes | Yes (backlinks) | TBD |
+| JSON metadata extraction | No | Via DataviewJS | No | TBD |
+| Priority merging | No | Via DataviewJS | No | TBD |
+| Tabular display of results | No | TABLE/DataviewJS | Yes (native) | TBD |
+
+**Key insight**: The full typed-link system requires DataviewJS (or future Datacore) for parsing and priority resolution. [Obsidian Bases](/Crosswalker/concepts/metadata-ecosystem/) can surface notes based on frontmatter properties but cannot process inline field syntax or edge metadata.
+
+This is an intentional design trade-off: frontmatter for queryable flat metadata, inline fields for relationship-level metadata that needs custom processing.
+
+---
+
+## Resources
+
+### Obsidian syntax
+- [Dataview: Adding Metadata](https://blacksmithgu.github.io/obsidian-dataview/annotation/add-metadata/) — inline field docs
+- [Obsidian: Internal Links](https://help.obsidian.md/Linking+notes+and+files/Internal+links) — WikiLink syntax
+
+### Related pages
+- [Link metadata system](/Crosswalker/agent-context/link-metadata-system/) — conceptual overview
+- [Metadata ecosystem](/Crosswalker/concepts/metadata-ecosystem/) — Properties, Dataview, Bases, Datacore
+- [Tradeoffs](/Crosswalker/agent-context/tradeoffs/) — design decisions

@@ -25,7 +25,7 @@
 		"import"
 	],
 	"author": "cybersader",
-	"license": "AGPL-3.0-or-later",
+	"license": "MIT",
 	"devDependencies": {
 		"@eslint/json": "^0.14.0",
 		"@types/jest": "^29.5.0",
