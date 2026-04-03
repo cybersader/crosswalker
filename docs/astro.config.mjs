@@ -7,7 +7,7 @@ import starlightBlog from 'starlight-blog';
 import starlightAnnouncement from 'starlight-announcement';
 import starlightImageZoom from 'starlight-image-zoom';
 import starlightHeadingBadges from 'starlight-heading-badges';
-import starlightClientMermaid from '@pasqal-io/starlight-client-mermaid';
+import rehypeMermaid from 'rehype-mermaid';
 import starlightTagsPlugin from 'starlight-tags';
 import remarkObsidianCallout from 'remark-obsidian-callout';
 import remarkWikiLink from 'remark-wiki-link';
@@ -31,6 +31,7 @@ export default defineConfig({
     ],
     rehypePlugins: [
       [rehypeExternalLinks, { target: '_blank', rel: ['noopener', 'noreferrer'] }],
+      rehypeMermaid,
     ],
   },
   integrations: [
@@ -48,7 +49,6 @@ export default defineConfig({
             { label: 'GitHub', href: 'https://github.com/cybersader/crosswalker' },
           ],
         }),
-        starlightClientMermaid(),
         starlightSiteGraph(),
         starlightBlog({
           title: 'Changelog',
