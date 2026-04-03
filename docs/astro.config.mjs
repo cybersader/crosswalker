@@ -94,10 +94,6 @@ export default defineConfig({
           label: 'Reference',
           autogenerate: { directory: 'reference' },
         },
-        {
-          label: 'Log',
-          autogenerate: { directory: 'log' },
-        },
       ],
     }),
   ],
