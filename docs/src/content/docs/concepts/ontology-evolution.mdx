@@ -13,7 +13,7 @@ import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
 
 const container = document.getElementById('oe-d3-problem-picture');
 if (container) {
-  const W = 750, H = 400;
+  const W = 750, H = 440;
   const bg = getComputedStyle(document.documentElement).getPropertyValue('--sl-color-black')?.trim() || '#0d1117';
 
   const svg = d3.select(container).append('svg')
@@ -38,7 +38,7 @@ if (container) {
 
   // ── Layout constants ──
   const LX = W * 0.22, RX = W * 0.78;
-  const treeCY = 155, iconY = 310;
+  const treeCY = 145, iconY = 330;
 
   // ── Era labels ──
   svg.append('text').attr('x', LX).attr('y', 30).attr('text-anchor','middle')
@@ -151,11 +151,11 @@ if (container) {
   const lDocX = LX - 65, lBridgeX = LX + 35;
 
   drawDocIcon(svg, lDocX, iconY - 15, 1.4, true);
-  svg.append('text').attr('x', lDocX + 14).attr('y', iconY + 20)
+  svg.append('text').attr('x', lDocX + 14).attr('y', iconY + 30)
     .attr('text-anchor','middle').attr('fill','#98c379').attr('font-size','9px').attr('font-weight',600).text('Evidence links');
 
   drawBridgeIcon(svg, lBridgeX, iconY - 15, 1.4, true);
-  svg.append('text').attr('x', lBridgeX + 14).attr('y', iconY + 20)
+  svg.append('text').attr('x', lBridgeX + 14).attr('y', iconY + 30)
     .attr('text-anchor','middle').attr('fill','#00d4aa').attr('font-size','9px').attr('font-weight',600).text('CIS v7 crosswalk');
 
   // Left connecting lines (tree to icons)
@@ -169,16 +169,16 @@ if (container) {
 
   const rDocG = drawDocIcon(svg, rDocX, iconY - 15, 1.4, false);
   rDocG.attr('filter', 'url(#oe-glow-red)');
-  svg.append('text').attr('x', rDocX + 14).attr('y', iconY + 20)
+  svg.append('text').attr('x', rDocX + 14).attr('y', iconY + 30)
     .attr('text-anchor','middle').attr('fill','#e06c75').attr('font-size','9px').attr('font-weight',600).text('Evidence links');
-  svg.append('text').attr('x', rDocX + 14).attr('y', iconY + 31)
+  svg.append('text').attr('x', rDocX + 14).attr('y', iconY + 42)
     .attr('text-anchor','middle').attr('fill','#e06c75').attr('font-size','8px').attr('opacity', 0.7).text('(broken?)');
 
   const rBridgeG = drawBridgeIcon(svg, rBridgeX, iconY - 15, 1.4, false);
   rBridgeG.attr('filter', 'url(#oe-glow-red)');
-  svg.append('text').attr('x', rBridgeX + 14).attr('y', iconY + 20)
+  svg.append('text').attr('x', rBridgeX + 14).attr('y', iconY + 30)
     .attr('text-anchor','middle').attr('fill','#e5c07b').attr('font-size','9px').attr('font-weight',600).text('CIS v8 crosswalk');
-  svg.append('text').attr('x', rBridgeX + 14).attr('y', iconY + 31)
+  svg.append('text').attr('x', rBridgeX + 14).attr('y', iconY + 42)
     .attr('text-anchor','middle').attr('fill','#e5c07b').attr('font-size','8px').attr('opacity', 0.7).text('(stale?)');
 
   // Right connecting lines (tree to icons - dashed red)
@@ -217,7 +217,7 @@ if (container) {
     .attr('x1', lBridgeX + 32).attr('y1', iconY + 5)
     .attr('x2', rBridgeX - 4).attr('y2', iconY + 5)
     .attr('stroke','#e5c07b').attr('stroke-width', 1).attr('stroke-dasharray','4 3').attr('opacity', 0.6);
-  svg.append('text').attr('x', W/2).attr('y', iconY + 16).attr('text-anchor','middle')
+  svg.append('text').attr('x', W/2).attr('y', iconY + 22).attr('text-anchor','middle')
     .attr('fill','#e5c07b').attr('font-size','8px').attr('font-style','italic').text('Is this still valid?');
 
   // ── Tooltip ──
