@@ -154,6 +154,22 @@ Settings types in `src/settings/settings-data.ts`:
 - Config export/import for sharing
 - OSCAL export
 
+## Roadmap Conventions
+
+The roadmap lives in two places that must stay in sync:
+
+- **Docs**: `docs/src/content/docs/reference/roadmap/index.mdx` — the living roadmap (active + future phases only)
+- **Repo root**: `ROADMAP.md` — plain markdown mirror for GitHub
+
+**When a phase completes:**
+1. Move its checklist to a new archive page: `docs/src/content/docs/reference/roadmap/vX-Y-name.mdx`
+2. Add a "What carried forward" section noting items that moved to later phases
+3. Link the archive from the Archive section at the bottom of the roadmap index
+4. Remove the completed phase from the living roadmap
+5. Update `ROADMAP.md` at the repo root to match
+
+**Every significant decision** gets a dated log entry in `docs/src/content/docs/agent-context/zz-log/`. Roadmap items should link to their log entries so the reasoning is always reachable.
+
 ## Extended Documentation
 
 For detailed project knowledge, architecture decisions, and roadmap, see `.claude/` folder:
