@@ -29,29 +29,45 @@ Nova's `TwoColumnContent.astro` adds `overflow-x: hidden` on `.main-pane`. Starl
 
 CSS default is `content-box`. When a div has `width: 100%` plus `padding: 1rem`, its actual rendered width is 100% + 2rem — exceeding the container. Combined with Cause 1, this content gets clipped.
 
-### Cause 3: Per-diagram card height issues
+### Cause 3: Starlight's markdown.css inter-paragraph margin (THE MAIN CULPRIT)
 
-Flex/grid containers not constraining children to equal heights. This is a per-diagram CSS issue in each MDX file's `<style>` block, not theme-level.
-
-## The fix
-
-In `docs/src/styles/brand.css`:
+Starlight core's `markdown.css` adds `margin-top: var(--sl-content-gap-y)` (1rem = 16px) between every adjacent non-inline sibling inside `.sl-markdown-content`:
 
 ```css
-/* Fix Nova's silent overflow clipping */
-.main-pane {
-  overflow-x: auto;
-}
-
-/* All diagram divs use border-box so width + padding never exceeds container */
-.sl-markdown-content div {
-  box-sizing: border-box;
+.sl-markdown-content :not(inline) + :not(inline) {
+  margin-top: var(--sl-content-gap-y);
 }
 ```
 
-Two clean rules replace 40+ lines of wildcard selectors and `!important` overrides.
+This is designed for paragraph spacing. But it ALSO applies inside our grid/flex containers — giving the 2nd, 3rd, etc. children 16px extra margin-top. This made every first card appear 16px taller than its siblings. This is NOT a Nova bug — it's Starlight core behavior affecting ANY theme.
+
+## The fix (final, verified)
+
+In `docs/src/styles/brand.css` — three rules:
+
+```css
+/* 1. Prevent overflow from width:100% + padding */
+.sl-markdown-content div { box-sizing: border-box; }
+
+/* 2. Prevent Starlight's inter-paragraph margin inside custom containers */
+.sl-markdown-content [class*="oe-"] > *,
+.sl-markdown-content [class*="il-"] > *,
+/* ... all custom prefixes ... */
+{ margin-top: 0; }
+
+/* 3. Hide sidebar scrollbar (94+ pages overflow) */
+#starlight__sidebar { scrollbar-width: none; }
+
+```
 
 **Why no `!important`**: `brand.css` is unlayered CSS. Nova uses `@layer nova`. Unlayered CSS automatically beats all `@layer` rules — `!important` is unnecessary.
+
+**Verified with Playwright** (all heights in px):
+- Change cards: 285, 285, 285 (was 397, 381, 381) — EQUAL
+- EMC steps: 85, 85, 85 — EQUAL
+- Temporal boxes: 83, 83 (was 115, 99) — EQUAL
+- SCD cards: 224, 224, 224 (was 368, 352, 352) — EQUAL
+- Sidebar scrollbar: hidden
 
 ## CSS architecture lesson
 
@@ -59,7 +75,7 @@ The DOM wrapper chain in Starlight + Nova:
 
 ```
 .main-frame          ← padding-inline-start: var(--sl-content-inline-start)
-  .main-pane         ← overflow-x: hidden (NOVA ADDS THIS — the culprit)
+  .main-pane         ← overflow-x: hidden (Nova adds this)
     main
       .content-panel ← padding: 1.5rem var(--sl-content-pad-x)
         .sl-container ← max-width: var(--sl-content-width) [50rem with Nova]
@@ -68,13 +84,16 @@ The DOM wrapper chain in Starlight + Nova:
 
 Nova also sets `--sl-content-width: 50rem` (wider than Starlight's default 45rem).
 
-## For future Starlight + Nova projects
+## For future Starlight projects (with ANY theme)
 
-When using Nova theme with custom HTML/CSS content:
-1. Always add `box-sizing: border-box` to custom divs
-2. Override `.main-pane { overflow-x: auto }` to prevent silent clipping
-3. Don't use `!important` — unlayered CSS already wins over `@layer` rules
-4. Check Nova's component overrides for any `overflow`, `isolation`, or `contain` properties
+When adding custom HTML/CSS diagrams to Starlight content:
+1. **`box-sizing: border-box`** on all custom divs — prevents overflow when using `width: 100%` + padding
+2. **`margin-top: 0`** on children inside custom containers — prevents Starlight's inter-paragraph spacing (`--sl-content-gap-y`) from affecting grid/flex layouts
+3. **`scrollbar-width: none`** on `#starlight__sidebar` if you have many pages (94+)
+4. **Do NOT** override `.main-pane { overflow-x }` — it breaks the sidebar layout
+5. **No `!important` needed** — unlayered CSS already beats all `@layer` rules
+
+This applies to Starlight core, not just Nova. Any theme will have this issue if you put custom HTML grids/flexboxes inside markdown content.
 
 ## Related
 
