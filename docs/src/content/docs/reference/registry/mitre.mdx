@@ -1,0 +1,32 @@
+---
+title: MITRE
+description: MITRE Corporation — publishes ATT&CK, D3FEND, ENGAGE and funds the Center for Threat-Informed Defense.
+tags: [frameworks, frameworks-mitre]
+volatility: stable
+sidebar:
+  order: 11
+---
+
+## Role
+
+**Standard body** — creates adversary-focused cybersecurity frameworks. Gold standard for [framework versioning](/crosswalker/concepts/framework-versioning/#mitre-attck--the-gold-standard).
+
+## Key outputs
+
+| Framework | Description | [Evolution pattern](/crosswalker/concepts/ontology-evolution/) |
+|-----------|-------------|------------------|
+| [ATT&CK](/crosswalker/reference/framework-data-sources/#mitre-attck-enterprise) | Adversary tactics & techniques (200+) | Biannual, STIX changelogs |
+| [D3FEND](/crosswalker/reference/framework-data-sources/#mitre-d3fend) | Defensive countermeasures | Continuous |
+| [ENGAGE](/crosswalker/reference/framework-data-sources/#mitre-engage) | Cyber denial & deception | Ad-hoc |
+
+Funds [CTID](/crosswalker/reference/registry/ctid/) via MITRE Engenuity.
+
+## In Crosswalker
+
+ATT&CK is the versioning gold standard — STIX 2.1 JSON with `revoked-by` deprecation chains. The [EvolutionPattern](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/): `biannual`, `rare` breaking, `evolving` IDs, `structured_complete` changelog.
+
+## Links
+
+- [attack.mitre.org](https://attack.mitre.org/)
+- [d3fend.mitre.org](https://d3fend.mitre.org/)
+- [Framework versioning: ATT&CK](/crosswalker/concepts/framework-versioning/#mitre-attck--the-gold-standard)

@@ -198,7 +198,7 @@ Who owns what across the [ontology lifecycle](/crosswalker/concepts/ontology-lif
 </thead>
 <tbody>
 <tr>
-<td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">Standard bodies</a><br/><em>NIST, ISO, MITRE</em></td>
+<td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">Standard bodies</a><br/><em><a href="/crosswalker/reference/registry/nist/">NIST</a>, <a href="/crosswalker/reference/registry/iso/">ISO</a>, <a href="/crosswalker/reference/registry/mitre/">MITRE</a></em></td>
 <td class="ol-m-cell ol-m-green" title="Create and publish frameworks — NIST publishes 800-53, CSF; MITRE publishes ATT&CK">Creates frameworks<br/><a href="/crosswalker/concepts/framework-standards/">800-53, CSF, ATT&CK</a></td>
 <td class="ol-m-cell ol-m-yellow" title="Manages version releases — NIST: ad-hoc (~5-10yr); MITRE: biannual">Publishes versions<br/><a href="/crosswalker/concepts/framework-versioning/">Versioning patterns</a></td>
 <td class="ol-m-cell ol-m-yellow" title="Some publish official crosswalks — NIST provides CSF↔800-53 mapping">Some official crosswalks<br/><a href="/crosswalker/agent-context/framework-crosswalks/">CSF↔800-53</a></td>
@@ -207,7 +207,7 @@ Who owns what across the [ontology lifecycle](/crosswalker/concepts/ontology-lif
 <td class="ol-m-cell ol-m-green" title="NIST creates OSCAL; OASIS creates STIX">Creates <a href="https://pages.nist.gov/OSCAL/">OSCAL</a>, <a href="https://oasis-open.github.io/cti-documentation/stix/intro.html">STIX</a></td>
 </tr>
 <tr>
-<td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">Industry groups</a><br/><em>CRI, OWASP, PCI SSC</em></td>
+<td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">Industry groups</a><br/><em><a href="/crosswalker/reference/registry/cri/">CRI</a>, <a href="/crosswalker/reference/registry/owasp/">OWASP</a>, PCI SSC</em></td>
 <td class="ol-m-cell ol-m-green">Creates domain frameworks<br/><a href="/crosswalker/reference/framework-data-sources/#cri-profile-v20">CRI Profile</a></td>
 <td class="ol-m-cell ol-m-yellow">Publishes versions<br/>ad-hoc cadence</td>
 <td class="ol-m-cell ol-m-yellow">Provides crosswalks<br/>in Excel workbooks</td>
@@ -216,7 +216,7 @@ Who owns what across the [ontology lifecycle](/crosswalker/concepts/ontology-lif
 <td class="ol-m-cell ol-m-gray">Rarely</td>
 </tr>
 <tr>
-<td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">Regulators</a><br/><em>SEC, FFIEC, NYDFS</em></td>
+<td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">Regulators</a><br/><em><a href="/crosswalker/reference/registry/sec/">SEC</a>, <a href="/crosswalker/reference/registry/ffiec/">FFIEC</a>, NYDFS</em></td>
 <td class="ol-m-cell ol-m-gray">Doesn't create —<br/>mandates adoption</td>
 <td class="ol-m-cell ol-m-yellow" title="References specific framework versions in regulations">References specific<br/>versions in mandates</td>
 <td class="ol-m-cell ol-m-gray">N/A</td>
@@ -225,7 +225,7 @@ Who owns what across the [ontology lifecycle](/crosswalker/concepts/ontology-lif
 <td class="ol-m-cell ol-m-gray">May mandate<br/>specific formats</td>
 </tr>
 <tr>
-<td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">Mapping orgs</a><br/><em>OLIR, SCF, CTID</em></td>
+<td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">Mapping orgs</a><br/><em><a href="/crosswalker/reference/registry/olir/">OLIR</a>, <a href="/crosswalker/reference/registry/scf/">SCF</a>, <a href="/crosswalker/reference/registry/ctid/">CTID</a></em></td>
 <td class="ol-m-cell ol-m-gray">N/A</td>
 <td class="ol-m-cell ol-m-gray">Tracks upstream<br/>version changes</td>
 <td class="ol-m-cell ol-m-green" title="OLIR accepts submissions; SCF maintains 175+ via STRM; CTID maps ATT&CK↔800-53">Creates crosswalks<br/><a href="https://csrc.nist.gov/projects/olir">OLIR</a>, <a href="https://securecontrolsframework.com/strm-bundle/">SCF STRM</a>, <a href="https://github.com/center-for-threat-informed-defense/attack-control-framework-mappings">CTID</a></td>
@@ -291,8 +291,10 @@ Who owns what across the [ontology lifecycle](/crosswalker/concepts/ontology-lif
     min-width: 110px; font-size: 0.7rem;
   }
   .ol-m-row em { font-size: 0.58rem; color: var(--sl-color-gray-3); display: block; }
-  .ol-m-row a { color: var(--sl-color-accent); text-decoration: none; }
-  .ol-m-row a:hover { text-decoration: underline; }
+  .ol-m-row em a { color: var(--sl-color-gray-3); text-decoration: none; }
+  .ol-m-row em a:hover { text-decoration: underline; }
+  .ol-m-row > a { color: var(--sl-color-accent); text-decoration: none; }
+  .ol-m-row > a:hover { text-decoration: underline; }
   .ol-m-cell {
     font-size: 0.62rem; color: var(--sl-color-gray-1);
     transition: background 0.15s;

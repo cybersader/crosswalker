@@ -1,0 +1,34 @@
+---
+title: OSCAL
+description: Open Security Controls Assessment Language — NIST's machine-readable format for security controls with SemVer versioning.
+tags: [frameworks-nist, architecture]
+volatility: evolving
+sidebar:
+  order: 60
+---
+
+## Role
+
+**Interchange format** — machine-readable representation of security control catalogs, profiles, and assessment results. Created by [NIST](/crosswalker/reference/registry/nist/).
+
+## Why it matters
+
+OSCAL provides what most frameworks lack: **formal versioning with compatibility guarantees**. Content created under a MAJOR version remains valid in all subsequent releases within that major version.
+
+## Key features
+
+- SemVer versioning (MAJOR.MINOR.PATCH)
+- Metaschema generates XML, JSON, and YAML simultaneously
+- UUID per document with revision history
+- Layer separation: Catalog → Profile → Implementation → Assessment
+
+## In Crosswalker
+
+OSCAL is a planned [export format](/crosswalker/reference/roadmap/#community--share-and-scale) and a model for Crosswalker's own [versioning approach](/crosswalker/concepts/ontology-evolution/#semantic-versioning-for-data). The [EvolutionPattern](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) considers OSCAL the `forbidden` breaking changes model.
+
+## Links
+
+- [pages.nist.gov/OSCAL](https://pages.nist.gov/OSCAL/)
+- [OSCAL GitHub](https://github.com/usnistgov/OSCAL)
+- [OSCAL Registry](https://registry.oscal.io/documents)
+- [Framework versioning: OSCAL](/crosswalker/concepts/framework-versioning/)

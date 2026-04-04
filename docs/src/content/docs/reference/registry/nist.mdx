@@ -1,0 +1,33 @@
+---
+title: NIST
+description: National Institute of Standards and Technology — publishes 800-53, CSF, OSCAL, and runs the OLIR crosswalk program.
+tags: [frameworks, frameworks-nist]
+volatility: stable
+sidebar:
+  order: 10
+---
+
+## Role
+
+**Standard body** — creates and publishes foundational cybersecurity frameworks used worldwide.
+
+## Key outputs
+
+| Framework | Description | [Evolution pattern](/crosswalker/concepts/ontology-evolution/) |
+|-----------|-------------|------------------|
+| [SP 800-53](/crosswalker/reference/framework-data-sources/#nist-sp-800-53-rev-5) | Security and privacy controls (1000+) | Ad-hoc, ~5-10yr cycle |
+| [CSF 2.0](/crosswalker/reference/framework-data-sources/#nist-csf-20) | Cybersecurity Framework (6 functions) | Ad-hoc, ~5-10yr cycle |
+| [OSCAL](/crosswalker/reference/registry/oscal/) | Machine-readable control format | SemVer, active development |
+| RMF | Risk Management Framework | Stable |
+
+Also runs the [OLIR](/crosswalker/reference/registry/olir/) crosswalk program and [CPRT](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters) interactive tool.
+
+## In Crosswalker
+
+NIST frameworks are the most commonly imported. The [EvolutionPattern](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) for 800-53: `ad_hoc` cadence, `managed` breaking changes, `immutable` IDs, `structured_incomplete` changelog.
+
+## Links
+
+- [csrc.nist.gov](https://csrc.nist.gov/) — NIST Computer Security Resource Center
+- [Framework versioning: NIST](/crosswalker/concepts/framework-versioning/#nist-csf-11--20-february-2024)
+- [Operational landscape](/crosswalker/concepts/operational-landscape/)

@@ -1,0 +1,44 @@
+---
+title: Volatility property and entity registry
+description: Introducing formal content volatility tracking and a registry of institutional actors — building toward the marketplace.
+tags: [architecture, development]
+sidebar:
+  label: "04-04 · Volatility + registry"
+  order: -20260404
+---
+
+## Content volatility property
+
+New frontmatter property across the KB: `volatility: stable | evolving | volatile`
+
+| Value | Meaning | Examples |
+|-------|---------|---------|
+| `stable` | Rarely changes; rooted in first principles or institutional identity | [Ontology evolution](/crosswalker/concepts/ontology-evolution/) concepts, entity descriptions (NIST, MITRE) |
+| `evolving` | Updates periodically as the ecosystem shifts | Framework data sources, EvolutionPattern profiles, Obsidian ecosystem |
+| `volatile` | Changes frequently; needs regular review | Specific framework version details, tool comparisons, roadmap status |
+
+This enables:
+- [Bases](/crosswalker/concepts/metadata-ecosystem/) views filtering by volatility (what needs review?)
+- Prioritization of update effort
+- Future automation: flag volatile pages that haven't been reviewed in X months
+
+## Entity registry
+
+New section: `reference/registry/` — 12 pages for institutional actors in the ontology ecosystem.
+
+**Tier 1** (core to Crosswalker): [NIST](/crosswalker/reference/registry/nist/), [MITRE](/crosswalker/reference/registry/mitre/), [CIS](/crosswalker/reference/registry/cis/), [SCF](/crosswalker/reference/registry/scf/), [OLIR](/crosswalker/reference/registry/olir/), [CTID](/crosswalker/reference/registry/ctid/)
+
+**Tier 2** (referenced): [CRI](/crosswalker/reference/registry/cri/), [OWASP](/crosswalker/reference/registry/owasp/), [FFIEC](/crosswalker/reference/registry/ffiec/), [SEC](/crosswalker/reference/registry/sec/), [ISO](/crosswalker/reference/registry/iso/), [OSCAL](/crosswalker/reference/registry/oscal/)
+
+### Future: marketplace
+
+These entity pages are the foundation for the [community config registry](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/#8-community-marketplace-research-item). Each entity page will eventually link to:
+- Available [FrameworkConfig](/crosswalker/agent-context/config-schema-design/) presets for their frameworks
+- [Evolution profiles](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) for their versioning patterns
+- Community-contributed crosswalk configs
+
+## Related
+
+- [Operational landscape](/crosswalker/concepts/operational-landscape/) — the responsibility matrix uses these entities
+- [Institutional landscape](/crosswalker/concepts/institutional-landscape/) — the entity type cards
+- [Vision alignment: marketplace](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/#8-community-marketplace-research-item)
