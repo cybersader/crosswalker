@@ -100,6 +100,12 @@
   header .md\:hidden {
     display: flex !important;
   }
+  /* Fix mobile TOC breadcrumb — it sits inside the right-sidebar
+     which has a parent that collapses to width:0. Force the TOC
+     parent to take full width at this breakpoint. */
+  [class~="lg:sl-hidden"] {
+    width: 100% !important;
+  }
 }
 
 /* Sidebar scrollbar: kept visible (Nova's demo site has one too).
