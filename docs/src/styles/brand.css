@@ -102,15 +102,9 @@
   }
 }
 
-/* Hide sidebar scrollbar while keeping scroll functionality.
-   The sidebar content (94+ pages) exceeds the viewport height,
-   so scrolling is needed, but the visible scrollbar is ugly. */
-#starlight__sidebar {
-  scrollbar-width: none; /* Firefox */
-}
-#starlight__sidebar::-webkit-scrollbar {
-  display: none; /* Chrome/Safari/Edge */
-}
+/* Sidebar scrollbar: kept visible (Nova's demo site has one too).
+   With 100+ pages, the sidebar needs scrolling and the scrollbar
+   helps users know there's more content below. */
 
 /* Obsidian-style callouts */
 .callout {
