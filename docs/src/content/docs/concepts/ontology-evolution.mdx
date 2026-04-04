@@ -939,9 +939,9 @@ if (container) {
 
   // Hub node
   const hubG = svg.append('g').attr('transform', 'translate(' + hubNode.x + ',' + hubNode.y + ')');
-  hubG.append('circle').attr('r', 26).attr('fill', '#00d4aa22').attr('stroke', '#00d4aa').attr('stroke-width', 2.5);
+  hubG.append('circle').attr('r', 26).attr('fill', '#0a2a2a').attr('stroke', '#00d4aa').attr('stroke-width', 3);
   hubG.append('text').attr('text-anchor','middle').attr('dy','0.35em')
-    .attr('fill','#00d4aa').attr('font-size','10px').attr('font-weight',800).text('SCF');
+    .attr('fill','#e8edf2').attr('font-size','11px').attr('font-weight',800).text('SCF');
   function pulseHub() {
     hubG.select('circle').transition().duration(2000).attr('r', 29).attr('stroke-width', 3)
       .transition().duration(2000).attr('r', 26).attr('stroke-width', 2.5)
@@ -1284,14 +1284,14 @@ The [ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) — specific
 
   /* ========== EXPAND-MIGRATE-CONTRACT ========== */
   .oe-emc {
-    display: flex; align-items: center; justify-content: center;
-    gap: 0; margin: 1.5rem 0; flex-wrap: wrap;
+    display: flex; align-items: stretch; justify-content: center;
+    gap: 0; margin: 1.5rem 0; flex-wrap: nowrap;
   }
   .oe-emc-step {
-    display: flex; flex-direction: column; align-items: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
     padding: 0.6rem 0.8rem; border-radius: 10px;
     background: var(--sl-color-gray-6); border: 2px solid var(--sl-color-gray-5);
-    min-width: 120px; text-align: center;
+    min-width: 120px; flex: 1; max-width: 180px; text-align: center;
     transition: transform 0.2s, box-shadow 0.2s;
   }
   .oe-emc-step:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
