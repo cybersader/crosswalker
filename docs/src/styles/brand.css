@@ -89,13 +89,11 @@
   .main-frame {
     padding-inline-start: 0 !important;
   }
-  /* Show hamburger menu button (Nova hides it at md:) */
-  nova-mobile-menu-toggle {
+  /* Show hamburger menu and its parent container.
+     Nova's parent div uses Tailwind md:hidden which compiles to
+     @media(min-width:768px){display:none}. Override it. */
+  header .md\:hidden {
     display: flex !important;
-  }
-  /* Hide desktop nav items that crowd the header */
-  .main-frame > header nav {
-    display: none !important;
   }
 }
 
