@@ -1,0 +1,42 @@
+---
+title: Institutional landscape decisions
+description: Decisions on how to document the institutional ontology landscape — layout, structure, tech approach, and scope.
+tags: [architecture, development, grc]
+sidebar:
+  label: "04-04 · Institutional landscape decisions"
+  order: -20260404
+---
+
+## Decisions made
+
+### What to document
+Not about picking one pain point — it's about documenting the COMPLETE mental model with all dimensions so the user can make architectural decisions from a place of understanding. Every entity type must be accounted for in the representations.
+
+### Dimensions to cover
+1. **Entity types** — standard bodies, industry groups, regulators, mapping orgs, vendors, your org, auditors
+2. **Relationship types** — publishes, mandates, maps/crosswalks, implements, adopts, verifies
+3. **Artifact types** — frameworks, crosswalks, evidence, assessments, reports
+4. **[Lifecycle phases](/crosswalker/concepts/ontology-lifecycle/)** — create → publish → adopt → map → evidence → audit → evolve
+5. **[Evolution patterns](/crosswalker/concepts/ontology-evolution/)** — how each entity type handles change differently
+
+### Layout: Multiple focused diagrams
+Each dimension gets its own clean diagram. Entity types diagram, relationship diagram, lifecycle diagram, etc. Easier to understand one at a time. NOT one complex mega-diagram.
+
+### Location: One comprehensive page
+`concepts/institutional-landscape.mdx` — everything on one page with clear sections, BUT heavily cross-linked to other pages ([ontology evolution](/crosswalker/concepts/ontology-evolution/), [framework versioning](/crosswalker/concepts/framework-versioning/), [GRC teams](/crosswalker/getting-started/grc-teams/), [ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/), [terminology](/crosswalker/concepts/terminology/)).
+
+### Scope: Cyber/GRC primary, others as analogies
+Document the cyber landscape deeply. Reference medical/financial/scientific as "this pattern exists elsewhere too." Define categories that generalize.
+
+### Tech approach: All three, mobile-first
+- **Inline HTML/CSS** for simpler diagrams (entity type cards, relationship arrows)
+- **Astro components** for reusable patterns (if we find ourselves repeating)
+- **D3.js Astro Islands** for the most complex interactive ones (force-directed entity graph)
+- ALL must be mobile-responsive
+- Animations should communicate structure and liveness, not just be decoration
+- Interactivity should be "as interactive as necessary to communicate the mental model"
+
+### Related
+- [Diagram strategy decision](/crosswalker/agent-context/zz-log/2026-04-03-diagram-strategy-decision/)
+- [Institutional landscape planning](/crosswalker/agent-context/zz-log/2026-04-03-institutional-ontology-landscape/)
+- [Vision alignment decisions](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/)
