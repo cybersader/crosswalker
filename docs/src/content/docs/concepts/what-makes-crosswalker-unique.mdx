@@ -1,0 +1,149 @@
+---
+title: What makes Crosswalker unique
+description: The core differentiators and novel contributions — why this isn't just another importer, and what the short vs long term vision looks like.
+tags: [architecture, vision]
+sidebar:
+  order: 1
+volatility: evolving
+---
+
+Crosswalker is a **meta-system for [ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) management**. The import wizard is the entry point, but the real value is what happens after — classification, evolution tracking, migration strategies, and a community ecosystem that makes the hard work of framework configuration shareable.
+
+This page captures what's genuinely novel, what the short and long term vision looks like, and why these design choices matter.
+
+---
+
+## The core insight
+
+> An ontology's evolution is not a property of the ontology itself, but of how it's **stewarded by its community**.
+
+MITRE publishes biannual ATT&CK releases with STIX changelogs — automation is possible. CIS publishes infrequently with prose release notes — human intervention required. NIST CSF went from 1.1 to 2.0 with a complete restructure — every crosswalk broke.
+
+**No existing tool classifies these patterns.** Crosswalker does, using the [EvolutionPattern taxonomy](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) — a novel specification that maps stewardship patterns to handling strategies borrowed from [Slowly Changing Dimensions](/crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions) in data warehousing.
+
+This is the secret sauce: **the meta-layer that understands how knowledge structures change over time**.
+
+---
+
+## What's genuinely novel
+
+Individual pieces of the puzzle exist elsewhere — OSCAL for machine-readable controls, SCF's STRM for framework mapping, MITRE's STIX for deprecation chains. But [no tool combines them](/crosswalker/agent-context/zz-log/2026-04-03-deep-research-synthesis/#research-1-ontology-lifecycle-management--does-anything-solve-this):
+
+| Capability | Exists today? | Crosswalker's approach |
+|---|---|---|
+| Classify **how** an ontology evolves | No | [EvolutionPattern taxonomy](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) — 8 fields, community-contributed profiles |
+| Auto-select migration strategy from that classification | No | Migration strategy matrix — evolution pattern + SCD type → handling |
+| Community registry for framework configs | Partially (SCF) | Config-as-code files, shareable via registry (`crosswalker install nist-800-53-r5`) |
+| Detect stale crosswalks automatically | No | Version tracking in `_crosswalker` metadata, evolution profile comparison |
+| File-based compliance knowledge graph | No | Obsidian vault as a [property graph](/crosswalker/concepts/file-based-graph-databases/) — plain markdown, zero vendor lock-in |
+
+---
+
+## Four core differentiators
+
+### 1. Files, not databases
+
+Crosswalker chooses **files and folders** over proprietary databases. This isn't a limitation — it's a [deliberate architectural decision](/crosswalker/agent-context/zz-log/2026-04-03-why-obsidian-why-files/):
+
+- **Version control**: `git diff` between framework versions, not custom export tooling
+- **Data ownership**: you own the bytes, air-gapped environments work
+- **Tool-agnostic**: works with [Bases, Dataview, or plain search](/crosswalker/concepts/metadata-ecosystem/) — no lock-in
+- **CI/CD friendly**: read files directly in pipelines
+
+The tradeoff: eventual consistency and manual re-import instead of real-time sync. For compliance knowledge management, where **auditability matters more than real-time collaboration**, this is the right tradeoff.
+
+### 2. Platform architecture, not plugin monolith
+
+Crosswalker is designed as a [three-layer system](/crosswalker/agent-context/zz-log/2026-04-03-layered-architecture-vision/):
+
+| Layer | What it is | Who uses it |
+|---|---|---|
+| **Spec** | EvolutionPattern taxonomy, SCD mapping, config-as-code format | Anyone — other tools can implement it |
+| **Library** | Parsers, transforms, crosswalk resolver, migration planner | Developers building integrations |
+| **Integrations** | Obsidian plugin, CLI, future web UI | End users |
+
+The spec is publishable as a standalone standard. The library has zero Obsidian dependency. The plugin is just one wrapper around the core.
+
+### 3. Evolution-aware from the ground up
+
+Most tools treat frameworks as static snapshots. Crosswalker treats them as **living documents** with predictable evolution patterns:
+
+- **EvolutionPattern taxonomy**: 8 fields classifying how each framework changes — release cadence, breaking change policy, ID stability, deprecation mechanism, and more
+- **SCD type mapping**: each pattern maps to a [Slowly Changing Dimension](/crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions) strategy (overwrite, keep history, alias old IDs, or maintain history tables)
+- **Migration strategies**: given old version + new version + evolution pattern → recommended handling with diff preview
+
+### 4. Community-multiplied value
+
+Once someone configures a framework import — sheets, columns, transforms, crosswalk mappings — that config is **shareable as a file**:
+
+- Community config registry (like npm for framework configs)
+- Versioned configs that track framework version changes
+- Hard work done once, shared through the ecosystem
+- [Entity registry](/crosswalker/reference/registry/) documents who maintains what
+
+---
+
+## Short term vs long term
+
+### Now: get the architecture right
+
+The [Foundation phase](/crosswalker/reference/roadmap/) focuses on **spec before code**. The three interconnected schemas — `_crosswalker` metadata, [FrameworkConfig](/crosswalker/agent-context/config-schema-design/), and EvolutionPattern — must be designed together. Getting any wrong is expensive to fix once users have generated notes.
+
+**What exists today (v0.1):**
+- Import wizard (CSV → Obsidian folders + notes with frontmatter and WikiLinks)
+- Config save/load/match system
+- 112-page [documentation site](/crosswalker/reference/roadmap/v0-1-mvp/)
+
+**What's being designed now:**
+- EvolutionPattern taxonomy as a standalone specification
+- Config-as-code format for version-controllable framework configs
+- [Layered architecture](/crosswalker/agent-context/zz-log/2026-04-03-layered-architecture-vision/) separating spec → library → integrations
+
+### Medium term: the Obsidian-native experience
+
+- Complete import wizard with XLSX/JSON support and [transform system](/crosswalker/design/transformation/)
+- Cross-framework linking engine with typed WikiLinks
+- Batch re-import with version awareness and diff preview
+- CLI for headless operations and CI/CD integration
+- E2E test suite
+
+### Long term: platform-agnostic core
+
+The [VaultAdapter pattern](/crosswalker/agent-context/zz-log/2026-04-03-distribution-architecture-research/) ensures the core logic is portable:
+
+```
+crosswalker/
+├── packages/core/      # Pure logic — zero Obsidian dependency
+├── packages/plugin/    # Obsidian wrapper (UI, vault adapter)
+├── packages/cli/       # Node.js CLI (fs vault adapter)
+└── packages/web/       # Future web UI
+```
+
+Obsidian is the **first and best** integration — its plugin ecosystem, WikiLinks, graph view, and Properties API make it ideal. But the core library can power a CLI, a web UI, a VS Code extension, or any tool that processes structured knowledge.
+
+**The endgame**: a community registry of 100+ framework evolution profiles, a CLI for CI/CD compliance checks, and a published specification that other tools can implement — whether or not they use Crosswalker's code.
+
+---
+
+## The bread and butter
+
+What makes Crosswalker defensible and unique in the long run:
+
+1. **The EvolutionPattern spec** — a novel classification system that doesn't exist anywhere else. Once published and adopted, it becomes the lingua franca for describing how ontologies change.
+
+2. **The community config registry** — network effects. Every framework config contributed makes the tool more valuable for everyone. The first tool to build this critical mass wins.
+
+3. **File-first philosophy** — while competitors build databases that lock users in, Crosswalker produces plain markdown that works with any tool. Users who value data ownership choose this.
+
+4. **SCD-for-ontologies bridge** — applying well-understood data warehouse patterns to a domain that hasn't formalized them yet. This insight is simple but powerful.
+
+---
+
+## Related
+
+- [Ontology evolution](/crosswalker/concepts/ontology-evolution/) — the full problem landscape
+- [Ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) — the five phases
+- [Why Obsidian, why files](/crosswalker/agent-context/zz-log/2026-04-03-why-obsidian-why-files/) — filesystem-first rationale
+- [Layered architecture](/crosswalker/agent-context/zz-log/2026-04-03-layered-architecture-vision/) — spec → library → integrations
+- [EvolutionPattern taxonomy](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) — the novel spec
+- [Vision alignment decisions](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/) — the 10 foundational decisions

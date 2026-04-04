@@ -13,19 +13,20 @@ An ontology (framework, taxonomy, any structured knowledge system) goes through 
 <style>{`
 .ol-lifecycle-ring {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   gap: 0;
   flex-wrap: nowrap;
   overflow-x: auto;
-  padding: 2rem 1rem;
+  padding: 2rem 1rem 1rem;
   position: relative;
 }
+.ol-lifecycle-ring > * { margin-top: 0 !important; }
 .ol-phase {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0;
   position: relative;
   z-index: 1;
 }
@@ -93,7 +94,7 @@ a.ol-phase:hover .ol-phase-card {
 }
 .ol-maintain-loop {
   position: absolute;
-  top: -18px;
+  bottom: calc(100% + 4px);
   left: 50%;
   transform: translateX(-50%);
   font-size: 0.6rem;
@@ -102,6 +103,7 @@ a.ol-phase:hover .ol-phase-card {
   display: flex;
   align-items: center;
   gap: 3px;
+  pointer-events: none;
 }
 @keyframes ol-pulse {
   0%, 100% { transform: scale(1); box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
@@ -147,9 +149,9 @@ a.ol-phase:hover .ol-phase-card {
     </div>
   </a>
   <div class="ol-arrow">→</div>
-  <a href="#maintain" class="ol-phase" style="position:relative">
-    <div class="ol-maintain-loop">↩ Enrich</div>
-    <div class="ol-phase-card ol-maintain">
+  <a href="#maintain" class="ol-phase">
+    <div class="ol-phase-card ol-maintain" style="position:relative">
+      <div class="ol-maintain-loop">↩ Enrich</div>
       <span class="ol-icon">🔄</span>
       <span>Maintain</span>
     </div>
