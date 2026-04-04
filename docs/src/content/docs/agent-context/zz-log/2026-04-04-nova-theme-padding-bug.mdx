@@ -95,6 +95,22 @@ When adding custom HTML/CSS diagrams to Starlight content:
 
 This applies to Starlight core, not just Nova. Any theme will have this issue if you put custom HTML grids/flexboxes inside markdown content.
 
+### Cause 4: Sidebar overlap at 768-1023px
+
+Nova shows the sidebar at `md:` breakpoint (768px) using Tailwind's `md:visible`. But at 768-1023px there's only 468-723px for content after the 300px sidebar — not enough room. Mobile landscape devices (Samsung Galaxy S21 Ultra = ~915px) were particularly affected.
+
+**Fix**: Media query that hides sidebar and shows hamburger menu at 768-1023px:
+
+```css
+@media (min-width: 768px) and (max-width: 1023px) {
+  #starlight__sidebar { visibility: hidden !important; }
+  .main-frame { padding-inline-start: 0 !important; }
+  nova-mobile-menu-toggle { display: flex !important; }
+}
+```
+
+6. **Test at 768-1023px** — the sidebar should collapse to hamburger, not overlap content
+
 ## Related
 
 - [Diagram strategy decision](/crosswalker/agent-context/zz-log/2026-04-03-diagram-strategy-decision/)
