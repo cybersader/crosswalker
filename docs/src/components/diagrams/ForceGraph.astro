@@ -1,0 +1,246 @@
+---
+// ForceGraph.astro — Interactive D3 force-directed graph as an Astro Island
+// Usage: <ForceGraph client:visible nodes={[...]} edges={[...]} />
+
+interface Props {
+  nodes: Array<{
+    id: string;
+    label: string;
+    group: string;
+    description?: string;
+  }>;
+  edges: Array<{
+    source: string;
+    target: string;
+    label?: string;
+  }>;
+  width?: number;
+  height?: number;
+}
+
+const { nodes, edges, width = 700, height = 400 } = Astro.props;
+---
+
+<div class="fg-container" data-nodes={JSON.stringify(nodes)} data-edges={JSON.stringify(edges)} data-width={width} data-height={height}>
+  <div class="fg-tooltip" style="display:none;"></div>
+  <svg class="fg-svg"></svg>
+  <div class="fg-legend"></div>
+</div>
+
+<style>
+  .fg-container {
+    background: var(--sl-color-black, #0d1117);
+    border: 1px solid var(--sl-color-gray-5, #252a33);
+    border-radius: 12px;
+    padding: 0.5rem;
+    margin: 1.5rem 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .fg-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    cursor: grab;
+  }
+  .fg-svg:active { cursor: grabbing; }
+  .fg-tooltip {
+    position: absolute;
+    background: var(--sl-color-gray-6, #161a22);
+    border: 1px solid var(--sl-color-gray-4, #3d434e);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.7rem;
+    color: var(--sl-color-white, #e8edf2);
+    pointer-events: none;
+    z-index: 10;
+    max-width: 200px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .fg-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+    justify-content: center;
+    padding: 0.4rem 0 0;
+    font-size: 0.6rem;
+  }
+  .fg-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .fg-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+</style>
+
+<script>
+  import * as d3 from 'd3';
+  import { gsap } from 'gsap';
+
+  const GROUP_COLORS: Record<string, string> = {
+    'standard-body': '#2596be',
+    'industry-group': '#e5c07b',
+    'regulator': '#e06c75',
+    'mapping-org': '#00d4aa',
+    'vendor': '#c678dd',
+    'consumer': '#98c379',
+    'auditor': '#d19a66',
+    'framework': '#00d4aa',
+    'evidence': '#98c379',
+    'technique': '#e06c75',
+  };
+
+  document.querySelectorAll('.fg-container').forEach((container) => {
+    const el = container as HTMLElement;
+    const nodes = JSON.parse(el.dataset.nodes || '[]');
+    const edges = JSON.parse(el.dataset.edges || '[]');
+    const width = parseInt(el.dataset.width || '700');
+    const height = parseInt(el.dataset.height || '400');
+
+    const svg = d3.select(el.querySelector('.fg-svg'))
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('preserveAspectRatio', 'xMidYMid meet');
+
+    const tooltip = el.querySelector('.fg-tooltip') as HTMLElement;
+    const legend = el.querySelector('.fg-legend') as HTMLElement;
+
+    // Build legend from unique groups
+    const groups = [...new Set(nodes.map((n: any) => n.group))];
+    legend.innerHTML = groups.map((g: string) =>
+      `<span class="fg-legend-item"><span class="fg-legend-dot" style="background:${GROUP_COLORS[g] || '#888'}"></span>${g.replace(/-/g, ' ')}</span>`
+    ).join('');
+
+    // Simulation
+    const simulation = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(edges).id((d: any) => d.id).distance(90))
+      .force('charge', d3.forceManyBody().strength(-200))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collision', d3.forceCollide().radius(30));
+
+    // Edges
+    const link = svg.append('g')
+      .selectAll('line')
+      .data(edges)
+      .join('line')
+      .attr('stroke', '#3d434e')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-dasharray', '6 3')
+      .attr('opacity', 0.6);
+
+    // Edge labels
+    const edgeLabel = svg.append('g')
+      .selectAll('text')
+      .data(edges.filter((e: any) => e.label))
+      .join('text')
+      .text((d: any) => d.label)
+      .attr('font-size', '8px')
+      .attr('fill', '#5c636e')
+      .attr('text-anchor', 'middle')
+      .attr('font-family', 'var(--sl-font-mono, monospace)');
+
+    // Nodes
+    const node = svg.append('g')
+      .selectAll('g')
+      .data(nodes)
+      .join('g')
+      .call(d3.drag<any, any>()
+        .on('start', (event, d) => {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        })
+        .on('drag', (event, d) => {
+          d.fx = event.x;
+          d.fy = event.y;
+        })
+        .on('end', (event, d) => {
+          if (!event.active) simulation.alphaTarget(0);
+          d.fx = null;
+          d.fy = null;
+        })
+      );
+
+    node.append('circle')
+      .attr('r', 16)
+      .attr('fill', 'var(--sl-color-black, #0d1117)')
+      .attr('stroke', (d: any) => GROUP_COLORS[d.group] || '#888')
+      .attr('stroke-width', 2.5)
+      .style('transition', 'stroke-width 0.2s, filter 0.2s');
+
+    node.append('text')
+      .text((d: any) => d.label)
+      .attr('text-anchor', 'middle')
+      .attr('dy', '0.35em')
+      .attr('font-size', '8px')
+      .attr('font-weight', '700')
+      .attr('fill', 'var(--sl-color-white, #e8edf2)')
+      .style('pointer-events', 'none');
+
+    // Hover interactions
+    node.on('mouseover', function(event, d: any) {
+      d3.select(this).select('circle')
+        .attr('stroke-width', 4)
+        .style('filter', `drop-shadow(0 0 8px ${GROUP_COLORS[d.group] || '#888'})`);
+
+      // Highlight connected edges
+      link.attr('stroke', (l: any) =>
+        l.source.id === d.id || l.target.id === d.id ? (GROUP_COLORS[d.group] || '#00d4aa') : '#3d434e'
+      ).attr('stroke-width', (l: any) =>
+        l.source.id === d.id || l.target.id === d.id ? 2.5 : 1.5
+      ).attr('opacity', (l: any) =>
+        l.source.id === d.id || l.target.id === d.id ? 1 : 0.3
+      );
+
+      // Dim unconnected nodes
+      const connected = new Set(
+        edges.filter((e: any) => e.source.id === d.id || e.target.id === d.id)
+          .flatMap((e: any) => [e.source.id, e.target.id])
+      );
+      node.select('circle').attr('opacity', (n: any) =>
+        n.id === d.id || connected.has(n.id) ? 1 : 0.3
+      );
+      node.select('text').attr('opacity', (n: any) =>
+        n.id === d.id || connected.has(n.id) ? 1 : 0.2
+      );
+
+      // Tooltip
+      if (d.description) {
+        tooltip.style.display = 'block';
+        tooltip.innerHTML = `<strong>${d.label}</strong><br>${d.description}`;
+        tooltip.style.left = `${event.offsetX + 15}px`;
+        tooltip.style.top = `${event.offsetY - 10}px`;
+      }
+    })
+    .on('mouseout', function() {
+      node.select('circle')
+        .attr('stroke-width', 2.5)
+        .style('filter', 'none')
+        .attr('opacity', 1);
+      node.select('text').attr('opacity', 1);
+      link.attr('stroke', '#3d434e').attr('stroke-width', 1.5).attr('opacity', 0.6);
+      tooltip.style.display = 'none';
+    });
+
+    // Tick
+    simulation.on('tick', () => {
+      link
+        .attr('x1', (d: any) => d.source.x)
+        .attr('y1', (d: any) => d.source.y)
+        .attr('x2', (d: any) => d.target.x)
+        .attr('y2', (d: any) => d.target.y);
+
+      edgeLabel
+        .attr('x', (d: any) => (d.source.x + d.target.x) / 2)
+        .attr('y', (d: any) => (d.source.y + d.target.y) / 2 - 4);
+
+      node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
+    });
+
+    // Entrance animation
+    gsap.from(el.querySelector('.fg-svg'), { opacity: 0, duration: 0.5 });
+  });
+</script>

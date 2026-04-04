@@ -109,6 +109,156 @@ Seven types of actors participate in the ontology ecosystem. Each has different 
 
 > **Terminology note**: These entity types are defined in the [terminology page](/crosswalker/concepts/terminology/). In other domains: standard bodies = standards development organizations (SDOs), industry groups = trade associations, mapping organizations = ontology alignment services.
 
+### Interactive entity map
+
+Drag nodes to explore relationships. Hover to highlight connections.
+
+<div id="il-force-graph"></div>
+
+<script type="module">{`
+import * as d3 from 'https://cdn.jsdelivr.net/npm/d3@7/+esm';
+
+const container = document.getElementById('il-force-graph');
+if (container) {
+  const width = container.clientWidth || 700;
+  const height = 420;
+
+  const COLORS = {
+    'standard-body': '#2596be',
+    'industry-group': '#e5c07b',
+    'regulator': '#e06c75',
+    'mapping-org': '#00d4aa',
+    'consumer': '#98c379',
+    'auditor': '#d19a66',
+  };
+
+  const nodes = [
+    { id: 'nist', label: 'NIST', group: 'standard-body', desc: 'Publishes 800-53, CSF, OSCAL' },
+    { id: 'mitre', label: 'MITRE', group: 'standard-body', desc: 'Publishes ATT&CK, D3FEND, ENGAGE' },
+    { id: 'cis', label: 'CIS', group: 'industry-group', desc: 'Publishes Controls v8, Benchmarks' },
+    { id: 'cri', label: 'CRI', group: 'industry-group', desc: 'CRI Profile for financial sector' },
+    { id: 'sec', label: 'SEC', group: 'regulator', desc: 'Mandates cyber disclosure' },
+    { id: 'ffiec', label: 'FFIEC', group: 'regulator', desc: 'Examines financial institutions' },
+    { id: 'olir', label: 'OLIR', group: 'mapping-org', desc: 'Submission-based crosswalk registry' },
+    { id: 'scf', label: 'SCF', group: 'mapping-org', desc: '175+ framework hub via STRM' },
+    { id: 'ctid', label: 'CTID', group: 'mapping-org', desc: 'ATT&CK ↔ 800-53 mappings' },
+    { id: 'you', label: 'Your org', group: 'consumer', desc: 'Adopts frameworks, maps evidence' },
+    { id: 'audit', label: 'Auditor', group: 'auditor', desc: 'Verifies compliance evidence' },
+  ];
+
+  const edges = [
+    { source: 'nist', target: 'olir', label: 'publishes to' },
+    { source: 'mitre', target: 'ctid', label: 'funds' },
+    { source: 'sec', target: 'you', label: 'regulates' },
+    { source: 'ffiec', target: 'you', label: 'examines' },
+    { source: 'olir', target: 'you', label: 'crosswalks' },
+    { source: 'scf', target: 'you', label: 'meta-maps' },
+    { source: 'ctid', target: 'you', label: 'ATT&CK maps' },
+    { source: 'you', target: 'audit', label: 'proves to' },
+    { source: 'scf', target: 'nist', label: 'maps' },
+    { source: 'scf', target: 'mitre', label: 'maps' },
+    { source: 'scf', target: 'cis', label: 'maps' },
+    { source: 'scf', target: 'cri', label: 'maps' },
+    { source: 'ctid', target: 'nist', label: 'ATT&CK↔53' },
+    { source: 'cri', target: 'nist', label: 'maps to CSF' },
+    { source: 'nist', target: 'you', label: 'mandated' },
+    { source: 'cri', target: 'you', label: 'adopted' },
+  ];
+
+  const svg = d3.select(container).append('svg')
+    .attr('viewBox', '0 0 ' + width + ' ' + height)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
+    .style('width', '100%').style('height', 'auto')
+    .style('background', 'var(--sl-color-black, #0d1117)')
+    .style('border-radius', '12px')
+    .style('cursor', 'grab');
+
+  const tooltip = d3.select(container).append('div')
+    .style('position', 'absolute').style('display', 'none')
+    .style('background', 'var(--sl-color-gray-6, #161a22)')
+    .style('border', '1px solid var(--sl-color-gray-4, #3d434e)')
+    .style('border-radius', '8px').style('padding', '0.4rem 0.6rem')
+    .style('font-size', '0.65rem').style('color', '#e8edf2')
+    .style('pointer-events', 'none').style('z-index', '10')
+    .style('box-shadow', '0 4px 12px rgba(0,0,0,0.4)');
+
+  container.style.position = 'relative';
+  container.style.margin = '1.5rem 0';
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges).id(d => d.id).distance(85))
+    .force('charge', d3.forceManyBody().strength(-180))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide(28));
+
+  const link = svg.append('g').selectAll('line').data(edges).join('line')
+    .attr('stroke', '#3d434e').attr('stroke-width', 1.5)
+    .attr('stroke-dasharray', '6 3').attr('opacity', 0.5);
+
+  const edgeLabel = svg.append('g').selectAll('text').data(edges).join('text')
+    .text(d => d.label || '').attr('font-size', '7px').attr('fill', '#5c636e')
+    .attr('text-anchor', 'middle').attr('font-family', 'monospace');
+
+  const node = svg.append('g').selectAll('g').data(nodes).join('g')
+    .call(d3.drag().on('start', (e, d) => {
+      if (!e.active) sim.alphaTarget(0.3).restart();
+      d.fx = d.x; d.fy = d.y;
+    }).on('drag', (e, d) => {
+      d.fx = e.x; d.fy = e.y;
+    }).on('end', (e, d) => {
+      if (!e.active) sim.alphaTarget(0);
+      d.fx = null; d.fy = null;
+    }));
+
+  node.append('circle').attr('r', 18)
+    .attr('fill', 'var(--sl-color-black, #0d1117)')
+    .attr('stroke', d => COLORS[d.group] || '#888')
+    .attr('stroke-width', 2.5);
+
+  node.append('text').text(d => d.label)
+    .attr('text-anchor', 'middle').attr('dy', '0.35em')
+    .attr('font-size', '7.5px').attr('font-weight', '700')
+    .attr('fill', '#e8edf2').style('pointer-events', 'none');
+
+  node.on('mouseover', function(event, d) {
+    d3.select(this).select('circle').attr('stroke-width', 4)
+      .style('filter', 'drop-shadow(0 0 8px ' + (COLORS[d.group] || '#888') + ')');
+    const connected = new Set(edges.filter(e => e.source.id === d.id || e.target.id === d.id)
+      .flatMap(e => [e.source.id, e.target.id]));
+    link.attr('stroke', l => l.source.id === d.id || l.target.id === d.id ? COLORS[d.group] : '#3d434e')
+      .attr('stroke-width', l => l.source.id === d.id || l.target.id === d.id ? 2.5 : 1.5)
+      .attr('opacity', l => l.source.id === d.id || l.target.id === d.id ? 1 : 0.2);
+    node.select('circle').attr('opacity', n => n.id === d.id || connected.has(n.id) ? 1 : 0.3);
+    node.select('text').attr('opacity', n => n.id === d.id || connected.has(n.id) ? 1 : 0.15);
+    tooltip.style('display', 'block')
+      .html('<strong>' + d.label + '</strong><br>' + d.desc)
+      .style('left', (event.offsetX + 15) + 'px').style('top', (event.offsetY - 10) + 'px');
+  }).on('mouseout', function() {
+    node.select('circle').attr('stroke-width', 2.5).style('filter', 'none').attr('opacity', 1);
+    node.select('text').attr('opacity', 1);
+    link.attr('stroke', '#3d434e').attr('stroke-width', 1.5).attr('opacity', 0.5);
+    tooltip.style('display', 'none');
+  });
+
+  sim.on('tick', () => {
+    link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    edgeLabel.attr('x', d => (d.source.x + d.target.x) / 2)
+      .attr('y', d => (d.source.y + d.target.y) / 2 - 4);
+    node.attr('transform', d => 'translate(' + d.x + ',' + d.y + ')');
+  });
+
+  // Legend
+  const legend = d3.select(container).append('div')
+    .style('display', 'flex').style('flex-wrap', 'wrap').style('gap', '0.7rem')
+    .style('justify-content', 'center').style('padding', '0.4rem 0').style('font-size', '0.6rem');
+  Object.entries(COLORS).forEach(([k, v]) => {
+    legend.append('span').style('display', 'flex').style('align-items', 'center').style('gap', '0.25rem')
+      .html('<span style="width:8px;height:8px;border-radius:50%;background:' + v + ';display:inline-block"></span>' + k.replace(/-/g, ' '));
+  });
+}
+`}</script>
+
 ---
 
 ## The relationships

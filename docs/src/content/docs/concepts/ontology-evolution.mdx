@@ -828,12 +828,13 @@ The [ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) — specific
     margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em;
   }
   .oe-cwb-chain {
-    display: flex; align-items: center; gap: 0.2rem; flex-wrap: wrap;
+    display: flex; align-items: center; justify-content: center; gap: 0.2rem; flex-wrap: nowrap;
   }
   .oe-cwb-node {
     padding: 0.35rem 0.5rem; border-radius: 6px; text-align: center;
     font-size: 0.72rem; font-weight: 600; background: var(--sl-color-black);
     border: 1.5px solid var(--sl-color-gray-4); line-height: 1.3;
+    white-space: nowrap;
   }
   .oe-cwb-csf { border-color: #00d4aa; color: #00d4aa; }
   .oe-cwb-csf-new { border-color: #00d4aa; color: #00d4aa; border-width: 2px; }
@@ -926,12 +927,12 @@ The [ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) — specific
   .oe-ag-consumers { border-left: 4px solid #98c379; }
   .oe-ag-consumers .oe-ag-title { color: #98c379; }
   .oe-ag-cards {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-    gap: 0.4rem;
+    display: flex; flex-wrap: wrap; gap: 0.4rem;
   }
   .oe-actor-card {
     padding: 0.4rem 0.6rem; border-radius: 6px; background: var(--sl-color-black);
     border: 1px solid var(--sl-color-gray-4); transition: border-color 0.2s;
+    flex: 1 1 130px; max-width: 200px;
   }
   .oe-actor-card:hover { border-color: var(--sl-color-gray-2); }
   .oe-ac-name { font-weight: 700; font-size: 0.75rem; color: var(--sl-color-white); }
