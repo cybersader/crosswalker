@@ -1,0 +1,43 @@
+---
+title: "v0.1 MVP roadmap (archived)"
+description: Original MVP roadmap for Crosswalker 0.1.0 — import wizard, config system, generation engine.
+tags: [development]
+sidebar:
+  label: "v0.1 MVP (done)"
+  order: 100
+---
+
+This is the archived roadmap for **Crosswalker v0.1.0**, the initial MVP release. All items below are complete.
+
+---
+
+## Goals
+
+Ship a working import wizard that takes a CSV and produces an Obsidian folder structure with frontmatter-rich notes and WikiLinks.
+
+## Completed
+
+- [x] Plugin scaffold — TypeScript, esbuild, Bun, embedded test vault
+- [x] [Import wizard](/crosswalker/features/import-wizard/) — 4-step flow: file select, column config, preview, generate
+- [x] CSV parsing — PapaParse with streaming for large files (>5 MB)
+- [x] Column type detection — auto-detect hierarchy, ID, text, numeric, date, tags, URL
+- [x] [Config system](/crosswalker/features/config-system/) — save, load, and auto-match import configurations via fingerprinting
+- [x] [Generation engine](/crosswalker/features/generation-engine/) — create folders and notes with `_crosswalker` provenance metadata
+- [x] Debug logging — toggle-able logging to vault file
+- [x] Settings tab — output path, key naming, array handling, link syntax, matching sensitivity
+- [x] ESLint setup — `eslint-plugin-obsidianmd` for community plugin submission
+- [x] Documentation site — 70+ page knowledge base with Astro Starlight
+- [x] Unit tests — Jest + mocked Obsidian API
+- [x] CI/CD — GitHub Actions for releases, tests, and docs deployment
+
+## What carried forward
+
+Several items identified during MVP development became Foundation phase priorities:
+
+- XLSX/JSON parsers (moved to **Formats** phase)
+- Cross-framework linking (moved to **Crosswalks** phase)
+- The realization that architecture decisions must precede more feature work led to the current [Foundation phase](/crosswalker/reference/roadmap/#foundation--get-the-architecture-right)
+
+---
+
+See the [current roadmap](/crosswalker/reference/roadmap/) for active work.
