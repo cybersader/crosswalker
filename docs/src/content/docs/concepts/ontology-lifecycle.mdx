@@ -10,15 +10,156 @@ sidebar:
 
 An ontology (framework, taxonomy, any structured knowledge system) goes through five lifecycle phases within the Crosswalker ecosystem. This isn't a one-shot pipeline — it's an ongoing lifecycle where ontologies are acquired, imported, enriched with evidence and crosswalks, maintained as they evolve, and shared with the community.
 
-```mermaid
-graph TD
-    A[Acquire] --> B[Import]
-    B --> C[Enrich]
-    C --> D[Maintain]
-    D --> C
-    D --> E[Share]
-    E --> A
-```
+<style>{`
+.ol-lifecycle-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 2rem 1rem;
+  position: relative;
+}
+.ol-phase {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  position: relative;
+  z-index: 1;
+}
+.ol-phase-card {
+  width: 110px;
+  height: 110px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  animation: ol-pulse 3s ease-in-out infinite;
+  position: relative;
+}
+.ol-phase-card .ol-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+.ol-acquire { background: linear-gradient(135deg, #2596be, #1d7a9e); animation-delay: 0s; }
+.ol-import  { background: linear-gradient(135deg, #e5c07b, #c9a54e); animation-delay: 0.6s; }
+.ol-enrich  { background: linear-gradient(135deg, #98c379, #6fa352); animation-delay: 1.2s; }
+.ol-maintain { background: linear-gradient(135deg, #e06c75, #c44d56); animation-delay: 1.8s; }
+.ol-share   { background: linear-gradient(135deg, #c678dd, #a555c0); animation-delay: 2.4s; }
+.ol-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: #888;
+  padding: 0 0.25rem;
+  flex-shrink: 0;
+}
+.ol-loop-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.25rem 0 0;
+  position: relative;
+}
+.ol-loop-arrow svg {
+  width: 100%;
+  max-width: 700px;
+  height: 40px;
+}
+.ol-loop-label {
+  font-size: 0.7rem;
+  color: #aaa;
+  text-align: center;
+  margin-top: 0.15rem;
+}
+.ol-maintain-loop {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.6rem;
+  color: #e06c75;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+@keyframes ol-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
+  50% { transform: scale(1.03); box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
+}
+@media (max-width: 640px) {
+  .ol-lifecycle-ring {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+  }
+  .ol-phase-card {
+    width: 80px;
+    height: 80px;
+    font-size: 0.7rem;
+    border-radius: 12px;
+  }
+  .ol-phase-card .ol-icon { font-size: 1.2rem; }
+  .ol-arrow { font-size: 1rem; padding: 0 0.1rem; }
+  .ol-loop-arrow svg { height: 30px; }
+}
+`}</style>
+
+<div class="ol-lifecycle-ring" role="img" aria-label="Ontology lifecycle: Acquire, Import, Enrich, Maintain, Share, cycling back to Acquire">
+  <div class="ol-phase">
+    <div class="ol-phase-card ol-acquire">
+      <span class="ol-icon">📥</span>
+      <span>Acquire</span>
+    </div>
+  </div>
+  <div class="ol-arrow">→</div>
+  <div class="ol-phase">
+    <div class="ol-phase-card ol-import">
+      <span class="ol-icon">⚙️</span>
+      <span>Import</span>
+    </div>
+  </div>
+  <div class="ol-arrow">→</div>
+  <div class="ol-phase">
+    <div class="ol-phase-card ol-enrich">
+      <span class="ol-icon">🔗</span>
+      <span>Enrich</span>
+    </div>
+  </div>
+  <div class="ol-arrow">→</div>
+  <div class="ol-phase" style="position:relative">
+    <div class="ol-maintain-loop">↩ Enrich</div>
+    <div class="ol-phase-card ol-maintain">
+      <span class="ol-icon">🔄</span>
+      <span>Maintain</span>
+    </div>
+  </div>
+  <div class="ol-arrow">→</div>
+  <div class="ol-phase">
+    <div class="ol-phase-card ol-share">
+      <span class="ol-icon">🌐</span>
+      <span>Share</span>
+    </div>
+  </div>
+</div>
+<div class="ol-loop-arrow">
+  <svg viewBox="0 0 700 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M650 5 C680 5 690 20 680 30 L370 35 C350 36 340 36 50 35 L30 30 C15 25 20 10 40 8" stroke="#c678dd" stroke-width="2" stroke-dasharray="6 4" fill="none" />
+    <polygon points="40,2 40,14 28,8" fill="#c678dd" />
+  </svg>
+</div>
+<div class="ol-loop-label">Share feeds back into Acquire — community configs make the next import easier</div>
 
 | Phase | What happens | Current state |
 |-------|-------------|---------------|
@@ -122,6 +263,97 @@ Share loops back to Acquire — community-contributed configs make the next pers
 ## Lifecycle as architecture
 
 The lifecycle maps to the [layered architecture](/crosswalker/agent-context/zz-log/2026-04-03-layered-architecture-vision/):
+
+<style>{`
+.ol-arch-map {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 700px;
+  margin: 1.5rem auto;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.ol-arch-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr;
+  min-height: 52px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.ol-arch-row:last-child { border-bottom: none; }
+.ol-arch-header {
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #ccc;
+  background: rgba(255,255,255,0.06);
+}
+.ol-arch-cell {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  color: #ddd;
+}
+.ol-arch-phase {
+  font-weight: 600;
+  color: #fff;
+  border-right: 3px solid;
+  font-size: 0.82rem;
+}
+.ol-arch-phase.ol-c-acquire { border-color: #2596be; background: rgba(37,150,190,0.15); }
+.ol-arch-phase.ol-c-import  { border-color: #e5c07b; background: rgba(229,192,123,0.15); }
+.ol-arch-phase.ol-c-enrich  { border-color: #98c379; background: rgba(152,195,121,0.15); }
+.ol-arch-phase.ol-c-maintain { border-color: #e06c75; background: rgba(224,108,117,0.15); }
+.ol-arch-phase.ol-c-share   { border-color: #c678dd; background: rgba(198,120,221,0.15); }
+.ol-arch-layer {
+  background: rgba(0,212,170,0.06);
+}
+.ol-arch-owner {
+  background: rgba(255,255,255,0.02);
+}
+@media (max-width: 640px) {
+  .ol-arch-row { grid-template-columns: 100px 1fr; }
+  .ol-arch-owner { display: none; }
+  .ol-arch-cell { font-size: 0.72rem; padding: 0.4rem 0.5rem; }
+}
+`}</style>
+
+<div class="ol-arch-map" role="table" aria-label="Lifecycle phases mapped to architecture layers">
+  <div class="ol-arch-row ol-arch-header">
+    <div class="ol-arch-cell">Phase</div>
+    <div class="ol-arch-cell">Architecture layer</div>
+    <div class="ol-arch-cell">Owned by</div>
+  </div>
+  <div class="ol-arch-row">
+    <div class="ol-arch-cell ol-arch-phase ol-c-acquire">📥 Acquire</div>
+    <div class="ol-arch-cell ol-arch-layer">Integration (plugin / CLI)</div>
+    <div class="ol-arch-cell ol-arch-owner">Platform wrapper</div>
+  </div>
+  <div class="ol-arch-row">
+    <div class="ol-arch-cell ol-arch-phase ol-c-import">⚙️ Import</div>
+    <div class="ol-arch-cell ol-arch-layer">Library (SDK)</div>
+    <div class="ol-arch-cell ol-arch-owner">Core library + transform providers</div>
+  </div>
+  <div class="ol-arch-row">
+    <div class="ol-arch-cell ol-arch-phase ol-c-enrich">🔗 Enrich</div>
+    <div class="ol-arch-cell ol-arch-layer">Library + Integration</div>
+    <div class="ol-arch-cell ol-arch-owner">Core library + Obsidian WikiLink API</div>
+  </div>
+  <div class="ol-arch-row">
+    <div class="ol-arch-cell ol-arch-phase ol-c-maintain">🔄 Maintain</div>
+    <div class="ol-arch-cell ol-arch-layer">Spec + Library</div>
+    <div class="ol-arch-cell ol-arch-owner">Spec defines patterns, library implements</div>
+  </div>
+  <div class="ol-arch-row">
+    <div class="ol-arch-cell ol-arch-phase ol-c-share">🌐 Share</div>
+    <div class="ol-arch-cell ol-arch-layer">Integration + Community</div>
+    <div class="ol-arch-cell ol-arch-owner">Plugin UI + config registry</div>
+  </div>
+</div>
 
 | Lifecycle phase | Architecture layer | Who owns it |
 |----------------|-------------------|-------------|

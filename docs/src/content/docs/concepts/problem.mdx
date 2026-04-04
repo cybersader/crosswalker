@@ -6,6 +6,132 @@ tags: [data-model-graph, obsidian, evidence-mapping]
 
 ## The hierarchy vs. graph tension
 
+<style>{`
+.pr-tension-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 1.5rem 0;
+  max-width: 720px;
+}
+.pr-side {
+  flex: 1;
+  padding: 1.25rem 1rem;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.pr-tree-side {
+  background: rgba(37,150,190,0.1);
+  border: 1px solid rgba(37,150,190,0.25);
+}
+.pr-graph-side {
+  background: rgba(0,212,170,0.1);
+  border: 1px solid rgba(0,212,170,0.25);
+}
+.pr-side-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pr-tree-side .pr-side-label { color: #2596be; }
+.pr-graph-side .pr-side-label { color: #00d4aa; }
+.pr-tree-svg, .pr-graph-svg {
+  width: 100%;
+  max-width: 200px;
+  height: 160px;
+}
+.pr-bridge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 100px;
+  padding: 0 0.5rem;
+  text-align: center;
+}
+.pr-bridge-gap {
+  font-size: 2rem;
+  color: #555;
+  letter-spacing: 0.15em;
+  line-height: 1;
+}
+.pr-bridge-text {
+  font-size: 0.65rem;
+  color: #00d4aa;
+  font-weight: 600;
+  margin-top: 0.4rem;
+  line-height: 1.3;
+  max-width: 90px;
+}
+@media (max-width: 640px) {
+  .pr-tension-wrap { flex-direction: column; gap: 0.5rem; max-width: 360px; }
+  .pr-bridge { flex-direction: row; min-width: auto; padding: 0.5rem 0; gap: 0.5rem; }
+  .pr-bridge-gap { font-size: 1.5rem; }
+  .pr-tree-svg, .pr-graph-svg { max-width: 150px; height: 120px; }
+}
+`}</style>
+
+<div class="pr-tension-wrap" role="img" aria-label="Hierarchy vs graph tension: a tree on the left, a network graph on the right, with Crosswalker bridging the gap">
+  <div class="pr-side pr-tree-side">
+    <div class="pr-side-label">Filesystem (tree)</div>
+    <svg class="pr-tree-svg" viewBox="0 0 200 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="75" y="8" width="50" height="24" rx="5" fill="#2596be" opacity="0.9"/>
+      <text x="100" y="24" text-anchor="middle" fill="#fff" font-size="10" font-weight="600">/root</text>
+      <line x1="90" y1="32" x2="50" y2="60" stroke="#2596be" stroke-width="1.5" opacity="0.5"/>
+      <line x1="110" y1="32" x2="150" y2="60" stroke="#2596be" stroke-width="1.5" opacity="0.5"/>
+      <rect x="25" y="56" width="50" height="22" rx="4" fill="#2596be" opacity="0.7"/>
+      <text x="50" y="71" text-anchor="middle" fill="#fff" font-size="9">NIST/</text>
+      <rect x="125" y="56" width="50" height="22" rx="4" fill="#2596be" opacity="0.7"/>
+      <text x="150" y="71" text-anchor="middle" fill="#fff" font-size="9">CIS/</text>
+      <line x1="38" y1="78" x2="25" y2="105" stroke="#2596be" stroke-width="1.2" opacity="0.4"/>
+      <line x1="62" y1="78" x2="75" y2="105" stroke="#2596be" stroke-width="1.2" opacity="0.4"/>
+      <rect x="5" y="101" width="40" height="20" rx="4" fill="#2596be" opacity="0.5"/>
+      <text x="25" y="115" text-anchor="middle" fill="#fff" font-size="8">AC/</text>
+      <rect x="55" y="101" width="40" height="20" rx="4" fill="#2596be" opacity="0.5"/>
+      <text x="75" y="115" text-anchor="middle" fill="#fff" font-size="8">AU/</text>
+      <line x1="25" y1="121" x2="25" y2="140" stroke="#2596be" stroke-width="1" opacity="0.3"/>
+      <rect x="5" y="136" width="40" height="18" rx="3" fill="#2596be" opacity="0.35"/>
+      <text x="25" y="148" text-anchor="middle" fill="#fff" font-size="7">AC-2.md</text>
+    </svg>
+  </div>
+  <div class="pr-bridge">
+    <div class="pr-bridge-gap">⟷</div>
+    <div class="pr-bridge-text">Crosswalker bridges this gap</div>
+  </div>
+  <div class="pr-side pr-graph-side">
+    <div class="pr-side-label">Knowledge (graph)</div>
+    <svg class="pr-graph-svg" viewBox="0 0 200 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="100" y1="30" x2="45" y2="75" stroke="#00d4aa" stroke-width="1.2" opacity="0.4"/>
+      <line x1="100" y1="30" x2="155" y2="75" stroke="#00d4aa" stroke-width="1.2" opacity="0.4"/>
+      <line x1="100" y1="30" x2="100" y2="95" stroke="#00d4aa" stroke-width="1.2" opacity="0.4"/>
+      <line x1="45" y1="75" x2="100" y2="95" stroke="#00d4aa" stroke-width="1" opacity="0.3"/>
+      <line x1="155" y1="75" x2="100" y2="95" stroke="#00d4aa" stroke-width="1" opacity="0.3"/>
+      <line x1="45" y1="75" x2="50" y2="135" stroke="#00d4aa" stroke-width="1" opacity="0.3"/>
+      <line x1="155" y1="75" x2="150" y2="135" stroke="#00d4aa" stroke-width="1" opacity="0.3"/>
+      <line x1="100" y1="95" x2="50" y2="135" stroke="#00d4aa" stroke-width="1" opacity="0.3"/>
+      <line x1="100" y1="95" x2="150" y2="135" stroke="#00d4aa" stroke-width="1" opacity="0.3"/>
+      <line x1="50" y1="135" x2="150" y2="135" stroke="#00d4aa" stroke-width="1" opacity="0.2"/>
+      <line x1="45" y1="75" x2="155" y2="75" stroke="#00d4aa" stroke-width="1" opacity="0.2"/>
+      <circle cx="100" cy="30" r="14" fill="#00d4aa" opacity="0.85"/>
+      <text x="100" y="34" text-anchor="middle" fill="#fff" font-size="8" font-weight="600">AC-2</text>
+      <circle cx="45" cy="75" r="12" fill="#00d4aa" opacity="0.65"/>
+      <text x="45" y="79" text-anchor="middle" fill="#fff" font-size="7">Policy</text>
+      <circle cx="155" cy="75" r="12" fill="#00d4aa" opacity="0.65"/>
+      <text x="155" y="79" text-anchor="middle" fill="#fff" font-size="7">T1078</text>
+      <circle cx="100" cy="95" r="12" fill="#00d4aa" opacity="0.65"/>
+      <text x="100" y="99" text-anchor="middle" fill="#fff" font-size="7">CIS-5</text>
+      <circle cx="50" cy="135" r="11" fill="#00d4aa" opacity="0.5"/>
+      <text x="50" y="139" text-anchor="middle" fill="#fff" font-size="7">Audit</text>
+      <circle cx="150" cy="135" r="11" fill="#00d4aa" opacity="0.5"/>
+      <text x="150" y="139" text-anchor="middle" fill="#fff" font-size="7">Tool</text>
+    </svg>
+  </div>
+</div>
+
 **Filesystems are hierarchical** — each file has exactly one parent folder. Path equals identity (`/Frameworks/NIST/AC-2.md`). Single location per item. Tree structure.
 
 **Knowledge is graph-shaped** — concepts connect to many other concepts. The same idea belongs in multiple contexts. Relationships have types and metadata. Polyhierarchy is natural.
@@ -26,6 +152,96 @@ Obsidian runs on a filesystem but provides graph-like features:
 **The gap**: Links are untyped. You can link `[[AC-2]]` but you can't natively say "this IMPLEMENTS AC-2" or "this is EVIDENCE FOR AC-2."
 
 ## Why this matters for frameworks
+
+<style>{`
+.pr-fw-row {
+  display: flex;
+  gap: 1rem;
+  margin: 1.5rem 0;
+  max-width: 720px;
+  overflow-x: auto;
+}
+.pr-fw-card {
+  flex: 1;
+  min-width: 180px;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 3px 14px rgba(0,0,0,0.25);
+}
+.pr-fw-header {
+  padding: 0.5rem 0.75rem;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: #fff;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+.pr-fw-nist .pr-fw-header { background: #2596be; }
+.pr-fw-cis  .pr-fw-header { background: #98c379; }
+.pr-fw-att  .pr-fw-header { background: #e06c75; }
+.pr-fw-levels {
+  padding: 0.5rem 0.6rem;
+  background: rgba(255,255,255,0.04);
+}
+.pr-fw-level {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0;
+  font-size: 0.75rem;
+  color: #ccc;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.pr-fw-level:last-child { border-bottom: none; }
+.pr-fw-depth {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pr-fw-nist .pr-fw-depth { background: #2596be; }
+.pr-fw-cis  .pr-fw-depth { background: #98c379; }
+.pr-fw-att  .pr-fw-depth { background: #e06c75; }
+.pr-fw-level .pr-fw-indent { opacity: 0.5; }
+.pr-fw-eg {
+  font-size: 0.65rem;
+  color: #888;
+  margin-left: auto;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .pr-fw-row { flex-direction: column; gap: 0.75rem; max-width: 340px; }
+  .pr-fw-card { min-width: unset; }
+}
+`}</style>
+
+<div class="pr-fw-row" role="img" aria-label="Three compliance frameworks showing hierarchical depth: NIST 800-53, CIS Controls, and MITRE ATT&CK">
+  <div class="pr-fw-card pr-fw-nist">
+    <div class="pr-fw-header">NIST 800-53</div>
+    <div class="pr-fw-levels">
+      <div class="pr-fw-level"><span class="pr-fw-depth" style="opacity:1"></span> Families <span class="pr-fw-eg">AC, AU, CA...</span></div>
+      <div class="pr-fw-level"><span class="pr-fw-depth" style="opacity:0.7"></span><span class="pr-fw-indent">&nbsp;&nbsp;</span>Controls <span class="pr-fw-eg">AC-2, AU-3</span></div>
+      <div class="pr-fw-level"><span class="pr-fw-depth" style="opacity:0.45"></span><span class="pr-fw-indent">&nbsp;&nbsp;&nbsp;&nbsp;</span>Enhancements <span class="pr-fw-eg">AC-2(1)</span></div>
+    </div>
+  </div>
+  <div class="pr-fw-card pr-fw-cis">
+    <div class="pr-fw-header">CIS Controls v8</div>
+    <div class="pr-fw-levels">
+      <div class="pr-fw-level"><span class="pr-fw-depth" style="opacity:1"></span> Controls <span class="pr-fw-eg">CIS-5, CIS-6</span></div>
+      <div class="pr-fw-level"><span class="pr-fw-depth" style="opacity:0.7"></span><span class="pr-fw-indent">&nbsp;&nbsp;</span>Safeguards <span class="pr-fw-eg">5.1, 5.2</span></div>
+      <div class="pr-fw-level"><span class="pr-fw-depth" style="opacity:0.45"></span><span class="pr-fw-indent">&nbsp;&nbsp;&nbsp;&nbsp;</span>Impl. groups <span class="pr-fw-eg">IG1, IG2, IG3</span></div>
+    </div>
+  </div>
+  <div class="pr-fw-card pr-fw-att">
+    <div class="pr-fw-header">MITRE ATT&CK</div>
+    <div class="pr-fw-levels">
+      <div class="pr-fw-level"><span class="pr-fw-depth" style="opacity:1"></span> Tactics <span class="pr-fw-eg">TA0001...</span></div>
+      <div class="pr-fw-level"><span class="pr-fw-depth" style="opacity:0.7"></span><span class="pr-fw-indent">&nbsp;&nbsp;</span>Techniques <span class="pr-fw-eg">T1078</span></div>
+      <div class="pr-fw-level"><span class="pr-fw-depth" style="opacity:0.45"></span><span class="pr-fw-indent">&nbsp;&nbsp;&nbsp;&nbsp;</span>Sub-techniques <span class="pr-fw-eg">T1078.001</span></div>
+    </div>
+  </div>
+</div>
 
 Compliance frameworks are structured ontologies:
 - **NIST 800-53**: Families > Controls > Enhancements

@@ -23,6 +23,204 @@ Every Crosswalker import creates hundreds of interconnected files. When a framew
 
 **Implication**: Crosswalker cannot assume any import operation is atomic. Every operation should be designed to be **idempotent** (safe to re-run) and **resumable** (can pick up where it left off).
 
+<style>{`
+  .cm-acid-row {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 2rem auto;
+    max-width: 680px;
+  }
+  .cm-acid-box {
+    flex: 1 1 130px;
+    max-width: 160px;
+    min-width: 120px;
+    border-radius: 10px;
+    padding: 18px 14px;
+    text-align: center;
+    font-family: system-ui, -apple-system, sans-serif;
+    transition: transform 0.2s ease;
+    position: relative;
+  }
+  .cm-acid-box:hover {
+    transform: translateY(-2px);
+  }
+  .cm-acid-no {
+    background: #2c1519;
+    border: 1.5px solid #e06c75;
+    opacity: 0.7;
+  }
+  .cm-acid-yes {
+    background: #1a3320;
+    border: 2px solid #98c379;
+    opacity: 1;
+    box-shadow: 0 0 16px rgba(152,195,121,0.15);
+  }
+  .cm-acid-letter {
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .cm-acid-no .cm-acid-letter {
+    color: #e06c75;
+    text-decoration: line-through;
+    text-decoration-thickness: 3px;
+  }
+  .cm-acid-yes .cm-acid-letter {
+    color: #98c379;
+  }
+  .cm-acid-label {
+    font-size: 0.72rem;
+    color: #a6adc8;
+    margin-bottom: 4px;
+  }
+  .cm-acid-verdict {
+    font-size: 0.65rem;
+    font-weight: 600;
+    margin-top: 6px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+  }
+  .cm-acid-no .cm-acid-verdict {
+    color: #e06c75;
+    background: rgba(224,108,117,0.12);
+  }
+  .cm-acid-yes .cm-acid-verdict {
+    color: #98c379;
+    background: rgba(152,195,121,0.12);
+  }
+  .cm-acid-caption {
+    text-align: center;
+    font-size: 0.72rem;
+    color: #6c7086;
+    margin-top: 8px;
+  }
+  .cm-cap-wrap {
+    display: flex;
+    justify-content: center;
+    margin: 2rem auto;
+  }
+  .cm-cap-triangle {
+    position: relative;
+    width: 340px;
+    height: 320px;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  .cm-cap-vertex {
+    position: absolute;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    font-weight: 800;
+    z-index: 2;
+    transition: transform 0.2s ease;
+  }
+  .cm-cap-vertex:hover {
+    transform: scale(1.1);
+  }
+  .cm-cap-c {
+    top: 0; left: 50%; transform: translateX(-50%);
+    background: #2a2030;
+    border: 2px solid #585b70;
+    color: #585b70;
+    opacity: 0.55;
+  }
+  .cm-cap-c:hover { transform: translateX(-50%) scale(1.1); }
+  .cm-cap-a {
+    bottom: 0; left: 0;
+    background: #0d3d33;
+    border: 2px solid #00d4aa;
+    color: #00d4aa;
+  }
+  .cm-cap-p {
+    bottom: 0; right: 0;
+    background: #0d3d33;
+    border: 2px solid #00d4aa;
+    color: #00d4aa;
+  }
+  .cm-cap-vlabel {
+    position: absolute;
+    font-size: 0.65rem;
+    color: #a6adc8;
+    z-index: 2;
+    white-space: nowrap;
+  }
+  .cm-cap-vlabel-c { top: 60px; left: 50%; transform: translateX(-50%); opacity: 0.5; }
+  .cm-cap-vlabel-a { bottom: 60px; left: -8px; }
+  .cm-cap-vlabel-p { bottom: 60px; right: -18px; }
+  .cm-cap-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+  }
+  .cm-cap-edge-dim {
+    stroke: #45475a;
+    stroke-width: 1.5;
+    fill: none;
+  }
+  .cm-cap-edge-lit {
+    stroke: #00d4aa;
+    stroke-width: 3;
+    fill: none;
+    filter: drop-shadow(0 0 4px rgba(0,212,170,0.3));
+  }
+  .cm-cap-badge {
+    position: absolute;
+    bottom: -36px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem;
+    color: #00d4aa;
+    background: rgba(0,212,170,0.08);
+    border: 1px solid rgba(0,212,170,0.25);
+    padding: 4px 12px;
+    border-radius: 6px;
+    white-space: nowrap;
+    z-index: 2;
+  }
+  @media (max-width: 640px) {
+    .cm-acid-box { flex: 1 1 60px; min-width: 70px; padding: 12px 8px; }
+    .cm-acid-letter { font-size: 1.5rem; }
+    .cm-acid-label { font-size: 0.6rem; }
+    .cm-acid-verdict { font-size: 0.55rem; }
+    .cm-cap-triangle { width: 260px; height: 260px; }
+    .cm-cap-vertex { width: 44px; height: 44px; font-size: 1rem; }
+  }
+`}</style>
+
+<div class="cm-acid-row" role="img" aria-label="ACID properties diagram: only Durability applies to file-based systems">
+  <div class="cm-acid-box cm-acid-no">
+    <div class="cm-acid-letter">A</div>
+    <div class="cm-acid-label">Atomicity</div>
+    <div class="cm-acid-verdict">No</div>
+  </div>
+  <div class="cm-acid-box cm-acid-no">
+    <div class="cm-acid-letter">C</div>
+    <div class="cm-acid-label">Consistency</div>
+    <div class="cm-acid-verdict">No</div>
+  </div>
+  <div class="cm-acid-box cm-acid-no">
+    <div class="cm-acid-letter">I</div>
+    <div class="cm-acid-label">Isolation</div>
+    <div class="cm-acid-verdict">No</div>
+  </div>
+  <div class="cm-acid-box cm-acid-yes">
+    <div class="cm-acid-letter">D</div>
+    <div class="cm-acid-label">Durability</div>
+    <div class="cm-acid-verdict">Yes — filesystem persistence</div>
+  </div>
+</div>
+<div class="cm-acid-caption">File-based systems get 1 out of 4 ACID guarantees</div>
+
 ## CAP theorem positioning
 
 **CAP theorem** (Brewer, 2000): A distributed system can provide at most two of three guarantees:
@@ -39,6 +237,30 @@ Every Crosswalker import creates hundreds of interconnected files. When a framew
 - **Not consistent**: Files can get out of sync between devices, or between import runs
 
 This is the correct trade-off for a personal/team knowledge base. Strong consistency would require locking files during imports — unacceptable for a tool people use throughout the day.
+
+<div class="cm-cap-wrap" role="img" aria-label="CAP theorem triangle showing Obsidian vaults as an AP system with Consistency grayed out">
+  <div class="cm-cap-triangle">
+    <svg class="cm-cap-svg" viewBox="0 0 340 320">
+      {/* C-A edge (dimmed) */}
+      <line class="cm-cap-edge-dim" x1="170" y1="36" x2="28" y2="280" />
+      {/* C-P edge (dimmed) */}
+      <line class="cm-cap-edge-dim" x1="170" y1="36" x2="312" y2="280" />
+      {/* A-P edge (highlighted — that's us) */}
+      <line class="cm-cap-edge-lit" x1="28" y1="280" x2="312" y2="280" />
+    </svg>
+
+    <div class="cm-cap-vertex cm-cap-c">C</div>
+    <div class="cm-cap-vlabel cm-cap-vlabel-c">Consistency (sacrificed)</div>
+
+    <div class="cm-cap-vertex cm-cap-a">A</div>
+    <div class="cm-cap-vlabel cm-cap-vlabel-a">Availability</div>
+
+    <div class="cm-cap-vertex cm-cap-p">P</div>
+    <div class="cm-cap-vlabel cm-cap-vlabel-p">Partition tolerance</div>
+
+    <div class="cm-cap-badge">Obsidian vaults: AP system</div>
+  </div>
+</div>
 
 ## BASE model
 

@@ -33,6 +33,184 @@ where:
 - **Properties (σ)**: YAML frontmatter on each file
 - **Labels (λ)**: Folder location + `_crosswalker.type` metadata
 
+<style>{`
+  .fg-graph {
+    position: relative;
+    width: 100%;
+    max-width: 720px;
+    height: 420px;
+    margin: 2rem auto;
+    background: #1e1e2e;
+    border-radius: 12px;
+    border: 1px solid #313244;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  .fg-graph-title {
+    position: absolute;
+    top: 12px;
+    left: 16px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #6c7086;
+  }
+  .fg-node {
+    position: absolute;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: transform 0.2s ease;
+    z-index: 2;
+  }
+  .fg-node:hover {
+    transform: scale(1.05);
+  }
+  .fg-node-framework {
+    background: #0d3d33;
+    border: 1.5px solid #00d4aa;
+    color: #a6e3d1;
+  }
+  .fg-node-evidence {
+    background: #2a3525;
+    border: 1.5px solid #98c379;
+    color: #c8dbb5;
+  }
+  .fg-node-name {
+    font-weight: 700;
+    color: #e0e0e0;
+    margin-bottom: 4px;
+  }
+  .fg-node-meta {
+    font-size: 0.65rem;
+    opacity: 0.75;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  .fg-edge-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .fg-edge-line {
+    stroke: #585b70;
+    stroke-width: 1.5;
+    fill: none;
+  }
+  .fg-edge-line-crosswalk {
+    stroke: #00d4aa;
+    stroke-width: 2;
+    stroke-dasharray: 6 3;
+    fill: none;
+  }
+  .fg-edge-label {
+    font-size: 0.6rem;
+    fill: #a6adc8;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  .fg-edge-badge {
+    font-size: 0.55rem;
+    fill: #00d4aa;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  .fg-legend {
+    position: absolute;
+    bottom: 10px;
+    right: 14px;
+    display: flex;
+    gap: 14px;
+    font-size: 0.6rem;
+    color: #6c7086;
+    z-index: 2;
+  }
+  .fg-legend-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  @media (max-width: 640px) {
+    .fg-graph { height: 520px; max-width: 100%; }
+    .fg-node { font-size: 0.68rem; padding: 8px 10px; }
+    .fg-n1 { top: 40px !important; left: 10px !important; }
+    .fg-n2 { top: 40px !important; left: 55% !important; }
+    .fg-n3 { top: 210px !important; left: 5% !important; }
+    .fg-n4 { top: 210px !important; left: 52% !important; }
+    .fg-n5 { top: 380px !important; left: 25% !important; }
+  }
+`}</style>
+
+<div class="fg-graph" role="img" aria-label="Property graph diagram showing Obsidian notes as nodes connected by labeled, metadata-carrying edges">
+  <div class="fg-graph-title">An Obsidian vault as a property graph</div>
+
+  {/* Edges drawn as SVG */}
+  <svg class="fg-edge-svg" viewBox="0 0 720 420" preserveAspectRatio="xMidYMid meet">
+    {/* MFA-Policy → AC-2 (implements) */}
+    <line class="fg-edge-line" x1="240" y1="290" x2="160" y2="130" />
+    <text class="fg-edge-label" x="175" y="218">implements</text>
+    <text class="fg-edge-badge" x="175" y="232">sufficient: true</text>
+
+    {/* MFA-Policy → T1078 (covers) */}
+    <line class="fg-edge-line" x1="320" y1="270" x2="510" y2="130" />
+    <text class="fg-edge-label" x="430" y="195">covers</text>
+
+    {/* AC-2 → T1078 (maps_to — crosswalk) */}
+    <line class="fg-edge-line-crosswalk" x1="200" y1="90" x2="480" y2="90" />
+    <text class="fg-edge-label" x="310" y="80" style={{ fill: '#00d4aa' }}>maps_to</text>
+
+    {/* IR-Plan → AC-2 (references) */}
+    <line class="fg-edge-line" x1="530" y1="290" x2="180" y2="130" />
+    <text class="fg-edge-label" x="370" y="235">references</text>
+
+    {/* MFA-Policy → IG1 (satisfies) */}
+    <line class="fg-edge-line" x1="270" y1="330" x2="370" y2="380" />
+    <text class="fg-edge-label" x="280" y="368">satisfies</text>
+  </svg>
+
+  {/* Nodes */}
+  <div class="fg-node fg-node-framework fg-n1" style={{ top: '55px', left: '60px' }}>
+    <div class="fg-node-name">AC-2.md</div>
+    <div class="fg-node-meta">type: control</div>
+    <div class="fg-node-meta">framework: NIST 800-53</div>
+  </div>
+
+  <div class="fg-node fg-node-framework fg-n2" style={{ top: '55px', left: '430px' }}>
+    <div class="fg-node-name">T1078.md</div>
+    <div class="fg-node-meta">type: technique</div>
+    <div class="fg-node-meta">framework: MITRE ATT&CK</div>
+  </div>
+
+  <div class="fg-node fg-node-evidence fg-n3" style={{ top: '250px', left: '130px' }}>
+    <div class="fg-node-name">MFA-Policy.md</div>
+    <div class="fg-node-meta">type: evidence</div>
+    <div class="fg-node-meta">status: approved</div>
+  </div>
+
+  <div class="fg-node fg-node-evidence fg-n4" style={{ top: '250px', left: '440px' }}>
+    <div class="fg-node-name">IR-Plan.md</div>
+    <div class="fg-node-meta">type: evidence</div>
+    <div class="fg-node-meta">reviewer: Alice</div>
+  </div>
+
+  <div class="fg-node fg-node-framework fg-n5" style={{ top: '355px', left: '320px' }}>
+    <div class="fg-node-name">IG1.md</div>
+    <div class="fg-node-meta">type: safeguard</div>
+    <div class="fg-node-meta">framework: CIS v8</div>
+  </div>
+
+  <div class="fg-legend">
+    <span><span class="fg-legend-dot" style={{ background: '#00d4aa' }}></span> Framework node</span>
+    <span><span class="fg-legend-dot" style={{ background: '#98c379' }}></span> Evidence node</span>
+    <span><span class="fg-legend-dot" style={{ background: '#00d4aa', opacity: 0.5 }}></span> Crosswalk edge</span>
+  </div>
+</div>
+
 ## Comparison to established databases
 
 | Concept | Neo4j | MongoDB | Obsidian Vault |
