@@ -1,0 +1,338 @@
+---
+title: Institutional landscape
+description: The entities, relationships, and dynamics of who creates, maintains, maps, mandates, and consumes structured ontologies — the human side of ontology management.
+tags: [frameworks, grc, architecture]
+sidebar:
+  order: 4
+---
+
+Every [ontology evolution](/crosswalker/concepts/ontology-evolution/) problem has a human side. Frameworks don't update themselves — institutions create them, other institutions map between them, regulators mandate them, and your team consumes them. Understanding these actors and their relationships is essential for making architectural decisions about how Crosswalker handles the [ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/).
+
+---
+
+## The entities
+
+Seven types of actors participate in the ontology ecosystem. Each has different incentives, timelines, and capabilities.
+
+<div class="il-entities">
+  <div class="il-entity il-e-publisher">
+    <div class="il-icon">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M3 10h18M3 7l9-4 9 4M4 10v11M20 10v11M8 14v3M12 14v3M16 14v3"/></svg>
+    </div>
+    <div class="il-label">Standard bodies</div>
+    <div class="il-desc">Create and publish frameworks</div>
+    <div class="il-examples">NIST, ISO, MITRE, W3C, OASIS</div>
+  </div>
+  <div class="il-entity il-e-industry">
+    <div class="il-icon">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+    </div>
+    <div class="il-label">Industry groups</div>
+    <div class="il-desc">Create domain-specific frameworks</div>
+    <div class="il-examples">CRI, FS-ISAC, OWASP, PCI SSC, HITRUST</div>
+  </div>
+  <div class="il-entity il-e-regulator">
+    <div class="il-icon">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    </div>
+    <div class="il-label">Regulators</div>
+    <div class="il-desc">Mandate which frameworks to use</div>
+    <div class="il-examples">SEC, FFIEC, NYDFS, EU NIS2, HIPAA/HHS</div>
+  </div>
+  <div class="il-entity il-e-mapper">
+    <div class="il-icon">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+    </div>
+    <div class="il-label">Mapping organizations</div>
+    <div class="il-desc">Create and maintain crosswalks between frameworks</div>
+    <div class="il-examples">NIST OLIR, SCF, Center for Threat-Informed Defense</div>
+  </div>
+  <div class="il-entity il-e-vendor">
+    <div class="il-icon">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    </div>
+    <div class="il-label">GRC vendors</div>
+    <div class="il-desc">Implement frameworks in software</div>
+    <div class="il-examples">ServiceNow, Archer, Drata, Vanta, CISO Assistant</div>
+  </div>
+  <div class="il-entity il-e-consumer">
+    <div class="il-icon">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </div>
+    <div class="il-label">Your organization</div>
+    <div class="il-desc">Adopts frameworks, maps evidence, proves compliance</div>
+    <div class="il-examples">GRC team, security team, IT, engineering</div>
+  </div>
+  <div class="il-entity il-e-auditor">
+    <div class="il-icon">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><path d="M9 5a2 2 0 012-2h2a2 2 0 012 2"/><path d="M9 14l2 2 4-4"/></svg>
+    </div>
+    <div class="il-label">Auditors</div>
+    <div class="il-desc">Verify framework adoption and evidence</div>
+    <div class="il-examples">Big 4, internal audit, examiners, assessors</div>
+  </div>
+</div>
+
+<style>{`
+  .il-entities {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem; margin: 1.5rem 0;
+  }
+  .il-entity {
+    background: var(--sl-color-gray-6); border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px; padding: 0.8rem; transition: transform 0.2s, box-shadow 0.2s;
+    border-left: 4px solid var(--sl-color-gray-4);
+  }
+  .il-entity:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  .il-e-publisher { border-left-color: #2596be; }
+  .il-e-publisher .il-icon { color: #2596be; }
+  .il-e-industry { border-left-color: #e5c07b; }
+  .il-e-industry .il-icon { color: #e5c07b; }
+  .il-e-regulator { border-left-color: #e06c75; }
+  .il-e-regulator .il-icon { color: #e06c75; }
+  .il-e-mapper { border-left-color: var(--sl-color-accent); }
+  .il-e-mapper .il-icon { color: var(--sl-color-accent); }
+  .il-e-vendor { border-left-color: #c678dd; }
+  .il-e-vendor .il-icon { color: #c678dd; }
+  .il-e-consumer { border-left-color: #98c379; }
+  .il-e-consumer .il-icon { color: #98c379; }
+  .il-e-auditor { border-left-color: #d19a66; }
+  .il-e-auditor .il-icon { color: #d19a66; }
+  .il-icon { margin-bottom: 0.4rem; }
+  .il-label { font-weight: 700; font-size: 0.85rem; color: var(--sl-color-white); }
+  .il-desc { font-size: 0.72rem; color: var(--sl-color-gray-2); margin: 0.2rem 0; }
+  .il-examples { font-size: 0.65rem; color: var(--sl-color-gray-3); font-style: italic; }
+  @media (max-width: 640px) {
+    .il-entities { grid-template-columns: 1fr 1fr; }
+  }
+`}</style>
+
+> **Terminology note**: These entity types are defined in the [terminology page](/crosswalker/concepts/terminology/). In other domains: standard bodies = standards development organizations (SDOs), industry groups = trade associations, mapping organizations = ontology alignment services.
+
+---
+
+## The relationships
+
+These entities interact through six relationship types. Each creates a different kind of dependency — and a different kind of [staleness risk](/crosswalker/concepts/ontology-evolution/#layer-2-crosswalks-break).
+
+| Relationship | From → To | What it means | Staleness risk |
+|-------------|-----------|---------------|----------------|
+| **Publishes** | Standard body → Framework | Creates and versions the ontology | Low (they control the schedule) |
+| **Mandates** | Regulator → Framework adoption | "You must comply with this" | High (mandate may reference specific version) |
+| **Maps/crosswalks** | Mapping org → Framework↔Framework | "These controls correspond" | Very high (neither framework owner controls this) |
+| **Implements** | GRC vendor → Framework-in-software | "Our tool supports this framework" | Medium (vendor may lag behind updates) |
+| **Adopts** | Your org → Framework | "We comply with this" | Medium (your evidence links to a snapshot) |
+| **Verifies** | Auditor → Your compliance evidence | "Prove it" | Low (point-in-time assessment) |
+
+### The dependency chain
+
+Every compliance assertion follows this chain — and any link can break:
+
+<div class="il-chain">
+  <div class="il-chain-step il-cs-pub">
+    <div class="il-cs-label">Standard body</div>
+    <div class="il-cs-verb">publishes</div>
+  </div>
+  <div class="il-chain-arrow">→</div>
+  <div class="il-chain-step il-cs-fw">
+    <div class="il-cs-label">Framework</div>
+    <div class="il-cs-verb">mandated by</div>
+  </div>
+  <div class="il-chain-arrow">→</div>
+  <div class="il-chain-step il-cs-reg">
+    <div class="il-cs-label">Regulator</div>
+    <div class="il-cs-verb">requires</div>
+  </div>
+  <div class="il-chain-arrow">→</div>
+  <div class="il-chain-step il-cs-org">
+    <div class="il-cs-label">Your org</div>
+    <div class="il-cs-verb">maps evidence via</div>
+  </div>
+  <div class="il-chain-arrow">→</div>
+  <div class="il-chain-step il-cs-map">
+    <div class="il-cs-label">Crosswalk</div>
+    <div class="il-cs-verb">verified by</div>
+  </div>
+  <div class="il-chain-arrow">→</div>
+  <div class="il-chain-step il-cs-aud">
+    <div class="il-cs-label">Auditor</div>
+  </div>
+</div>
+
+<style>{`
+  .il-chain {
+    display: flex; align-items: center; gap: 0; overflow-x: auto;
+    padding: 1rem 0; margin: 1rem 0;
+  }
+  .il-chain-step {
+    padding: 0.5rem 0.8rem; border-radius: 8px; text-align: center; min-width: 80px;
+    background: var(--sl-color-gray-6); border: 2px solid var(--sl-color-gray-5);
+    animation: il-pulse 4s ease-in-out infinite;
+  }
+  .il-chain-step:nth-child(1) { animation-delay: 0s; }
+  .il-chain-step:nth-child(3) { animation-delay: 0.5s; }
+  .il-chain-step:nth-child(5) { animation-delay: 1s; }
+  .il-chain-step:nth-child(7) { animation-delay: 1.5s; }
+  .il-chain-step:nth-child(9) { animation-delay: 2s; }
+  .il-chain-step:nth-child(11) { animation-delay: 2.5s; }
+  @keyframes il-pulse { 0%,100% { opacity: 0.8; } 50% { opacity: 1; } }
+  .il-cs-pub { border-color: #2596be; }
+  .il-cs-fw { border-color: var(--sl-color-accent); }
+  .il-cs-reg { border-color: #e06c75; }
+  .il-cs-org { border-color: #98c379; }
+  .il-cs-map { border-color: var(--sl-color-accent); }
+  .il-cs-aud { border-color: #d19a66; }
+  .il-cs-label { font-weight: 700; font-size: 0.75rem; color: var(--sl-color-white); }
+  .il-cs-verb { font-size: 0.6rem; color: var(--sl-color-gray-3); font-style: italic; }
+  .il-chain-arrow { font-size: 1.2rem; color: var(--sl-color-gray-3); padding: 0 0.3rem; flex-shrink: 0; }
+  @media (max-width: 640px) {
+    .il-chain { flex-wrap: wrap; justify-content: center; gap: 0.3rem; }
+    .il-chain-arrow { font-size: 0.8rem; }
+  }
+`}</style>
+
+When NIST updates 800-53, the "publishes" link changes. But the "crosswalk" link (maintained by OLIR or SCF) may NOT update. And the "mandates" link (from your regulator) may still reference the OLD version. Your evidence links break not because YOU did anything wrong, but because the chain upstream shifted.
+
+---
+
+## The artifacts
+
+Each entity type produces and consumes different artifacts:
+
+| Artifact | Produced by | Consumed by | Format | [Evolution pattern](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) |
+|----------|------------|------------|--------|------------------|
+| **Framework** | Standard body, Industry group | Everyone | Excel, CSV, PDF, OSCAL, STIX | Varies by publisher |
+| **Crosswalk** | Mapping org, Standard body | Your org, GRC vendors | Excel, SSSOM, JSON | Often stale |
+| **Regulation** | Regulator | Your org, Auditors | Legal text, PDF | Infrequent but binding |
+| **Evidence** | Your org | Auditors | Policies, configs, screenshots, logs | Continuous |
+| **Assessment** | Auditor | Your org, Regulator | Report, PDF, OSCAL | Point-in-time |
+| **Config** | GRC vendor, Community | Your org | JSON, YAML, proprietary | Vendor-dependent |
+
+Crosswalker operates on **frameworks** (importing), **crosswalks** (linking), and **evidence** (the user's notes). The other artifacts are context that informs handling strategy.
+
+---
+
+## Real-world scenarios
+
+### Scenario 1: Financial institution
+
+<div class="il-scenario">
+  <div class="il-sc-title">Bank adopting CRI Profile</div>
+  <div class="il-sc-flow">
+    <span class="il-sc-entity il-sc-reg">Board / FS-ISAC</span>
+    <span class="il-sc-arrow">mandates →</span>
+    <span class="il-sc-entity il-sc-fw">CRI Profile v2.0</span>
+    <span class="il-sc-arrow">maps to →</span>
+    <span class="il-sc-entity il-sc-fw">NIST CSF 2.0</span>
+    <span class="il-sc-arrow">maps to →</span>
+    <span class="il-sc-entity il-sc-fw">FFIEC CAT</span>
+  </div>
+  <div class="il-sc-detail">
+    The bank must prove compliance across ALL THREE simultaneously. Each has different examiners. Evidence for one control must trace through crosswalks to satisfy all three frameworks. When CRI updates, the CSF crosswalk may not update at the same time.
+  </div>
+</div>
+
+### Scenario 2: Tech company
+
+<div class="il-scenario">
+  <div class="il-sc-title">SaaS company with multiple compliance needs</div>
+  <div class="il-sc-flow">
+    <span class="il-sc-entity il-sc-reg">Customers</span>
+    <span class="il-sc-arrow">require →</span>
+    <span class="il-sc-entity il-sc-fw">SOC 2</span>
+    <span class="il-sc-arrow">+ →</span>
+    <span class="il-sc-entity il-sc-fw">ISO 27001</span>
+    <span class="il-sc-arrow">implemented via →</span>
+    <span class="il-sc-entity il-sc-fw">CIS Controls</span>
+  </div>
+  <div class="il-sc-detail">
+    Different customers require different certifications. The company maps operational controls (CIS) to audit frameworks (SOC 2, ISO). Crosswalks between these are community-maintained — no single authority owns them.
+  </div>
+</div>
+
+### Scenario 3: Government contractor
+
+<div class="il-scenario">
+  <div class="il-sc-title">Defense contractor meeting CMMC</div>
+  <div class="il-sc-flow">
+    <span class="il-sc-entity il-sc-reg">DoD / DFARS</span>
+    <span class="il-sc-arrow">mandates →</span>
+    <span class="il-sc-entity il-sc-fw">NIST 800-171</span>
+    <span class="il-sc-arrow">derived from →</span>
+    <span class="il-sc-entity il-sc-fw">NIST 800-53</span>
+    <span class="il-sc-arrow">implemented via →</span>
+    <span class="il-sc-entity il-sc-fw">DISA STIGs</span>
+  </div>
+  <div class="il-sc-detail">
+    The mandate flows from regulation (DFARS) through control frameworks (800-171, 800-53) to technical implementation (STIGs). Each layer has different maintainers and update cycles. STIG updates happen independently of 800-53 updates.
+  </div>
+</div>
+
+<style>{`
+  .il-scenario {
+    background: var(--sl-color-gray-6); border: 1px solid var(--sl-color-gray-5);
+    border-radius: 10px; padding: 1rem; margin: 1rem 0;
+  }
+  .il-sc-title { font-weight: 700; font-size: 0.85rem; color: var(--sl-color-white); margin-bottom: 0.5rem; }
+  .il-sc-flow {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem;
+    padding: 0.5rem 0; font-size: 0.72rem;
+  }
+  .il-sc-entity {
+    padding: 0.2rem 0.5rem; border-radius: 5px; font-weight: 600;
+    background: var(--sl-color-black); border: 1px solid var(--sl-color-gray-4);
+  }
+  .il-sc-reg { border-color: #e06c75; color: #e06c75; }
+  .il-sc-fw { border-color: var(--sl-color-accent); color: var(--sl-color-accent); }
+  .il-sc-arrow { color: var(--sl-color-gray-3); font-size: 0.65rem; }
+  .il-sc-detail { font-size: 0.72rem; color: var(--sl-color-gray-2); margin-top: 0.5rem; line-height: 1.5; }
+`}</style>
+
+### The pattern across scenarios
+
+Every scenario shares the same structure:
+1. A **mandate** (regulatory, contractual, or internal) requires framework adoption
+2. The framework **crosswalks** to other frameworks the org also uses
+3. **Evidence** must trace through crosswalks to satisfy multiple requirements
+4. Each link in the chain has a **different maintainer** with a different update cycle
+5. When any link updates, **downstream links may break** without notification
+
+This is what Crosswalker's [Maintain phase](/crosswalker/concepts/ontology-lifecycle/#maintain) addresses — tracking which links are stale and which evidence needs re-validation.
+
+---
+
+## Analogies in other domains
+
+The same institutional patterns exist beyond cybersecurity:
+
+| Domain | Standard body | Framework | Mapping org | Regulator |
+|--------|-------------|-----------|-------------|-----------|
+| **Cyber/GRC** | NIST, MITRE | CSF, ATT&CK, 800-53 | OLIR, SCF | SEC, FFIEC |
+| **Healthcare** | WHO, AMA | ICD-10, SNOMED CT | UMLS | HHS, FDA |
+| **Financial** | FASB, IASB | GAAP, IFRS, XBRL | None (direct regulation) | SEC, PCAOB |
+| **Scientific** | Gene Ontology Consortium | Gene Ontology | OBO Foundry | None (peer review) |
+| **Web/Data** | W3C, IETF | RDF, SKOS, Schema.org | LOV, BioPortal | None |
+
+The [EvolutionPattern taxonomy](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) is designed to work across all these domains — not just cybersecurity.
+
+---
+
+## What this means for Crosswalker
+
+The institutional landscape determines:
+
+1. **What [EvolutionPattern](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) fields matter** — `crosswalk_maintenance` captures who maintains mappings; `release_cadence` captures how often the publisher updates
+2. **What [metadata](/crosswalker/agent-context/constraint-enforcement/#metadata-tiers) to track** — which entity published the framework, when, and who maintains the crosswalks you're using
+3. **What [staleness detection](/crosswalker/concepts/ontology-evolution/#layer-2-crosswalks-break) to build** — different entity types fail differently (publishers update on their schedule; mapping orgs may go silent)
+4. **What the [community registry](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/#8-community-marketplace-research-item) should capture** — not just framework configs, but institutional context (who publishes, who maps, who mandates)
+
+---
+
+## Resources
+
+- [Ontology evolution](/crosswalker/concepts/ontology-evolution/) — the three-layer problem with actors model
+- [Framework versioning](/crosswalker/concepts/framework-versioning/) — how each framework handles updates
+- [Ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) — the full lifecycle model
+- [For GRC teams](/crosswalker/getting-started/grc-teams/) — the evidence mapping problem
+- [Framework standards & tools](/crosswalker/concepts/framework-standards/) — links to all frameworks and tools
+- [Terminology](/crosswalker/concepts/terminology/) — entity type definitions
