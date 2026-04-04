@@ -1,0 +1,53 @@
+---
+title: Obsidian app internals — research needed
+description: High-level logic flow, rendering loops, and constraints of the Obsidian app that will limit Crosswalker's plugin capabilities.
+tags: [development, architecture]
+sidebar:
+  label: "04-04 · Obsidian internals research"
+  order: -20260404
+---
+
+## Why this matters
+
+Crosswalker needs to understand Obsidian's internal architecture to know what's possible and what's limited. The [distribution architecture](/crosswalker/agent-context/zz-log/2026-04-03-distribution-architecture-research/) identified that ~50-60% of our codebase is pure logic, but the plugin wrapper depends on Obsidian APIs that have constraints.
+
+## Research questions
+
+### App lifecycle and rendering
+- What's the main event loop? (Electron → Obsidian app → plugin lifecycle)
+- When does `app.vault` become available?
+- How does the MetadataCache update? (sync vs async, debouncing)
+- What triggers re-renders of notes in reading/live-preview mode?
+- How do frontmatter changes propagate to Properties UI, Bases, Dataview?
+
+### File operations
+- Is `app.vault.create()` synchronous or async?
+- What happens if you create 1000 files rapidly? (throttling? queue?)
+- How does Obsidian handle file rename cascading (WikiLink updates)?
+- What's the performance ceiling for vault operations? (files/second)
+
+### Plugin constraints
+- What's the maximum main-thread blocking time before Obsidian warns?
+- Can plugins use Web Workers for heavy computation?
+- How do plugins communicate with each other? (global namespace? events?)
+- What's the Obsidian API surface that ISN'T documented?
+
+### For Crosswalker specifically
+- Can we show progress during long imports? (Notice API limitations)
+- Can we use `processFrontMatter` on 1000+ files without freezing?
+- How do modal interactions work with async operations?
+- What are the performance implications of generating large folder trees?
+
+## Resources to investigate
+
+- [Obsidian API Reference](https://docs.obsidian.md/Reference/TypeScript+API)
+- [obsidian-typings](https://github.com/Fevol/obsidian-typings) — extended undocumented API types
+- Obsidian Discord #plugin-dev channel
+- Source reading of other large plugins (Dataview, Templater, Tasks)
+- [Obsidian Forum: Plugin Performance](https://forum.obsidian.md/)
+
+## Related
+
+- [Distribution architecture](/crosswalker/agent-context/zz-log/2026-04-03-distribution-architecture-research/) — VaultAdapter interface depends on these constraints
+- [Layered architecture](/crosswalker/agent-context/zz-log/2026-04-03-layered-architecture-vision/) — the plugin wrapper layer
+- [Roadmap: Foundation](/crosswalker/reference/roadmap/#foundation--get-the-architecture-right)
