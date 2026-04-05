@@ -101,6 +101,21 @@
   margin-top: 0;
 }
 
+/* Fix nav links hidden on mobile (<768px).
+   Nova uses max-md:**:hidden on the nav, which hides Docs/Blog/GitHub
+   on phones. On the splash page there's no sidebar, so users can't
+   navigate at all. Override to show nav links as a compact row. */
+@media (max-width: 767px) {
+  header nav {
+    padding-left: 0 !important;
+    gap: 0.5rem !important;
+  }
+  header nav > * {
+    display: inline-flex !important;
+    font-size: 0.8rem !important;
+  }
+}
+
 /* Fix sidebar showing too early on narrow screens (768-1024px).
    Nova shows sidebar at md: (768px) but there's not enough room
    for sidebar (300px) + content at that width. Hide sidebar until
