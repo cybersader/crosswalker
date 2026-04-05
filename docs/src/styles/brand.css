@@ -101,6 +101,29 @@
   margin-top: 0;
 }
 
+/* Show nav links inline on mobile — compact, no scroll.
+   These are hidden by Nova's max-md:**:hidden on the nav.
+   On docs pages the sidebar has them too (via MobileMenuFooter),
+   but on splash/blog pages the sidebar is empty so we need these. */
+@media (max-width: 767px) {
+  /* Hide alpha badge on mobile to free header space */
+  .site-title span::after { display: none !important; }
+  header nav {
+    overflow: hidden !important;
+    padding-left: 0 !important;
+    gap: 0.4rem !important;
+    flex-shrink: 1 !important;
+    min-width: 0 !important;
+  }
+  header nav > * {
+    display: inline-flex !important;
+    font-size: 0.75rem !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    white-space: nowrap !important;
+  }
+}
+
 /* Hide Changelog from sidebar — blog is accessible via nav links instead */
 .sidebar-content li a[href*="/blog/"] { display: none; }
 #starlight__sidebar details:has(a[href*="/blog/"]) { display: none; }
