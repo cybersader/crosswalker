@@ -52,7 +52,6 @@ export default defineConfig({
           nav: [
             { label: 'Docs', href: '/crosswalker/getting-started/installation/' },
             { label: 'Blog', href: '/crosswalker/blog/' },
-            { label: 'GitHub', href: 'https://github.com/cybersader/crosswalker' },
           ],
         }),
         starlightSiteGraph(),
