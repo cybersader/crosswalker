@@ -40,8 +40,11 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
         requestAnimationFrame(function() {
           requestAnimationFrame(function() {
             var widths = measure();
+            var maxWidth = Math.max.apply(null, widths);
             var i = 0;
-            var real = words.length - 1; // last word is duplicate of first
+            var real = words.length - 1;
+            // Reserve space for longest word so page never shifts
+            wrap.style.minWidth = maxWidth + 'px';
             wrap.style.width = widths[0] + 'px';
 
             setInterval(function() {
