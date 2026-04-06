@@ -84,14 +84,14 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
       <text x="790" y="210">Markdown</text>
     </g>
 
-    {/* Platform logos — grey, aligned left with "INSIDE YOUR VAULT" */}
-    <a href="https://obsidian.md" target="_blank">
-      <image href="/crosswalker/obsidian-icon.svg" x="715" y="236" width="14" height="14"/>
-      <text x="732" y="247" class="cw-sv-plat-text">Obsidian</text>
+    {/* Platform logos — grey, left-aligned with right column pills (x=715) */}
+    <a href="https://obsidian.md" target="_blank" class="cw-sv-plat-link">
+      <image href="/crosswalker/obsidian-icon.svg" x="716" y="235" width="12" height="12"/>
+      <text x="730" y="245" class="cw-sv-plat-text">Obsidian</text>
     </a>
-    <a href="https://notion.so" target="_blank">
-      <image href="/crosswalker/notion-icon.svg" x="775" y="236" width="14" height="14"/>
-      <text x="792" y="247" class="cw-sv-plat-text">· exploring</text>
+    <a href="https://notion.so" target="_blank" class="cw-sv-plat-link">
+      <image href="/crosswalker/notion-icon.svg" x="770" y="235" width="12" height="12"/>
+      <text x="784" y="245" class="cw-sv-plat-text">· exploring</text>
     </a>
 
     {/* Visible stream paths (faint trail) */}
@@ -294,6 +294,8 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     font-size: 7px; fill: var(--sl-color-gray-3);
     font-family: var(--sl-font, system-ui, sans-serif); font-weight: 500;
   }
+  .cw-sv-plat-link { cursor: pointer; }
+  .cw-sv-plat-link:hover .cw-sv-plat-text { fill: var(--sl-color-white); }
 
   /* Section labels */
   .cw-sv-label {
