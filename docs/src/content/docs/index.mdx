@@ -13,21 +13,10 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   <div class="cw-tagline">
     <h2 class="cw-headline">The future of compliance<br/>is a <span class="cw-accent">knowledge graph.</span></h2>
     <p class="cw-subtitle">Import frameworks. Link evidence. Query everything. Evolve with every update. Open source.</p>
-    <div class="cw-platforms">
-      <a href="https://obsidian.md" class="cw-plat cw-plat-active">
-        <img src="/crosswalker/obsidian-icon.svg" alt="" class="cw-plat-icon" />
-        Obsidian
-      </a>
-      <span class="cw-plat cw-plat-soon">
-        <img src="/crosswalker/notion-icon.svg" alt="" class="cw-plat-icon" />
-        Notion · exploring
-      </span>
-      <span class="cw-plat cw-plat-more">+ more</span>
-    </div>
   </div>
 
   {/* === HERO: Full SVG with curved streams, big logo, and labels === */}
-  <svg class="cw-flow-svg" viewBox="0 0 880 260" preserveAspectRatio="xMidYMid meet">
+  <svg class="cw-flow-svg" viewBox="0 0 880 280" preserveAspectRatio="xMidYMid meet">
     <defs>
       {/* Glow filters */}
       <filter id="cw-glow-in"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -93,6 +82,14 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
       <rect x="715" y="190" width="135" height="30" rx="6"/>
       <g transform="translate(723,198) scale(0.8)"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" fill="none" stroke-width="1.8"/><path d="M14 2v6h6" fill="none" stroke-width="1.8"/></g>
       <text x="790" y="210">Markdown</text>
+    </g>
+
+    {/* Platform logos — greyed, bottom of right column */}
+    <g class="cw-sv-platforms" opacity="0.4">
+      <image href="/crosswalker/obsidian-icon.svg" x="740" y="235" width="16" height="16"/>
+      <text x="760" y="247" class="cw-sv-plat-text">Obsidian</text>
+      <image href="/crosswalker/notion-icon.svg" x="800" y="235" width="16" height="16"/>
+      <text x="820" y="247" class="cw-sv-plat-text">· exploring</text>
     </g>
 
     {/* Visible stream paths (faint trail) */}
@@ -268,45 +265,6 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     padding: 3rem 1rem 0.5rem;
   }
 
-  /* Platform badges — tiny, reads as metadata not a feature */
-  .cw-platforms {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 0.4rem;
-    margin-top: 0.6rem;
-    opacity: 0.7;
-  }
-  .cw-plat {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.15rem 0.45rem;
-    border-radius: 12px;
-    font-size: 0.65rem;
-    font-weight: 500;
-    text-decoration: none;
-  }
-  .cw-plat-icon {
-    width: 12px;
-    height: 12px;
-    flex-shrink: 0;
-  }
-  .cw-plat-active {
-    border: 1px solid var(--sl-color-gray-4);
-    color: var(--sl-color-white);
-  }
-  .cw-plat-active .cw-plat-icon { filter: brightness(0) saturate(100%) invert(73%) sepia(52%) saturate(500%) hue-rotate(115deg); }
-  .cw-plat-active:hover { color: var(--sl-color-accent); text-decoration: none; }
-  .cw-plat-soon {
-    border: 1px solid var(--sl-color-gray-5);
-    color: var(--sl-color-gray-3);
-  }
-  .cw-plat-soon .cw-plat-icon { opacity: 0.3; }
-  .cw-plat-more {
-    color: var(--sl-color-gray-4);
-    font-size: 0.6rem;
-  }
   .cw-headline {
     font-family: 'Space Grotesk', var(--sl-font, system-ui, sans-serif);
     font-size: clamp(1.8rem, 1rem + 3.5vw, 3rem);
@@ -329,6 +287,10 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   .cw-flow-svg {
     width: 100%; height: auto; display: block;
     margin: 1.5rem 0 0;
+  }
+  .cw-sv-plat-text {
+    font-size: 7px; fill: var(--sl-color-gray-3);
+    font-family: var(--sl-font, system-ui, sans-serif); font-weight: 500;
   }
 
   /* Section labels */
