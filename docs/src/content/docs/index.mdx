@@ -400,7 +400,105 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
       <circle class="cw-pr cw-pr3" cx="570" cy="60" r="24"/>
     </svg>
 
-    <div class="cw-graph-caption">
+    <div class="cw-graph-caption cw-graph-caption-desktop">
+      <span class="cw-gc-fw">● Framework controls</span>
+      <span class="cw-gc-atk">● ATT&CK techniques</span>
+      <span class="cw-gc-ev">● Evidence & policies</span>
+      <span class="cw-gc-meta">◆ Edge metadata</span>
+    </div>
+  </div>
+
+  {/* === KNOWLEDGE GRAPH — mobile version (taller, bigger nodes) === */}
+  <div class="cw-graph-wrap cw-graph-mobile">
+    <svg class="cw-g" viewBox="0 0 360 360" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <filter id="mglow"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <linearGradient id="m-funnel-grad" x1="50%" y1="0%" x2="50%" y2="100%">
+          <stop offset="0%" stop-color="var(--sl-color-accent)" stop-opacity="0.1"/>
+          <stop offset="100%" stop-color="var(--sl-color-accent)" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <polygon points="100,0 260,0 340,360 20,360" fill="url(#m-funnel-grad)"/>
+
+      {/* Edges */}
+      <line class="cw-e" x1="65" y1="80" x2="180" y2="50"/>
+      <line class="cw-e" x1="65" y1="80" x2="110" y2="200"/>
+      <line class="cw-e cw-e-hi" x1="180" y1="50" x2="270" y2="120"/>
+      <line class="cw-e" x1="110" y1="200" x2="270" y2="120"/>
+      <line class="cw-e cw-e-hi" x1="270" y1="120" x2="310" y2="50"/>
+      <line class="cw-e cw-e-ev" x1="270" y1="120" x2="290" y2="240"/>
+      <line class="cw-e cw-e-ev" x1="65" y1="80" x2="290" y2="240"/>
+      <line class="cw-e" x1="110" y1="200" x2="310" y2="50"/>
+
+      {/* Edge labels — key ones only */}
+      <rect class="cw-el-bg" x="100" y="52" width="46" height="16" rx="3"/>
+      <text class="cw-el" x="123" y="64">maps_to</text>
+
+      <rect class="cw-el-bg" x="200" y="72" width="56" height="16" rx="3"/>
+      <text class="cw-el" x="228" y="84">crosswalk</text>
+
+      <rect class="cw-el-bg" x="270" y="74" width="60" height="16" rx="3"/>
+      <text class="cw-el" x="300" y="86">implements</text>
+
+      {/* Metadata badges */}
+      <rect class="cw-mb" x="155" y="145" width="85" height="20" rx="4"/>
+      <text class="cw-mt" x="197" y="159">sufficient: true</text>
+
+      <rect class="cw-mb" x="250" y="185" width="80" height="20" rx="4"/>
+      <text class="cw-mt" x="290" y="199">reviewer: "Alice"</text>
+
+      {/* Nodes — bigger (r=30) */}
+      <a href="/crosswalker/concepts/framework-standards/">
+        <g class="cw-n cw-n-fw">
+          <circle cx="65" cy="80" r="30"/>
+          <text x="65" y="75" class="cw-ni">AC-2</text>
+          <text x="65" y="91" class="cw-ns">NIST 800-53</text>
+        </g>
+      </a>
+      <a href="/crosswalker/concepts/framework-versioning/">
+        <g class="cw-n cw-n-fw">
+          <circle cx="180" cy="50" r="30"/>
+          <text x="180" y="45" class="cw-ni">PR.AC-07</text>
+          <text x="180" y="61" class="cw-ns">CSF 2.0</text>
+        </g>
+      </a>
+      <a href="/crosswalker/agent-context/framework-crosswalks/">
+        <g class="cw-n cw-n-fw">
+          <circle cx="110" cy="200" r="30"/>
+          <text x="110" y="195" class="cw-ni">6.3</text>
+          <text x="110" y="211" class="cw-ns">CIS v8</text>
+        </g>
+      </a>
+      <a href="/crosswalker/agent-context/framework-landscape/">
+        <g class="cw-n cw-n-atk">
+          <circle cx="270" cy="120" r="30"/>
+          <text x="270" y="115" class="cw-ni">T1078</text>
+          <text x="270" y="131" class="cw-ns">ATT&CK</text>
+        </g>
+      </a>
+      <a href="/crosswalker/getting-started/grc-teams/">
+        <g class="cw-n cw-n-ev">
+          <circle cx="310" cy="50" r="30"/>
+          <text x="310" y="45" class="cw-ni">MFA</text>
+          <text x="310" y="61" class="cw-ns">Policy</text>
+        </g>
+      </a>
+      <a href="/crosswalker/agent-context/link-metadata-system/">
+        <g class="cw-n cw-n-ev">
+          <circle cx="290" cy="240" r="30"/>
+          <text x="290" y="235" class="cw-ni">Audit</text>
+          <text x="290" y="251" class="cw-ns">Q1 Report</text>
+        </g>
+      </a>
+
+      {/* Pulse rings */}
+      <circle class="cw-pr" cx="180" cy="50" r="30"/>
+      <circle class="cw-pr cw-pr2" cx="270" cy="120" r="30"/>
+      <circle class="cw-pr cw-pr3" cx="310" cy="50" r="30"/>
+    </svg>
+
+    {/* Legend as 2x2 grid */}
+    <div class="cw-graph-caption cw-graph-caption-mobile">
       <span class="cw-gc-fw">● Framework controls</span>
       <span class="cw-gc-atk">● ATT&CK techniques</span>
       <span class="cw-gc-ev">● Evidence & policies</span>
@@ -478,19 +576,29 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   }
   /* Desktop/mobile SVG toggle */
   .cw-flow-mobile { display: none; }
+  /* Desktop/mobile graph toggle */
+  .cw-graph-mobile { display: none; }
+  .cw-graph-caption-mobile { display: none; }
   @media (max-width: 640px) {
     .cw-flow-desktop { display: none; }
     .cw-flow-mobile { display: block; }
-    /* Knowledge graph: much bigger on mobile */
-    .cw-graph-wrap { padding: 0.3rem; overflow: visible; }
-    .cw-g { transform: scale(1.5); transform-origin: center top; margin-bottom: 80px; }
-    .cw-n circle { r: 28; }
-    .cw-ni { font-size: 14px; }
-    .cw-ns { font-size: 9px; }
-    .cw-el { font-size: 10px; }
-    .cw-mt { font-size: 10px; }
-    .cw-mb { rx: 5; }
-    .cw-graph-caption { font-size: 0.65rem; gap: 0.6rem; padding-top: 5rem; }
+    /* Swap knowledge graphs */
+    .cw-graph-wrap:not(.cw-graph-mobile) { display: none; }
+    .cw-graph-mobile { display: block; }
+    .cw-graph-caption-desktop { display: none; }
+    .cw-graph-caption-mobile {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.3rem 1rem;
+      justify-items: start;
+      padding: 0.5rem 0.5rem 0;
+      font-size: 0.7rem;
+    }
+    /* Mobile graph text sizes */
+    .cw-graph-mobile .cw-ni { font-size: 13px; }
+    .cw-graph-mobile .cw-ns { font-size: 8px; }
+    .cw-graph-mobile .cw-el { font-size: 10px; }
+    .cw-graph-mobile .cw-mt { font-size: 9px; }
   }
   .cw-sv-label-mobile {
     font-size: 11px;
