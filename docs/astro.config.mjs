@@ -40,6 +40,7 @@ export default defineConfig({
       logo: {
         src: './public/logo.svg',
       },
+      favicon: '/favicon.svg',
       description: 'Import structured ontologies into Obsidian with folder structures, typed links, and metadata',
       components: {
         MobileMenuFooter: './src/components/MobileMenuFooter.astro',
