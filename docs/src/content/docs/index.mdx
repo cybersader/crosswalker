@@ -84,13 +84,15 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
       <text x="790" y="210">Markdown</text>
     </g>
 
-    {/* Platform logos — greyed, bottom of right column */}
-    <g class="cw-sv-platforms" opacity="0.4">
-      <image href="/crosswalker/obsidian-icon.svg" x="740" y="235" width="16" height="16"/>
-      <text x="760" y="247" class="cw-sv-plat-text">Obsidian</text>
-      <image href="/crosswalker/notion-icon.svg" x="800" y="235" width="16" height="16"/>
-      <text x="820" y="247" class="cw-sv-plat-text">· exploring</text>
-    </g>
+    {/* Platform logos — grey, aligned left with "INSIDE YOUR VAULT" */}
+    <a href="https://obsidian.md" target="_blank">
+      <image href="/crosswalker/obsidian-icon.svg" x="715" y="236" width="14" height="14"/>
+      <text x="732" y="247" class="cw-sv-plat-text">Obsidian</text>
+    </a>
+    <a href="https://notion.so" target="_blank">
+      <image href="/crosswalker/notion-icon.svg" x="775" y="236" width="14" height="14"/>
+      <text x="792" y="247" class="cw-sv-plat-text">· exploring</text>
+    </a>
 
     {/* Visible stream paths (faint trail) */}
     <use href="#pathL1" class="cw-sv-trail cw-sv-trail-in"/>
