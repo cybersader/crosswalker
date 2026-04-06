@@ -1,0 +1,71 @@
+---
+title: Docs site polish session
+description: Major hero redesign, responsive fixes, rotating words, platform badges, mobile nav, and progressive scaling across a marathon session.
+tags: [development, design]
+sidebar:
+  label: "04-06 · Docs site polish"
+  order: -20260406
+---
+
+## Context
+
+Marathon session polishing the Crosswalker docs site homepage and responsive behavior. Started with hero tagline and ended with rotating word animation, platform badges in SVG, announcement banner, and mobile viewport fixes.
+
+## Key Changes
+
+### Hero tagline
+- Added "The future of [rotating word] is a **knowledge graph.**"
+- 6 rotating terms: compliance, risk management, governance, framework mapping, evidence management, internal audit
+- Dynamic width via clone-based measurement (Pretext-inspired approach)
+- Seamless loop via duplicate first word at end + instant snap-back
+
+### Platform badges
+- Obsidian (purple logo) + Notion (black/white, "exploring") in SVG diagram
+- Right-aligned under "INSIDE YOUR KNOWLEDGEBASE" label
+- Clickable to respective websites
+
+### Responsive layout
+- Extended sidebar-hide breakpoint from 1023px to 1151px
+- Progressive font scaling: 112% at 1400px+, 118% at 1700px+
+- Homepage uses doc template with hidden sidebar (enables hamburger on mobile)
+- Fixed content left-alignment at 768-1151px range
+
+### Announcement banner
+- "Early alpha — building the foundation" with link to roadmap
+- Yellow caution variant, dismissible
+- Shows on all pages
+
+### Other
+- Space Grotesk font for navbar (moved @import to top of CSS)
+- `alpha` badge next to title (gray outline, hidden on mobile)
+- Favicon added (CW logo SVG)
+- "vault" changed to "knowledgebase" in SVG labels
+- Removed GitHub text link from nav (icon already exists)
+- Mobile sidebar: Docs + Blog with icons on one line
+
+## Decisions
+
+**Labels changed from "vault" to "knowledgebase"** — broader term since Notion support is being explored.
+
+**Homepage uses doc template, not splash** — enables hamburger menu on mobile. Sidebar/right panel hidden via page-scoped CSS on desktop.
+
+**Dynamic width for rotating words** — clone-based measurement after `fonts.ready` + double rAF. Re-measures on resize. `minWidth` set to longest word to prevent page shift.
+
+**Announcement banner on all pages** — dismissible, persists via localStorage. Communicates early alpha status honestly.
+
+**Fluid layout logged as future work** — browser zoom at extreme levels (150%+) may shift content. `clamp()` refactor estimated at 3-5 hours, logged in [roadmap](/crosswalker/reference/roadmap/).
+
+## Open Questions
+
+- [ ] Mobile hero SVG needs different layout (vertical, bigger nodes/text) — logged as next task
+- [ ] Should "evidence management" be shortened? It's the widest rotating word
+- [ ] Integration logos for left side of diagram (NIST, MITRE, CIS, Google Sheets, Excel)
+- [ ] Light mode testing — all changes were verified in dark mode only
+- [ ] When to split docs site from marketing site? [Decision logged](/crosswalker/agent-context/zz-log/2026-04-05-homepage-nav-decision/)
+
+## Next Steps
+
+1. **Mobile hero redesign** — vertical layout for SVG diagrams, bigger nodes/text, readable at 375px
+2. Integration logos for "OUTSIDE YOUR KNOWLEDGEBASE" side
+3. Light mode audit
+4. Blog post for "Hello World" / project announcement
