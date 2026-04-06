@@ -167,30 +167,35 @@
    This fixes mobile landscape (e.g. Samsung Galaxy S21 Ultra = ~915px)
    and narrow desktop windows. */
 @media (min-width: 768px) and (max-width: 1023px) {
-  /* Hide fixed sidebar by default (not enough room at this width).
-     BUT allow it to show when hamburger is clicked via
-     body[data-mobile-menu-expanded]. */
+  /* Hide sidebar — not enough room for sidebar + content at this width.
+     Use display:none instead of visibility:hidden so it doesn't take
+     layout space. Hamburger click still works via data-mobile-menu-expanded. */
   #starlight__sidebar {
-    visibility: hidden;
+    display: none;
   }
   body[data-mobile-menu-expanded] #starlight__sidebar {
-    visibility: visible !important;
+    display: block !important;
+    position: fixed !important;
     width: 100% !important;
+    z-index: 10;
   }
   /* Remove sidebar offset from content */
   .main-frame {
     padding-inline-start: 0 !important;
   }
+  /* Hide right sidebar (On this page / TOC) — not enough room */
+  .right-sidebar-container, .right-sidebar {
+    display: none !important;
+  }
+  /* Let content take full width */
+  .main-pane {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
   /* Show hamburger menu and its parent container.
      Nova's parent div uses Tailwind md:hidden — override it. */
   header .md\:hidden {
     display: flex !important;
-  }
-  /* Fix mobile TOC breadcrumb — it sits inside the right-sidebar
-     which has a parent that collapses to width:0. Force the TOC
-     parent to take full width at this breakpoint. */
-  [class~="lg:sl-hidden"] {
-    width: 100% !important;
   }
 }
 
