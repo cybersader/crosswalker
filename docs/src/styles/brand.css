@@ -1,5 +1,18 @@
 /* Crosswalker — cybersecurity-themed dark palette */
 
+/* Larger base font on wide screens — feels too small at 100% on big monitors.
+   Only applies at 1400px+ so the 3-column layout has room to breathe. */
+@media (min-width: 1400px) {
+  :root {
+    font-size: 112%;
+  }
+}
+@media (min-width: 1700px) {
+  :root {
+    font-size: 118%;
+  }
+}
+
 /* Navbar title font — Space Grotesk: geometric, techy, sharp */
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap');
 
