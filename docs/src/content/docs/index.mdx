@@ -430,22 +430,22 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
       <line class="cw-e cw-e-ev" x1="65" y1="80" x2="290" y2="240"/>
       <line class="cw-e" x1="110" y1="200" x2="310" y2="50"/>
 
-      {/* Edge labels — key ones only */}
-      <rect class="cw-el-bg" x="100" y="52" width="46" height="16" rx="3"/>
+      {/* Edge labels — key ones only, taller bg for bigger text */}
+      <rect class="cw-el-bg" x="95" y="51" width="56" height="18" rx="4"/>
       <text class="cw-el" x="123" y="64">maps_to</text>
 
-      <rect class="cw-el-bg" x="200" y="72" width="56" height="16" rx="3"/>
+      <rect class="cw-el-bg" x="195" y="71" width="66" height="18" rx="4"/>
       <text class="cw-el" x="228" y="84">crosswalk</text>
 
-      <rect class="cw-el-bg" x="270" y="74" width="60" height="16" rx="3"/>
+      <rect class="cw-el-bg" x="262" y="73" width="76" height="18" rx="4"/>
       <text class="cw-el" x="300" y="86">implements</text>
 
-      {/* Metadata badges */}
-      <rect class="cw-mb" x="155" y="145" width="85" height="20" rx="4"/>
-      <text class="cw-mt" x="197" y="159">sufficient: true</text>
+      {/* Metadata badges — taller for bigger text */}
+      <rect class="cw-mb" x="145" y="143" width="100" height="22" rx="5"/>
+      <text class="cw-mt" x="195" y="158">sufficient: true</text>
 
-      <rect class="cw-mb" x="250" y="185" width="80" height="20" rx="4"/>
-      <text class="cw-mt" x="290" y="199">reviewer: "Alice"</text>
+      <rect class="cw-mb" x="240" y="183" width="95" height="22" rx="5"/>
+      <text class="cw-mt" x="287" y="198">reviewer: "Alice"</text>
 
       {/* Nodes — bigger (r=30) */}
       <a href="/crosswalker/concepts/framework-standards/">
@@ -589,18 +589,16 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     .cw-graph-caption-mobile {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 0.3rem 1rem;
+      gap: 0.4rem 0.8rem;
       justify-items: start;
-      padding: 0.5rem 0.5rem 0;
-      font-size: 0.7rem;
+      padding: 0.6rem 0.8rem 0.3rem;
+      font-size: 0.85rem;
     }
     /* Mobile graph text sizes — bigger for readability */
     .cw-graph-mobile .cw-ni { font-size: 16px; }
     .cw-graph-mobile .cw-ns { font-size: 10px; }
     .cw-graph-mobile .cw-el { font-size: 12px; }
     .cw-graph-mobile .cw-mt { font-size: 11px; }
-    .cw-graph-mobile .cw-el-bg { height: 18px; }
-    .cw-graph-mobile .cw-mb { height: 22px; }
   }
   .cw-sv-label-mobile {
     font-size: 13px;
