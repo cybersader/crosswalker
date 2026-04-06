@@ -594,15 +594,18 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
       padding: 0.5rem 0.5rem 0;
       font-size: 0.7rem;
     }
-    /* Mobile graph text sizes */
-    .cw-graph-mobile .cw-ni { font-size: 13px; }
-    .cw-graph-mobile .cw-ns { font-size: 8px; }
-    .cw-graph-mobile .cw-el { font-size: 10px; }
-    .cw-graph-mobile .cw-mt { font-size: 9px; }
+    /* Mobile graph text sizes — bigger for readability */
+    .cw-graph-mobile .cw-ni { font-size: 16px; }
+    .cw-graph-mobile .cw-ns { font-size: 10px; }
+    .cw-graph-mobile .cw-el { font-size: 12px; }
+    .cw-graph-mobile .cw-mt { font-size: 11px; }
+    .cw-graph-mobile .cw-el-bg { height: 18px; }
+    .cw-graph-mobile .cw-mb { height: 22px; }
   }
   .cw-sv-label-mobile {
-    font-size: 11px;
-    letter-spacing: 0.12em;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    font-weight: 800;
   }
   .cw-sv-plat-text {
     font-size: 7px; fill: var(--sl-color-gray-3);
