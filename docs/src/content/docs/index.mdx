@@ -320,9 +320,11 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   /* Homepage: hide sidebar + right panel on desktop, keep hamburger functional on mobile.
      Force content to center by removing all sidebar offsets at every width. */
   .right-sidebar-container, .right-sidebar { display: none !important; }
-  .content-panel { border-top: none !important; padding-top: 0 !important; }
-  .main-pane { padding-top: 0 !important; width: 100% !important; max-width: 100% !important; }
-  .main-frame { padding-inline-start: 0 !important; }
+  .content-panel { border-top: none !important; padding-top: 0 !important; margin-top: 0 !important; }
+  .main-pane { padding-top: 0 !important; margin-top: 0 !important; width: 100% !important; max-width: 100% !important; }
+  .main-frame { padding-inline-start: 0 !important; padding-top: 0 !important; }
+  main { padding-top: 0 !important; margin-top: 0 !important; }
+  .sl-container { padding-top: 0 !important; margin-top: 0 !important; }
   .sl-container { max-width: 920px !important; margin: 0 auto !important; }
   @media (min-width: 768px) {
     #starlight__sidebar { display: none !important; }
