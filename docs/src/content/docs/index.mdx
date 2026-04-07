@@ -19,67 +19,61 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     (function() {
       var wrap = document.querySelector('.cw-rotate-wrap');
       var rotate = document.querySelector('.cw-rotate');
-      var words = Array.from(document.querySelectorAll('.cw-rotate > span'));
+      var words = document.querySelectorAll('.cw-rotate > span');
       if (!wrap || !rotate || !words.length) return;
+      var n = words.length - 1; // last is duplicate of first
+      var i = 0;
+      var timer = null;
 
-      function measure() {
-        // Clone each word into a hidden sibling to measure true rendered width
-        var widths = words.map(function(w) {
-          var clone = w.cloneNode(true);
-          clone.style.cssText = 'position:absolute;visibility:hidden;height:auto;width:auto;white-space:nowrap;';
-          wrap.parentNode.appendChild(clone);
-          var width = clone.getBoundingClientRect().width;
-          wrap.parentNode.removeChild(clone);
-          return Math.ceil(width) + 8;
-        });
-        return widths;
+      function tick() {
+        i = (i + 1) % (n + 1);
+        wrap.style.width = widths[i] + 'px';
+        rotate.style.transform = 'translateY(-' + (i * 1.15) + 'em)';
+        if (i === n) {
+          // Landed on duplicate — snap back after transition completes
+          timer = setTimeout(function() {
+            rotate.style.transition = 'none';
+            wrap.style.transition = 'none';
+            rotate.style.transform = 'translateY(0)';
+            wrap.style.width = widths[0] + 'px';
+            i = 0;
+            void rotate.offsetHeight; // force reflow
+            rotate.style.transition = '';
+            wrap.style.transition = '';
+          }, 550);
+        }
+      }
+
+      // Measure using max width approach — no clones, no leaks
+      var widths = [];
+      for (var j = 0; j <= n; j++) {
+        // Use ch-based estimate: character count * 0.62em
+        // This avoids DOM cloning entirely
+        widths.push(words[j].textContent.length);
+      }
+      // Convert to em-based widths (set via JS after font loads)
+      function setWidths() {
+        var test = document.createElement('span');
+        test.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
+        test.className = wrap.className;
+        wrap.parentNode.appendChild(test);
+        var newWidths = [];
+        for (var j = 0; j <= n; j++) {
+          test.textContent = words[j].textContent;
+          newWidths.push(Math.ceil(test.getBoundingClientRect().width) + 8);
+        }
+        wrap.parentNode.removeChild(test);
+        widths = newWidths;
+        wrap.style.width = widths[i] + 'px';
       }
 
       function start() {
-        // Double rAF to ensure layout is fully settled after font load
         requestAnimationFrame(function() {
-          requestAnimationFrame(function() {
-            var widths = measure();
-            var maxWidth = Math.max.apply(null, widths);
-            var i = 0;
-            var real = words.length - 1;
-            wrap.style.width = widths[0] + 'px';
-
-            setInterval(function() {
-              i++;
-              wrap.style.width = widths[i] + 'px';
-              rotate.style.transform = 'translateY(-' + (i * 1.15) + 'em)';
-              if (i >= real) {
-                setTimeout(function() {
-                  rotate.style.transition = 'none';
-                  rotate.style.transform = 'translateY(0)';
-                  wrap.style.transition = 'none';
-                  wrap.style.width = widths[0] + 'px';
-                  i = 0;
-                  requestAnimationFrame(function() {
-                    requestAnimationFrame(function() {
-                      rotate.style.transition = 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
-                      wrap.style.transition = 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)';
-                    });
-                  });
-                }, 600);
-              }
-            }, 2500);
-
-            // Re-measure on resize (handles zoom changes)
-            var resizeTimer;
-            window.addEventListener('resize', function() {
-              clearTimeout(resizeTimer);
-              resizeTimer = setTimeout(function() {
-                widths = measure();
-                wrap.style.width = widths[i] + 'px';
-              }, 200);
-            });
-          });
+          setWidths();
+          setInterval(tick, 2500);
         });
       }
 
-      // Wait for fonts, then start
       if (document.fonts && document.fonts.ready) {
         document.fonts.ready.then(start);
       } else {
@@ -502,9 +496,10 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   /* Homepage: hide sidebar + right panel on desktop, keep hamburger functional on mobile.
      Force content to center by removing all sidebar offsets at every width. */
   .right-sidebar-container, .right-sidebar { display: none !important; }
-  .content-panel { border-top: none !important; }
-  .main-pane { width: 100% !important; max-width: 100% !important; }
-  .main-frame { padding-inline-start: 0 !important; padding-top: var(--sl-nav-height) !important; }
+  .content-panel { border-top: none !important; padding-top: 0 !important; }
+  .main-pane { width: 100% !important; max-width: 100% !important; padding-top: 0 !important; }
+  .main-frame { padding-inline-start: 0 !important; padding-top: var(--sl-nav-height) !important; margin-top: 0 !important; }
+  .sl-announcements-container { margin-top: 0 !important; }
   .sl-container { max-width: 1100px !important; margin: 0 auto !important; }
   @media (min-width: 768px) {
     #starlight__sidebar { display: none !important; }
