@@ -394,6 +394,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
       <circle class="cw-pr cw-pr3" cx="570" cy="60" r="24"/>
     </svg>
 
+    <div class="cw-graph-insight">Nodes are just notes.</div>
     <div class="cw-graph-caption cw-graph-caption-desktop">
       <span class="cw-gc-fw">● Framework controls</span>
       <span class="cw-gc-atk">● ATT&CK techniques</span>
@@ -482,6 +483,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
       <circle class="cw-pr cw-pr2" cx="260" cy="155" r="32"/>
     </svg>
 
+    <div class="cw-graph-insight">Nodes are just notes.</div>
     {/* Legend as 2x2 grid — big text */}
     <div class="cw-graph-caption cw-graph-caption-mobile">
       <span class="cw-gc-fw">● Framework controls</span>
@@ -733,6 +735,14 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     100% { r: 50; opacity: 0; stroke-width: 0.5; }
   }
 
+  /* Graph insight line */
+  .cw-graph-insight {
+    text-align: center;
+    font-size: 0.75rem;
+    font-style: italic;
+    color: var(--sl-color-gray-3);
+    padding: 0.4rem 0 0;
+  }
   /* Legend */
   .cw-graph-caption {
     display: flex; gap: 1rem; justify-content: center;
