@@ -9,6 +9,9 @@ node_modules/
 **/workspace.json
 **/workspace-mobile.json
 
+# Root .obsidian folder (if repo opened as vault)
+/.obsidian/
+
 # Test vault - ignore build artifacts and cache, keep test data
 test-vault/.obsidian/plugins/crosswalker/main.js
 test-vault/.obsidian/plugins/crosswalker/manifest.json
