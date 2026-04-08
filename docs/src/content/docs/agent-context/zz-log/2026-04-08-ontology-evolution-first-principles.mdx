@@ -1,0 +1,149 @@
+---
+title: "Ontology evolution: first principles revisited"
+description: Breaking down the ontology evolution problem from data structure primitives, not organizational conventions. Where we are, what we're deciding, and the paths forward.
+tags: [architecture, data-model, data-model-evolution]
+sidebar:
+  label: "04-08 · Evolution first principles"
+  order: -20260408
+---
+
+## Where we are
+
+The [EvolutionPattern taxonomy](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) was our first attempt at solving the ontology evolution problem. It defined 8 fields (release_cadence, breaking_change_policy, id_stability, etc.) to classify how frameworks change over time.
+
+After reviewing the [Foundation research](/crosswalker/reference/roadmap/) and external architecture analysis, a deeper question surfaced:
+
+> Can we describe what happens when an ontology changes at the **data structure level** — without needing conventions, taxonomies-of-taxonomies, or philosophical classification schemes?
+
+This page captures the current thinking, the specific problem we're facing, and the paths forward.
+
+## The specific problem
+
+When a user imports NIST 800-53 Rev 5 today, and NIST publishes Rev 6 next year:
+
+1. **What changed?** Some controls renamed, some added, some removed, hierarchy restructured, new relationships added
+2. **What breaks?** Crosswalk links to CIS Controls now point to renamed/removed nodes. Evidence links reference old control IDs.
+3. **What should Crosswalker do?** Detect the changes, show the user what happened, and help them update their vault without losing evidence mappings
+
+The EvolutionPattern taxonomy tried to PREDICT these changes based on organizational patterns. But prediction is fragile — organizations change behavior. What if we just DETECT and HANDLE changes as they happen?
+
+## The data structure perspective
+
+Strip away all domain meaning. Every ontology is:
+
+- **Nodes** with IDs, properties, and types
+- **Edges** with sources, targets, and relationship types
+- **Hierarchy** (trees within the graph)
+
+Every change that can happen is a combination of 13 structural primitives:
+
+### Node primitives
+| # | Change | Example |
+|---|---|---|
+| 1 | Node added | NIST adds new control AC-24 |
+| 2 | Node removed | CIS deprecates control 4.7 |
+| 3 | Node ID changed | CSF renames PR.AC-07 to PR.AA-01 |
+| 4 | Node properties changed | MITRE updates T1078 description |
+| 5 | Node type changed | Control reclassified from "technical" to "administrative" |
+
+### Edge primitives
+| # | Change | Example |
+|---|---|---|
+| 6 | Edge added | New crosswalk: AC-2 maps to CIS 5.1 |
+| 7 | Edge removed | Old crosswalk no longer valid |
+| 8 | Edge type changed | Relationship upgraded from "partial" to "full" |
+| 9 | Edge properties changed | Confidence score updated |
+
+### Structural primitives
+| # | Change | Example |
+|---|---|---|
+| 10 | Hierarchy restructured | CSF moves "Asset Management" under new function |
+| 11 | Hierarchy depth changed | NIST adds enhancement tier |
+| 12 | Subgraph merged | Two control families consolidated |
+| 13 | Subgraph split | One control family divided |
+
+**Every ontology change that has ever happened is a composition of these 13 primitives.**
+
+## The philosophical tensions
+
+### Identity vs. ID
+If NIST renames AC-2 to AC-2.0, is it the "same" control? Structurally: it depends on whether there's an explicit alias. Semantically: the user has to decide. Crosswalker needs to support both automatic resolution (when aliases exist) and manual curation (when they don't).
+
+### Crosswalk staleness
+A crosswalk between NIST AC-2 and CIS 5.1 becomes stale when EITHER side changes. Staleness is a **computed property** of the edge, not a stored annotation:
+
+```
+stale = (source.last_changed > crosswalk.created) 
+     OR (target.last_changed > crosswalk.created)
+```
+
+No taxonomy needed for this — just timestamps and hashes.
+
+### The meta-meta problem
+If Crosswalker is a meta-system for managing ontologies, and we need to evolve our OWN schema... how do we handle that? This recursion is real — our `_crosswalker` metadata format will need to change over time, and we need migration paths for it.
+
+## Three paths for the EvolutionPattern taxonomy
+
+### Path A: Taxonomy as prediction model
+Keep the 8-field taxonomy but reframe it. It's not describing changes — it's predicting PATTERNS of change based on organizational behavior. Useful for strategy selection upfront.
+
+**Pro:** Helps users prepare before importing  
+**Con:** Predictions can be wrong; adds complexity before it's needed
+
+### Path B: Drop taxonomy, track actual changes
+Record what actually happens through structural diffs. No classification needed — just show the user what changed.
+
+**Pro:** Simpler, more accurate, no prediction errors  
+**Con:** Reactive, not proactive; user gets no warning about what to expect
+
+### Path C: Both (recommended)
+- **Structural change tracking** is the FOUNDATION — hash-based diff of imported versions, producing a list of the 13 primitives
+- **EvolutionPattern taxonomy** is a COMMUNITY FEATURE — an optional annotation that helps users predict what to expect, contributed progressively as the community learns each framework's behavior
+
+This means the Foundation schema does NOT depend on the taxonomy. The taxonomy ships later as an enhancement.
+
+## What this means for the Foundation schema
+
+### Minimum viable change tracking (in note frontmatter)
+```yaml
+_crosswalker:
+  source: nist-800-53
+  source_version: r5
+  source_id: AC-2
+  import_hash: abc123
+  import_date: 2026-04-08
+```
+
+When re-importing a new version:
+1. Hash the new source data
+2. Compare against stored `import_hash` for each node
+3. Produce a diff using the 13 primitives
+4. Present to user with handling options per change type
+
+### Crosswalk validity (computed, not stored)
+```
+For each crosswalk edge:
+  valid = both endpoint hashes match their latest import
+  stale = either endpoint hash has changed since edge was created
+```
+
+### Identity resolution (for when IDs change)
+Three strategies, progressively complex:
+1. **Exact match** — same ID means same node (default)
+2. **Alias table** — explicit old-ID → new-ID mappings (from framework changelog)
+3. **Fuzzy match** — string similarity + property overlap (when no explicit mapping exists)
+
+## Decisions for next session
+
+- [ ] **Path A, B, or C?** — leaning C (both) but need to confirm
+- [ ] **Hash granularity** — hash per-node or per-import-batch?
+- [ ] **Identity resolution default** — exact match only for v1?
+- [ ] **Obsidian Bases direction** — can we build on it for the viewing problem?
+- [ ] **Core library boundary** — what's in the library vs. what's in the plugin?
+
+## Related
+
+- [EvolutionPattern taxonomy draft](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) — the original 8-field design
+- [Vision alignment decisions](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/) — the 10 foundational decisions
+- [What makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/) — the "secret sauce" page
+- [Ontology evolution](/crosswalker/concepts/ontology-evolution/) — the full problem landscape
