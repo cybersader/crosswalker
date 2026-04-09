@@ -764,28 +764,28 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 Crosswalker turns your [Obsidian](https://obsidian.md) vault into an **operational compliance knowledge graph**. Import structured frameworks, [crosswalk](/crosswalker/agent-context/framework-crosswalks/) between standards, link evidence to controls with structured metadata, and query everything — all in plain markdown you own. AI-ready from day one.
 
 <CardGrid>
-  <Card title="[Import wizard](/crosswalker/features/import-wizard/)" icon="rocket">
-    Step-by-step wizard: [file selection](/crosswalker/features/import-wizard/), [column mapping](/crosswalker/features/import-wizard/), preview, and [generation](/crosswalker/features/generation-engine/).
+  <Card title="Import wizard" icon="rocket">
+    Step-by-step wizard: [file selection, column mapping](/crosswalker/features/import-wizard/), preview, and [generation](/crosswalker/features/generation-engine/).
   </Card>
-  <Card title="[Framework crosswalks](/crosswalker/agent-context/framework-crosswalks/)" icon="random">
-    Map relationships between frameworks. Link [NIST](/crosswalker/reference/registry/nist/) to [CIS](/crosswalker/reference/registry/cis/) to [MITRE](/crosswalker/reference/registry/mitre/) with [typed edges](/crosswalker/agent-context/link-metadata-system/) and metadata.
+  <Card title="Framework crosswalks" icon="random">
+    Map relationships between frameworks. Link [NIST](/crosswalker/reference/registry/nist/) to [CIS](/crosswalker/reference/registry/cis/) to [MITRE](/crosswalker/reference/registry/mitre/) with [typed edges and metadata](/crosswalker/agent-context/link-metadata-system/).
   </Card>
-  <Card title="[Evidence mapping](/crosswalker/getting-started/grc-teams/)" icon="document">
+  <Card title="Evidence mapping" icon="document">
     Link policies, audit findings, and technical docs directly to [framework controls](/crosswalker/concepts/framework-standards/) with [edge metadata](/crosswalker/agent-context/link-metadata-system/).
   </Card>
-  <Card title="[AI-ready](/crosswalker/concepts/what-makes-crosswalker-unique/)" icon="star">
+  <Card title="AI-ready" icon="star">
     Plain [markdown](/crosswalker/concepts/what-makes-crosswalker-unique/#1-files-not-databases) is the best format for RAG pipelines, embeddings, and AI agents. Your knowledge base is instantly indexable — no export required.
   </Card>
-  <Card title="[Community configs](/crosswalker/features/config-system/)" icon="approve-check-circle">
+  <Card title="Community configs" icon="approve-check-circle">
     Save, share, and reuse [import configurations](/crosswalker/features/config-system/). Fingerprint-based matching for similar files. Import what others have already mapped.
   </Card>
-  <Card title="[Progressive depth](/crosswalker/reference/roadmap/)" icon="list-format">
+  <Card title="Progressive depth" icon="list-format">
     Start with the guided [UI wizard](/crosswalker/features/import-wizard/). Graduate to config-as-code for repeatable imports. Add [CLI tooling](/crosswalker/reference/roadmap/) for automation and CI/CD.
   </Card>
-  <Card title="[Tool-agnostic](/crosswalker/concepts/what-makes-crosswalker-unique/#1-files-not-databases)" icon="puzzle">
-    Works with [Obsidian](https://obsidian.md) Bases or plain markdown search. Your data is just files — no lock-in.
+  <Card title="Tool-agnostic" icon="puzzle">
+    Works with [Obsidian](https://obsidian.md) Bases or plain markdown search. Your data is just files — [no lock-in](/crosswalker/concepts/what-makes-crosswalker-unique/#1-files-not-databases).
   </Card>
-  <Card title="[Free and open source](https://github.com/cybersader/crosswalker)" icon="github">
+  <Card title="Free and open source" icon="github">
     [MIT licensed](https://github.com/cybersader/crosswalker/blob/main/LICENSE). Own your tooling. [Contribute](https://cybersader.github.io/crosswalker/development/contributing/) features, framework configs, or documentation.
   </Card>
 </CardGrid>
@@ -819,6 +819,25 @@ Crosswalker turns your [Obsidian](https://obsidian.md) vault into an **operation
     <span>Roadmap</span>
   </a>
 </div>
+
+## Get involved
+
+Crosswalker is early and moving fast. Here's how to participate:
+
+<CardGrid>
+  <Card title="Star on GitHub" icon="github">
+    [Star the repo](https://github.com/cybersader/crosswalker) to follow development and show support.
+  </Card>
+  <Card title="Contribute" icon="pen">
+    [Read the contributing guide](/crosswalker/development/contributing/) — code, docs, framework configs, or bug reports all welcome.
+  </Card>
+  <Card title="Follow the roadmap" icon="list-format">
+    See [what's being built](/crosswalker/reference/roadmap/) and the architectural decisions behind it.
+  </Card>
+  <Card title="Read the blog" icon="open-book">
+    Follow [development updates](/crosswalker/blog/) and changelog.
+  </Card>
+</CardGrid>
 
 <style>{`
   .cw-ctas {
