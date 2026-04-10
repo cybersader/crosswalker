@@ -204,7 +204,7 @@ Who owns what across the [ontology lifecycle](/crosswalker/concepts/ontology-lif
 <td class="ol-m-cell ol-m-yellow" title="Some publish official crosswalks — NIST provides CSF↔800-53 mapping">Some official crosswalks<br/><a href="/crosswalker/agent-context/framework-crosswalks/">CSF↔800-53</a></td>
 <td class="ol-m-cell ol-m-gray">Rarely maintains<br/>others' crosswalks</td>
 <td class="ol-m-cell ol-m-gray">N/A</td>
-<td class="ol-m-cell ol-m-green" title="NIST creates OSCAL; OASIS creates STIX">Creates <a href="https://pages.nist.gov/OSCAL/">OSCAL</a>, <a href="https://oasis-open.github.io/cti-documentation/stix/intro.html">STIX</a></td>
+<td class="ol-m-cell ol-m-green" title="NIST creates OSCAL; OASIS creates STIX">Creates <a href="/crosswalker/reference/registry/oscal/">OSCAL</a>, <a href="https://oasis-open.github.io/cti-documentation/stix/intro.html">STIX</a></td>
 </tr>
 <tr>
 <td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">Industry groups</a><br/><em><a href="/crosswalker/reference/registry/cri/">CRI</a>, <a href="/crosswalker/reference/registry/owasp/">OWASP</a>, PCI SSC</em></td>
@@ -228,10 +228,10 @@ Who owns what across the [ontology lifecycle](/crosswalker/concepts/ontology-lif
 <td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">Mapping orgs</a><br/><em><a href="/crosswalker/reference/registry/olir/">OLIR</a>, <a href="/crosswalker/reference/registry/scf/">SCF</a>, <a href="/crosswalker/reference/registry/ctid/">CTID</a></em></td>
 <td class="ol-m-cell ol-m-gray">N/A</td>
 <td class="ol-m-cell ol-m-gray">Tracks upstream<br/>version changes</td>
-<td class="ol-m-cell ol-m-green" title="OLIR accepts submissions; SCF maintains 175+ via STRM; CTID maps ATT&CK↔800-53">Creates crosswalks<br/><a href="https://csrc.nist.gov/projects/olir">OLIR</a>, <a href="https://securecontrolsframework.com/strm-bundle/">SCF STRM</a>, <a href="https://github.com/center-for-threat-informed-defense/attack-control-framework-mappings">CTID</a></td>
+<td class="ol-m-cell ol-m-green" title="OLIR accepts submissions; SCF maintains 175+ via STRM; CTID maps ATT&CK↔800-53">Creates crosswalks<br/><a href="/crosswalker/reference/registry/olir/">OLIR</a>, <a href="/crosswalker/reference/registry/scf/">SCF</a> <a href="/crosswalker/reference/registry/strm/">STRM</a>, <a href="/crosswalker/reference/registry/ctid/">CTID</a></td>
 <td class="ol-m-cell ol-m-red" title="The core ongoing work — must update crosswalks whenever EITHER framework updates">Continuous re-mapping<br/><a href="/crosswalker/concepts/ontology-evolution/#layer-2-crosswalks-break">Staleness problem</a></td>
 <td class="ol-m-cell ol-m-gray">N/A</td>
-<td class="ol-m-cell ol-m-yellow" title="May publish in SSSOM or other formats">Uses <a href="https://mapping-commons.github.io/sssom/">SSSOM</a></td>
+<td class="ol-m-cell ol-m-yellow" title="May publish in SSSOM or other formats">Uses <a href="/crosswalker/reference/registry/sssom/">SSSOM</a></td>
 </tr>
 <tr>
 <td class="ol-m-row"><a href="/crosswalker/concepts/institutional-landscape/#the-entities">GRC vendors</a><br/><em>ServiceNow, Drata</em></td>
@@ -312,7 +312,7 @@ Who owns what across the [ontology lifecycle](/crosswalker/concepts/ontology-lif
 **Reading the matrix**: Each cell shows what that actor does for that component, with links to relevant KB pages. The left border color indicates resource intensity — <span style="color:#98c379">green</span> (one-time), <span style="color:#e5c07b">yellow</span> (periodic), <span style="color:#e06c75">red</span> (continuous), <span style="color:#5c636e">gray</span> (not applicable).
 
 Key insights from the matrix:
-- **[Crosswalk maintenance](/crosswalker/concepts/ontology-evolution/#layer-2-crosswalks-break)** is red for mapping orgs, GRC vendors, AND your org — it's the most resource-intensive ongoing work across the ecosystem
+- **[Crosswalk maintenance](/crosswalker/concepts/ontology-evolution/#layer-2-crosswalks-break)** is red for mapping orgs, GRC vendors, AND your org — it's the most resource-intensive ongoing work across the ecosystem. Mapping orgs like [SCF](/crosswalker/reference/registry/scf/) and [UCF](https://www.unifiedcompliance.com/) reduce this burden with a **synthetic spine** (also: **hub-and-spoke mapping**) architecture — mapping each framework once to a canonical intermediate instead of authoring O(N²) direct pairwise crosswalks. Whether Crosswalker should consume, inherit, or build such a spine is an open Foundation question — see [Challenge 06](/crosswalker/agent-context/zz-challenges/06-synthetic-spine/) and the [04-10 synthesis](/crosswalker/agent-context/zz-log/2026-04-10-foundation-research-synthesis/#the-synthetic-spine-is-the-missing-architectural-insight).
 - **[Evidence mapping](/crosswalker/getting-started/grc-teams/)** is your org's continuous burden — no one else can do it for you
 - **[Standard bodies](/crosswalker/concepts/institutional-landscape/)** do the one-time creation work but rarely maintain crosswalks to OTHER frameworks
 - **Regulators** mandate but don't create or maintain — they add requirements without resources

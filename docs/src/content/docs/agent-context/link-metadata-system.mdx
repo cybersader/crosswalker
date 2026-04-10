@@ -1,8 +1,32 @@
 ---
 title: Link metadata system
-description: The theoretical foundation for typed links with edge metadata in Obsidian — how relationships between notes can carry structured data.
+description: The theoretical foundation for typed links with edge metadata in Obsidian — how relationships between notes can carry structured data. Also known as edge metadata, typed link system, inline field metadata, or evidence-link edge model.
 tags: [evidence-mapping-links, obsidian-metadata]
 ---
+
+:::note[Also known as — aliases across this KB]
+The same concept appears under several names depending on which angle you're looking at:
+
+- **Link metadata system** — this page's name; the most general umbrella
+- **Edge metadata** — the technical data-model term ([terminology entry](/crosswalker/concepts/terminology/#data-model-terms))
+- **Typed link system** — the product-level term; a link with a type + metadata ([terminology entry](/crosswalker/concepts/terminology/#core-terms))
+- **Evidence-link edge model** — the Foundation-phase decision name; specifically about document→framework implementation links ([terminology entry: Evidence link](/crosswalker/concepts/terminology/#core-terms))
+- **Inline field metadata** — the Dataview/Datacore-flavored term (legacy; we've [committed to Obsidian Bases](/crosswalker/reference/roadmap/), not Dataview)
+- **DotKey metadata** — this page's own internal term (`framework_here.applies_to::`)
+- **Implementation link** — the OSCAL-adjacent framing, referring to its Implementation Layer (`by-component`, `implementation-status`, `satisfied`)
+
+All of these point at the same core idea: **a link between two notes that carries structured data about the relationship, not just the endpoints.** Crosswalker's original motivation was this problem (before the ontology-to-ontology crosswalking story was added in the Foundation phase). Its current status is an open Foundation research item — see **[Challenge 07: Link metadata / edge model for evidence mapping](/crosswalker/agent-context/zz-challenges/07-link-metadata-edge-model/)** and the [Foundation roadmap](/crosswalker/reference/roadmap/).
+:::
+
+:::caution[This page is partially stale on the Dataview assumption]
+The original design below relied on Dataview inline fields (`key:: value` syntax) as the storage and query mechanism. **Crosswalker has since committed to [Obsidian Bases](/crosswalker/reference/roadmap/) as the viewing/querying layer instead** (Dataview is deprecated). Bases cannot process inline fields, traverse typed links, or extract edge metadata — it only queries frontmatter. That changes the design constraints significantly:
+
+- Edge metadata can't live in inline fields that Bases won't see
+- The "store non-link metadata in frontmatter, edge metadata inline" split at the bottom of this page needs revisiting
+- The evidence-link edge model likely needs a storage layer that Bases CAN read (frontmatter arrays? sidecar files? Tier 2 sql.js sidecar?)
+
+This page is preserved as the original design record because it captures the right conceptual shape — dotKey + destination + metadata + priority structure — but the Bases-compatible storage design is a Foundation-phase open question. See [Challenge 07](/crosswalker/agent-context/zz-challenges/07-link-metadata-edge-model/) for the research brief that resolves this.
+:::
 
 ## The core problem
 

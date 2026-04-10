@@ -1,8 +1,22 @@
 ---
 title: Schema matching & alignment
-description: How systems discover correspondences between different data structures — the formal foundation for column detection and framework crosswalking.
+description: How systems discover correspondences between different data structures — the formal foundation for column detection and framework crosswalking. Also called ontology matching, ontology alignment, crosswalking, data integration, and schema mediation.
 tags: [frameworks-mapping, data-model-evolution]
 ---
+
+:::note[Also known as — aliases across fields and literature]
+The same broad concept of "finding correspondences between structured datasets" goes by many names depending on the field:
+
+- **Schema matching / schema alignment** — database community (Rahm & Bernstein 2001 is the canonical survey)
+- **Ontology matching / ontology alignment** — Semantic Web community (Euzenat & Shvaiko 2013 is the canonical textbook)
+- **Crosswalking** — library science, metadata interoperability (Woodley 2008)
+- **Data integration** — data warehousing and ETL
+- **Schema mediation / schema mapping** — federated databases and AI
+- **Framework mapping** — the compliance / GRC practitioner term Crosswalker uses
+- **Synthetic spine / hub-and-spoke mapping / meta-framework** — the architectural pattern when each source maps once to a canonical intermediate (see [the interlingua / pivot section below](#the-interlingua--pivot-approach))
+
+Within a single field these terms have precise distinct meanings — see the [terminology distinctions table](#terminology-distinctions) immediately below, which is deliberately pedantic about scope differences. But **across fields they're routinely used interchangeably**, and Crosswalker straddles all of them: it's a database-style importer (schema matching vocabulary) that produces ontology-aligned crosswalk edges (Semantic Web vocabulary) for compliance frameworks (GRC practitioner vocabulary) in a library-science-flavored file-first vault (crosswalking vocabulary). Which term you see in any given KB page depends on which community that page is drawing from.
+:::
 
 ## What is schema matching?
 

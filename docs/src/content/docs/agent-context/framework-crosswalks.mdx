@@ -4,9 +4,11 @@ description: How frameworks map to each other — specific crosswalk tables, col
 tags: [frameworks-mapping, evidence-mapping-links]
 ---
 
-## What is a crosswalk?
+:::note
+For the canonical definition of **crosswalk** (and how it differs from an **evidence link**), see the [terminology page](/crosswalker/concepts/terminology/#core-terms). For the edge vocabulary and metadata envelope Crosswalker commits to for crosswalk edges, see [STRM](/crosswalker/reference/registry/strm/) + [SSSOM](/crosswalker/reference/registry/sssom/). For the formal architectural pattern (pivot / interlingua / hub-and-spoke), see [schema matching](/crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach).
+:::
 
-A crosswalk maps relationships between two or more frameworks, showing how controls, requirements, or concepts in one standard correspond to another. For example, NIST CSF subcategory "PR.AC-1" maps to NIST 800-53 controls "AC-1, AC-2, AC-3..."
+This page documents the **specific framework-to-framework crosswalks** Crosswalker's Python tool already implements — source/target pairs, match columns, and matching strategies. A practical reference rather than a conceptual introduction.
 
 ## Supported framework crosswalks
 
