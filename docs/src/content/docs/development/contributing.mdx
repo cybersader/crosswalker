@@ -1,7 +1,8 @@
 ---
 title: Contributing
-description: How to contribute to Crosswalker.
+description: How to contribute to Crosswalker — plugin code, docs, research logs, challenges, and registry entries. Covers conventions, testing, commit style, and the log/challenge/roadmap lifecycle.
 tags: [development]
+date: 2026-04-10
 ---
 
 ## Getting started
@@ -10,20 +11,73 @@ tags: [development]
 2. Clone your fork and set up the [development environment](/crosswalker/development/setup/)
 3. Create a feature branch: `git checkout -b feature/my-feature`
 4. Make your changes
-5. Run tests: `bun run test && bun run lint`
-6. Commit and push
-7. Open a pull request
+5. Run the relevant test suites (see [testing](/crosswalker/development/testing/))
+6. Commit and push — no AI attribution (hard rule)
+7. Open a pull request against `main`
 
-## Code style
+Root-level [`CONTRIBUTING.md`](https://github.com/cybersader/crosswalker/blob/main/CONTRIBUTING.md) in the repo has the quick-start version of the same thing. This page is the longer-form reference with all the conventions.
 
-- TypeScript with strict types
-- ESLint with `eslint-plugin-obsidianmd` rules
-- Sentence case for all UI text (Obsidian community plugin requirement)
-- Use `Setting.setHeading()` instead of `createEl('h3')` for settings headings
+## What you can contribute
+
+Crosswalker has **three contribution surfaces**, each with its own conventions:
+
+| Surface | Lives in | Tech | Test suite |
+|---|---|---|---|
+| **Plugin code** | `src/` | TypeScript + Bun + esbuild | Jest unit tests, WebdriverIO E2E |
+| **Docs site** | `docs/src/content/docs/` | Astro Starlight, MDX | Playwright E2E |
+| **Python CLI** | `frameworks_to_obsidian.py` | Python + Pandas | manual |
+
+Most contributions touch the plugin or docs. The Python CLI is the original batch importer and still shipped as a secondary tool, but new capability work happens in the plugin.
+
+## Local dev orchestrator — `bun run serve`
+
+From the repo root, `bun run serve` is an interactive menu wrapping every local workflow:
+
+```
+━━━ Crosswalker local serve ━━━
+
+  1) Docs dev server          http://localhost:4321   HMR
+  2) Docs preview (built)     http://localhost:4321
+  3) Docs build only          → docs/dist
+  4) Plugin dev (watch)       → test-vault
+  5) Docs + plugin dev        both in parallel
+  6) Share docs (Tailscale)   tailnet only
+  7) Share docs (Cloudflare)  public URL
+  8) Docs e2e tests           playwright test:local
+```
+
+Shortcuts that skip the menu:
+
+```bash
+bun run serve:docs       # Option 1
+bun run serve:plugin     # Option 4
+bun run serve:both       # Option 5
+bun run serve:share      # Option 6
+```
+
+The orchestrator handles cross-OS `node_modules` contamination automatically (e.g. rollup native binary mismatches when bouncing between WSL and Windows) and auto-installs `docs/node_modules` on first run.
+
+## Plugin code style
+
+- **TypeScript with strict types**
+- **ESLint** with `eslint-plugin-obsidianmd` — required for community plugin submission
+- **Sentence case** for all user-facing UI text (e.g. "Add new rule", not "Add New Rule")
+- **Settings headings**: use `Setting.setHeading()` instead of `createEl('h3')`
+- **Don't include the plugin name** in settings section headings (Obsidian provides it)
+- **Avoid "settings" or "options"** in heading text — `"Behavior"` not `"Behavior settings"`
+
+Run the linter before committing:
+
+```bash
+bun run lint            # Check
+bun run lint:fix        # Auto-fix what can be fixed
+```
 
 ## Commit messages
 
-Keep commit messages concise and descriptive. Focus on the "why" rather than the "what."
+Keep them descriptive, focused on the "why" rather than the "what". First line is a short summary. Body explains non-obvious context and design rationale. Match the existing commit log style by running `git log --oneline -20` before writing yours.
+
+**Never include AI attribution** (`Co-Authored-By: Claude ...` or similar) — this is a hard rule in the project's `CLAUDE.md`. Commit as the human contributor only.
 
 ## Adding a new parser
 
@@ -33,6 +87,9 @@ To add support for a new file format:
 2. Export a `parse<Format>(content, options)` function returning `ParsedData`
 3. Add the format to the file picker in `import-wizard.ts`
 4. Add unit tests in `tests/<format>-parser.test.ts`
+5. Update `docs/src/content/docs/features/import-wizard.mdx` to mention the new format
+
+---
 
 ## Editing the documentation
 
@@ -47,17 +104,16 @@ Every docs page has an **"Edit page"** link in the sidebar. Click it to edit the
 For larger changes or new pages:
 
 ```bash
-git clone https://github.com/cybersader/Crosswalker.git
-cd Crosswalker/docs
-bun install
-bun run dev        # Preview at http://localhost:4321/crosswalker/
+bun run serve:docs       # Starts Astro dev server on :4321
+# or use the interactive menu:
+bun run serve            # → option 1
 ```
 
 Edit files in `docs/src/content/docs/`. Changes hot-reload in the browser.
 
-### File format
+### File format — .mdx, not Obsidian
 
-Docs use `.mdx` (Markdown with JSX components). Standard Markdown works — you only need JSX for Starlight components like `<Card>`, `<Tabs>`, `<Steps>`:
+Docs use `.mdx` (Markdown with JSX components). Standard Markdown works — you only need JSX for Starlight components like `<Card>`, `<Tabs>`, or inline HTML/SVG:
 
 ```mdx
 import { Card, CardGrid } from '@astrojs/starlight/components';
@@ -67,31 +123,155 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 </CardGrid>
 ```
 
-### Not an Obsidian vault
+**The `docs/` folder is not an Obsidian vault** — the files are `.mdx`, not `.md`. For rich editing, use VS Code with the [MDX extension](https://marketplace.visualstudio.com/items?itemName=unifiedjs.vscode-mdx).
 
-The `docs/` folder is **not** an Obsidian vault — the content files are `.mdx`, not `.md`. For rich editing, use VS Code with the [MDX extension](https://marketplace.visualstudio.com/items?itemName=unifiedjs.vscode-mdx).
+### Frontmatter conventions
 
-### The log pattern
+Every content page starts with YAML frontmatter. The canonical fields:
 
-If you have notes, ideas, research, or context that doesn't fit an existing page, add it to the **[Log](/crosswalker/agent-context/zz-log/)** section:
+```yaml
+---
+title: Page title
+description: Short description used in meta tags, search results, and listing pages
+tags: [frameworks-mapping, data-model]   # must be in tags.yml
+date: 2026-04-10                          # for logs, challenges, and registry entries
+volatility: stable                        # registry entries: stable or evolving
+sidebar:
+  label: "Short sidebar label"
+  order: -20260410                         # logs: negative dates sort newest first
+---
+```
 
-1. Create `docs/src/content/docs/log/YYYY-MM-DD-topic-slug.mdx`
-2. Add frontmatter with title, description, and tags
-3. Write your notes — doesn't need to be polished
+**`date:` convention**: log files parse the creation date from their `YYYY-MM-DD-*` filename prefix. Challenge and registry entries use the git first-commit date by convention. The [`PageTitle` override](https://github.com/cybersader/crosswalker/blob/main/docs/src/components/PageTitle.astro) displays a `CREATED` label pulled from this field, alongside a git-based `UPDATED` label. Splash pages opt out of the meta row via `sidebar.hidden: true`.
 
-The log is chronological, tagged, and permanent. See the [log index](/crosswalker/agent-context/zz-log/) for the full pattern.
+**Tags**: must be in `docs/tags.yml` — unknown tags are rejected at build time by `starlight-tags`. Common ones: `frameworks-mapping`, `data-model-graph`, `data-model-evolution`, `evidence-mapping-links`, `obsidian-metadata`, `architecture`.
+
+### Inline SVG in MDX — kebab-case attributes, always
+
+**This is the single most expensive bug to hit in this codebase.** MDX parses inline `<svg>` subtrees in HTML mode, not JSX mode. The HTML5 parser silently lowercases all attribute names except a small whitelist (`viewBox`, `preserveAspectRatio`, `baseProfile`). So `strokeWidth="2"` becomes `strokewidth="2"` — an invalid SVG attribute that browsers silently ignore, leaving the diagram with default 1px strokes, misaligned text, broken dashed borders, and **no error message anywhere**. You'll see a diagram that "just looks wrong" and chase CSS for an hour before finding it.
+
+**Always use kebab-case for inline SVG attributes:**
+
+```mdx
+{/* Correct */}
+<circle cx="30" cy="50" r="32" stroke="#00d4aa" stroke-width="2" />
+<text x="30" y="120" font-size="11" text-anchor="middle" font-weight="600">Label</text>
+<path d="..." stroke-dasharray="4 3" />
+
+{/* Wrong — silently broken */}
+<circle cx="30" cy="50" r="32" stroke="#00d4aa" strokeWidth="2" />
+<text x="30" y="120" fontSize="11" textAnchor="middle" fontWeight="600">Label</text>
+<path d="..." strokeDasharray="4 3" />
+```
+
+**Exceptions that preserve case** (HTML whitelist): `viewBox`, `preserveAspectRatio`, `baseProfile`, `attributeName`, `xlink:href`. Everything else: kebab-case.
+
+**CSS properties inside `style={{...}}` JSX object props should use camelCase** — those are JavaScript object keys, not HTML attributes. `style={{fontSize: '11px', textAlign: 'center'}}` is correct in that context.
+
+### Cross-linking convention
+
+Links are critical in this knowledge base. Every page should aggressively cross-link to related concepts, decisions, and definitions:
+
+1. Link terms to their [terminology definitions](/crosswalker/concepts/terminology/) on first mention
+2. Link concepts to the pages that explore them deeper (log entries, concept pages)
+3. Every log page must have a `## Related` section at the bottom with links to related pages
+4. Roadmap items should link to their log entries, research pages, and concept pages
+5. When a term has aliases (e.g., "interlingua / pivot" = "synthetic spine" = "meta-framework"), mention the aliases and link to the terminology entry
+6. Link to the project's philosophical pillars ([vision](/crosswalker/agent-context/vision/), [problem](/crosswalker/concepts/problem/), [what makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/)) where design decisions connect to them
+
+**The goal**: a reader should be able to follow any concept from any page to its definition, rationale, and related decisions without dead ends.
+
+### The log / challenge / roadmap / decision lifecycle
+
+The docs site follows a specific lifecycle for research and architectural decisions:
+
+#### 1. Log (`agent-context/zz-log/YYYY-MM-DD-topic-slug.mdx`)
+
+Dated notes, research synthesis, working ideas, decision records. Write these freely — they're chronological and permanent. Every significant architectural decision gets a log entry with rationale. Filename prefix parses to the `date:` frontmatter field automatically.
+
+Structure a typical log as:
+
+```mdx
+---
+title: "Short title — what this is about"
+description: One-line summary used in meta/search
+tags: [research, architecture, ...]
+date: YYYY-MM-DD
+sidebar:
+  label: "MM-DD · Short label"
+  order: -YYYYMMDD     # negative for newest-first sort
+---
+
+## Why this log exists
+## What was decided / found
+## Rationale
+## What this forces (decisions, next research items)
+## Related
+```
+
+#### 2. Challenge (`agent-context/zz-challenges/NN-topic-slug.mdx`)
+
+Fresh-agent research briefs. When you want an independent perspective on an architectural assumption, write a challenge brief and hand it to a new agent with no prior context. Findings flow back as dated log entries, **not** as edits to the challenge itself — this keeps the challenge re-runnable with different agents.
+
+See Challenges 06 (synthetic spine) and 07 (link metadata edge model) for the current format.
+
+#### 3. Roadmap (`reference/roadmap/index.mdx`)
+
+Roadmap items should link to their log entries and challenges for rationale. Every significant item has a "why we picked this" that traces back to a log.
+
+#### 4. Concept page (`concepts/*.mdx`)
+
+Once a decision crystallizes, the stable version lives as a concept page. Concept pages are "here's how it is now," not "here's how we got here" — that stays in the log.
+
+#### 5. Terminology (`concepts/terminology.mdx`)
+
+New terms get entries with **aliases in the term column**. Alias every concept with multiple common names so readers searching any term land on the canonical entry. Example: `**Interlingua / pivot** — also: pivot ontology, synthetic spine, hub-and-spoke mapping, meta-framework`.
+
+#### 6. Registry (`reference/registry/*.mdx`)
+
+Canonical facts about external orgs, standards, methodologies, and publications (NIST, SCF, SKOS, SSSOM, STRM, BFO, etc.) that the KB cites in multiple places. Each entry is a compact reference card (~40 lines) with:
+
+```mdx
+---
+title: SHORT_NAME
+description: One-line summary with aliases where relevant
+tags: [frameworks-mapping, ...]
+volatility: stable | evolving
+sidebar:
+  order: NN
+date: YYYY-MM-DD
+---
+
+## What it is
+## How it works (or key concepts)
+## Who authored / formalized it
+## In Crosswalker
+## Links (external references)
+```
+
+See existing registry entries for format.
 
 ### Testing docs changes
 
 ```bash
-bun run build          # Verify all pages compile
-bun run test:local     # Run Playwright smoke tests
+# Run the Playwright E2E suite
+cd docs && bun run test:local
+
+# Or via the orchestrator:
+bun run serve            # → option 8
 ```
+
+See the [testing page](/crosswalker/development/testing/) for the full breakdown of the three test surfaces (plugin Jest, plugin WebdriverIO, docs Playwright).
+
+---
 
 ## Reporting issues
 
 File issues at [github.com/cybersader/crosswalker/issues](https://github.com/cybersader/crosswalker/issues) with:
+
+- Clear title and description
 - Steps to reproduce
 - Expected vs. actual behavior
-- Sample data (if possible, anonymized)
+- Sample data if relevant (anonymized if sensitive)
 - Obsidian version and OS
+- Plugin version from `manifest.json`

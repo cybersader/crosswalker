@@ -1,51 +1,173 @@
 ---
 title: Development setup
-description: How to set up your local development environment for Crosswalker.
+description: How to set up your local development environment for Crosswalker — plugin, docs site, and the bun run serve orchestrator that wraps both.
 tags: [development, getting-started]
+date: 2026-04-10
 ---
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) 18+
-- [Bun](https://bun.sh/) (package manager)
-- [Obsidian](https://obsidian.md/) (for testing)
+- [Bun](https://bun.sh/) — primary package manager and runtime
+- [Node.js](https://nodejs.org/) 18+ (used by some sub-tools like Playwright)
+- [Obsidian](https://obsidian.md/) — for plugin testing
+- [Git](https://git-scm.com/)
+
+Optional for sharing your local dev server with others:
+- [Tailscale](https://tailscale.com/) — for tailnet-only sharing
+- [Cloudflare Tunnel](https://www.cloudflare.com/products/tunnel/) (via `bun x cloudflared`) — for public URL sharing
 
 ## Clone and install
 
 ```bash
-git clone https://github.com/cybersader/Crosswalker.git
-cd Crosswalker
+git clone https://github.com/cybersader/crosswalker.git
+cd crosswalker
 bun install
 ```
 
-## Development workflow
+That installs the plugin's dependencies. The docs site has its own separate `node_modules` in `docs/` that gets installed automatically on first use of the orchestrator.
+
+## The local dev orchestrator — `bun run serve`
+
+From the repo root, `bun run serve` is an **interactive menu** wrapping every local workflow. It's the recommended entry point for development — it handles cross-OS `node_modules` contamination automatically (e.g. rollup native binary mismatches when bouncing between WSL and Windows), auto-installs `docs/node_modules` on first run, and cleans up all spawned children on Ctrl+C.
 
 ```bash
-# Watch mode — rebuilds on file changes, outputs to test-vault
-bun run dev
-
-# Open test-vault/ in Obsidian
-# Enable Crosswalker in Settings > Community Plugins
-# Changes auto-reload with Hot Reload plugin
+bun run serve
 ```
 
-## Build commands
+```
+━━━ Crosswalker local serve ━━━
+
+  1) Docs dev server          http://localhost:4321   HMR, for KB editing
+  2) Docs preview (built)     http://localhost:4321   built site
+  3) Docs build only          → docs/dist
+  4) Plugin dev (watch)       → test-vault
+  5) Docs + plugin dev        both in parallel
+  6) Share docs (Tailscale)   tailnet only
+  7) Share docs (Cloudflare)  public URL
+  8) Docs e2e tests           playwright test:local
+
+  Choose [1-8]:
+```
+
+### Non-interactive shortcuts
+
+```bash
+bun run serve:docs       # Option 1 — docs dev server
+bun run serve:plugin     # Option 4 — plugin watch
+bun run serve:both       # Option 5 — docs + plugin in parallel
+bun run serve:share      # Option 6 — docs + Tailscale
+```
+
+## Plugin development workflow
+
+```bash
+# Watch mode — rebuilds plugin on file changes, outputs to test-vault
+bun run serve:plugin
+# or the raw command:
+bun run dev
+```
+
+Then:
+1. Open `test-vault/` in Obsidian (File → Open vault → select `test-vault`)
+2. Enable Crosswalker in **Settings → Community plugins**
+3. Trigger the plugin via command palette: **Crosswalker: Import structured data**
+4. Edits to `src/` auto-rebuild. Reload the plugin in Obsidian (toggle in settings or Ctrl+R in the dev console) to pick up changes
+5. Install the [Hot Reload](https://github.com/pjeby/hot-reload) community plugin in `test-vault/` for automatic plugin reloads on rebuild
+
+## Docs site development workflow
+
+```bash
+bun run serve:docs
+```
+
+Opens the Astro dev server at `http://localhost:4321/crosswalker/`. HMR is active — edits to `.mdx` files hot-reload in the browser (with the exception of inline `<style>` blocks in MDX files, which sometimes require a full page refresh).
+
+**Do not** open `docs/` as an Obsidian vault — content files are `.mdx`, not `.md`. Use VS Code with the [MDX extension](https://marketplace.visualstudio.com/items?itemName=unifiedjs.vscode-mdx) for rich editing.
+
+## Running both in parallel
+
+Common when working on a feature that touches both plugin code and docs:
+
+```bash
+bun run serve:both
+```
+
+Starts the docs dev server **and** plugin watch build in the same terminal. Single `Ctrl+C` kills both cleanly.
+
+## Build commands (raw)
+
+These all work standalone if you prefer not to use the orchestrator:
 
 | Command | Description |
 |---------|-------------|
-| `bun run dev` | Watch mode, outputs to test-vault |
-| `bun run build` | Production build (type-check + bundle) |
-| `bun run test` | Run unit tests |
+| `bun run dev` | Plugin watch mode, outputs to `test-vault` |
+| `bun run build` | Plugin production build (type-check + bundle) |
+| `bun run test` | Plugin Jest unit tests |
+| `bun run test:watch` | Plugin unit tests in watch mode |
 | `bun run lint` | ESLint with obsidian-plugin rules |
 | `bun run lint:fix` | Auto-fix lint issues |
-| `bun run e2e` | Run E2E tests (requires Obsidian) |
+| `bun run e2e` | Plugin E2E tests (WebdriverIO, requires Obsidian) |
+| `cd docs && bun run dev` | Docs Astro dev server |
+| `cd docs && bun run build` | Docs production build → `docs/dist` |
+| `cd docs && bun run preview` | Serve the built dist locally |
+| `cd docs && bun run test:local` | Docs Playwright E2E tests |
+
+See the [testing page](/crosswalker/development/testing/) for details on each test surface.
 
 ## Project structure
 
-- `src/` — Plugin source code (TypeScript)
-- `tests/` — Unit tests (Jest)
-- `test/e2e/` — E2E tests (WebdriverIO)
-- `test-vault/` — Embedded Obsidian vault for development
-- `docs/` — Astro Starlight documentation site
-- `.claude/` — AI agent context and project knowledge
-- `.github/workflows/` — CI/CD pipelines
+```
+crosswalker/
+├── src/                      # Plugin source (TypeScript)
+│   ├── main.ts               # Plugin entry point
+│   ├── settings/             # Settings management
+│   ├── import/               # Import wizard + parsers
+│   ├── generation/           # Generation engine
+│   ├── config/               # Config manager + browser
+│   ├── types/                # TypeScript interfaces
+│   └── utils/                # Debug logging, etc.
+├── tests/                    # Plugin Jest unit tests
+├── test-vault/               # Embedded Obsidian vault
+│   └── .obsidian/plugins/crosswalker/    # Build output lives here
+├── docs/                     # Astro Starlight docs site
+│   ├── src/
+│   │   ├── content/docs/     # .mdx content files
+│   │   ├── components/       # Starlight component overrides (PageTitle, MobileMenuFooter)
+│   │   └── styles/           # brand.css, global.css
+│   ├── tests/                # Playwright E2E specs
+│   ├── astro.config.mjs      # Starlight config
+│   ├── playwright.config.ts  # Playwright config
+│   ├── package.json          # Docs dependencies
+│   └── tags.yml              # Controlled tag vocabulary
+├── scripts/
+│   └── serve.mjs             # The bun run serve orchestrator
+├── frameworks_to_obsidian.py # Python CLI (secondary tool)
+├── .claude/                  # AI agent historical context (CLAUDE.md, numbered knowledge base)
+├── .github/workflows/        # CI/CD — docs deploy, plugin release
+├── CLAUDE.md                 # Root-level agent instructions
+├── CONTRIBUTING.md           # Contributing quick-start (also see docs/development/contributing/)
+├── PROJECT_BRIEF.md          # Historical project brief (pre-docs-site)
+├── README.md                 # Repo landing page
+└── ROADMAP.md                # Plain-markdown mirror of the docs roadmap
+```
+
+## First-time sanity check
+
+After cloning and `bun install`, verify the setup works:
+
+```bash
+# Plugin builds cleanly
+bun run build
+
+# Plugin tests pass
+bun run test
+
+# Plugin lints cleanly
+bun run lint
+
+# Docs dev server starts
+bun run serve:docs
+# Open http://localhost:4321/crosswalker/ and check the homepage loads
+```
+
+If the plugin build or docs dev server fails with a rollup native-binary error (e.g. `Cannot find module @rollup/rollup-<platform>`), just re-run `bun run serve` — the orchestrator auto-detects the contamination and reinstalls `docs/node_modules` with the correct platform binaries.

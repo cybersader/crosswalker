@@ -1,5 +1,30 @@
 # Crosswalker / Obsidian Frameworker - Complete Project Documentation
 
+> **⚠️ Historical working document — not the canonical current-state reference.**
+>
+> This brief was written in the pre-docs-site era when Crosswalker was framed as a Python-first tool with an Obsidian plugin as "next evolution." The plugin is now the primary surface, and the Python CLI ([`frameworks_to_obsidian.py`](frameworks_to_obsidian.py)) is a secondary tool that ships alongside it. Sections below still reference Dataview as the query layer and treat the plugin as future work — that's all outdated.
+>
+> **For current project state, always check these first:**
+>
+> | What | Where |
+> |---|---|
+> | **Live docs site** (authoritative) | [cybersader.github.io/crosswalker](https://cybersader.github.io/crosswalker/) |
+> | Roadmap | [`docs/src/content/docs/reference/roadmap/index.mdx`](docs/src/content/docs/reference/roadmap/index.mdx) |
+> | Foundation research decisions | [`docs/src/content/docs/agent-context/zz-log/`](docs/src/content/docs/agent-context/zz-log/) — especially the 04-10 foundation research synthesis |
+> | Open research challenges | [`docs/src/content/docs/agent-context/zz-challenges/`](docs/src/content/docs/agent-context/zz-challenges/) |
+> | Terminology (crosswalk vs evidence link, STRM/SSSOM aliases) | [`docs/src/content/docs/concepts/terminology.mdx`](docs/src/content/docs/concepts/terminology.mdx) |
+> | External orgs / specs / methodologies | [`docs/src/content/docs/reference/registry/`](docs/src/content/docs/reference/registry/) |
+> | Architecture concepts | [`docs/src/content/docs/concepts/`](docs/src/content/docs/concepts/) |
+> | Contributing guide (current) | [`CONTRIBUTING.md`](CONTRIBUTING.md) + [`docs/development/contributing/`](https://cybersader.github.io/crosswalker/development/contributing/) |
+>
+> **This file is preserved** because it contains useful historical framing (original problem statement, initial ecosystem survey, early vision principles) that's still load-bearing for understanding *why* the project exists. When content here conflicts with the docs site, **the docs site wins**.
+>
+> Notable outdated sections in this file:
+> - **"Next Evolution"** (line ~23) — the plugin IS the current form, not the future form
+> - **"DataviewJS"** references — the project has since committed to Obsidian Bases as the query layer (Dataview is deprecated; see the [Obsidian Bases direction research item](https://cybersader.github.io/crosswalker/reference/roadmap/))
+> - **"Link Metadata System"** section — partially stale; see the updated [link-metadata-system design doc](https://cybersader.github.io/crosswalker/agent-context/link-metadata-system/) and [Challenge 07](https://cybersader.github.io/crosswalker/agent-context/zz-challenges/07-link-metadata-edge-model/) for the current thinking on evidence-link edge models
+> - **"Development Roadmap"** — entirely superseded by the live roadmap page
+
 ## Table of Contents
 1. [Project Overview](#project-overview)
 2. [Current State](#current-state)

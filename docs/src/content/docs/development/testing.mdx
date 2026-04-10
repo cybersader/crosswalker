@@ -1,27 +1,37 @@
 ---
 title: Testing
-description: Unit tests, E2E tests, and manual testing strategies.
+description: The three test surfaces — plugin Jest unit tests, plugin WebdriverIO E2E, and docs site Playwright. When to run which.
 tags: [development]
+date: 2026-04-10
 ---
 
-## Unit tests
+Crosswalker has **three separate test surfaces**. Know which you're working on before picking commands.
 
-Unit tests use Jest with ts-jest and a minimal Obsidian API mock.
+| # | Surface | Framework | When to run |
+|---|---|---|---|
+| 1 | **Plugin unit tests** | Jest + ts-jest | Every plugin code change |
+| 2 | **Plugin E2E tests** | WebdriverIO + wdio-obsidian-service | Before release, after core logic changes |
+| 3 | **Docs E2E tests** | Playwright | Every docs change (content, theme, plugins), before deploy |
+
+## 1. Plugin unit tests (Jest)
+
+Unit tests use Jest with ts-jest and a minimal Obsidian API mock at `tests/__mocks__/obsidian.ts`. Fully headless — no Obsidian runtime required.
 
 ```bash
-bun run test          # Run all tests
+bun run test          # One-shot
 bun run test:watch    # Watch mode
 ```
 
 ### What's tested
-- CSV parser (parsing, column analysis, edge cases)
-- Settings data (defaults, validation)
-- Config manager (fingerprinting, matching) — planned
-- Generation engine (output structure) — planned
 
-### Writing tests
+- **CSV parser** — parsing, column analysis, edge cases, streaming
+- **Settings data** — defaults, validation
+- **Config manager** — fingerprinting, matching (planned)
+- **Generation engine** — output structure (planned)
 
-Tests live in `tests/` and use the Obsidian mock at `tests/__mocks__/obsidian.ts`.
+### Writing a unit test
+
+Tests live in `tests/` alongside the code they test:
 
 ```typescript
 import { parseCSV } from '../src/import/parsers/csv-parser';
@@ -30,28 +40,156 @@ describe('parseCSV', () => {
   it('parses simple CSV', async () => {
     const result = await parseCSV('Name,ID\nAlice,1');
     expect(result.rows).toHaveLength(1);
+    expect(result.columns[0].name).toBe('Name');
   });
 });
 ```
 
-## E2E tests
+### Lint (part of the plugin unit-test surface)
 
-E2E tests use WebdriverIO with the `wdio-obsidian-service` to test the plugin in a real Obsidian instance.
+Required for community plugin submission:
 
 ```bash
-bun run e2e    # Requires Obsidian installed locally
+bun run lint            # Check
+bun run lint:fix        # Auto-fix what can be fixed
 ```
 
-E2E tests are **not run in CI** currently (on the roadmap). They verify:
-- Plugin loads correctly
-- Import wizard opens and navigates
-- File generation produces expected output
+Uses `eslint-plugin-obsidianmd` to enforce things like sentence case for UI text, no manual `createEl('h3')` for settings headings, no plugin name in heading text, etc. See the [contributing page](/crosswalker/development/contributing/#plugin-code-style) for the full rule list.
+
+## 2. Plugin E2E tests (WebdriverIO)
+
+E2E tests use WebdriverIO with [`wdio-obsidian-service`](https://github.com/jesse-r-s-hines/wdio-obsidian-service) to drive a real Obsidian instance via Chrome DevTools Protocol. Tests can exercise the import wizard, navigate multi-step flows, and verify generated vault structure.
+
+```bash
+bun run e2e              # Requires Obsidian installed locally
+```
+
+**Not run in CI currently** (on the roadmap). Verifies:
+
+- Plugin loads correctly into a fresh test vault
+- Import wizard opens and all four steps render
+- File generation produces expected folder structure and frontmatter
+- Settings UI persists changes across reloads
+
+See `wdio.conf.mts` for the config and `test/e2e/` for specs.
+
+## 3. Docs E2E tests (Playwright)
+
+The docs site has a Playwright suite in `docs/tests/` that runs against a built + previewed site. Catches rendering regressions, 404s, console errors, and verifies the UX/theme decisions.
+
+### Test suites
+
+| Spec | Tests | Covers |
+|---|---|---|
+| `smoke.spec.ts` | 10 | Homepage load, Nova top nav, sidebar, search, content pages (installation, features, agent-context, blog, architecture) |
+| `deployment.spec.ts` | 4 | HTTP 200, no console errors, no failed asset requests, meta tags present |
+| `ux-fixes.spec.ts` | 20 | Content width clamp at multiple breakpoints, narrower sidebar width, `lastUpdated` footer, `PageTitle` override (volatility badges + h1#_top accessibility anchor), smoke tests for new pages, regression checks |
+
+### Running the docs tests
+
+From `docs/`:
+
+```bash
+cd docs
+
+bun run test:local       # Run all tests — auto-builds + previews + runs Chromium
+bun run test:deploy      # Deployment-only subset (faster)
+bun run test:e2e         # Headed mode — watch the browser
+bun run test:e2e:ui      # Playwright UI mode — interactive debugging
+```
+
+Or via the orchestrator from the repo root:
+
+```bash
+bun run serve            # Interactive menu → option 8
+```
+
+### Testing against the live site
+
+Point Playwright at the production deployment instead of local preview:
+
+```bash
+cd docs
+TEST_URL=https://cybersader.github.io bun run test:deploy
+```
+
+### Prerequisites (first time only)
+
+```bash
+cd docs
+bun install
+bun x playwright install chromium    # Download the test browser
+bun run build                          # Preview server serves from dist/
+```
+
+### Configuration
+
+- **Config file**: `docs/playwright.config.ts`
+- **Base path**: `/crosswalker` (matches `base` in `astro.config.mjs`). All `page.goto()` calls must prefix this
+- **Preview server**: auto-starts `bun run preview` on port 4321
+- **Browser**: Chromium only (sufficient for docs coverage)
+- **Screenshots on failure**: automatically captured to `docs/test-results/`
+
+### Writing a new Playwright test
+
+```typescript
+import { test, expect } from '@playwright/test';
+
+const BASE = '/crosswalker';
+
+test('my new page loads', async ({ page }) => {
+  await page.goto(`${BASE}/my-section/my-page/`);
+  await expect(page.locator('h1')).toContainText('My Page');
+});
+```
+
+**Common pitfalls:**
+
+| Issue | Fix |
+|-------|-----|
+| 404 on all pages | Forgot `bun run build` — preview serves from `dist/` |
+| Chromium not found | `bun x playwright install chromium` |
+| Tailwind classes missing | Check `docs/src/styles/global.css` has `@source` directives |
+| Base path 404s | Prefix every `page.goto()` with `${BASE}/` |
+| Page renders but elements missing | Check the browser console in headed mode — MDX compilation errors show up as console warnings |
+
+### When to add tests here
+
+Add to `ux-fixes.spec.ts` (or a new spec) when you:
+
+- Add a new Starlight component override (like the `PageTitle` one)
+- Change global CSS that affects layout (content width, sidebar width, figure sizing)
+- Add a new page that should be part of the smoke suite
+- Fix a visual regression — add a test that would have caught it
 
 ## Manual testing
 
-For UI interactions that are difficult to automate:
+For things that can't be automated (mostly plugin UI edge cases):
 
-1. Run `bun run dev` (watch mode)
+1. `bun run serve:plugin` (watch mode)
 2. Open `test-vault/` in Obsidian
-3. Test the import wizard with sample data in `Crosswalker Test Data/`
+3. Test the import wizard with sample data in `test-vault/Crosswalker Test Data/`
 4. Check `crosswalker-debug.log` for detailed logs (enable in settings)
+5. Use the Hot Reload plugin for faster iteration — no need to toggle the plugin on/off for each rebuild
+
+Manual test documents live in `test-vault/Crosswalker Test Docs/` for workflows that need guided human verification.
+
+## What to run before a PR
+
+Matrix by change surface:
+
+| You changed | Minimum tests |
+|---|---|
+| Plugin TypeScript code | `bun run test` + `bun run lint` |
+| Plugin UI (settings tab, modals) | Above + manual test in Obsidian |
+| Plugin core logic (parser, generation) | Above + `bun run e2e` if you can run it locally |
+| `docs/` content (.mdx) | `cd docs && bun run test:local` |
+| `docs/` theme / CSS / components | Above + visually verify in `bun run serve:docs` at multiple viewport widths |
+| Both plugin and docs | All of the above |
+
+## CI
+
+- **Docs deploy**: `.github/workflows/deploy-docs.yml` runs on push to `main`, builds docs and publishes to GitHub Pages
+- **Plugin release**: manual via `bun run version` + tagged release
+
+E2E tests (both plugin WebdriverIO and docs Playwright) are **not** currently run in CI — on the roadmap. Run them locally before PRs that touch areas they cover.

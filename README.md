@@ -49,7 +49,7 @@ Each note gets full YAML frontmatter with `_crosswalker` provenance metadata, Wi
 | :file_folder: | **Folder hierarchies** | Map any columns to nested folder structures |
 | :link: | **Typed links** | WikiLinks and Markdown links with edge metadata for crosswalks |
 | :gear: | **Config system** | Save, load, and auto-match configurations via fingerprinting |
-| :mag: | **Queryable output** | Works with Obsidian Bases, Dataview, or plain search — no lock-in |
+| :mag: | **Queryable output** | Works with [Obsidian Bases](https://cybersader.github.io/crosswalker/concepts/metadata-ecosystem/) or plain search — plain-text frontmatter means no lock-in |
 | :test_tube: | **Debug logging** | Toggle logging to a vault file for troubleshooting |
 
 ## Quick start
@@ -125,13 +125,28 @@ cd docs && bun install && bun run dev
 
 ## Development
 
+From the repo root, use the **local dev orchestrator** — an interactive menu wrapping every workflow (docs dev, plugin watch, Tailscale/Cloudflare sharing, Playwright tests):
+
 ```bash
-bun install          # Install dependencies
-bun run dev          # Watch mode (outputs to test-vault)
-bun run build        # Production build (type-check + bundle)
-bun run test         # Run tests
-bun run lint         # Lint (required for community plugin submission)
+bun install              # Install plugin dependencies
+bun run serve            # Interactive menu (docs dev, plugin watch, etc.)
+bun run serve:docs       # Docs dev server on :4321
+bun run serve:plugin     # Plugin watch build → test-vault
+bun run serve:both       # Both in parallel
 ```
+
+Or raw commands:
+
+```bash
+bun run dev              # Plugin watch mode (outputs to test-vault)
+bun run build            # Plugin production build (type-check + bundle)
+bun run test             # Plugin unit tests
+bun run lint             # Plugin lint (required for community plugin submission)
+
+cd docs && bun run test:local   # Docs Playwright E2E tests
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions (including the MDX inline-SVG kebab-case gotcha) and the [docs contributing page](https://cybersader.github.io/crosswalker/development/contributing/) for the log / challenge / roadmap / decision lifecycle that new research follows.
 
 ## License
 
