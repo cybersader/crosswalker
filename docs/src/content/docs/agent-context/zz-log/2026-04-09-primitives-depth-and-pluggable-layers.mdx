@@ -13,18 +13,18 @@ Follow-on from [user-first ontology maintenance](/crosswalker/agent-context/zz-l
 
 ## Thread 1: Detection is pluggable, not primitive
 
-**The assumption we were making:** The system detects when a framework or ontology has changed (e.g., "NIST published Rev 6").
+**The assumption we were making:** The system detects when a framework or ontology has changed (e.g., "[NIST](/crosswalker/reference/registry/nist/) published Rev 6").
 
-**The correction:** Detection is NOT a first-principles capability of the data structure layer. The system can't inherently know that NIST published something. That's **opinionated, pluggable logic** — i.e., something tacked on as a form of pluggable behavior that the user or community defines, rather than something that describes merely a data structure change.
+**The correction:** Detection is NOT a [first-principles](/crosswalker/concepts/problem/) capability of the data structure layer. The system can't inherently know that NIST published something. That's **opinionated, pluggable logic** — i.e., something tacked on as a form of pluggable behavior that the user or community defines, rather than something that describes merely a [data structure change](/crosswalker/agent-context/zz-log/2026-04-08-ontology-evolution-first-principles/).
 
 Detection would be:
-- **Manual:** User downloads new CSV and imports it
-- **Semi-auto:** Plugin checks a community-maintained version registry
+- **Manual:** User downloads new CSV and [imports it](/crosswalker/features/import-wizard/)
+- **Semi-auto:** Plugin checks a [community-maintained](/crosswalker/concepts/what-makes-crosswalker-unique/#4-community-multiplied-value) version registry
 - **Auto:** CI/CD watches a GitHub repo or RSS feed for new releases
 
-All three are opinionated implementations of a detection interface. The first-principles layer only knows: "here's version A, here's version B, here's what's different."
+All three are opinionated implementations of a detection interface. The [first-principles layer](/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/) only knows: "here's version A, here's version B, here's what's different."
 
-**Implication:** Detection belongs in the pluggable layer, not the foundation. We define a standard interface for version registries (i.e., the shape of the data that says "version X exists"), and the community develops solutions around maintenance of that. This is a long-term roadmap item — thinking up the approach for how that standard works, how community members contribute, and what guarantees the system makes about freshness.
+**Implication:** Detection belongs in the pluggable layer, not the [foundation](/crosswalker/reference/roadmap/). We define a standard interface for version registries (i.e., the shape of the data that says "version X exists"), and the [community](/crosswalker/concepts/institutional-landscape/) develops solutions around maintenance of that. This connects to the [layered architecture vision](/crosswalker/agent-context/zz-log/2026-04-03-layered-architecture-vision/) — spec defines the interface, integrations implement it. The [entity registry](/crosswalker/reference/registry/) already tracks [who maintains what](/crosswalker/concepts/operational-landscape/) — version detection is an extension of that same pattern. This is a long-term [roadmap](/crosswalker/reference/roadmap/) item — thinking up the approach for how that standard works, how community members contribute, and what guarantees the system makes about freshness.
 
 ## Thread 2: Beyond hierarchical taxonomies
 
