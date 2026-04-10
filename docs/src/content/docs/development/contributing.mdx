@@ -146,9 +146,13 @@ sidebar:
 
 **Tags**: must be in `docs/tags.yml` — unknown tags are rejected at build time by `starlight-tags`. Common ones: `frameworks-mapping`, `data-model-graph`, `data-model-evolution`, `evidence-mapping-links`, `obsidian-metadata`, `architecture`.
 
-### Inline SVG in MDX — kebab-case attributes, always
+### MDX silent-breakage gotchas — two rules you will hit if you write diagrams or code examples
 
-**This is the single most expensive bug to hit in this codebase.** MDX parses inline `<svg>` subtrees in HTML mode, not JSX mode. The HTML5 parser silently lowercases all attribute names except a small whitelist (`viewBox`, `preserveAspectRatio`, `baseProfile`). So `strokeWidth="2"` becomes `strokewidth="2"` — an invalid SVG attribute that browsers silently ignore, leaving the diagram with default 1px strokes, misaligned text, broken dashed borders, and **no error message anywhere**. You'll see a diagram that "just looks wrong" and chase CSS for an hour before finding it.
+Both of these bite agents and humans alike. Both produce cryptic errors (or worse, pages that visually look wrong with no error at all). Internalize the rules before writing any inline SVG, HTML, or `<code>` blocks containing code examples in an `.mdx` file.
+
+#### Rule 1: Inline SVG attributes — kebab-case only
+
+**This is the single most expensive bug to hit in this codebase** — it produces no error, just visually broken diagrams. MDX parses inline `<svg>` subtrees in HTML mode, not JSX mode. The HTML5 parser silently lowercases all attribute names except a small whitelist (`viewBox`, `preserveAspectRatio`, `baseProfile`). So `strokeWidth="2"` becomes `strokewidth="2"` — an invalid SVG attribute that browsers silently ignore, leaving the diagram with default 1px strokes, misaligned text, broken dashed borders, and **no error message anywhere**. You'll see a diagram that "just looks wrong" and chase CSS for an hour before finding it.
 
 **Always use kebab-case for inline SVG attributes:**
 
@@ -158,7 +162,7 @@ sidebar:
 <text x="30" y="120" font-size="11" text-anchor="middle" font-weight="600">Label</text>
 <path d="..." stroke-dasharray="4 3" />
 
-{/* Wrong — silently broken */}
+{/* Wrong — silently broken at render time, no error */}
 <circle cx="30" cy="50" r="32" stroke="#00d4aa" strokeWidth="2" />
 <text x="30" y="120" fontSize="11" textAnchor="middle" fontWeight="600">Label</text>
 <path d="..." strokeDasharray="4 3" />
@@ -167,6 +171,46 @@ sidebar:
 **Exceptions that preserve case** (HTML whitelist): `viewBox`, `preserveAspectRatio`, `baseProfile`, `attributeName`, `xlink:href`. Everything else: kebab-case.
 
 **CSS properties inside `style={{...}}` JSX object props should use camelCase** — those are JavaScript object keys, not HTML attributes. `style={{fontSize: '11px', textAlign: 'center'}}` is correct in that context.
+
+#### Rule 2: Curly braces inside HTML tags — escape with HTML entities
+
+MDX parses `{...}` inside JSX context (including inside HTML elements like `<td>`, `<code>`, `<span>`) as a JSX expression. If you write a code example containing literal braces — a YAML example, a TypeScript object literal, a Bases formula — the parser tries to evaluate the brace contents as JavaScript and crashes **at build time** with a loud but confusing error:
+
+```
+MDXError: Could not parse expression with acorn
+Unexpected content after expression
+```
+
+```mdx
+{/* Wrong — parser tries to evaluate `{status: covered}` as a JS expression: */}
+<td><code>[[AC-2]] {status: covered}</code></td>
+<td><code>implements: [{target, status, reviewer}]</code></td>
+
+{/* Correct — escape curly braces with HTML entities: */}
+<td><code>[[AC-2]] &#123;status: covered&#125;</code></td>
+<td><code>implements: [&#123;target, status, reviewer&#125;]</code></td>
+```
+
+**Braces inside markdown backticks are safe** — MDX protects inline code from JSX parsing. Only braces inside HTML element content (`<code>...</code>`, `<td>...</td>`, etc.) need escaping. Rule of thumb: **if the braces are inside an HTML tag, use `&#123;` / `&#125;`.** For comparison operators like `<` and `>` inside HTML `<code>` blocks (e.g., a Bases formula), use `&lt;` / `&gt;`.
+
+#### The validation loop — `bun run check:mdx`
+
+A lightweight MDX syntax checker lives at `scripts/check-mdx.mjs` that parses every `.mdx` file under `docs/src/content/docs/` using `@mdx-js/mdx` directly — no Astro, no Starlight, no build. Runs in ~1–2 seconds on ~100 files:
+
+```bash
+bun run check:mdx                           # Check every .mdx under docs/
+bun run check:mdx docs/src/content/docs/concepts/   # Check a specific directory
+bun run check:mdx path/to/file.mdx          # Check one file
+
+# Or via the orchestrator:
+bun run serve                               # → option 9
+```
+
+**Run this after any MDX edit before committing.** It catches Rule 2 (curly brace parse errors) reliably, plus unclosed JSX tags, bad template literals inside `<style>` blocks, and invalid frontmatter YAML. Exit code is non-zero on any failure, so you can wire it into a pre-commit hook or CI.
+
+It does **not** catch Rule 1 (SVG attribute lowercasing) — that's HTML parsing that happens at a later stage in the pipeline, not MDX-parse time. For Rule 1 you still need to mentally review inline SVG attributes before committing or run the full dev server (`bun run serve:docs`). The checker catches *MDX syntax* errors; the dev server catches *rendered output* errors.
+
+For full validation coverage (cross-link 404s, tag vocabulary enforcement, Starlight schema validation) you still need `bun run serve:docs` or `bun run build`. The `check:mdx` script is the fast first pass.
 
 ### Cross-linking convention
 

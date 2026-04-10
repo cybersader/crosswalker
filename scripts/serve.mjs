@@ -11,6 +11,7 @@
  *   bun run serve tailscale    — docs dev shared via Tailscale
  *   bun run serve cloudflare   — docs dev shared via Cloudflare Tunnel
  *   bun run serve test         — docs playwright test:local
+ *   bun run serve check-mdx    — lightweight MDX syntax check (~2s)
  */
 
 import { spawn, execSync } from 'child_process';
@@ -126,10 +127,11 @@ async function prompt() {
   console.log(`  5) Docs + plugin dev        both in parallel`);
   console.log(`  6) Share docs (Tailscale)   ${ts ? 'tailnet only' : '(not installed)'}`);
   console.log(`  7) Share docs (Cloudflare)  ${cf ? 'public URL' : '(cloudflared not found)'}`);
-  console.log(`  8) Docs e2e tests           playwright test:local\n`);
+  console.log(`  8) Docs e2e tests           playwright test:local`);
+  console.log(`  9) Validate docs MDX syntax ~2s, catches silent MDX bugs\n`);
 
   return new Promise((res) => {
-    rl.question('  Choose [1-8]: ', (a) => {
+    rl.question('  Choose [1-9]: ', (a) => {
       rl.close();
       const map = {
         '1': 'docs',
@@ -140,6 +142,7 @@ async function prompt() {
         '6': 'tailscale',
         '7': 'cloudflare',
         '8': 'test',
+        '9': 'check-mdx',
       };
       res(map[a.trim()] || 'docs');
     });
@@ -237,6 +240,16 @@ function runDocsTests() {
   }));
 }
 
+function runCheckMdx() {
+  ensureDocsDeps();
+  log('Running lightweight MDX syntax check...');
+  return track(spawn('bun', ['scripts/check-mdx.mjs'], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+    shell: isWindows,
+  }));
+}
+
 async function main() {
   if (mode === 'interactive') mode = await prompt();
   console.log(`\n  Mode: ${mode}\n`);
@@ -270,6 +283,9 @@ async function main() {
     startCloudflareTunnel(DOCS_PORT);
   } else if (mode === 'test') {
     const p = runDocsTests();
+    p.on('exit', (code) => process.exit(code ?? 0));
+  } else if (mode === 'check-mdx') {
+    const p = runCheckMdx();
     p.on('exit', (code) => process.exit(code ?? 0));
   } else {
     log(`Unknown mode: ${mode}`);
