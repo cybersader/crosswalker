@@ -1,0 +1,46 @@
+---
+title: "Challenge 05: The transformation problem"
+description: When frameworks change, the handling isn't always a simple primitive. Sometimes it's a computation. How should Crosswalker handle arbitrary transformations?
+tags: [research, first-principles, data-model-evolution]
+sidebar:
+  label: "05 · Transformation problem"
+---
+
+## The assignment
+
+The [ontology diff primitives](/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/) detect WHAT changed. The [handling strategies](/crosswalker/agent-context/zz-log/2026-04-09-user-first-ontology-maintenance/#step-3-decision) decide WHAT TO DO. But sometimes the handling isn't a simple operation — it's a **transformation** that requires computation.
+
+**Deeply explore what transformation means in this context and how to handle it at a fundamental level.**
+
+## Examples of non-trivial transformations
+
+1. **Merge with evidence redistribution:** NIST merges AC-19(2) into AC-19. You have 15 evidence notes linked to AC-19(2). They need to be re-linked to AC-19, but some may be duplicates of evidence already linked to AC-19. How do you detect and handle duplicates?
+
+2. **ID scheme change:** A framework changes from numeric IDs (4.7) to hierarchical IDs (IG1.4.7). Every crosswalk link needs a regex transformation. But some IDs are ambiguous (is "4.7" control 4.7 or section 4, item 7?).
+
+3. **Semantic split:** One control becomes three, and the original control's evidence needs to be CLASSIFIED into which of the three new controls it applies to. This might require human judgment or AI classification.
+
+4. **Cross-framework cascade:** NIST changes, which invalidates NIST→CIS crosswalks, which invalidates CIS→your evidence mappings. The transformation cascades through multiple levels of the graph.
+
+## Questions to explore
+
+1. **Is transformation a primitive or a pluggable layer?** The [layer model](/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/) puts custom transforms in the pluggable layer. But is there a set of PRIMITIVE transformations that belongs in the foundation?
+
+2. **What do database migration tools do?** Liquibase, Flyway, Alembic handle data transformations during schema changes. What patterns do they use? Are there analogies to ontology transformations?
+
+3. **What about the [transformation recipe](/crosswalker/concepts/terminology/#architecture--evolution-primitives) vs [EvolutionPattern](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) question?** If we store per-version transformation recipes, what format should they be in? Can they express all the examples above?
+
+4. **AI-assisted transformation.** Could an LLM take a transformation recipe and execute it? What would the interface look like? What are the trust/verification requirements for AI-generated transformations in a compliance context?
+
+5. **Reversibility.** Should transformations be reversible? If you transform NIST r5→r6 and it goes wrong, can you undo? What does "undo" mean for a graph transformation?
+
+## Context to read first
+
+- [Primitives depth + pluggable layers](/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/) — Thread 5: Custom transfer logic
+- [User-first ontology maintenance](/crosswalker/agent-context/zz-log/2026-04-09-user-first-ontology-maintenance/) — the migration UX
+- [Transform engine research](/crosswalker/agent-context/zz-log/2026-04-03-transform-engine-research/) — 14 engines evaluated for import transforms
+- [Data model resilience](/crosswalker/agent-context/data-model-resilience/) — resilience patterns
+
+## What success looks like
+
+A taxonomy of transformation types (beyond the simple handling strategies), a proposal for how to express them (format/language), and an honest assessment of which can be automated vs. which require human judgment.

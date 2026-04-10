@@ -1,0 +1,41 @@
+---
+title: "Challenge 04: First principles audit"
+description: Read the entire KB with fresh eyes. Find contradictions, circular reasoning, unjustified assumptions, and philosophical weak spots.
+tags: [research, first-principles, philosophy]
+sidebar:
+  label: "04 · First principles audit"
+---
+
+## The assignment
+
+Read the Crosswalker knowledge base end-to-end. Find where the thinking is sloppy, contradictory, or unjustified.
+
+## What to look for
+
+1. **Contradictions between pages.** Does one page say "files are always truth" while another page designs a DB-primary architecture? Do the [10 foundational decisions](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/) conflict with later logs?
+
+2. **Circular reasoning.** "We need the EvolutionPattern taxonomy because ontologies evolve differently" — but the taxonomy itself is an ontology that evolves. Is this recursion addressed or ignored?
+
+3. **Unjustified assumptions.** "Progressive depth is the right UX pattern" — says who? What evidence? "Files are the right source of truth" — for whom? Under what conditions does this break?
+
+4. **Missing perspectives.** The project is designed by one person (cybersader) with Claude's help. What perspectives are missing? Non-English frameworks? Non-Western compliance regimes? Accessibility? Offline-first vs. cloud-first?
+
+5. **Philosophical weak spots.** The project claims to be a "[meta-system for ontology lifecycle management](/crosswalker/concepts/what-makes-crosswalker-unique/)." Is that actually what it is? Or is it a framework importer with ambitions? Where's the gap between vision and reality?
+
+6. **Terminology consistency.** Read through the [terminology page](/crosswalker/concepts/terminology/). Are terms used consistently across all pages? Are there terms used in one page but undefined?
+
+7. **The "tight to first principles while allowing extension of opinionation" constraint.** Is this actually maintained? Where does opinionation leak into the primitives? Where are first principles violated for convenience?
+
+## Context to read
+
+**Read everything.** Start with:
+- [The problem](/crosswalker/concepts/problem/)
+- [What makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/)
+- [Vision](/crosswalker/agent-context/vision/)
+- [Vision alignment decisions](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/)
+
+Then read all logs in chronological order. Then concept pages. Then the roadmap.
+
+## What success looks like
+
+A numbered list of specific issues with page references. Not "the architecture is weak" but "page X says Y while page Z says W, and these are incompatible because..."

@@ -1,0 +1,49 @@
+---
+title: "Challenge 02: Architecture stress test at scale"
+description: What breaks when Crosswalker handles 50 frameworks, 100K notes, 500K crosswalk edges, and 50 concurrent users?
+tags: [research, architecture, performance]
+sidebar:
+  label: "02 · Architecture at scale"
+---
+
+## The assignment
+
+The current architecture assumes: files are truth, DB accelerates, [progressive tiers](/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/) handle scale. **Stress test this by modeling what happens at serious scale.**
+
+## Scenarios to analyze
+
+### Scenario A: Large single-user vault
+- 50 frameworks imported (NIST 800-53, CSF, CIS, MITRE ATT&CK, ISO 27001, SOC 2, PCI DSS, HIPAA, FedRAMP, + 41 industry-specific)
+- ~100K notes total
+- ~500K crosswalk edges
+- Running on a laptop with 16GB RAM, NVMe SSD
+
+Questions: Can Tier 1 (files only) handle this? At what point MUST you move to Tier 2 (SQLite sidecar)? What's the import time for a new framework? What's the query time for "show me all controls that map to AC-2 across all 50 frameworks"?
+
+### Scenario B: Enterprise team
+- Same 50 frameworks
+- 50 GRC analysts, 10 auditors, 5 managers
+- Using Obsidian Sync or Git-based collaboration
+- Need: RBAC (analysts can edit evidence, auditors can only read, managers see dashboards)
+- Need: immutable audit trail (regulatory requirement)
+
+Questions: Where does Tier 2 break? Does Tier 3 (PocketBase/Postgres) actually solve the RBAC problem? Is there a path that keeps [files as truth](/crosswalker/agent-context/zz-log/2026-04-03-why-obsidian-why-files/) while adding enterprise features?
+
+### Scenario C: Framework update cascade
+- NIST publishes 800-53 Rev 6
+- This invalidates crosswalks to: CSF, CIS, MITRE, ISO 27001, FedRAMP
+- ~5000 crosswalk edges need review
+- User needs to understand: which of my 200 evidence notes are affected?
+
+Questions: What does the [migration UX](/crosswalker/agent-context/zz-log/2026-04-09-user-first-ontology-maintenance/) look like at this scale? Is a guided form viable for 5000 decisions? Does the [transformation recipe](/crosswalker/concepts/terminology/#architecture--evolution-primitives) approach scale?
+
+## Context to read first
+
+- [Progressive tier architecture](/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/)
+- [Why Obsidian, why files](/crosswalker/agent-context/zz-log/2026-04-03-why-obsidian-why-files/)
+- [What makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/)
+- The research docs in `.workspace/research/` (if available) contain quantitative performance data
+
+## What success looks like
+
+A clear map of: at what thresholds each tier is needed, what specific operations become unacceptable, and whether the tier progression actually covers the gaps.

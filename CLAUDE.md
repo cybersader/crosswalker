@@ -184,6 +184,19 @@ The roadmap lives in two places that must stay in sync:
 
 **The goal:** A reader should be able to follow any concept from any page to its definition, rationale, and related decisions without dead ends.
 
+## Research Challenges (`agent-context/challenges/`)
+
+One-off research briefs for fresh agents to critically assess the project. Each challenge is a focused assignment that stress-tests an assumption, explores a blind spot, or finds new paths not yet considered.
+
+**How they work:**
+- Challenges are pure assignments — the brief defines what to investigate
+- Hand a challenge to a fresh agent with no prior context bias
+- Point the agent at the KB for context
+- Findings flow back through `zz-log/` as dated entries (not into the challenge file itself)
+- Challenges stay clean for re-running with different agents
+
+**When to create a new challenge:** When you suspect an architectural assumption hasn't been tested, when new research raises questions about existing decisions, or when you want an independent perspective on a design choice.
+
 ## Local Workspace (`.workspace/`)
 
 The `.workspace/` folder at the repo root is **gitignored** — it holds local working documents for architecture exploration, research drafts, and back-and-forth thinking that isn't ready for the public knowledge base.

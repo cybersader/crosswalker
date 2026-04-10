@@ -1,0 +1,36 @@
+---
+title: Research challenges
+description: One-off research briefs for agents to critically assess the project. Each challenge is a focused assignment that stress-tests an assumption, explores a blind spot, or finds new paths.
+tags: [research, architecture]
+sidebar:
+  label: "Challenges"
+---
+
+## What this is
+
+These are **adversarial/exploratory research briefs** — focused assignments that can be handed to a fresh agent with no prior context bias. Each challenge:
+
+- Targets a specific architectural assumption, decision, or design
+- Asks the agent to critically assess, stress-test, or find alternatives
+- Is grounded in [first principles](/crosswalker/concepts/problem/) and the project's [philosophical pillars](/crosswalker/concepts/what-makes-crosswalker-unique/)
+- Thinks long-term and large-scale — not just "does this work today" but "does this hold at 100K notes, 50 frameworks, 10 years from now"
+
+## How to use
+
+1. Pick a challenge from the list below
+2. Hand it to a fresh agent (one with no prior conversation context about this project)
+3. Point the agent at the KB (`docs/src/content/docs/`) for context
+4. Let it research, critique, and report
+5. Log findings in [`zz-log/`](/crosswalker/agent-context/zz-log/) if they surface decisions or insights worth preserving
+
+## Why fresh agents
+
+Every agent that works on a project accumulates context bias — it starts agreeing with past decisions because it helped make them. A fresh agent given only the KB and a challenge brief can find blind spots that embedded agents can't see.
+
+## Active challenges
+
+- [Challenge 01: Are the ontology diff primitives truly atomic?](/crosswalker/agent-context/challenges/01-primitives-atomicity/)
+- [Challenge 02: Architecture stress test at scale](/crosswalker/agent-context/challenges/02-architecture-at-scale/)
+- [Challenge 03: What's the actual competitive landscape?](/crosswalker/agent-context/challenges/03-competitive-landscape/)
+- [Challenge 04: First principles audit](/crosswalker/agent-context/challenges/04-first-principles-audit/)
+- [Challenge 05: The transformation problem](/crosswalker/agent-context/challenges/05-transformation-problem/)

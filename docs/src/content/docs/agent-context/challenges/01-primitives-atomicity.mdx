@@ -1,0 +1,35 @@
+---
+title: "Challenge 01: Are the ontology diff primitives truly atomic?"
+description: Critically assess whether our 9 atomic operations are the right decomposition. Find counterexamples, edge cases, or missing operations.
+tags: [research, first-principles, data-model]
+sidebar:
+  label: "01 · Primitives atomicity"
+---
+
+## The assignment
+
+We defined [9 atomic operations + 4 recognized composites](/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/) (also called [ontology diff primitives](/crosswalker/concepts/terminology/#architecture--evolution-primitives)) as the mathematical foundation for describing structural changes to ontologies.
+
+**Your job: break them.**
+
+## What to investigate
+
+1. **Find a real-world ontology change that can't be expressed as a sequence of our 9 atoms.** If you can, the set is incomplete. Check: MITRE ATT&CK revocations, NIST CSF 1.1→2.0 restructure, ICD-10→ICD-11 medical taxonomy, NAICS industry code revisions.
+
+2. **Are any of the 9 actually composite?** We split "node relabeling" into id_changed / properties_changed / type_changed. Is that the right decomposition? Could "id_changed" actually be "node_removed + node_added with same properties"? What are the implications of each decomposition?
+
+3. **What about operations on the GRAPH ITSELF** (not nodes/edges)? Renaming a framework, changing its version identifier, merging two entire frameworks. Are these covered?
+
+4. **Hypergraph and multi-typed edge cases.** Our primitives assume simple directed graphs. What breaks when you have: edges connecting 3+ nodes, multiple edge types between the same pair, self-loops, weighted edges?
+
+5. **Compare against the formal literature.** The research log references Bunke 1983, Ehrig 2006, Chawathe 1996. Are there MORE RECENT papers (2020+) that define different or better operation sets?
+
+## Context to read first
+
+- [Ontology diff primitives research](/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/)
+- [First principles: ontology change](/crosswalker/agent-context/zz-log/2026-04-08-ontology-evolution-first-principles/)
+- [Terminology](/crosswalker/concepts/terminology/#architecture--evolution-primitives)
+
+## What success looks like
+
+Either: a proof that our set IS complete for our use case (with edge cases documented), or: a specific counterexample that forces us to revise the set.
