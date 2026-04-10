@@ -225,21 +225,21 @@ In this user-first framing:
 
 ## The first-principles constraint
 
-Everything above must **keep tight to first principles while still allowing for extension of opinionation** — that's the design constraint at the heart of Crosswalker:
+Everything above must **keep tight to first principles while still allowing for extension of opinionation** — that's the design constraint at the heart of Crosswalker. This constraint connects to the project's philosophical pillars: [the core problem](/crosswalker/concepts/problem/) we're solving, [what makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/), the [vision](/crosswalker/agent-context/vision/), and the [10 foundational decisions](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/) that anchor the [architectural direction](/crosswalker/agent-context/zz-log/2026-04-03-architectural-direction-exploration/).
 
 **First principles (non-negotiable):**
-- Changes are compositions of 13 structural primitives
-- Files are the source of truth
+- Changes are compositions of [structural primitives](/crosswalker/agent-context/zz-log/2026-04-08-ontology-evolution-first-principles/) — [provably complete](/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/)
+- [Files are the source of truth](/crosswalker/agent-context/zz-log/2026-04-03-why-obsidian-why-files/) — portable, human-readable, git-diffable
 - Every change has a hash-based audit trail
-- Migration plans are declarative (what to do, not how)
+- Migration plans are [declarative](/crosswalker/agent-context/config-schema-design/) (what to do, not how)
 
-**Extension points (opinionated, swappable):**
-- Default strategy selection (taxonomy, heuristics, user prefs)
-- Interface (form, YAML, CLI, API)
-- Execution engine (Obsidian vault ops, filesystem ops, API calls)
+**Extension points ([opinionated, swappable](/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/)):**
+- Default strategy selection ([taxonomy](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/), heuristics, user prefs)
+- Interface (form, YAML, CLI, API) — [progressive depth](/crosswalker/concepts/what-makes-crosswalker-unique/#short-term-vs-long-term)
+- Execution engine (Obsidian vault ops, filesystem ops, API calls) — via [platform abstraction](/crosswalker/agent-context/zz-log/2026-04-03-distribution-architecture-research/)
 - Notification system (Obsidian notice, email, webhook)
 
-This separation — **primitives are fixed, opinions are pluggable** — is how the system stays tight to first principles while allowing extension of opinionation. Different entities (agents or people), different preferences, same underlying truth. The viewing and export problem is fundamentally about **pulling out structured representations of the data from a graph-based underlying structure** — and each interface is just a different projection of that graph.
+This separation — **primitives are fixed, opinions are pluggable** — is how the system stays tight to first principles while allowing extension of opinionation. Different [entities](/crosswalker/concepts/institutional-landscape/) (agents or people), different preferences, same underlying truth. The viewing and export problem is fundamentally about **pulling out structured representations of the data from a [graph-based underlying structure](/crosswalker/concepts/file-based-graph-database/)** — and each interface is just a different projection of that graph.
 
 ## Related
 
