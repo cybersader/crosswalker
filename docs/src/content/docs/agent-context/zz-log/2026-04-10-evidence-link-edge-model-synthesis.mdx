@@ -305,7 +305,7 @@ Challenge 07 listed 4 candidate storage shapes for evidence-link metadata. The r
     </thead>
     <tbody>
       <tr>
-        <td>(a) Inline markdown body<br/><code>[[AC-2]] {status: covered}</code></td>
+        <td>(a) Inline markdown body<br/><code>[[AC-2]] &#123;status: covered&#125;</code></td>
         <td class="els-fail">✗</td>
         <td class="els-pass">✓</td>
         <td class="els-pass">✓</td>
@@ -313,7 +313,7 @@ Challenge 07 listed 4 candidate storage shapes for evidence-link metadata. The r
         <td class="els-fail">Fail: Bases can't parse body</td>
       </tr>
       <tr>
-        <td>(b) Frontmatter arrays of objects<br/><code>implements: [{target, status, reviewer}]</code></td>
+        <td>(b) Frontmatter arrays of objects<br/><code>implements: [&#123;target, status, reviewer&#125;]</code></td>
         <td class="els-fail">✗</td>
         <td class="els-fail">✗</td>
         <td class="els-fail">✗</td>
@@ -504,7 +504,7 @@ Challenge 07 asked for "a status vocabulary" and listed five candidates: minimal
     </g>
   </svg>
   <div class="els-figure-caption">
-    <strong>Plain-English anchor:</strong> A single "status" field tries to answer too many questions at once. <em>Is the control satisfied?</em> is implementation status. <em>Is the evidence still valid?</em> is freshness. <em>What kind of evidence is it?</em> is evidence type. These are three independent questions an auditor asks — conflating them into one enum loses information. The research's answer: three orthogonal fields, each a flat scalar Bases can query on its own. The freshness field is <strong>computed</strong> by a Bases formula from <code>collected</code> + <code>expires</code>, so it can never go stale itself. <strong>Freshness formula (Bases)</strong>: <code>if(expires, if(expires {'>'} now(), if(expires {'<'} now() + "30d", "stale", "fresh"), "expired"), "not-set")</code>
+    <strong>Plain-English anchor:</strong> A single "status" field tries to answer too many questions at once. <em>Is the control satisfied?</em> is implementation status. <em>Is the evidence still valid?</em> is freshness. <em>What kind of evidence is it?</em> is evidence type. These are three independent questions an auditor asks — conflating them into one enum loses information. The research's answer: three orthogonal fields, each a flat scalar Bases can query on its own. The freshness field is <strong>computed</strong> by a Bases formula from <code>collected</code> + <code>expires</code>, so it can never go stale itself. <strong>Freshness formula (Bases)</strong>: <code>if(expires, if(expires &gt; now(), if(expires &lt; now() + "30d", "stale", "fresh"), "expired"), "not-set")</code>
   </div>
 </div>
 
