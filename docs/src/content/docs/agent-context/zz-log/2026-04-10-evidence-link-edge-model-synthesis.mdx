@@ -1,0 +1,642 @@
+---
+title: "Evidence-link edge model synthesis — junction notes as the committed architecture"
+description: Distilling 2 research sessions directly targeted at Challenge 07 (the link metadata / edge model for evidence mapping). Both converge strongly on junction notes (edge-as-note reification) as the only architecture compatible with Obsidian Bases' flat-YAML constraint, with a concrete 13-field schema validated against 8 GRC tools and OSCAL round-trip.
+tags: [research, architecture, evidence-mapping-links, data-model, foundation, first-principles]
+date: 2026-04-10
+sidebar:
+  label: "04-10 · Evidence-link edge model synthesis"
+  order: -20260410.7
+---
+
+:::note[How to read this log]
+This log distills **2 research sessions** dropped on 2026-04-10 PM that specifically target [Challenge 07 — Link metadata / edge model for evidence mapping](/crosswalker/agent-context/zz-challenges/07-link-metadata-edge-model/). Unlike the [morning's Foundation research synthesis](/crosswalker/agent-context/zz-log/2026-04-10-foundation-research-synthesis/) — which stress-tested abstract ontology primitives and **explicitly deferred** the evidence-link edge model — these two files attack Challenge 07 head-on with a strong convergent thesis: **junction notes (edge-as-note reification) are the only viable architecture** given Obsidian Bases' flat-YAML constraint, and there is a concrete **13-field schema** that's structurally isomorphic to OSCAL's `by-component` assembly. This log proposes adopting that architecture as a Foundation commitment.
+:::
+
+## Why this log exists
+
+On the morning of 2026-04-10 the [main Foundation research synthesis](/crosswalker/agent-context/zz-log/2026-04-10-foundation-research-synthesis/) landed — distilling 4 parallel research sessions against the Foundation-phase decisions. That synthesis committed Crosswalker to [**STRM + SSSOM** for ontology-to-ontology **crosswalks**](/crosswalker/agent-context/zz-log/2026-04-10-foundation-research-synthesis/#edge-semantics-should-be-set-theoretic-not-skos-ish), but **explicitly scoped out evidence-link edges** — the `MFA-Policy.md` → `NIST 800-53/AC-2` case with `status`, `reviewer`, `review_date`, and `sufficient: true` kind of metadata. That scope note sat as an acknowledged gap in the synthesis log's `:::caution` callout, pointing forward to a separate Foundation decision.
+
+[Challenge 07](/crosswalker/agent-context/zz-challenges/07-link-metadata-edge-model/) was spun out as a fresh-agent research brief to resolve that gap. The same afternoon, **two research sessions landed in `.workspace/`** targeting it directly:
+
+1. **`Claude-Link metadata edge model research challenge.md`** (21KB) — the primary response, structured as a direct answer to Challenge 07's four success criteria (storage shape, field schema, workflow model, OSCAL round-trip)
+2. **`Claude-Graph to tabular ontology linking in knowledge tools.md`** (28KB) — a broader PKM comparative research covering how every major knowledge-management tool (Obsidian, Roam, Tana, Notion, Capacities, AnyType, Heptabase) handles — or fails to handle — edge metadata
+
+**Both files independently converge on the same architecture.** This log distills the convergence, reproduces the proposed schema verbatim for archival quoting, and proposes committing the direction as a Foundation decision — with a clear list of which sub-questions are decided now and which are still open design calls downstream.
+
+## What we tested against
+
+The Foundation decisions under review for evidence links specifically:
+
+- **The [Evidence link](/crosswalker/concepts/terminology/#core-terms) vs [Crosswalk](/crosswalker/concepts/terminology/#core-terms) distinction** — the two edge categories terminologically separated in the morning synthesis
+- **The stale [link metadata system](/crosswalker/agent-context/link-metadata-system/) design** — Crosswalker's original motivation, which proposed inline Dataview syntax (`framework_here.applies_to:: [[AC-2]] {JSON}`) and a 5-level priority hierarchy
+- **The [Obsidian Bases commitment](/crosswalker/reference/roadmap/)** — our committed viewing/query layer, which replaces Dataview and has specific known constraints (flat YAML only, no nested objects, no arrays of objects, no inline-field parsing)
+- **The [Progressive tier architecture pillar](/crosswalker/reference/roadmap/)** — files-canonical at Tier 1, sql.js WASM sidecar at Tier 2, server-backed at Tier 3
+- **The [04-10 synthesis](/crosswalker/agent-context/zz-log/2026-04-10-foundation-research-synthesis/#edge-semantics-should-be-set-theoretic-not-skos-ish) commitment to STRM + SSSOM for crosswalks** — which the evidence-link decision must coexist with
+- **The [roadmap item "Evidence-framework edge model"](/crosswalker/reference/roadmap/)** — currently marked "decision needed, anticipated direction: custom Crosswalker-specific schema building on original link metadata syntax + borrowing OSCAL Implementation Layer concepts"
+
+<style>{`
+  /* Evidence-link edge model synthesis scoped styles (els-*) */
+  .sl-markdown-content .els-figure {
+    margin: 2rem auto;
+    max-width: 100%;
+    width: 100%;
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 12px;
+    padding: 1.25rem 1.25rem 1rem;
+    box-sizing: border-box;
+  }
+  .sl-markdown-content .els-figure-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6c7086;
+    margin-bottom: 0.75rem;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  .sl-markdown-content .els-figure-caption {
+    margin-top: 0.75rem;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: #a6adc8;
+    border-top: 1px solid #313244;
+    padding-top: 0.75rem;
+  }
+
+  /* Junction note anatomy card */
+  .sl-markdown-content .els-junction {
+    background: #181825;
+    border: 1px solid #00d4aa55;
+    border-radius: 8px;
+    padding: 1rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.75rem;
+    line-height: 1.55;
+    color: #cdd6f4;
+  }
+  .sl-markdown-content .els-junction-header {
+    color: #6c7086;
+    border-bottom: 1px dashed #313244;
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.6rem;
+    font-family: system-ui;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .sl-markdown-content .els-field-key { color: #89b4fa; }
+  .sl-markdown-content .els-field-val { color: #a6e3a1; }
+  .sl-markdown-content .els-field-wiki { color: #f9e2af; }
+  .sl-markdown-content .els-field-num { color: #fab387; }
+  .sl-markdown-content .els-field-comment { color: #6c7086; font-style: italic; }
+  .sl-markdown-content .els-body-narr {
+    margin-top: 0.8rem;
+    padding-top: 0.6rem;
+    border-top: 1px dashed #313244;
+    font-family: system-ui;
+    color: #bac2de;
+    line-height: 1.55;
+  }
+
+  /* Folder tree */
+  .sl-markdown-content .els-tree {
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    padding: 1rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.78rem;
+    line-height: 1.7;
+    color: #cdd6f4;
+  }
+  .sl-markdown-content .els-tree-folder { color: #89b4fa; font-weight: 600; }
+  .sl-markdown-content .els-tree-note { color: #a6e3a1; }
+  .sl-markdown-content .els-tree-junction { color: #f9e2af; }
+  .sl-markdown-content .els-tree-comment { color: #6c7086; font-style: italic; }
+
+  /* Scale comparison: O(E) vs O(N²) */
+  .sl-markdown-content .els-scale {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  .sl-markdown-content .els-scale-panel {
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 0.9rem;
+  }
+  .sl-markdown-content .els-scale-header {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-align: center;
+    margin-bottom: 0.5rem;
+    color: #cdd6f4;
+    font-family: system-ui;
+  }
+  .sl-markdown-content .els-scale-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 260 / 180;
+  }
+  .sl-markdown-content .els-scale-stat {
+    text-align: center;
+    margin-top: 0.5rem;
+    font-size: 0.7rem;
+    font-family: 'SF Mono', monospace;
+  }
+  .sl-markdown-content .els-scale-bad { color: #f38ba8; }
+  .sl-markdown-content .els-scale-good { color: #a6e3a1; }
+
+  /* Elimination grid */
+  .sl-markdown-content .els-grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    color: #cdd6f4;
+    font-family: system-ui;
+  }
+  .sl-markdown-content .els-grid th,
+  .sl-markdown-content .els-grid td {
+    border: 1px solid #313244;
+    padding: 0.55rem 0.7rem;
+    text-align: center;
+  }
+  .sl-markdown-content .els-grid th {
+    background: #181825;
+    color: #cdd6f4;
+    font-weight: 600;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .sl-markdown-content .els-grid th:first-child,
+  .sl-markdown-content .els-grid td:first-child {
+    text-align: left;
+    font-family: 'SF Mono', monospace;
+    font-size: 0.72rem;
+    min-width: 180px;
+  }
+  .sl-markdown-content .els-grid .els-fail { color: #f38ba8; font-size: 1rem; }
+  .sl-markdown-content .els-grid .els-pass { color: #a6e3a1; font-size: 1rem; font-weight: 700; }
+  .sl-markdown-content .els-grid .els-row-win {
+    background: #0d3d33;
+  }
+
+  /* Three-dim status cube (conceptual) */
+  .sl-markdown-content .els-cube-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 720 / 260;
+  }
+
+  /* OSCAL mapping flow */
+  .sl-markdown-content .els-oscal-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 720 / 260;
+  }
+
+  @media (max-width: 640px) {
+    .sl-markdown-content .els-scale { grid-template-columns: 1fr; }
+  }
+`}</style>
+
+## The two research files
+
+### File 1 — `Claude-Link metadata edge model research challenge.md` (21KB)
+
+**Thesis**: *"The only architecture that gives Obsidian Bases full queryability over evidence-to-control link metadata is the 'edge-as-note' pattern — a dedicated markdown file per evidence-control relationship."* The file is a direct answer to Challenge 07 with a proposed 13-field schema, a full OSCAL `by-component` mapping, a three-dimensional status vocabulary (implementation status + freshness + evidence type), git-based audit trail with 3 hardening measures, SSSOM-inspired dual-confidence scoring, and file-proliferation mitigations. **Validated against 8 commercial GRC tools and 4 open-source frameworks** (OSCAL, OpenControl, Drata, Hyperproof, Auditree, AuditBoard, Anecdotes, ISO 27001 SoA, SOC 2, CMMC, InSpec, Kosli).
+
+**Strongest claim**: *"Obsidian Bases queries **exclusively** YAML frontmatter properties... Nested YAML objects render as type 'unknown' and are unqueryable; a 281-vote feature request for nested YAML support remains unaddressed. Arrays of objects are entirely unsupported."* This constraint eliminates 3 of the 4 architectures Challenge 07 listed; junction notes emerge as a 5th option the research adds.
+
+### File 2 — `Claude-Graph to tabular ontology linking in knowledge tools.md` (28KB)
+
+**Thesis**: *"No mainstream PKM tool natively supports metadata on relationships between notes — and this single gap is the central architectural challenge behind the Crosswalker project."* The file takes a broader comparative angle, surveying how every major PKM tool handles edge metadata, documenting the academic reification literature (Chris Mungall's RDF reification series, RDF-star/SPARQL-star, Meta-Property Graphs EDBT 2025), comparing Obsidian Bases' limitations against Dataview, documenting junction note scalability debt at thousands of files, and flagging Obsidian's filename-based linking as fundamentally fragile across out-of-app file moves.
+
+**Strongest claim**: *"The ideal solution would combine Tana's semantic type system, Obsidian's file portability, Bases' performance, and property graph edge attributes. RDF-star's compact reification syntax points toward what this could look like in practice. Until a tool achieves this synthesis, every PKM practitioner working with relationship-heavy knowledge will continue paying the tax of workarounds."* Junction notes are one such workaround — and for the Obsidian+Bases constraint specifically, they're the least-bad one.
+
+## Convergences — where both files independently agree
+
+### 1. Junction notes are the only viable architecture for Obsidian Bases
+
+Both files independently recommend reifying each evidence→control edge as its own markdown file. File 1 derives the conclusion from direct analysis of Bases' YAML constraints; File 2 validates it against comparative PKM research showing that every tool-community has independently reached the same workaround when native edge metadata isn't available. The two independent derivations are the strongest signal in the entire research set.
+
+File 2 also traces the idea to **etothepiiminus1's April 2021 "Edge Notes" post** on the Obsidian Forum — a never-built plugin proposal that would auto-create "AB" notes when a link between A and B was labeled "node-worthy," forming clickable triangles in graph view. The community has been circling junction notes as the solution for five years; File 1's contribution is the concrete schema.
+
+### 2. Reification is the academic foundation
+
+Both files ground junction notes in **reification** — the formal knowledge-representation pattern of making a statement about a statement by turning the statement into a node. File 2 explicitly cites Chris Mungall's "Edge properties, part 1: Reification" blog series (Berkeley Lab, September 2020) as the canonical inventory of approaches: standard RDF reification (verbose, 6+ triples per edge), n-ary relations (the junction note pattern), named graphs (4th element as attachment point), and RDF-star/SPARQL-star (compact inline syntax). File 1 implicitly uses reification throughout without naming it.
+
+The 2025 EDBT paper "**Meta-Property Graphs: Extending Property Graphs with Metadata Awareness and Reification**" (arXiv:2410.13813) and Hamdani & Türkarslan's Springer 2026 "Bridging Property Graphs and Knowledge Graphs: A Category Theory Approach" formalize the same gap at the academic level. Junction notes are the pragmatic PKM implementation of what formal graph theory has studied for decades.
+
+### 3. OSCAL `by-component` is the export target
+
+Both files converge on mapping the edge model to [OSCAL](/crosswalker/reference/registry/oscal/)'s `by-component` assembly in the System Security Plan (SSP) model. File 1 produces a full field-by-field mapping table (reproduced below in [OSCAL round-trip](#oscal-round-trip-viability)); File 2 mentions OSCAL as background without detail. The consensus direction: the junction note schema should be **isomorphic** to `by-component` so round-trip conversion is mechanical, not interpretive.
+
+### 4. Git history is the native audit trail
+
+Both files use git commit history as the audit mechanism for edge changes. File 1 adds three specific hardening measures (signed commits, branch protection, periodic snapshots to an append-only external store) and cites **Kosli** (backed by Deutsche Bank) and **Auditree** as production-grade compliance-as-code platforms that use git repositories as evidence stores with Merkle-tree tamper-evidence. File 2 flags git's mutability risk (`commit --amend`, `rebase`, `force-push`) without proposing solutions.
+
+Both acknowledge git's one structural limitation: **git tracks writes but not reads** — there's no access log for who viewed the vault, only who changed it. For local-first scenarios this is acceptable; for enterprise multi-user deployments a platform-level audit log (GitHub Enterprise, GitLab audit events) would supplement git history.
+
+### 5. Flat YAML is the constraint that forces the entire design
+
+Both files identify **Obsidian Bases' lack of nested property support** as the hard constraint driving every other decision. Bases' YAML frontmatter engine supports: text, number, checkbox, date, datetime, and flat lists. It does **not** support: nested YAML objects (feature request at 281 votes, still unaddressed), arrays of objects, relation property types, nested tags (`file.hasTags("project")` does not match `project/english`), or note-body content querying.
+
+These constraints eliminate the three storage shapes from Challenge 07's list — inline markdown body, frontmatter arrays of objects, sidecar files — and push any workable architecture toward either junction notes or a hybrid that sacrifices Bases queryability for some subset of the data. **Junction notes win because they're the only option where 100% of the edge metadata is natively Bases-queryable.**
+
+### 6. File proliferation is a known tradeoff — and it's manageable
+
+Both files acknowledge that thousands of junction notes create folder clutter, search pollution, and navigation overhead. File 1 mitigates this with four patterns: (1) Templater automation for junction creation via hotkey, (2) Bases views as the primary interface rather than direct file browsing, (3) denormalized rollup properties on evidence and control notes, (4) folder-based assessment scoping (`links/2026-Q1-assessment/`). File 2 documents the problem in more detail but doesn't propose mitigations.
+
+File 2 flags Obsidian's performance cliffs at extreme scale: 4-second link-autocomplete delays at very large vaults, graph view becomes unusable beyond ~6,000 densely linked notes. File 1 proposes "thousands of junction notes" without testing data, leaving the exact scalability threshold as an open sub-question.
+
+## Divergences — the 5 points of disagreement
+
+### 1. UUID resilience urgency
+
+**File 2** emphasizes Obsidian's filename-based linking as *"fundamentally fragile"* when files move outside the app (via terminal, scripts, git operations, file explorer). Links break silently. File 2 quotes the Obsidian developers directly: *"There will be cases where outside Obsidian you can break the internal consistency. There is nothing we can do about it."* File 2 proposes UUID-based strategies (Unique Identifiers plugin, Link by ID plugin, `obsidian-note-uid`) as resilience mechanisms.
+
+**File 1 does not address this at all.** It assumes filenames are stable and ignores out-of-app file moves. **Open sub-question**: Is UUID-based resilience a Foundation-phase requirement, or a Tier 2/3 concern that the file-based tier can safely defer? The [obsidian-folder-tag-sync + SEACOW prior-art log](/crosswalker/agent-context/zz-log/2026-04-10-seacow-and-folder-tag-sync-prior-art/) touches on resilience across file moves — may deserve a dedicated decision.
+
+### 2. SSSOM integration scope
+
+**File 1** explicitly proposes borrowing three SSSOM concepts: dual-confidence scoring (creator + reviewer agreement), mapping justification vocabulary (compliance-extended SEMAPV with ManualAudit/AutomatedScan/DocumentReview/InterviewEvidence/TestResult/InheritedControl), and propagatable MappingSet defaults (adapted as `_defaults.md` folder templates applied by Templater).
+
+**File 2** doesn't mention SSSOM at all. File 1 is the sole source for this thread. The proposal is novel — there's no prior art for using SSSOM in compliance contexts, but the mechanical fit is clean. **Open sub-question**: should Crosswalker commit to the SSSOM-borrowed fields now, or defer until the primary schema is locked?
+
+### 3. Pivot table feasibility
+
+**File 2** documents that pivot tables / cross-tabulation are *"fundamentally impossible"* in Dataview and Bases without a new rendering engine — neither tool can dynamically create columns from data values (the core pivot operation of transposing row values into column headers). Cites the May 2025 "Cross Tables in Bases" feature request as evidence the limitation is acknowledged upstream.
+
+**File 1** assumes Bases' grouped views and summary functions are sufficient for reporting, and doesn't discuss pivot tables or cross-tabulation. **Open sub-question**: does Crosswalker require a compliance matrix view (controls × evidence as a cross-tabulated grid)? If yes, that's a Tier 2/3 feature requiring SQL or a custom rendering path — and the Tier 1 Bases experience has to be scoped as "grouped views + summary counts only."
+
+### 4. Inline Dataview field deprecation — is the original design still active?
+
+**File 2** documents Crosswalker's **current** five-level metadata priority system using inline Dataview tags with dot notation (`framework_here.applies_to:: [[AC-2]] {"sufficient": true}`) and quotes cybersader's own January 2025 Obsidian Forum post describing this approach.
+
+**File 1** completely abandons this pattern, calling inline approaches unscalable and Bases-incompatible. **This is a direct tension**: File 2 treats the original design as active, File 1 treats it as mandatorily superseded. **Resolution**: per the [morning's Foundation synthesis](/crosswalker/agent-context/zz-log/2026-04-10-foundation-research-synthesis/#files-canonical-ceiling--documented-already-answered-by-the-3-tier-pillar) commitment to Obsidian Bases (not Dataview), File 1 is correct — the inline approach is deprecated in favor of junction notes. The [link-metadata-system page](/crosswalker/agent-context/link-metadata-system/) already carries a caution callout marking it stale; this log strengthens that to "superseded."
+
+### 5. Scale thresholds
+
+**File 2** has hard data: 4-second link-selector delays at very large vault sizes, graph view unusable beyond ~6,000 densely linked notes (27,000+ links), users resorting to external tools like Cosmograph (WebGL) for visualization. **File 1** proposes thousands of junction notes without tested data on where the pattern breaks. **Open sub-question**: what vault sizes does Crosswalker target? (Propose: document 10,000 junction notes as the tested threshold, warn at 20,000+.)
+
+## The 4 storage candidates from Challenge 07 — why all 4 fail Bases
+
+Challenge 07 listed 4 candidate storage shapes for evidence-link metadata. The research evaluates all 4 against Bases' constraints and shows why each fails — then proposes junction notes as a 5th option Challenge 07 didn't anticipate.
+
+<div class="els-figure" role="img" aria-label="Elimination grid showing the four Challenge 07 storage candidates plus the junction note alternative checked against four Obsidian Bases constraints. Inline markdown, frontmatter arrays of objects, sidecar files, and hybrid inline plus frontmatter all fail at least one constraint. Junction notes pass all four.">
+  <div class="els-figure-title">Bases constraints vs. storage candidates</div>
+  <table class="els-grid">
+    <thead>
+      <tr>
+        <th>Storage shape</th>
+        <th>Queryable in Bases</th>
+        <th>Flat YAML only</th>
+        <th>No nested objects</th>
+        <th>No arrays of objects</th>
+        <th>Verdict</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>(a) Inline markdown body<br/><code>[[AC-2]] {status: covered}</code></td>
+        <td class="els-fail">✗</td>
+        <td class="els-pass">✓</td>
+        <td class="els-pass">✓</td>
+        <td class="els-pass">✓</td>
+        <td class="els-fail">Fail: Bases can't parse body</td>
+      </tr>
+      <tr>
+        <td>(b) Frontmatter arrays of objects<br/><code>implements: [{target, status, reviewer}]</code></td>
+        <td class="els-fail">✗</td>
+        <td class="els-fail">✗</td>
+        <td class="els-fail">✗</td>
+        <td class="els-fail">✗</td>
+        <td class="els-fail">Fail: nested objects unqueryable</td>
+      </tr>
+      <tr>
+        <td>(c) Sidecar files<br/><code>evidence.meta.json</code></td>
+        <td class="els-fail">✗</td>
+        <td class="els-pass">✓</td>
+        <td class="els-pass">✓</td>
+        <td class="els-pass">✓</td>
+        <td class="els-fail">Fail: invisible to Bases + orphaning on rename</td>
+      </tr>
+      <tr>
+        <td>(d) Hybrid inline WikiLinks + frontmatter keyed by target</td>
+        <td class="els-fail">✗</td>
+        <td class="els-fail">✗</td>
+        <td class="els-fail">✗</td>
+        <td class="els-fail">✗</td>
+        <td class="els-fail">Fail: nested-per-target keys are nested objects</td>
+      </tr>
+      <tr class="els-row-win">
+        <td><strong>(e) Junction notes (one file per edge)</strong></td>
+        <td class="els-pass">✓</td>
+        <td class="els-pass">✓</td>
+        <td class="els-pass">✓</td>
+        <td class="els-pass">✓</td>
+        <td class="els-pass">Pass: fully Bases-queryable</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="els-figure-caption">
+    <strong>Plain-English anchor:</strong> Challenge 07 listed 4 storage shapes and asked us to pick one. The research's answer is <em>"none of them — the fourth constraint you didn't know about (Bases having zero support for arrays of objects, per a 281-vote feature request that's been open for months) eliminates all 4."</em> The research proposes a 5th shape: reify each edge as its own file. Every field on each file is a flat YAML scalar — the only shape Bases can query natively. The "junction note" is just a markdown file whose whole purpose in life is to represent one link, with the link's metadata stored in its frontmatter.
+  </div>
+</div>
+
+## The proposed 13-field junction note schema
+
+File 1 proposes a concrete schema, reproduced here verbatim. Each of the 13 frontmatter fields is a flat scalar or wikilink — all directly queryable by Obsidian Bases, all mapped to concepts from OSCAL, SSSOM, or established GRC-tool conventions.
+
+<div class="els-figure" role="img" aria-label="Anatomy of a junction note showing the 13-field YAML frontmatter block and a prose implementation narrative below, with color-coded field types: evidence and control wikilinks, enum status values, numeric confidence, date fields, and reviewer references.">
+  <div class="els-figure-title">Anatomy of a junction note — the proposed 13-field schema</div>
+  <div class="els-junction">
+    <div class="els-junction-header">links/MFA-Policy--NIST--AC-2.md</div>
+<pre style="margin:0;white-space:pre-wrap">---
+<span class="els-field-key">link_type</span>: <span class="els-field-val">evidence-control</span>        <span class="els-field-comment"># discriminator, always this for evidence links</span>
+<span class="els-field-key">evidence</span>: <span class="els-field-wiki">"[[MFA-Policy]]"</span>     <span class="els-field-comment"># source node — the document</span>
+<span class="els-field-key">control</span>: <span class="els-field-wiki">"[[NIST--AC-2]]"</span>     <span class="els-field-comment"># target node — the framework concept</span>
+<span class="els-field-key">framework</span>: <span class="els-field-val">NIST-800-53r5</span>      <span class="els-field-comment"># denormalized for filter performance</span>
+<span class="els-field-key">status</span>: <span class="els-field-val">implemented</span>            <span class="els-field-comment"># OSCAL 5-value enum (1 of 3 status dimensions)</span>
+<span class="els-field-key">confidence</span>: <span class="els-field-num">0.85</span>                <span class="els-field-comment"># SSSOM-inspired, 0.0–1.0</span>
+<span class="els-field-key">evidence_type</span>: <span class="els-field-val">policy-document</span>  <span class="els-field-comment"># 8-value enum (2 of 3)</span>
+<span class="els-field-key">method</span>: <span class="els-field-val">EXAMINE</span>                <span class="els-field-comment"># OSCAL assessment method: EXAMINE/INTERVIEW/TEST</span>
+<span class="els-field-key">reviewer</span>: <span class="els-field-wiki">"[[Jane-Auditor]]"</span>   <span class="els-field-comment"># who approved the assertion</span>
+<span class="els-field-key">review_date</span>: <span class="els-field-val">2026-03-15</span>         <span class="els-field-comment"># when reviewed</span>
+<span class="els-field-key">responsible</span>: <span class="els-field-wiki">"[[John-Admin]]"</span>  <span class="els-field-comment"># who owns the control implementation</span>
+<span class="els-field-key">collected</span>: <span class="els-field-val">2026-01-10</span>           <span class="els-field-comment"># when the evidence was gathered</span>
+<span class="els-field-key">expires</span>: <span class="els-field-val">2027-01-10</span>             <span class="els-field-comment"># stale after this date</span>
+<span class="els-field-key">freshness</span>: <span class="els-field-val">fresh</span>                <span class="els-field-comment"># COMPUTED in Bases (3 of 3 status dimensions)</span>
+<span class="els-field-key">supersedes</span>: <span class="els-field-wiki">"[[MFA-Policy--NIST--AC-2--v1]]"</span>  <span class="els-field-comment"># optional — review chain</span>
+---</pre>
+    <div class="els-body-narr">
+      <strong>## Implementation narrative</strong><br/>
+      The organization's MFA policy requires hardware token or authenticator app enrollment for all users with privileged access to production systems. Okta enforces this at the IdP layer, and the policy document (linked above) contains the approved exception process for break-glass accounts...
+    </div>
+  </div>
+  <div class="els-figure-caption">
+    <strong>Plain-English anchor:</strong> Every junction note is a markdown file whose <em>only job</em> is to describe one evidence→control link. The frontmatter holds all the structured metadata (13 fields, all flat scalars or wikilinks — Bases-queryable). The markdown body holds the prose description the auditor actually reads (what OSCAL calls the implementation narrative). Git history on this one file is the audit trail of every status change, reviewer reassignment, and narrative update. <em>One file, one link, one audit record.</em>
+  </div>
+</div>
+
+### Vault folder structure
+
+<div class="els-figure" role="img" aria-label="Folder structure diagram showing the vault root with four main folders: evidence containing source documents, controls containing framework concept notes, links containing junction notes per edge, and views containing Bases view files.">
+  <div class="els-figure-title">Where junction notes live in the vault</div>
+  <div class="els-tree">
+<pre style="margin:0;white-space:pre-wrap"><span class="els-tree-folder">vault/</span>
+├── <span class="els-tree-folder">evidence/</span>                                    <span class="els-tree-comment"># source documents — what the org actually has</span>
+│   ├── <span class="els-tree-note">MFA-Policy.md</span>
+│   └── <span class="els-tree-note">Vuln-Scan-Q1-2026.md</span>
+├── <span class="els-tree-folder">controls/</span>                                    <span class="els-tree-comment"># framework concepts — NIST 800-53, ISO 27001, etc.</span>
+│   ├── <span class="els-tree-note">NIST--AC-2.md</span>
+│   └── <span class="els-tree-note">ISO--A.8.5.md</span>
+├── <span class="els-tree-folder">links/</span>                                       <span class="els-tree-comment"># junction notes — one file per edge</span>
+│   ├── <span class="els-tree-junction">MFA-Policy--NIST--AC-2.md</span>              <span class="els-tree-comment"># ← this is a junction note</span>
+│   ├── <span class="els-tree-junction">MFA-Policy--ISO--A.8.5.md</span>              <span class="els-tree-comment"># same evidence → different framework</span>
+│   └── <span class="els-tree-junction">Vuln-Scan-Q1-2026--NIST--AC-2.md</span>
+└── <span class="els-tree-folder">views/</span>                                       <span class="els-tree-comment"># Bases files — the actual auditor UX</span>
+    ├── <span class="els-tree-note">coverage-dashboard.base</span>                    <span class="els-tree-comment"># all edges grouped by framework + status</span>
+    ├── <span class="els-tree-note">stale-evidence.base</span>                        <span class="els-tree-comment"># freshness != fresh</span>
+    ├── <span class="els-tree-note">control-gap.base</span>                           <span class="els-tree-comment"># controls with zero junction notes</span>
+    └── <span class="els-tree-note">reviewer-workqueue.base</span>                    <span class="els-tree-comment"># filter reviewer = current-user</span></pre>
+  </div>
+  <div class="els-figure-caption">
+    <strong>Plain-English anchor:</strong> The vault has three kinds of nodes: <em>evidence</em> (docs the org has), <em>controls</em> (framework concepts), and <em>junction notes</em> (one per edge). Plus Bases view files in <code>views/</code> which are the auditor's actual interface — grids, groupings, and filters rendered from junction note frontmatter. A GRC analyst rarely touches junction notes directly; they work through Bases views that query the junction notes.
+  </div>
+</div>
+
+### Why O(E) scales, not O(N²)
+
+The alternative architectures Challenge 07 listed all required per-target fields on the evidence or control notes themselves — a 2-evidence vault mapping to 3 controls would need `control_1_status`, `control_2_status`, `control_3_status` as separate frontmatter fields. That's O(N²) in the combined evidence × control count. Junction notes grow O(E) in the actual edge count — only edges that exist generate files.
+
+<div class="els-figure" role="img" aria-label="Side-by-side comparison of two scaling models: the left panel shows evidence-centric storage with per-control status fields exploding as both axes grow, labeled O of N squared. The right panel shows junction notes growing linearly with the edge count E, labeled O of E.">
+  <div class="els-figure-title">O(N²) evidence-centric vs. O(E) junction notes</div>
+  <div class="els-scale">
+    <div class="els-scale-panel">
+      <div class="els-scale-header">Evidence-centric (per-control fields)</div>
+      <svg class="els-scale-svg" viewBox="0 0 260 180" preserveAspectRatio="xMidYMid meet">
+        {/* Axes */}
+        <line x1="40" y1="20" x2="40" y2="150" stroke="#585b70" stroke-width="1.5" />
+        <line x1="40" y1="150" x2="240" y2="150" stroke="#585b70" stroke-width="1.5" />
+        <text x="32" y="25" fill="#a6adc8" font-size="8" text-anchor="end">fields</text>
+        <text x="240" y="168" fill="#a6adc8" font-size="8" text-anchor="end">N × M</text>
+        {/* Quadratic curve */}
+        <path d="M 40 150 Q 120 148, 180 100 Q 220 60, 235 25" stroke="#f38ba8" stroke-width="2.5" fill="none" />
+        <text x="180" y="70" fill="#f38ba8" font-size="9" text-anchor="middle">O(N²)</text>
+      </svg>
+      <div class="els-scale-stat els-scale-bad">control_1_status<br/>control_2_status<br/>control_3_status<br/>...explodes</div>
+    </div>
+    <div class="els-scale-panel">
+      <div class="els-scale-header">Junction notes (one per edge)</div>
+      <svg class="els-scale-svg" viewBox="0 0 260 180" preserveAspectRatio="xMidYMid meet">
+        <line x1="40" y1="20" x2="40" y2="150" stroke="#585b70" stroke-width="1.5" />
+        <line x1="40" y1="150" x2="240" y2="150" stroke="#585b70" stroke-width="1.5" />
+        <text x="32" y="25" fill="#a6adc8" font-size="8" text-anchor="end">files</text>
+        <text x="240" y="168" fill="#a6adc8" font-size="8" text-anchor="end">E (edges)</text>
+        {/* Linear line */}
+        <line x1="40" y1="150" x2="235" y2="55" stroke="#a6e3a1" stroke-width="2.5" />
+        <text x="140" y="90" fill="#a6e3a1" font-size="9" text-anchor="middle">O(E)</text>
+      </svg>
+      <div class="els-scale-stat els-scale-good">one file per edge<br/>only edges that exist<br/>...linear growth</div>
+    </div>
+  </div>
+  <div class="els-figure-caption">
+    <strong>Plain-English anchor:</strong> If you store per-control fields on the evidence note (<code>control_1_status</code>, <code>control_2_status</code>, ...), the fields explode quadratically as both sides grow. Same problem in reverse if you store per-evidence fields on control notes. Junction notes grow only with the number of actual edges — if an evidence document doesn't touch a control, there's no file. At 200 evidence × 300 controls with 5% typical coverage, that's ~3,000 junction notes (manageable) instead of ~60,000 fields spread across 500 notes (unqueryable chaos).
+  </div>
+</div>
+
+## Three-dimensional status vocabulary
+
+Challenge 07 asked for "a status vocabulary" and listed five candidates: minimal, OSCAL-aligned, status+coverage, status+lifecycle, compound. File 1's answer is **three orthogonal dimensions**, each drawn from established GRC standards — not one compound status enum.
+
+<div class="els-figure" role="img" aria-label="Three orthogonal status axes representing implementation status with five OSCAL values, freshness with four computed values, and evidence type with eight enumerated categories. Shown as three separate columns rather than one combined status.">
+  <div class="els-figure-title">Three orthogonal status dimensions</div>
+  <svg class="els-cube-svg" viewBox="0 0 720 260" preserveAspectRatio="xMidYMid meet">
+    {/* Three columns — implementation / freshness / evidence type */}
+
+    {/* Column 1 — implementation status */}
+    <g>
+      <rect x="20" y="30" width="210" height="210" fill="#181825" stroke="#89b4fa" stroke-width="2" rx="6" />
+      <text x="125" y="55" fill="#89b4fa" font-size="11" text-anchor="middle" font-weight="700">implementation status</text>
+      <text x="125" y="70" fill="#6c7086" font-size="8" text-anchor="middle">OSCAL metaschema (5 values)</text>
+      <text x="40" y="100" fill="#cdd6f4" font-size="10">implemented</text>
+      <text x="40" y="120" fill="#cdd6f4" font-size="10">partial</text>
+      <text x="40" y="140" fill="#cdd6f4" font-size="10">planned</text>
+      <text x="40" y="160" fill="#cdd6f4" font-size="10">alternative</text>
+      <text x="40" y="180" fill="#cdd6f4" font-size="10">not-applicable</text>
+      <text x="125" y="215" fill="#6c7086" font-size="8" text-anchor="middle">"is the control satisfied?"</text>
+    </g>
+
+    {/* Column 2 — freshness */}
+    <g>
+      <rect x="255" y="30" width="210" height="210" fill="#181825" stroke="#f9e2af" stroke-width="2" rx="6" />
+      <text x="360" y="55" fill="#f9e2af" font-size="11" text-anchor="middle" font-weight="700">freshness</text>
+      <text x="360" y="70" fill="#6c7086" font-size="8" text-anchor="middle">Hyperproof model (4 values, COMPUTED)</text>
+      <text x="275" y="100" fill="#cdd6f4" font-size="10">fresh</text>
+      <text x="275" y="120" fill="#cdd6f4" font-size="10">stale</text>
+      <text x="275" y="140" fill="#cdd6f4" font-size="10">expired</text>
+      <text x="275" y="160" fill="#cdd6f4" font-size="10">not-set</text>
+      <text x="360" y="215" fill="#6c7086" font-size="8" text-anchor="middle">"is the evidence still valid?"</text>
+    </g>
+
+    {/* Column 3 — evidence type */}
+    <g>
+      <rect x="490" y="30" width="210" height="210" fill="#181825" stroke="#a6e3a1" stroke-width="2" rx="6" />
+      <text x="595" y="55" fill="#a6e3a1" font-size="11" text-anchor="middle" font-weight="700">evidence_type</text>
+      <text x="595" y="70" fill="#6c7086" font-size="8" text-anchor="middle">OSCAL + Auditree + Drata (8 values)</text>
+      <text x="510" y="90" fill="#cdd6f4" font-size="9">policy-document</text>
+      <text x="510" y="105" fill="#cdd6f4" font-size="9">automated-scan</text>
+      <text x="510" y="120" fill="#cdd6f4" font-size="9">test-result</text>
+      <text x="510" y="135" fill="#cdd6f4" font-size="9">configuration</text>
+      <text x="510" y="150" fill="#cdd6f4" font-size="9">log-export</text>
+      <text x="510" y="165" fill="#cdd6f4" font-size="9">interview</text>
+      <text x="510" y="180" fill="#cdd6f4" font-size="9">architecture-review</text>
+      <text x="510" y="195" fill="#cdd6f4" font-size="9">attestation</text>
+      <text x="595" y="225" fill="#6c7086" font-size="8" text-anchor="middle">"what kind of evidence is it?"</text>
+    </g>
+  </svg>
+  <div class="els-figure-caption">
+    <strong>Plain-English anchor:</strong> A single "status" field tries to answer too many questions at once. <em>Is the control satisfied?</em> is implementation status. <em>Is the evidence still valid?</em> is freshness. <em>What kind of evidence is it?</em> is evidence type. These are three independent questions an auditor asks — conflating them into one enum loses information. The research's answer: three orthogonal fields, each a flat scalar Bases can query on its own. The freshness field is <strong>computed</strong> by a Bases formula from <code>collected</code> + <code>expires</code>, so it can never go stale itself. <strong>Freshness formula (Bases)</strong>: <code>if(expires, if(expires {'>'} now(), if(expires {'<'} now() + "30d", "stale", "fresh"), "expired"), "not-set")</code>
+  </div>
+</div>
+
+### Why each dimension exists
+
+- **`status` (5 values, from OSCAL metaschema, `allow-other="no"`)** — answers the core compliance question: is the control satisfied? Values: `implemented`, `partial`, `planned`, `alternative`, `not-applicable`. Compatible with ISO 27001 SoA, OpenControl (`complete`/`partial`/`planned`/`none`), and CMMC binary MET/NOT MET.
+- **`freshness` (4 values, computed from `collected` + `expires`)** — answers "is the evidence still valid?" Values: `fresh` / `stale` / `expired` / `not-set`. The stored fields are `collected` and `expires`; `freshness` itself is a derived Bases formula column. Inspired by Hyperproof's first-class freshness model and Auditree's TTL pattern — but stored-freshness can go stale itself, which is why File 1 makes it computed.
+- **`evidence_type` (8 values, synthesized from OSCAL Assessment Methods + Auditree + Drata + Anecdotes)** — answers "what kind of evidence is it?" Values: `policy-document`, `automated-scan`, `test-result`, `configuration`, `log-export`, `interview`, `architecture-review`, `attestation`.
+
+## Git history as audit trail — with 3 hardening measures
+
+Both files converge on git commit history as the native audit mechanism. Every junction note edit is a commit with author, timestamp, diff, and message. `git log -p -- links/MFA-Policy--NIST--AC-2.md` produces a complete audit trail of every status change, reviewer reassignment, and narrative update on that specific edge.
+
+**The research confirms git's Merkle-tree hash chain provides tamper-evidence comparable to blockchain.** Kosli (backed by Deutsche Bank) and Auditree both use git repositories as compliance evidence stores in production.
+
+But git is not inherently immutable — force-push, rebase, and `commit --amend` can rewrite history. File 1 identifies **three mandatory hardening measures**:
+
+1. **Signed commits** (GPG or SSH) — binds changes cryptographically to verified identities. Without signing, `user.name` and `user.email` are trivially spoofable. GitHub/GitLab both support "Reject unsigned commits" as a repository rule.
+2. **Branch protection** preventing force-push to `main`. All changes via pull request with required reviews — the PR itself becomes an auditable approval record. Combined with signed commits, this makes rewriting history effectively impossible post-merge.
+3. **Periodic snapshots** to an external, append-only store. Auditree's `auditree-harvest` pattern collates evidence over time; a simpler approach is git tags at each review cycle, pushed to a protected archive repository. File 1 notes this is belt-and-suspenders for organizations that want Merkle-chain tamper-evidence anchored outside their primary repo.
+
+**Known limitation**: git doesn't track *reads* — only writes. For access auditing (who viewed the vault), Crosswalker must rely on the hosting platform's audit log API (GitHub Enterprise, GitLab audit events). For the local-first constraint this is acceptable; the primary audit need is change provenance, not read access.
+
+## OSCAL round-trip viability
+
+The junction note schema is deliberately isomorphic to OSCAL's SSP `by-component` assembly. File 1 produces a field-by-field mapping table, reproduced here:
+
+| Junction note field | OSCAL SSP path | OSCAL type |
+|---|---|---|
+| `evidence` | `system-implementation/components[uuid]` | Component reference |
+| `control` | `control-implementation/implemented-requirements[control-id]` | Control reference |
+| `status` | `by-components[]/implementation-status/state` | Token enum (5 values) |
+| *narrative body* | `by-components[]/description` | Markup-multiline |
+| `responsible` | `by-components[]/responsible-roles[]/party-uuids` | UUID reference |
+| `reviewer` | `metadata/responsible-parties[role-id="reviewer"]` | Party reference |
+| `review_date` | `metadata/actions[type="approval"]/date` | DateTime |
+| `method` | Assessment Results `observations[]/methods[]` | EXAMINE / INTERVIEW / TEST |
+| `confidence` | Custom `prop` (no OSCAL native equivalent) | Float via namespaced prop |
+| `collected` | Assessment Results `observations[]/collected` | DateTime |
+| `expires` | Assessment Results `observations[]/expires` | DateTime |
+| `evidence_type` | Component `type` or custom `prop` | Token |
+
+**Round-trip viability is high but not lossless.** Two loss points:
+
+1. **OSCAL requires UUIDs on every object.** Junction notes don't natively carry UUIDs. The export script would generate deterministic UUIDs (v5, namespaced by vault + filepath) at conversion time. Re-import would need to preserve them somewhere — either as a new frontmatter field or in a `.oscal-uuids.json` sidecar. Choose one in the follow-up design pass.
+2. **OSCAL `by-component` allows statement-part granularity** (e.g., AC-2(a), AC-2(b)) — multiple components per control per statement-part. Junction notes currently operate at the control level. File 1 suggests the junction note filename convention can be extended for statement-level granularity: `MFA-Policy--NIST--AC-2--smt-a.md`.
+
+For Assessment Results export, the chain is:
+
+```
+junction notes with method + collected fields
+      ↓
+OSCAL observations with relevant-evidence hrefs pointing to evidence files
+      ↓
+OSCAL findings with target/status/state derived from the status field
+```
+
+The `confidence` field has no OSCAL native equivalent but maps cleanly to a namespaced `prop`: `{"name": "confidence", "ns": "https://crosswalker.dev/ns", "value": "0.85"}`.
+
+## New formal concepts and standards the research introduced
+
+These aren't in the Foundation vocabulary yet but the research leans on them. Each deserves a short definition now so future logs and concept pages can cite them.
+
+| Concept | Source | One-line definition | Relevance to Crosswalker |
+|---|---|---|---|
+| **Reification** | Mungall 2020 (Berkeley Lab blog), RDF 1970s | Making a statement about a statement — turning an edge into a node so you can attach metadata to it | The formal name for what junction notes are |
+| **Junction note / edge-as-note** | File 1 (proposed); [etothepiiminus1 2021](https://forum.obsidian.md/t/edge-notes/) (Obsidian Forum never-built "Edge Notes" plugin proposal) | A markdown file whose entire purpose is to represent one link, with the link's metadata in its frontmatter | The recommended architecture |
+| **OSCAL `by-component` assembly** | NIST OSCAL SSP model | The OSCAL structure for "this component satisfies this control in this way" with implementation-status, description, responsible-roles | The export target — junction schema is isomorphic to this |
+| **OSCAL Assessment Methods** | NIST OSCAL Assessment Plan | `EXAMINE`, `INTERVIEW`, `TEST` — the three standard ways an auditor verifies a control | The `method` field's vocabulary |
+| **SSSOM dual-confidence scoring** | Matentzoglu et al. 2022 (*Database*) | Separates `confidence` (author's estimate) from `reviewer_agreement` (reviewer's agreement, -1.0 to +1.0) | File 1 proposes borrowing this as a pair of numeric fields for dual-attestation |
+| **SEMAPV** (Semantic Mapping Vocabulary) | W3C / SSSOM-adjacent | Controlled vocabulary for `mapping_justification`: ManualMappingCuration, LexicalMatching, MappingReview, etc. | File 1 proposes a compliance-specific extension: ManualAudit, AutomatedScan, DocumentReview, InterviewEvidence, TestResult, InheritedControl |
+| **Hyperproof freshness model** | Hyperproof (commercial GRC tool) | First-class automated freshness states (Fresh / Expired / Unknown / Not set) | File 1 adapts as a computed Bases column |
+| **Auditree** | [IBM open source](https://github.com/ComplianceAsCode/auditree-framework) | Compliance-as-code framework using git as evidence store with TTL semantics and `StaleEvidenceError` exceptions | Validates the git-as-audit-trail pattern; inspires `expires` field |
+| **Kosli** | Commercial, backed by Deutsche Bank | Production compliance-as-code platform using git repositories as evidence stores with Merkle-tree tamper-evidence | Evidence that git-based audit is enterprise-viable |
+| **RDF-star / SPARQL-star** | W3C emerging standard | Syntactic extension allowing triples to serve as subjects: `<<:P1 :interacts-with :P2>> :supported_by :pmid123`. Supported by Stardog 7.1+ | Cited as the ideal formal solution that PKM tools haven't adopted; points at where the space is heading |
+| **Meta-Property Graphs** | [Nguyen et al. 2025, EDBT (arXiv:2410.13813)](https://arxiv.org/abs/2410.13813) | Formal model extending property graphs with "metadata awareness and reification" | Academic formalization of the junction note pattern |
+| **RIO — Roam Internal Ontology** | [Nikolas Kolev](https://roamresearch.com) | 153-class, 45-property ontology within Roam Research leveraging block-level attributes for reification | Prior art in another PKM tool; closest native-edge-metadata implementation found |
+| **"Edge Notes" plugin proposal** | [etothepiiminus1, April 2021, Obsidian Forum](https://forum.obsidian.md/) | Never-built plugin that would auto-reify labeled links into notes, forming clickable triangles in graph view | Direct prior art in the Obsidian community; the idea has been circling for 5 years |
+| **CRDT reconciliation** | Shapiro et al. 2011 | Conflict-free Replicated Data Types for eventual-consistency distributed editing. OneNote uses this for multi-user conflict handling | Relevant if evidence-link editing ever goes multi-user; out of scope for Foundation |
+
+## Decisions this forces
+
+**Ready to commit now** (the research is strong enough — both files converge, schema is concrete, Bases constraints are airtight):
+
+1. **Adopt junction notes as the evidence-link edge architecture.** Storage shape is decided. The 4 candidates in Challenge 07 all fail the Bases constraints; the research proposes a 5th shape (reify each edge as its own file) and both research sessions independently recommend it.
+2. **Adopt the 13-field schema** as the base set: `link_type`, `evidence`, `control`, `framework`, `status`, `confidence`, `evidence_type`, `method`, `reviewer`, `review_date`, `responsible`, `collected`, `expires`, `freshness` (computed), plus optional `supersedes` for review chains.
+3. **Commit to the three-dimensional status vocabulary**: `status` (5 OSCAL values) + `freshness` (4 values, computed) + `evidence_type` (8 values). Reject the compound-status approach.
+4. **Commit to OSCAL `by-component` as the canonical export target.** The schema is deliberately isomorphic; round-trip is high-fidelity (with UUID and statement-part caveats documented).
+5. **Commit to git history as the audit trail** with the 3 hardening measures (signed commits, branch protection, periodic external snapshots).
+6. **Borrow from SSSOM selectively**: dual-confidence scoring (`confidence` + `reviewer_confidence`) and the compliance-extended mapping-justification vocabulary.
+
+**Open sub-decisions** — NOT research gaps, just design calls that follow from the Foundation commitment above:
+
+7. **UUID enterprise resilience scope.** File 2 flags filename-based linking as fragile across out-of-app moves. Decide: does Foundation scope include enterprise multi-user resilience (UUID field added to the schema), or is local-first vault integrity sufficient for Tier 1? If out-of-scope, document the assumption explicitly.
+8. **Tier 2 sql.js sidecar schema mapping.** Design task: what's the SQL table structure for junction note data? How does it round-trip with Tier 1 YAML? Not research — design work downstream of this decision and the [Progressive tier architecture pillar](/crosswalker/reference/roadmap/).
+9. **Challenge 06 synthetic spine integration.** Do evidence links target framework controls directly, or do they flow through the [synthetic spine](/crosswalker/agent-context/zz-challenges/06-synthetic-spine/) (evidence → spine-concept → framework)? Has implications for the "this evidence automatically covers equivalent controls in other frameworks" story.
+10. **Vault scale threshold documentation.** Propose: document 10,000 junction notes as the tested Tier 1 threshold, warn at 20,000+. Requires actual perf testing; not research.
+11. **Mandatory vs optional field marking.** File 1 lists 13 fields but doesn't formally mark which are non-nullable. Propose: `link_type`, `evidence`, `control`, `framework`, `status` are mandatory; rest are optional. Lock this in during the follow-up design pass.
+12. **Multi-editor conflict resolution.** With git as audit trail, what happens when two reviewers set different statuses on the same junction note simultaneously? Standard git merge conflict, or first-writer-wins? Not blocking but worth specifying.
+13. **Inline Dataview field migration path.** The [original link-metadata-system design](/crosswalker/agent-context/link-metadata-system/) proposed inline Dataview syntax. This log supersedes that. Migration for any existing vaults using the old pattern: write a one-shot script that converts inline `framework_here.applies_to::` fields to junction notes. Document as a v0 migration task.
+
+## What this log does NOT decide
+
+Per Challenge 07's "out of scope" section, plus discovered caveats:
+
+- **Full evidence-mapping workflow** — how evidence gets imported, the linking UX, gap surfacing, reports, dashboards. That's the separate [Evidence mapping workflow](/crosswalker/reference/roadmap/) roadmap item
+- **Tier 2 sql.js sidecar exact schema** — downstream design task
+- **Obsidian plugin UI design** — product iteration on top of the committed edge schema
+- **Enterprise multi-user editing with CRDTs** — flagged by File 2 as adjacent; explicitly out of Foundation scope
+- **Pivot-table / cross-tabulation reporting** — File 2 documents Bases cannot do this; if Crosswalker needs it, that's a Tier 2 SQL feature, documented as an intentional Tier 1 limitation
+- **Vault scale perf testing** — needs actual benchmark runs, not research synthesis
+
+## Related
+
+- [Challenge 07: Link metadata / edge model for evidence mapping](/crosswalker/agent-context/zz-challenges/07-link-metadata-edge-model/) — the fresh-agent research brief this log resolves
+- [04-10 Foundation research synthesis](/crosswalker/agent-context/zz-log/2026-04-10-foundation-research-synthesis/) — the morning synthesis that committed to STRM + SSSOM for crosswalks and explicitly deferred this evidence-link decision
+- [04-10 SEACOW + folder-tag-sync prior-art log](/crosswalker/agent-context/zz-log/2026-04-10-seacow-and-folder-tag-sync-prior-art/) — file-move resilience adjacency
+- [Terminology: Evidence link (and Crosswalk for contrast)](/crosswalker/concepts/terminology/#core-terms) — the two distinct edge categories
+- [Terminology: Edge metadata](/crosswalker/concepts/terminology/#data-model-terms) — the umbrella data-model term
+- [Link metadata system (historical design)](/crosswalker/agent-context/link-metadata-system/) — the now-superseded prior art
+- [OSCAL registry entry](/crosswalker/reference/registry/oscal/) — the canonical export target
+- [SSSOM registry entry](/crosswalker/reference/registry/sssom/) — where dual-confidence and justification-vocabulary borrowing comes from
+- [STRM registry entry](/crosswalker/reference/registry/strm/) — for contrast; this is the *crosswalk* edge vocabulary, not evidence links
+- [Challenge 06: Pairwise vs synthetic spine](/crosswalker/agent-context/zz-challenges/06-synthetic-spine/) — integration question flagged as open sub-decision #9
+- [Progressive tier architecture pillar](/crosswalker/reference/roadmap/) — Tier 2 SQL mapping is a downstream design task
+- [Obsidian Bases direction research](/crosswalker/reference/roadmap/) — the viewing-layer constraint that forces the junction note architecture
+- [Roadmap: Evidence-framework edge model](/crosswalker/reference/roadmap/) — updated by this log with the committed direction
+- [Roadmap: Evidence mapping workflow](/crosswalker/reference/roadmap/) — the broader surface this decision unblocks
+
+**External references the research cites:**
+
+- [Mungall 2020 — Edge properties, part 1: Reification](https://douroucouli.wordpress.com/2020/09/17/edge-properties-part-1-reification/) (Berkeley Lab, canonical inventory of edge-metadata approaches)
+- [Meta-Property Graphs paper (arXiv:2410.13813)](https://arxiv.org/abs/2410.13813) — EDBT 2025 formalization
+- [Auditree framework](https://github.com/ComplianceAsCode/auditree-framework) — IBM open source, git-as-evidence-store prior art
+- [Obsidian Forum: "Add support for link types, link info, link metadata"](https://forum.obsidian.md/) — 220+ reply feature request running 2020–2026

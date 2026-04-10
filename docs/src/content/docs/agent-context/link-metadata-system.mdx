@@ -18,14 +18,25 @@ The same concept appears under several names depending on which angle you're loo
 All of these point at the same core idea: **a link between two notes that carries structured data about the relationship, not just the endpoints.** Crosswalker's original motivation was this problem (before the ontology-to-ontology crosswalking story was added in the Foundation phase). Its current status is an open Foundation research item — see **[Challenge 07: Link metadata / edge model for evidence mapping](/crosswalker/agent-context/zz-challenges/07-link-metadata-edge-model/)** and the [Foundation roadmap](/crosswalker/reference/roadmap/).
 :::
 
-:::caution[This page is partially stale on the Dataview assumption]
-The original design below relied on Dataview inline fields (`key:: value` syntax) as the storage and query mechanism. **Crosswalker has since committed to [Obsidian Bases](/crosswalker/reference/roadmap/) as the viewing/querying layer instead** (Dataview is deprecated). Bases cannot process inline fields, traverse typed links, or extract edge metadata — it only queries frontmatter. That changes the design constraints significantly:
+:::caution[This page is SUPERSEDED by the 2026-04-10 evidence-link synthesis]
+**This page's inline-Dataview design is no longer Crosswalker's committed direction.** Read it as historical context only.
 
-- Edge metadata can't live in inline fields that Bases won't see
-- The "store non-link metadata in frontmatter, edge metadata inline" split at the bottom of this page needs revisiting
-- The evidence-link edge model likely needs a storage layer that Bases CAN read (frontmatter arrays? sidecar files? Tier 2 sql.js sidecar?)
+The original design below relied on Dataview inline fields (`framework_here.applies_to:: [[AC-2]] {JSON}` syntax) as the storage and query mechanism. Crosswalker has since committed to [Obsidian Bases](/crosswalker/reference/roadmap/) as the viewing/querying layer — Bases cannot process inline fields, only flat-YAML frontmatter. That constraint (plus Bases' hard limits on nested objects and arrays of objects) eliminated every inline approach.
 
-This page is preserved as the original design record because it captures the right conceptual shape — dotKey + destination + metadata + priority structure — but the Bases-compatible storage design is a Foundation-phase open question. See [Challenge 07](/crosswalker/agent-context/zz-challenges/07-link-metadata-edge-model/) for the research brief that resolves this.
+**The committed direction is [junction notes](/crosswalker/agent-context/zz-log/2026-04-10-evidence-link-edge-model-synthesis/)** — one markdown file per edge, with a 13-field flat-YAML schema, isomorphic to OSCAL's `by-component` assembly. Two research sessions on 2026-04-10 independently converged on this architecture; the synthesis log carries the full decision with the proposed schema, three-dimensional status vocabulary, git-based audit trail, and OSCAL round-trip mapping.
+
+**What's still useful on this page:**
+- The conceptual framing of "edges carry metadata, not just endpoints" remains correct
+- The dotKey + destination + metadata conceptual shape inspired the junction note schema's relationship between the `link_type` discriminator, `evidence` / `control` wikilinks, and the metadata fields
+- The five-level priority hierarchy is no longer relevant (one junction note = one edge, no priority resolution needed)
+
+**Where to read next:**
+- [2026-04-10 evidence-link edge model synthesis](/crosswalker/agent-context/zz-log/2026-04-10-evidence-link-edge-model-synthesis/) — the committed direction with the proposed schema
+- [Challenge 07: Link metadata / edge model](/crosswalker/agent-context/zz-challenges/07-link-metadata-edge-model/) — the fresh-agent research brief this resolved
+- [Terminology: Evidence link](/crosswalker/concepts/terminology/#core-terms) — canonical definition with aliases
+- [Roadmap: Evidence-framework edge model](/crosswalker/reference/roadmap/) — commitment tracking + 7 open sub-decisions
+
+This page is preserved as the original design record because it captures the motivating problem and the first attempt at a solution — essential context for anyone wondering "why junction notes" or "what was tried before." The rest of the page below is the historical design text.
 :::
 
 ## The core problem
