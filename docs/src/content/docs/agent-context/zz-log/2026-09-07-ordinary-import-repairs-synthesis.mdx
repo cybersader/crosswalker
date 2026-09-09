@@ -1,0 +1,139 @@
+---
+title: "A missing field should not fail an import, and a filter you typed should be used"
+description: "Two decisions for the ordinary import wizard: a property whose source value is absent is now left off the note instead of failing the row, and the row filter you type is now carried into generation on every path rather than only in the beta workbench. Written as a funnel: the thirty-second version, a worked source row, why it matters, then the exact boundaries that did not move."
+tags: [log, decision, import, wizard, correctness, v0-1-7]
+date: 2026-09-07
+sidebar:
+  label: "09-07 · Ordinary import repairs"
+  order: -20260907.1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="How to read this">
+This page narrows as it goes. **Section 1 is thirty seconds.** Section 2 is one source row worked through. Sections 3 onward are the decisions and the limits.
+
+This is a decision-and-rationale record. **What was built, and the current state of its verification, live only in [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md)** — that is the single delivery log, and this page does not restate its counts or outcomes.
+</Aside>
+
+<Aside type="caution" title="Status — implemented and focused-tested, independent verification pending">
+The behavior below was **approved as a plan decision and implemented**. It is uncommitted, unmerged and unreleased on a working branch.
+
+**A real defect was found, and corrected.** An independent review caught something the first round of tests could not see: a later metadata merge step re-added omitted fields as empty strings, so tests that rendered a note directly passed while the note actually written to the vault did not match the policy. That defect was corrected, and the policy is now pinned by tests that read back the **written note** rather than a rendered string. A second independent review of the correction returned no confirmed blockers, and the core checks — unit suites, golden suites, lint, production build and the codegen check — passed. Counts belong to [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md), not here.
+
+**What is still not established: the behavior in real Obsidian.** The one authorized targeted run produced **no result at all** — no runner output, no verdict for any of its six declarations, and no fresh screenshot — and was stopped by hand after about twelve minutes to hold the one-run bound. Nothing was rerun. That is a **harness outcome, not a product outcome**: it is neither a pass nor a failure of anything described below, and its cause was not isolated. It is emphatically not a claim that Obsidian cannot be driven or screenshotted here; it routinely can.
+
+Three consequences follow. The JSON acceptance case that blocked the XLSX slice is **still unreached**. Nothing in the interface was visually checked, in either theme, so the preview sentence and the error case below are described from the code and not from a screenshot. And the XLSX byte oracle was **not observed in this run**, though it passed on two earlier runs, which stand as recorded.
+
+The final documentation gates are deliberately held until these pages are frozen and reviewed; their outcome belongs to the final verification receipt.
+
+**The earlier blocker is still open.** The [XLSX source snapshot](/crosswalker/agent-context/zz-log/2026-09-07-xlsx-source-snapshot-synthesis/) acceptance is incomplete because its negative control — that a JSON import records *no* source fingerprint — has never executed. Two runs failed to reach it. These repairs are aimed at the gaps those runs exposed; **they do not yet close that acceptance case**, and nothing here should be read as saying it passed. That earlier evidence stands as written, including both failed runs.
+
+Nothing here is a release, a milestone closure, a quarantine clearance, or any claim about performance, large corpora, mobile, or the CSV and XLSX user interface controls.
+</Aside>
+
+<Aside type="note" title="Verification addendum, 2026-09-09 — the behavior above was observed in real Obsidian">
+**The status callout above is preserved exactly as written on 2026-09-07.** This addendum records what happened afterwards; it corrects no decision and withdraws no failure.
+
+On 2026-09-09 a single targeted run of `tests/e2e/visual-wizard-formats.spec.ts` executed and **all six of its declarations passed**, with no runtime retry. That closes the three consequences named above:
+
+- **The blocking acceptance case was reached.** A filtered JSON import wrote exactly one note. Its nested source reference was present, naming the source file, and carried **no byte fingerprint inside it** — which is the distinction that case exists to prove, and a narrower statement than "no provenance". The top-level keys whose absence demonstrates the missing-value policy were absent on real written output.
+- **The interface was checked.** The unfiltered-preview sentence was read on fresh light and dark captures, and the unknown-field error case was seen on the results screen with one error and zero created notes.
+- **The XLSX byte check was observed again**, on a three-note import — a same-payload digest comparison, not proof that those bytes are authentic to any external file.
+
+**The 2026-09-07 no-result run is unchanged, and this pass is not an explanation of it.** Its cause was never isolated and is not established, fixed or superseded by a later success. One clarification does apply to the callout above: **zero captured bytes is not evidence that the child process was silent.** What was recorded that day is that the capture pipeline wrote nothing, which is equally consistent with output that was never captured — and the capture wrapper was subsequently repaired. **No startup, phase or pre-first-declaration conclusion follows from it**, and any such reading is withdrawn. The outcome remains a no-result run with an unknown cause.
+
+**Three qualifications are open, not cleared.** A "Tier 2 projection failed" warning was visible throughout the run, so query data may be stale and nothing here is evidence about Tier 2 health; the notice stack overlays part of the unknown-filter error text on screen, so the assertions passed while full visual readability did not; and the evidence for written output is frontmatter the test read back from disk and printed, not retained note files.
+
+**Scope:** the targeted Tier 1 import declarations and the light/dark preview explanation, on an unmerged branch. Not a full-suite, Tier 2, mobile, scale or quarantine clearance, and not v0.1.7 completion. No standalone build or other verification suite was run for this result — the normal E2E `onPrepare` build ran as part of the invocation, and no unit, lint or static gate was re-run. Counts, the full qualification list and delivery detail belong to [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#real-obsidian-acceptance-rerun-the-six-targeted-declarations-passed-2026-09-09), not to this page.
+</Aside>
+
+## 1. Thirty seconds
+
+Two things went wrong on the **ordinary import wizard** — the classic column-table path, not the beta [live mapping workbench](/crosswalker/features/import-wizard/).
+
+| What was wrong | What it does now |
+|---|---|
+| A property mapped from a field that some records simply do not have made those records fail to render | The property is **left off** that note. The note is written |
+| The row filter you typed was carried into generation **only** in workbench mode, and silently dropped otherwise | The filter is carried on **both** paths, as a per-run instruction |
+
+Both are the same failure shape this project keeps ruling out: acting confidently on an incomplete picture instead of saying what it actually knows. A dropped filter produced *more* notes than you asked for and said nothing. A missing field produced an error naming a property, not a cause you could act on.
+
+**Neither change loosens anything strict.** File names, identity, folder structure, body content, links, and hand-written canonical [recipes](/crosswalker/concepts/terminology/) all behave exactly as before, including still failing loudly when a required value is missing.
+
+---
+
+## 2. Two minutes: one source row
+
+Say you import a JSON export of technique records. Most records have a `revoked` field; some do not. You type `revoked=false` in **Keep only matching records** on the record-selection screen.
+
+Here is a single record that has no `revoked` field at all, and you mapped `revoked` as a note property:
+
+| | Before | Now |
+|---|---|---|
+| Your typed filter | dropped on the ordinary path; every record was imported | applied during generation; only matching records become notes |
+| A record missing `revoked` | the row failed to render, naming the property | the note is written **without** a `revoked` property |
+| A record with `revoked: false` | — | keeps the value. **False and zero are values, not absence** |
+| A record missing the field you mapped as the file name | error | **still an error.** A selected row is never quietly skipped to make an import succeed |
+| A hand-written canonical recipe with a required property | strict error | **still a strict error.** Only wizard-generated property templates changed |
+
+**Why false and zero matter.** Treating "absent" and "false" as the same thing is how a compliance note quietly loses the fact that a control was explicitly marked not applicable. Omission is for *absence* — a key that is not there, a null, an empty value — and nothing else. The existing parser's value conversions are unchanged, so this promises omission behavior, not raw type fidelity.
+
+**One honest gap you will see in the interface.** The Step 3 preview still samples your source **unfiltered**, so a preview row may not survive your filter. Rather than rebuild preview, the screen now says so plainly when a filter is set: *Preview uses unfiltered source samples. Your filter is applied during generation.* The authoritative filtering happens in generation, where an unknown field name or a filter that matches nothing reports an actionable error instead of quietly writing the wrong set of notes.
+
+---
+
+## 3. Why this matters for real use
+
+An import that produces too many notes is worse than one that fails. A failed import is obvious and you fix it. A silently unfiltered import lands hundreds of notes you did not want into a vault where [import-set ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/) now has to account for every one of them, and you find out weeks later.
+
+The missing-field failure has a different cost: it makes **heterogeneous real sources unimportable**. Published exports are not rectangular. STIX, OSCAL and vendor JSON routinely carry fields on some objects and not others, and demanding every mapped field on every record means the tool works on tidy spreadsheets and refuses the actual published artifacts it exists to ingest.
+
+The limit worth saying in the same breath: **an absent property means the source did not supply one, not that the answer is no.** That is the same reading discipline as an absent [source fingerprint](/crosswalker/agent-context/zz-log/2026-09-07-xlsx-source-snapshot-synthesis/), and the same one the [closure-cache fix](/crosswalker/agent-context/zz-log/2026-08-20-closure-cache-fix-and-what-it-means/) established: an incomplete answer must not be dressed as a complete one.
+
+## 4. What was accepted, rejected and deferred
+
+| | Decision |
+|---|---|
+| **Accepted** | Property templates **synthesized by the legacy shim** are optional by default. Absent, null and empty values are omitted; the renderer's existing optional and omission semantics do the work, unweakened globally |
+| **Accepted** | An explicit `omitIfEmpty: false` on a mapping keeps that property strict. The escape hatch stays available per property |
+| **Accepted** | False and zero are preserved under the existing parser and renderer conversions. Only absence omits |
+| **Accepted** | Ownership of managed properties stays **declaration-based**. An omitted declared property still removes a stale managed value on a permitted refresh, and `user_preserve` still wins. Merge authority and write decisions are untouched |
+| **Accepted** | The wizard's filter becomes an **already-translated per-run predicate** passed through the generation boundary, applied immutably to a copy of the resolved recipe before hashing and source-stage preparation, so joins, transforms and fields the engine does not interpret survive |
+| **Accepted** | A nonblank filter **replaces** an existing declared predicate, matching workbench behavior. A blank field leaves a canonical predicate intact. **No implicit combining of the two** |
+| **Rejected** | Turning ordinary imports into recipe-override imports to carry the filter. That branch decides provenance recipe identity; changing it would move recipe ids, minted import-set identity, ontology pinning, refresh selection and orphan ownership for every classic import. The run predicate is applied **after** that choice, so none of it moves |
+| **Rejected** | Any global relaxation of the renderer, and any wiring of the currently inactive global empty-handling setting or unrelated legacy formatting flags |
+| **Rejected** | Loosening file names, identity derivation, folder or hierarchy inputs, body content, links, or canonical recipe templates. A selected row missing a required value is still an error |
+| **Rejected** | Rebuilding preview to filter its samples, adding a predicted-count promise, or claiming preview and output parity. Honest copy instead |
+| **Deferred** | Everything the failed runs would still need to prove: the JSON negative control, and any statement about the CSV or XLSX filter controls, which have no evidence of their own |
+
+## 5. The one consequence worth stating plainly
+
+**Ordinary imports will produce a different effective recipe hash than they did before**, because the property templates the shim generates are literally different text.
+
+This is correct and expected. It is what that hash is for: it answers *did output-affecting behavior change?*, and it did. What did **not** happen is any reinterpretation — no hash algorithm changed, no canonical recipe digest changed meaning, no source-byte digest is involved, and no stored identity was repurposed. Nothing is rewritten or backfilled to chase the new value; existing skip, no-op and preservation policies stay authoritative, exactly as they did for the [recipe-document digest](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/) work.
+
+## 6. What this does NOT do
+
+- It does **not** close the JSON acceptance case that blocked the XLSX slice. That remains open until a real run reaches it.
+- It does **not** establish that the CSV or XLSX filter controls behave correctly. The demonstrated path is the ordinary wizard's record filter; do not generalize it without its own evidence.
+- It does **not** change the canonical `source_ref` contract, any schema, `spec/` in any form, or the [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/).
+- It does **not** filter preview, promise a row count before generation, or add any control to the preview screen.
+- It does **not** add a setting, a storage surface, a parser, a dependency, or any replay behavior.
+- It does **not** close [v0.1.7](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/), clear a quarantine, or make any performance, bundle-size, scale or mobile claim.
+- It does **not** erase the two earlier failed runs. They happened, their evidence is archived, and this repair is a response to them rather than a replacement for them.
+
+## 7. Related
+
+- [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md) — the single delivery log: what was built and exactly which checks have and have not run
+- [XLSX source snapshot](/crosswalker/agent-context/zz-log/2026-09-07-xlsx-source-snapshot-synthesis/) — the slice whose acceptance run exposed these two gaps, and whose negative control is still unreached
+- [Source contract delivered (Ch 46)](/crosswalker/agent-context/zz-log/2026-08-27-source-contract-delivered/) — the declared row predicate and joins this run override sits beside without replacing
+- [Import wizard](/crosswalker/features/import-wizard/) — the screens described here
+- [Generation engine](/crosswalker/features/generation-engine/) — what a note carries after Generate
+- [Import set ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/) · [Reimport is identity reconciliation](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/) — the preservation and ownership rules this change leaves authoritative
+- [A silent wrong-answer bug](/crosswalker/agent-context/zz-log/2026-08-20-closure-cache-fix-and-what-it-means/) — the same failure shape: confidently incomplete rather than saying "unknown"
+- [Save and exact replay — Gate 1 ratified](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/) — the fingerprint vocabulary this page's hash consequence is stated against
+- [ETL and import](/crosswalker/concepts/etl-and-import/) — why heterogeneous published sources are the target, not an edge case
+- [Ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) — the Acquire stage both repairs belong to
+- [Terminology](/crosswalker/concepts/terminology/) — recipe, provenance, managed property, and import set
+- [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) — the milestone this branch is parked under, unchanged by these repairs

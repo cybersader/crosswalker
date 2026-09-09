@@ -9,6 +9,10 @@ tags: [schema, foundation, v0-1, architecture]
 
 
 :::tip[Current contract verification]
+**Scoped addendum, 2026-09-09** — the runtime-producer status callout in [§ Source-byte digest](#source-byte-digest-what-source_hash-records) only, re-checked against the targeted real-Obsidian acceptance run of `tests/e2e/visual-wizard-formats.spec.ts` and its independent evidence review. **No schema statement, field table, count or `$id` on this page changed**, and no schema file was touched. The 2026-09-07 addendum below and every other section stand exactly as written.
+
+**Scoped addendum, 2026-09-07** — one subsection only. `source_ref` and its `source_hash` property were re-checked field by field against `spec/tier1.schema.json § $defs.provenance_block.properties.source_ref` (unchanged: five optional properties, `minProperties: 1`, `source_hash` still a plain unpatterned string) and against `buildSourceRef()` in `src/generation/provenance.ts` (unchanged: conditional emission, omitted when falsy). The new runtime producer was read in `src/import/parsers/xlsx-parser.ts` and `src/generation/hash.ts` on the local working tree. **Producer status at the time of writing:** uncommitted, unmerged, unreleased, and partially verified — see the status callout in that subsection. No other section of this page was re-verified on this date, and the lines below stand unchanged.
+
 **Status last verified:** 2026-09-06 — the recipe-document digest additions were checked field by field against the local working tree: both new `recipe_document_digest` definitions and reference locations in [`spec/tier1.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/tier1.schema.json) and [`spec/recipe.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/recipe.schema.json), the helper and the reduced effective-target input in `src/generation/hash.ts`, `normalizeRecipe()` and the fork branch in `src/import/recipe-document.ts`, and the generated `RecipeAncestryReference`. That work has since passed independent verification (full unit suite, golden tests, lint, build, `codegen --check`, fixture no-drift, and all six static gates — detail in [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present)) and remains unmerged and unreleased. The rest of the page retains its 2026-08-31 field-by-field verification against those two schemas and `src/tier2/schema.sql`.
 
 The machine-readable contracts and canonical SQL remain authoritative. Sections §3 and §7 below summarize the shipped shapes. Historical TypeScript/YAML sketches are labeled as history and must not be used as implementation contracts.
@@ -122,7 +126,7 @@ Tier 1 (the canonical Markdown representation) is governed by [`spec/tier1.schem
 | Field | Required | Meaning |
 |---|---:|---|
 | `spec_version` | Yes | Tier 1 contract version used to write the record |
-| `source_ref` | Yes | Stable or human-readable source reference |
+| `source_ref` | Yes | Stable or human-readable source reference. Five properties, none of them individually required, plus `additionalProperties: false` (source: `spec/tier1.schema.json § $defs.provenance_block.properties.source_ref`): `file`, `url`, `curie`, `version`, and `source_hash`, the fingerprint of the source bytes the record was produced from. **What validation actually enforces is `minProperties: 1`** — any single one of the five satisfies it, `version` or `source_hash` alone included. The schema's own description text states a stricter intent, "At least one of file/url/curie required", but that sentence is descriptive and the current contract does not enforce it; do not rely on it when validating third-party records. See [the source-byte subsection](#source-byte-digest-what-source_hash-records) |
 | `produced_at` | Yes | ISO 8601 production timestamp |
 | `producer` | No | Producer name and version |
 | `recipe` | No | Reference to the recipe used for this output. Three optional properties, none required (source: `spec/tier1.schema.json § $defs.provenance_block.properties.recipe`): `id`, the recipe identifier; `hash`, the long-standing effective-target receipt, still typed as a plain string with no pattern — deliberately left permissive so existing records keep validating; and `recipe_document_digest`, added 2026-09-06, strictly `^sha256-[a-f0-9]{64}$` via `$defs.recipe_document_digest`. Nothing in the generation path writes the digest field yet — see [the digest subsection](#recipe-document-digest-two-reference-fields) |
@@ -131,6 +135,31 @@ Tier 1 (the canonical Markdown representation) is governed by [`spec/tier1.schem
 | `review_cid` | No | The same identity record hashed with the review-normalization rule applied to every string value, so cosmetically-different content (citation markers, curly quotes, collapsed whitespace, markdown link destinations) hashes identically here and differently in `concept_cid`. This normalized whole-row hash is the only changed/not-changed gate. Absent means the producer computed none, which is not a claim that the content is unchanged |
 | `review_groups` | No | Three recipe-driven explanation hashes, all required when the block is present: `wording`, `scope`, and `housekeeping` (source: `spec/tier1.schema.json § $defs.review_group_cids`). They classify a changed `review_cid`; they never replace or narrow the whole-row gate |
 
+
+#### Source-byte digest: what `source_hash` records
+
+`source_ref.source_hash` (a fingerprint of the bytes a record was produced from) answers exactly one question: **which source bytes made this note?** Its schema definition has not changed and is not new — a plain string, deliberately unpatterned, described as "Hash of the source file at import time. Format: 'sha256-{hex}'" (source: `spec/tier1.schema.json § $defs.provenance_block.properties.source_ref.properties.source_hash`). It has always been optional and permissive so that external producers writing valid Tier 1 keep validating; **no schema version, `$id` or pattern moved when the runtime producer described below was added.**
+
+**What produces it today.** Two producers, one of them new:
+
+| Producer | Emits | Notes |
+|---|---|---|
+| The external fixture CLI | Yes, long-standing | Pre-existing raw-byte provenance; unchanged |
+| Native `.xlsx` import in the plugin | Yes, new 2026-09-07 | `sha256-` plus 64 lowercase hex characters over the complete pre-parse workbook payload, computed before any decode (`computeSourceByteDigest()` in `src/generation/hash.ts`) |
+| Native CSV, JSON and SSSOM import | No | Unchanged. These do **not** synthesize a digest from decoded text or parsed rows, because a fingerprint of decoded output answers a different question |
+
+The XLSX parse reads its file once and keeps those bytes privately for the life of the join handle it returns, so a declared [`source.joins`](/crosswalker/agent-context/zz-log/2026-08-27-source-contract-delivered/) secondary sheet decodes from the same snapshot rather than a fresh read that could return different bytes. **The guarantee is scoped to one parse, not to a wizard session:** the earlier sheet-name listing is a separate discovery read that takes no snapshot and computes no digest, so what the digest identifies is the bytes behind one import's rows and joins. Rationale and the worked example are in the [XLSX source snapshot log](/crosswalker/agent-context/zz-log/2026-09-07-xlsx-source-snapshot-synthesis/).
+
+**What the field does and does not assert.**
+
+- **Absent means unrecorded, never unchanged.** A native runtime import without a recorded byte digest omits `source_hash`; existing notes and output from external producers may already carry it. A mixed vault is expected, and nothing backfills the field — existing skip, no-op and ownership-preservation rules stay authoritative over any urge to rewrite a note just to populate provenance.
+- **It identifies bytes, not selectors.** Sheet choice, header row and filters are not part of it; two imports of one workbook with different settings produce the same digest.
+- **It is not a signature and not a replay record.** It proves nothing about who produced the record, does not store the source, does not diagnose drift against a file selected later, and is not the source/run binding that [v0.1.7 Track 2](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) still owes.
+- **The engine does not verify a caller-supplied value.** `buildProvenance()` in `src/generation/provenance.ts` emits `source_hash` when a truthy value is supplied and omits it otherwise; that function is unchanged. A programmatic producer supplying its own digest is responsible for it identifying the original source bytes from which the accompanying rows were parsed, not a serialization of those rows.
+
+:::caution[Status of the runtime producer]
+The XLSX runtime producer is **implemented on an unmerged branch and unreleased**. Its targeted runtime acceptance passed on 2026-09-09: a real import wrote a note whose `source_hash` equalled a host-side digest of the same workbook payload the wizard was handed, and the companion negative control executed — a JSON import wrote a note carrying a nested `source_ref` of `{ file: … }` **with no `source_hash` inside it**. That is the distinction the field draws, and it is narrower than "no provenance": the JSON note still records which file produced it. The XLSX check is a **same-payload digest comparison, not proof of external file authenticity**. **This is a scoped Tier 1 runtime result, not a full-suite, Tier 2 or milestone clearance**: no standalone build or other verification suite was run for it, though the normal E2E `onPrepare` build ran as part of the invocation. The schema contract described above is unchanged and shipped; only the producer is new work. Delivery detail, and the independent review's open qualifications, are in [CHANGELOG.md — Real-Obsidian acceptance rerun](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#real-obsidian-acceptance-rerun-the-six-targeted-declarations-passed-2026-09-09).
+:::
 
 #### Recipe-document digest: two reference fields
 

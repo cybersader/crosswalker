@@ -160,6 +160,13 @@ export interface GenerationOptions {
 	/** Source file name */
 	sourceFileName?: string;
 
+	/**
+	 * Already-translated source predicate for this run. A nonblank value replaces
+	 * the resolved recipe's source.where without mutating the caller's recipe;
+	 * blank leaves a canonical predicate untouched.
+	 */
+	sourceWhere?: string;
+
 	/** Progress callback */
 	onProgress?: (current: number, total: number, message: string) => void;
 
@@ -232,6 +239,8 @@ interface EnrichmentWriteOptions {
 	basePath: string;
 	sourceFileName?: string;
 	sourceVersion?: string;
+	/** Complete pre-parse source-byte digest associated with this ParsedData. */
+	sourceHash?: string;
 	/**
 	 * Carried in so the enrichment phase can honour `skip` on its own. A hub
 	 * relocation is a change to the vault, and `skip` means leave existing notes
@@ -428,8 +437,19 @@ export async function generateNotes(
 		// AM-6 moved this ABOVE ownership resolution: the ontology this source
 		// proposes is an input to resolving the set, because a set that already
 		// exists overrides the proposal with the ontology it is pinned to.
-		const recipe = options.recipeOverride
+		const resolvedRecipe = options.recipeOverride
 			?? legacyConfigToRecipe(config as ImportRecipe, { sourceFileName: options.sourceFileName });
+		// A wizard filter is a RUN override, not a second recipe entry path. Apply
+		// it only after the canonical-or-legacy recipe choice so recipeOverride still
+		// controls provenance ownership below. Copy both objects so joins and any
+		// source fields this engine does not interpret survive without mutating the
+		// caller's canonical recipe. Blank means no override at all.
+		const recipe = options.sourceWhere?.trim()
+			? {
+				...resolvedRecipe,
+				source: { ...resolvedRecipe.source, where: options.sourceWhere },
+			}
+			: resolvedRecipe;
 		// Compute recipe ownership once and reuse the exact value written to
 		// `_crosswalker.recipe.id`; orphan detection must never invent a different
 		// ownership key from the provenance stored on notes.
@@ -548,8 +568,8 @@ export async function generateNotes(
 		// wizard/workbench path accepts a full recipe through `recipeOverride`,
 		// so a declared predicate reaches here too. Ignoring it on this path
 		// would be exactly the silent, shape-dependent degradation the whole
-		// loudness contract exists to prevent. A legacy config carries no source
-		// shaping, so this path is unchanged for every wizard import.
+		// loudness contract exists to prevent. A legacy config carries no canonical
+		// source shaping, but this run may add the wizard's sourceWhere override above.
 		let sourceStage: SourceStage;
 		try {
 			sourceStage = await prepareSourceStage(parsedData, recipe.source);
@@ -601,6 +621,7 @@ export async function generateNotes(
 						recipeHash,
 						provenanceRecipeId,
 						importSet,
+						parsedData.sourceByteDigest,
 					);
 					if (renderReport.notes.length > 0) {
 						result.warnings ??= [];
@@ -952,6 +973,7 @@ export async function generateNotes(
 						basePath: options.basePath,
 						sourceFileName: options.sourceFileName,
 						sourceVersion: options.frameworkVersion ?? recipe.source?.version,
+						sourceHash: parsedData.sourceByteDigest,
 						overwriteMode: options.overwriteMode,
 					},
 					curiePrefix,
@@ -1510,6 +1532,7 @@ function buildNoteDataViaRender(
 	recipeHash?: string,
 	provenanceRecipeId?: string,
 	importSet?: ImportSetReference,
+	sourceHash?: string,
 ): { path: string; frontmatter: Record<string, any>; body: string; sourceRow: number; curie: string; tags: string[]; layoutValues: LayoutValue[] } {
 	// 1. Build a CURIE for this row, under the derivation THIS SET IS PINNED TO.
 	//
@@ -1612,10 +1635,12 @@ function buildNoteDataViaRender(
 	// Body-located link sections remain independent, preserving existing behavior.
 	const hasCanonicalBody = (recipe.target.also_emit?.body?.length ?? 0) > 0;
 	const legacy = buildNoteData(row, rowNum, mapping, options, '', [], !hasCanonicalBody);
+	const declaredManagedKeys = computeDeclaredManagedKeys(recipe.target.also_emit?.frontmatter);
 	for (const [k, v] of Object.entries(legacy.frontmatter)) {
 		// Skip _crosswalker — we'll write a fresh provenance block below.
-		// Skip keys already set by render's also_emit (managed wins).
-		if (k === '_crosswalker') continue;
+		// A recipe declaration owns its key even when render() omitted the value;
+		// the supplemental legacy projection must not reintroduce it as empty.
+		if (k === '_crosswalker' || declaredManagedKeys.has(k)) continue;
 		if (!(k in frontmatter)) frontmatter[k] = v;
 	}
 
@@ -1653,6 +1678,7 @@ function buildNoteDataViaRender(
 		{
 			sourceFile: options.sourceFileName,
 			sourceVersion: options.frameworkVersion ?? recipe.source?.version,
+			sourceHash,
 			recipeId: provenanceRecipeId,
 			recipeHash,
 			importSet,
@@ -3010,6 +3036,7 @@ export async function generateFromRecipe(
 				{
 					sourceFile: options.sourceFileName,
 					sourceVersion: options.sourceVersion ?? recipe.source?.version,
+					sourceHash: parsedData.sourceByteDigest,
 					recipeId: recipe.recipe,
 					recipeHash,
 					importSet,
@@ -3261,7 +3288,11 @@ export async function generateFromRecipe(
 			await applyEnrichment(
 				app,
 				recipe,
-				{ ...options, sourceVersion: options.sourceVersion ?? recipe.source?.version },
+				{
+					...options,
+					sourceVersion: options.sourceVersion ?? recipe.source?.version,
+					sourceHash: parsedData.sourceByteDigest,
+				},
 				curiePrefix,
 				[...enrichRecords, ...keptRecords],
 				new Set(enrichRecords.map((r) => r.path)),
@@ -4409,7 +4440,7 @@ async function applyEnrichment(
 	// records no provenance at all, where writing one is a gain and not an
 	// overwrite.
 	const freshProvenance = buildProvenance(
-		{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, recipeId: recipe.recipe, recipeHash, importSet },
+		{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, importSet },
 		PLUGIN_VERSION,
 	);
 	const enrichment = enrich(
@@ -4625,7 +4656,7 @@ async function applyEnrichment(
 		const fullPath = options.basePath ? normalizePath(`${options.basePath}/${hub.path}`) : normalizePath(hub.path);
 		const frontmatter: Record<string, any> = { ...hub.frontmatter };
 		frontmatter._crosswalker = buildProvenance(
-			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, recipeId: recipe.recipe, recipeHash, importSet },
+			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, importSet },
 			PLUGIN_VERSION,
 		);
 		// Hub ownership and produced membership are recorded together. Splitting
@@ -4828,7 +4859,7 @@ async function applyEnrichment(
 		const fullPath = normalizePath(hub.path);
 		const frontmatter: Record<string, any> = { ...hub.frontmatter };
 		frontmatter._crosswalker = buildProvenance(
-			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, recipeId: recipe.recipe, recipeHash, importSet },
+			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, importSet },
 			PLUGIN_VERSION,
 		);
 		// Hub ownership and produced membership are recorded together. Splitting

@@ -27,8 +27,9 @@ import type { Recipe } from '../render';
  *     Each hierarchy entry produces `{ mechanism: 'folder', template: '{<column>}' }`
  *   - mapping.filename → leaf file mechanism using the filename's column or template
  *   - mapping.frontmatter → also_emit.frontmatter.managed entries
- *     (key → `{<column>}` template; transforms still happen via the engine's
- *     formatValue helper since render's filter set is closed)
+ *     (key → `{<column>|optional}` by default; explicit omitIfEmpty:false keeps
+ *     `{<column>}` strict; transforms still happen via the engine's formatValue
+ *     helper since render's filter set is closed)
  */
 /**
  * Pass 1.5 batch enrichment defaults for the classic (non-workbench) wizard
@@ -130,7 +131,9 @@ export function legacyConfigToRecipe(
 	const managed: Record<string, string> = {};
 	const fm = config.mapping?.frontmatter ?? [];
 	for (const entry of fm) {
-		managed[entry.key] = `{${entry.column}}`;
+		managed[entry.key] = entry.omitIfEmpty === false
+			? `{${entry.column}}`
+			: `{${entry.column}|optional}`;
 	}
 
 	// AM-1. Ontology precedence: the config's own name, else the source file

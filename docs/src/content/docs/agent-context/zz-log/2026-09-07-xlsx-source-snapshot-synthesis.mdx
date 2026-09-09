@@ -1,0 +1,138 @@
+---
+title: "Which workbook bytes made this note — the XLSX source snapshot"
+description: "A spreadsheet import now records a fingerprint of the exact bytes it read, and every sheet it reads comes from that one snapshot instead of re-reading a file that may have changed mid-import. Written as a funnel: the thirty-second version, a two-sheet worked example, why it matters for real audit work, what was accepted and rejected, and the memory cost that was accepted deliberately."
+tags: [log, decision, provenance, import, xlsx, correctness, v0-1-7]
+date: 2026-09-07
+sidebar:
+  label: "09-07 · XLSX source snapshot"
+  order: -20260907
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="How to read this">
+This page narrows as it goes. **Section 1 is thirty seconds** and may be all you need. Sections 2 and 3 explain it with an example and say why an organization should care. Sections 4 onward are the decisions and the limits.
+
+This is a decision-and-rationale record. **What was built, and the current state of its verification, live only in [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#xlsx-source-byte-provenance-2026-09-07)** — that is the single delivery log, and this page does not restate it.
+</Aside>
+
+<Aside type="caution" title="Status">
+The implementation described here is **uncommitted, unmerged and unreleased**, and the v0.1.7 milestone remains in progress.
+
+**Partially verified as of 2026-09-07.** Core verification passed, an independent read-only review found no confirmed blockers, and the real-Obsidian XLSX proof passed — the note the real wizard wrote carried a fingerprint equal to a host-side hash of the exact bytes it was handed. **Acceptance was incomplete on that date:** the companion negative control, that a JSON import records *no* fingerprint, had not executed on either run. That was blocked by pre-existing gaps on the ordinary wizard's JSON path, not by anything in this change. Counts, both run outcomes, and the named gaps are in [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#xlsx-source-byte-provenance-2026-09-07); this page does not restate them.
+
+A scoped repair for those gaps was approved and implemented later on 2026-09-07 — see [ordinary import repairs](/crosswalker/agent-context/zz-log/2026-09-07-ordinary-import-repairs-synthesis/). Its core checks passed, and the follow-up run on that date produced no result at all.
+
+**Addendum, 2026-09-09 — the acceptance case executed and passed.** A single targeted real-Obsidian run reached it: a JSON import wrote a note whose nested source reference was **present**, naming the source file, and carried **no fingerprint inside it**. That is the intended distinction and it is narrower than "no provenance" — the note still records which file produced it. The XLSX check passed again in the same run — a same-payload digest comparison, not proof of external file authenticity. **Both earlier run outcomes above stand exactly as recorded**, the no-result run's cause remains unisolated and is not explained by this pass (and its zero captured bytes never supported a startup or phase inference), and an unresolved Tier 2 projection warning was present throughout, so nothing here is evidence about query freshness. This is a scoped Tier 1 runtime result on unchanged files, not a full-suite, mobile, scale or milestone clearance: no standalone build or other verification suite was run for it, though the normal E2E `onPrepare` build ran as part of the invocation. Detail and the full qualification list: [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#real-obsidian-acceptance-rerun-the-six-targeted-declarations-passed-2026-09-09).
+
+Nothing here is a release, a milestone closure, a quarantine clearance, or a claim about performance, large corpora, or mobile.
+</Aside>
+
+## 1. Thirty seconds
+
+**Crosswalker** imports compliance frameworks and other structured ontologies (NIST, CIS, MITRE, and any spreadsheet-shaped source) into an Obsidian vault as ordinary Markdown notes, each carrying a record of where it came from. That record is the note's [provenance](/crosswalker/concepts/terminology/) block.
+
+**What changed:** when the source is a spreadsheet (`.xlsx`), Crosswalker now takes **one snapshot of the file's bytes**, fingerprints that snapshot, and writes the fingerprint onto every note it produces from it. Everything the import reads afterwards — including a second worksheet pulled in by a declared join — is decoded from that same snapshot, never from a fresh read of the file on disk.
+
+**Why it was worth doing:** two separate reads of the same file can return different bytes, and the old code re-read the file for joined worksheets. A note could therefore be assembled from two different revisions of a workbook, with nothing recorded to say so.
+
+**What it is not:** it does not keep a copy of your file, does not detect drift for you later, and does not replay an import. Those remain separate, gated work — see [section 6](#6-what-this-does-not-do).
+
+---
+
+## 2. Two minutes: the two-sheet example
+
+Say you import `controls.xlsx`. It has two worksheets:
+
+| Sheet | Role |
+|---|---|
+| `Controls` | the primary collection — one row per control, the rows that become notes |
+| `Owners` | a secondary collection, pulled in by a declared [`source.joins`](/crosswalker/agent-context/zz-log/2026-08-27-source-contract-delivered/) so each control note can name its owner |
+
+While that import is running, someone hits save in Excel. Here is the difference.
+
+| | Before | Now |
+|---|---|---|
+| Reading the primary sheet | read the file, decode `Controls` | read the file **once**, keep those bytes privately, decode `Controls` from a copy of them |
+| Reading the joined sheet | **read the file again**, decode `Owners` | decode `Owners` from **another copy of the same kept bytes** |
+| If the file changed in between | the note mixes revision A's controls with revision B's owners, silently | impossible — both come from revision A |
+| What the note records | nothing about which bytes were used | `_crosswalker.source_ref.source_hash`, a fingerprint of revision A's exact bytes |
+
+Two details make the guarantee real rather than nominal:
+
+- **The fingerprint is computed before anything decodes the file.** Hashing after a decode step would fingerprint whatever the decoder left behind, not what was read.
+- **The decoder never receives the kept bytes themselves, only a disposable copy.** A spreadsheet library is free to write into the buffer it is handed; protecting the first read while letting a later read work from a mutated buffer would have looked correct and been wrong.
+
+Note that the file changing on disk is not exotic. Prior real-Obsidian work on this project established that a re-read can return different content **even when the file's reported size and modification time are unchanged** — so "check the size first" was never an available shortcut.
+
+**The scope of the guarantee, stated precisely.** It is *per parse*, not per wizard session. One `parseXLSXFile()` call covers its primary sheet and every joined sheet it later serves. Earlier in the wizard, listing a workbook's sheet names so you can pick one is a **separate discovery read** that takes no snapshot and computes no fingerprint. So a workbook edited between choosing a sheet and running the import is not something this change detects — what it guarantees is that the rows and joins of a single import, and the fingerprint written beside them, all describe one set of bytes.
+
+---
+
+## 3. Why an organization cares
+
+An audit question is rarely "does this note look right?" It is **"which version of the source does this assertion rest on?"**
+
+Before this change, the honest answer for a spreadsheet import was: the file named in the note, at some point during the run, probably. Now the note carries a fingerprint that pins the answer to exact bytes. Two consequences follow that a compliance team actually uses:
+
+- **Two notes claiming the same source can be compared.** Same fingerprint means the same bytes produced both. Different fingerprints mean different inputs, and that is visible without anyone remembering which export was open that afternoon.
+- **A mixed import is no longer possible from a mid-run save.** The failure it prevents is the quiet kind: no error, no empty result, just a control row from one revision paired with an owner from another.
+
+The limit worth stating in the same breath: **an absent fingerprint means nothing was recorded, not that the source is unchanged.** Native runtime imports without a recorded byte digest omit the fingerprint; older notes and output from external producers may already carry one, including notes from the fixture and crosswalk command-line tools. Reading absence as "unchanged" would be exactly the confident-wrong-answer failure mode this project keeps [ruling out](/crosswalker/agent-context/zz-log/2026-08-20-closure-cache-fix-and-what-it-means/).
+
+---
+
+## 4. What was accepted, rejected and deferred
+
+| | Decision |
+|---|---|
+| **Accepted** | Fingerprint the complete pre-parse bytes of a native spreadsheet read, once per parse, **before** any decode |
+| **Accepted** | Every worksheet the same parse serves — primary and joined — decodes from that one kept snapshot |
+| **Accepted** | Hand the decoder a defensive copy each time, so a mutating decoder cannot change what a later join sees |
+| **Accepted** | Write the value into the **existing** `_crosswalker.source_ref.source_hash` field, whose meaning has said "hash of the source file at import time" since it was defined |
+| **Accepted** | Carry it through **every** live provenance writer, not just the first one — concept rows via both generation entrances, enrichment, hubs, and facet hubs (source: the `buildProvenance()` call sites in `src/generation/generation-engine.ts`) |
+| **Rejected** | Any new schema field. `spec/tier1.schema.json` is untouched and no schema version moved; this is a runtime producer for a contract that already existed |
+| **Rejected** | Inventing a digest for CSV, JSON or SSSOM imports out of decoded text or parsed rows. A fingerprint of decoded output answers a different question than a fingerprint of source bytes, and conflating them would make the field mean two things |
+| **Rejected** | Forcing a rewrite to backfill the field onto existing notes. Existing skip, no-op, kept-host and user-owned-frontmatter preservation stay authoritative; this change adds no write solely to populate the new field |
+| **Rejected** | Tightening validation on the older permissive `source_hash` string, which external producers already write against |
+| **Deferred** | Everything the fingerprint enables but does not do: retained source copies, drift diagnosis at replay time, a binding that records parser selectors, and replay execution. All of that sits behind Track 2 of the [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) and the still-open Gate 2 decisions |
+
+## 5. The memory trade-off, taken deliberately
+
+Keeping the bytes costs memory, and the owner's standing direction settled the trade: **correctness and a usable workflow first; performance work is additive and comes later.**
+
+The honest shape of the cost:
+
+- A spreadsheet parse now retains its captured payload — the snapshot's **actual byte length** — for as long as the parsed result's join handle is reachable. Not an assumed file size; the bytes that were actually read.
+- Hashing and each defensive copy add transient allocations on top of that.
+- What is *not* retained is the decoded workbook. A joined sheet is decoded on demand from the kept bytes and then released, rather than the whole parsed workbook being held open.
+- **No measurement of peak memory, corpus scale, or mobile behavior was taken**, so no claim about any of them is made here.
+
+One boundary matters more than the number. This is an **import-session parsing buffer**, not stored source retention. It is not written to disk, not put in settings, not placed in a draft or a cache, and not exposed as an enumerable property on the parsed result. The [Gate 1 D4 decision](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/) requires explicit opt-in before Crosswalker keeps a copy of anyone's source file, and that decision drew the same line itself: reading a file to parse it, and the in-memory buffers that requires, is ordinary operation. **Nothing here implies consent to a retained copy, and nothing here creates one.**
+
+## 6. What this does NOT do
+
+- It does **not** store your source file, and creates no path by which a copy could be recovered. A fingerprint proves a file has not changed; it cannot bring the file back.
+- It does **not** diagnose drift. Nothing compares a stored fingerprint against a file you select later — that is Track 2 work.
+- It does **not** identify decode selectors. Which sheet, which header row, and which filters were applied are not part of the fingerprint; two imports of the same workbook with different settings fingerprint identically.
+- It does **not** authenticate anything. It is a content digest, not a signature, and placing a digest and rows on one object is not a proof to an arbitrary caller that they belong together.
+- It does **not** complete replay, add storage, add a recipe or source library, or add UI.
+- It does **not** close the [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) or satisfy any Track 2 checkbox, and it does **not** reopen or alter any Gate 1 answer.
+- It does **not** change CSV, JSON or SSSOM imports, the external fixture generator (which has had its own raw-byte provenance all along), or the meaning or stored value of any other hash.
+
+## 7. Related
+
+- [CHANGELOG.md — XLSX source-byte provenance](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#xlsx-source-byte-provenance-2026-09-07) — the single delivery log for this slice; what was built, which checks ran, and what remains unverified
+- [Ordinary import repairs](/crosswalker/agent-context/zz-log/2026-09-07-ordinary-import-repairs-synthesis/) — the approved, implemented, not-yet-verified repair for the ordinary-wizard gaps that left this slice's negative control unreached
+- [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/) — the `_crosswalker` provenance block and the unchanged `source_ref.source_hash` contract this fills in at runtime
+- [Save and exact replay — Gate 1 ratified](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/) — D4's opt-in boundary for retained source copies, and the recipe-revision digest that answers a different question
+- [Save and exact replay — decision register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) — the multi-fingerprint model, and the Gate 2 decisions still open
+- [Source contract delivered (Ch 46)](/crosswalker/agent-context/zz-log/2026-08-27-source-contract-delivered/) — `source.joins`, the same-source-bytes rule this change makes true rather than assumed
+- [Reimport is identity reconciliation](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/) · [Import set ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/) — the preservation rules that stay authoritative over any urge to backfill
+- [A silent wrong-answer bug](/crosswalker/agent-context/zz-log/2026-08-20-closure-cache-fix-and-what-it-means/) — the same failure shape: confidently incomplete rather than saying "unknown"
+- [Portable ImportRecipe fidelity synthesis](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/) — the preservation boundary this sits beside
+- [ETL and import](/crosswalker/concepts/etl-and-import/) — schema-as-primitive; external producers supplying their own digest remain first-class
+- [Artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) — why a byte fingerprint adds no new artifact noun
+- [Ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) — the Acquire stage this belongs to
+- [Terminology](/crosswalker/concepts/terminology/) — provenance, source reference, and the fingerprint vocabulary
+- [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) — Track 2, where the remaining source-binding and replay work lives

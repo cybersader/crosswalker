@@ -10,19 +10,44 @@
  * skipping via headerRow.
  */
 
+import { createHash } from 'node:crypto';
 import { TextEncoder, TextDecoder } from 'node:util';
 import * as XLSX from 'xlsx';
 import { parseXLSXFile, listXLSXSheets } from '../src/import/parsers/xlsx-parser';
 import { parseJSONFile } from '../src/import/parsers/json-parser';
 
-/** Build an in-memory .xlsx File from rows of cells. */
-function makeXlsxFile(sheets: Record<string, unknown[][]>): File {
+/** Build one in-memory .xlsx payload from rows of cells. */
+function makeXlsxBytes(sheets: Record<string, unknown[][]>): ArrayBuffer {
 	const wb = XLSX.utils.book_new();
 	for (const [name, rows] of Object.entries(sheets)) {
 		XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name);
 	}
-	const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
-	return makeFile(buf, 'test.xlsx');
+	return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+}
+
+/** Build an in-memory .xlsx File from rows of cells. */
+function makeXlsxFile(sheets: Record<string, unknown[][]>): File {
+	return makeFile(makeXlsxBytes(sheets), 'test.xlsx');
+}
+
+const nodeSourceDigest = (payload: ArrayBuffer): string =>
+	`sha256-${createHash('sha256').update(new Uint8Array(payload)).digest('hex')}`;
+
+function copyBuffer(payload: ArrayBuffer): ArrayBuffer {
+	return payload.slice(0);
+}
+
+/** File-shaped double whose bytes can change between reads while size stays arbitrary. */
+function makeChangingXlsxFile(payloads: ArrayBuffer[], declaredSize = payloads[0]?.byteLength ?? 0): File & { arrayBuffer: jest.Mock } {
+	let read = 0;
+	const file = {
+		name: 'changing.xlsx',
+		type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+		size: declaredSize,
+		lastModified: 0,
+		arrayBuffer: jest.fn(async () => copyBuffer(payloads[Math.min(read++, payloads.length - 1)])),
+	} as unknown as File & { arrayBuffer: jest.Mock };
+	return file;
 }
 
 function makeJsonFile(value: unknown): File {
@@ -116,6 +141,100 @@ describe('parseXLSXFile', () => {
 		});
 		const result = await parseXLSXFile(file);
 		expect(result.columns).toEqual(['SCF Control Description']);
+	});
+
+	it('records the independent digest of the exact captured payload, using byteLength rather than File.size', async () => {
+		const payload = makeXlsxBytes({ Data: [['id'], ['A-1']] });
+		const file = makeChangingXlsxFile([payload], 1);
+		const result = await parseXLSXFile(file);
+		expect(file.size).toBe(1);
+		expect(payload.byteLength).toBeGreaterThan(file.size);
+		expect(result.sourceByteDigest).toBe(nodeSourceDigest(payload));
+		expect(file.arrayBuffer).toHaveBeenCalledTimes(1);
+	});
+
+	it('identical bytes keep the digest while changed workbook bytes move it even when primary rows stay equal', async () => {
+		const payloadA = makeXlsxBytes({ Data: [['id'], ['A-1']], Metadata: [['value'], ['first']] });
+		const samePayload = copyBuffer(payloadA);
+		const payloadB = makeXlsxBytes({ Data: [['id'], ['A-1']], Metadata: [['value'], ['second']] });
+		const a = await parseXLSXFile(makeFile(payloadA, 'a.xlsx'), { sheet: 'Data' });
+		const same = await parseXLSXFile(makeFile(samePayload, 'same.xlsx'), { sheet: 'Data' });
+		const changed = await parseXLSXFile(makeFile(payloadB, 'b.xlsx'), { sheet: 'Data' });
+		expect(a.rows).toEqual(changed.rows);
+		expect(a.sourceByteDigest).toBe(same.sourceByteDigest);
+		expect(a.sourceByteDigest).toBe(nodeSourceDigest(payloadA));
+		expect(changed.sourceByteDigest).toBe(nodeSourceDigest(payloadB));
+		expect(changed.sourceByteDigest).not.toBe(a.sourceByteDigest);
+	});
+
+	it('primary and repeated joined-sheet reads use the first captured snapshot and never reread a changed File', async () => {
+		const payloadA = makeXlsxBytes({
+			Primary: [['id'], ['A-1']],
+			Lookup: [['id', 'label'], ['A-1', 'from A']],
+		});
+		const payloadB = makeXlsxBytes({
+			Primary: [['id'], ['A-1']],
+			Lookup: [['id', 'label'], ['A-1', 'from B']],
+		});
+		const file = makeChangingXlsxFile([payloadA, payloadB]);
+		const result = await parseXLSXFile(file, { sheet: 'Primary' });
+		const container = result.container;
+		expect(container?.kind).toBe('workbook');
+		const firstJoin = container?.kind === 'workbook'
+			? await container.readSheet('Lookup', 0)
+			: [];
+		const secondJoin = container?.kind === 'workbook'
+			? await container.readSheet('Lookup', 0)
+			: [];
+		expect(result.sourceByteDigest).toBe(nodeSourceDigest(payloadA));
+		expect(firstJoin).toEqual([{ id: 'A-1', label: 'from A' }]);
+		expect(secondJoin).toEqual(firstJoin);
+		expect(file.arrayBuffer).toHaveBeenCalledTimes(1);
+	});
+
+	it('gives every decoder call a defensive copy so decoder mutation cannot corrupt later joins', async () => {
+		const payload = makeXlsxBytes({
+			Primary: [['id'], ['A-1']],
+			Lookup: [['id', 'label'], ['A-1', 'stable']],
+		});
+		// Spy on the CommonJS export itself. The TypeScript namespace wrapper exposes
+		// read through a non-configurable getter, while xlsx-parser resolves this
+		// underlying property on every call.
+		// eslint-disable-next-line @typescript-eslint/no-var-requires
+		const xlsxRuntime = require('xlsx') as typeof XLSX;
+		const originalRead = xlsxRuntime.read;
+		const seenInputs: Uint8Array[] = [];
+		const readSpy = jest.spyOn(xlsxRuntime, 'read').mockImplementation(((input: unknown, options?: XLSX.ParsingOptions) => {
+			const bytes = input instanceof Uint8Array
+				? input
+				: new Uint8Array(input as ArrayBuffer);
+			seenInputs.push(bytes);
+			const workbook = originalRead(input as any, options as any);
+			bytes.fill(0xa5);
+			return workbook;
+		}) as typeof XLSX.read);
+		try {
+			const result = await parseXLSXFile(makeFile(payload, 'mutating-decoder.xlsx'), { sheet: 'Primary' });
+			const container = result.container;
+			expect(container?.kind).toBe('workbook');
+			const first = container?.kind === 'workbook' ? await container.readSheet('Lookup', 0) : [];
+			const second = container?.kind === 'workbook' ? await container.readSheet('Lookup', 0) : [];
+			expect(first).toEqual([{ id: 'A-1', label: 'stable' }]);
+			expect(second).toEqual(first);
+			expect(result.sourceByteDigest).toBe(nodeSourceDigest(payload));
+			expect(seenInputs).toHaveLength(3);
+			expect(new Set(seenInputs.map((bytes) => bytes.buffer)).size).toBe(3);
+		} finally {
+			readSpy.mockRestore();
+		}
+	});
+
+	it('does not expose a raw snapshot or workbook as an enumerable ParsedData value', async () => {
+		const result = await parseXLSXFile(makeXlsxFile({ Data: [['id'], ['A-1']] }));
+		const enumerableValues = Object.values(result);
+		expect(enumerableValues.some((value) => value instanceof ArrayBuffer || ArrayBuffer.isView(value))).toBe(false);
+		expect(Object.keys(result)).toEqual(['columns', 'rows', 'rowCount', 'sheetName', 'sourceByteDigest', 'container']);
+		expect(JSON.stringify(result)).not.toContain('PK');
 	});
 
 	it('listXLSXSheets returns all sheet names in order', async () => {

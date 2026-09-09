@@ -86,8 +86,12 @@ const RECIPE_WITH_USER_PRESERVE: Recipe = {
 
 const ROWS = [{ id: 'T1078', status: 'draft' }];
 
+function parsedRows(rows: Record<string, unknown>[]): ParsedData {
+	return { columns: ['id', 'status'], rows: rows.map((row) => ({ ...row })), rowCount: rows.length };
+}
+
 function parsed(): ParsedData {
-	return { columns: ['id', 'status'], rows: [...ROWS], rowCount: ROWS.length };
+	return parsedRows(ROWS);
 }
 
 const CONFIG: Partial<ImportRecipe> = {
@@ -98,6 +102,15 @@ const CONFIG: Partial<ImportRecipe> = {
 		links: [],
 		body: [],
 		filename: { template: '{id}.md', sanitize: true },
+	},
+};
+
+/** Populated classic mapping that exercises the supplemental legacy merge. */
+const CONFIG_WITH_STATUS_MAPPING: Partial<ImportRecipe> = {
+	...CONFIG,
+	mapping: {
+		...CONFIG.mapping!,
+		frontmatter: [{ column: 'status', key: 'status' }],
 	},
 };
 
@@ -172,5 +185,89 @@ describe('generateNotes honors user_preserve on re-import merge (M2)', () => {
 		const fm = yaml.load(/^---\n([\s\S]*?)\n---/.exec(after)![1]) as Record<string, unknown>;
 		// No user_preserve declared -> managed value wins, overwriting the hand-edit.
 		expect(fm.status).toBe('draft');
+	});
+
+	it('removes a stale declared managed value when an allowed refresh now omits it', async () => {
+		const optionalRecipe: Recipe = {
+			...RECIPE_WITH_USER_PRESERVE,
+			target: {
+				...RECIPE_WITH_USER_PRESERVE.target,
+				also_emit: { frontmatter: { managed: { status: '{status|optional}' } } },
+			},
+		};
+		const { app, files } = makeApp();
+		await generateNotes(app, parsed(), CONFIG_WITH_STATUS_MAPPING, baseOptions(optionalRecipe));
+		const notePath = 'Frameworks/T1078.md';
+		const importSet = ownedImportSet(files, notePath);
+
+		const result = await generateNotes(
+			app,
+			parsedRows([{ id: 'T1078' }]),
+			CONFIG_WITH_STATUS_MAPPING,
+			baseOptions(optionalRecipe, importSet),
+		);
+
+		expect(result.errors).toEqual([]);
+		const fm = yaml.load(/^---\n([\s\S]*?)\n---/.exec(files.get(notePath)!)![1]) as Record<string, unknown>;
+		expect(fm).not.toHaveProperty('status');
+	});
+
+	it('does not remove a stale managed value when overwrite mode skips the note', async () => {
+		const optionalRecipe: Recipe = {
+			...RECIPE_WITH_USER_PRESERVE,
+			target: {
+				...RECIPE_WITH_USER_PRESERVE.target,
+				also_emit: { frontmatter: { managed: { status: '{status|optional}' } } },
+			},
+		};
+		const { app, files } = makeApp();
+		await generateNotes(app, parsed(), CONFIG_WITH_STATUS_MAPPING, baseOptions(optionalRecipe));
+		const notePath = 'Frameworks/T1078.md';
+		const before = files.get(notePath)!;
+		const importSet = ownedImportSet(files, notePath);
+
+		const result = await generateNotes(
+			app,
+			parsedRows([{ id: 'T1078' }]),
+			CONFIG_WITH_STATUS_MAPPING,
+			{ ...baseOptions(optionalRecipe, importSet), overwriteMode: 'skip' },
+		);
+
+		expect(result.skipped).toEqual([notePath]);
+		expect(files.get(notePath)).toBe(before);
+		const fm = yaml.load(/^---\n([\s\S]*?)\n---/.exec(files.get(notePath)!)![1]) as Record<string, unknown>;
+		expect(fm.status).toBe('draft');
+	});
+
+	it('user_preserve wins when a declared managed value is omitted on refresh', async () => {
+		const optionalPreserveRecipe: Recipe = {
+			...RECIPE_WITH_USER_PRESERVE,
+			target: {
+				...RECIPE_WITH_USER_PRESERVE.target,
+				also_emit: {
+					frontmatter: {
+						managed: { status: '{status|optional}' },
+						user_preserve: ['status'],
+					},
+				},
+			},
+		};
+		const { app, files } = makeApp();
+		await generateNotes(app, parsed(), CONFIG_WITH_STATUS_MAPPING, baseOptions(optionalPreserveRecipe));
+		const notePath = 'Frameworks/T1078.md';
+		const first = files.get(notePath)!;
+		files.set(notePath, first.replace('status: draft', 'status: approved'));
+		const importSet = ownedImportSet(files, notePath);
+
+		const result = await generateNotes(
+			app,
+			parsedRows([{ id: 'T1078' }]),
+			CONFIG_WITH_STATUS_MAPPING,
+			baseOptions(optionalPreserveRecipe, importSet),
+		);
+
+		expect(result.errors).toEqual([]);
+		const fm = yaml.load(/^---\n([\s\S]*?)\n---/.exec(files.get(notePath)!)![1]) as Record<string, unknown>;
+		expect(fm.status).toBe('approved');
 	});
 });

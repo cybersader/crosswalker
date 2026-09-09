@@ -1736,6 +1736,12 @@ export class ImportFlow {
 			text: 'Where it lands, what gets made, and why these settings. Change anything, then generate.',
 			cls: 'setting-item-description',
 		});
+		if (this.jsonWhere.trim()) {
+			container.createEl('p', {
+				text: 'Preview uses unfiltered source samples. Your filter is applied during generation.',
+				cls: 'setting-item-description',
+			});
+		}
 		if (!this.workbench) {
 			container.createEl('p', { text: 'Go back and configure the mapping first.' });
 			return;
@@ -2824,6 +2830,12 @@ export class ImportFlow {
 			text: 'Review the folder structure and sample notes before generating.',
 			cls: 'setting-item-description'
 		});
+		if (this.jsonWhere.trim()) {
+			container.createEl('p', {
+				text: 'Preview uses unfiltered source samples. Your filter is applied during generation.',
+				cls: 'setting-item-description',
+			});
+		}
 
 		if (!this.parsedData) {
 			container.createEl('p', { text: 'No data to preview.' });
@@ -3895,18 +3907,12 @@ export class ImportFlow {
 				options.recipeOverride = this.workbench.buildRecipe();
 			}
 
-			// The wizard's filter field keeps its comma shorthand, but it now writes
-			// `source.where`. One predicate for CSV, XLSX and JSON alike, guarded and
-			// portable with the recipe, instead of a JSON-only silent one.
-			if (this.jsonWhere) {
-				const where = shorthandToSourceExpression(this.jsonWhere);
-				if (where && options.recipeOverride) {
-					options.recipeOverride = {
-						...options.recipeOverride,
-						source: { ...options.recipeOverride.source, where },
-					};
-				}
-			}
+			// The UI keeps its comma shorthand. GenerationOptions carries the one
+			// translated run expression across BOTH ordinary and workbench modes; the
+			// engine applies it after resolving the recipe without changing which entry
+			// path owns provenance. Blank input supplies no override.
+			const sourceWhere = shorthandToSourceExpression(this.jsonWhere);
+			if (sourceWhere) options.sourceWhere = sourceWhere;
 
 			// Run generation
 			const result = await generateNotes(

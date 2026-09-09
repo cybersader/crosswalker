@@ -117,25 +117,35 @@ function utf8Encode(str: string): Uint8Array {
 }
 
 /**
- * sha256 over the UTF-8 bytes of `input`. Returns lowercase 64-char hex.
+ * sha256 over an exact byte view. Returns lowercase 64-char hex.
  * Pure, synchronous, deterministic. Standard FIPS 180-4 SHA-256.
+ *
+ * The view's byteOffset/byteLength are authoritative; bytes elsewhere in its
+ * backing allocation are not hashed. Padding length is calculated with ordinary
+ * number arithmetic rather than 32-bit bitwise operators, which would wrap an
+ * allocation length above 4 GiB before Uint8Array gets a chance to reject it.
  */
-export function sha256Hex(input: string): string {
-	const msg = utf8Encode(input);
-	const bitLen = msg.length * 8;
+export function sha256BytesHex(bytes: Uint8Array): string {
+	const byteLen = bytes.byteLength;
+	const bitLen = byteLen * 8;
+	if (!Number.isSafeInteger(bitLen)) {
+		throw new RangeError('SHA-256 input is too large to represent its bit length safely.');
+	}
 
 	// Padding: 0x80 byte, then zeros, then the 64-bit big-endian bit length,
 	// bringing the total length to a multiple of 64 bytes.
-	const withMarker = msg.length + 1;
-	const totalLen = ((withMarker + 8 + 63) & ~63) >>> 0;
+	const totalLen = Math.ceil((byteLen + 1 + 8) / 64) * 64;
+	if (!Number.isSafeInteger(totalLen)) {
+		throw new RangeError('SHA-256 padded input length is too large to allocate safely.');
+	}
 	const buf = new Uint8Array(totalLen);
-	buf.set(msg, 0);
-	buf[msg.length] = 0x80;
+	buf.set(bytes, 0);
+	buf[byteLen] = 0x80;
 	const view = new DataView(buf.buffer);
-	// bitLen fits safely in a JS number (< 2^53) for any input this plugin
-	// will ever hash (recipe/row-scale data, not multi-petabyte streams).
+	// bitLen fits safely in a JS number by the guard above. setUint32 writes the
+	// two halves without using a 32-bit expression to calculate allocation size.
 	const hi = Math.floor(bitLen / 0x100000000);
-	const lo = bitLen >>> 0;
+	const lo = bitLen % 0x100000000;
 	view.setUint32(totalLen - 8, hi, false);
 	view.setUint32(totalLen - 4, lo, false);
 
@@ -185,6 +195,11 @@ export function sha256Hex(input: string): string {
 	return [h0, h1, h2, h3, h4, h5, h6, h7].map((x) => x.toString(16).padStart(8, '0')).join('');
 }
 
+/** sha256 over the existing manual UTF-8 encoding of `input`. */
+export function sha256Hex(input: string): string {
+	return sha256BytesHex(utf8Encode(input));
+}
+
 // ---------------------------------------------------------------------------
 // Provenance hash helpers
 // ---------------------------------------------------------------------------
@@ -192,6 +207,11 @@ export function sha256Hex(input: string): string {
 /** Wraps a hex digest in the `sha256-{hex}` format spec/tier1.schema.json's `sha256_cid` $def requires. */
 export function toSha256Cid(hex: string): string {
 	return `sha256-${hex}`;
+}
+
+/** Digest the complete pre-parse bytes of one source payload. */
+export function computeSourceByteDigest(bytes: Uint8Array): string {
+	return toSha256Cid(sha256BytesHex(bytes));
 }
 
 /**

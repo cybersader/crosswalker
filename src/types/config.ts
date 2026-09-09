@@ -215,6 +215,14 @@ export interface ParsedData {
 	/** Total row count if known. -1 (or undefined) if streaming and count is unknown. */
 	rowCount: number;
 	/**
+	 * Digest of the complete pre-parse source bytes associated with these rows.
+	 * Native XLSX parsing emits `sha256-<64 lowercase hex>` from its captured
+	 * workbook payload. Absent means byte identity was not recorded, never that
+	 * the source is unchanged. Programmatic producers are responsible for keeping
+	 * any supplied digest associated with the rows it describes.
+	 */
+	sourceByteDigest?: string;
+	/**
 	 * The container the PRIMARY collection was read out of, so `source.joins`
 	 * can locate a secondary collection inside the SAME source bytes (Ch 46
 	 * source contract 4.2). Absent means no container was recorded, and a
@@ -222,9 +230,11 @@ export interface ParsedData {
 	 * finding nothing.
 	 *
 	 * Every accessor is LAZY and async on purpose: a parser attaches a handle,
-	 * never a retained workbook or document. A run that declares no join never
-	 * calls one, so it pays no memory for this field — which is what makes the
-	 * declaration additive in the memory story as well as in the schema.
+	 * never a retained decoded workbook or document. Native XLSX retains its
+	 * private captured byte snapshot while this handle is reachable so every
+	 * joined sheet comes from the same bytes; each access re-decodes a defensive
+	 * copy. A run with no join avoids secondary workbook decoding, but still pays
+	 * the captured payload's actual byteLength plus transient hash/decoder copies.
 	 */
 	container?: SourceContainer;
 }

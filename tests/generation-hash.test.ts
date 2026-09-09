@@ -4,14 +4,19 @@
  * field-set semantics documented in src/generation/hash.ts.
  */
 
+import { createHash } from 'node:crypto';
 import {
 	sha256Hex,
+	sha256BytesHex,
+	computeSourceByteDigest,
 	canonicalStringify,
 	computeConceptCid,
 	identityScopeForNoteKind,
 	computeRecipeHash,
 	toSha256Cid,
 } from '../src/generation/hash';
+
+const nodeSha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
 describe('sha256Hex', () => {
 	// Official NIST/FIPS 180-4 test vectors.
@@ -45,6 +50,51 @@ describe('sha256Hex', () => {
 
 	it('produces 64 lowercase hex chars', () => {
 		expect(sha256Hex('anything')).toMatch(/^[a-f0-9]{64}$/);
+	});
+});
+
+describe('sha256BytesHex', () => {
+	it('matches an independent Node oracle for empty and official FIPS byte vectors', () => {
+		const vectors = [
+			new Uint8Array(),
+			Uint8Array.from(Buffer.from('abc', 'ascii')),
+			Uint8Array.from(Buffer.from('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq', 'ascii')),
+		];
+		for (const bytes of vectors) expect(sha256BytesHex(bytes)).toBe(nodeSha256(bytes));
+	});
+
+	it('hashes binary bytes including NUL and non-UTF8 values without text conversion', () => {
+		const bytes = Uint8Array.from([0x00, 0xff, 0x80, 0xc3, 0x28, 0x00, 0x7f]);
+		expect(sha256BytesHex(bytes)).toBe(nodeSha256(bytes));
+		expect(sha256BytesHex(bytes)).not.toBe(sha256Hex(String.fromCharCode(...bytes)));
+	});
+
+	it('keeps UTF-8 parity with the existing string helper', () => {
+		const text = 'NIST 800-53 r5 — Ünïcödé ✓';
+		const bytes = Uint8Array.from(Buffer.from(text, 'utf8'));
+		expect(sha256BytesHex(bytes)).toBe(nodeSha256(bytes));
+		expect(sha256BytesHex(bytes)).toBe(sha256Hex(text));
+	});
+
+	it.each([55, 56, 63, 64, 65])('matches the oracle at the %i-byte padding boundary', (length) => {
+		const bytes = Uint8Array.from({ length }, (_, index) => (index * 37 + 11) & 0xff);
+		expect(sha256BytesHex(bytes)).toBe(nodeSha256(bytes));
+	});
+
+	it('respects a nonzero-offset view instead of hashing the backing allocation', () => {
+		const backing = Uint8Array.from([9, 8, 7, 1, 2, 3, 4, 6, 5]);
+		const view = new Uint8Array(backing.buffer, 3, 4);
+		expect([...view]).toEqual([1, 2, 3, 4]);
+		expect(sha256BytesHex(view)).toBe(nodeSha256(view));
+		expect(sha256BytesHex(view)).not.toBe(nodeSha256(backing));
+	});
+
+	it('does not mutate its input and wraps source digests in the existing CID format', () => {
+		const bytes = Uint8Array.from([0, 1, 2, 254, 255]);
+		const before = Uint8Array.from(bytes);
+		const hex = nodeSha256(bytes);
+		expect(computeSourceByteDigest(bytes)).toBe(`sha256-${hex}`);
+		expect(bytes).toEqual(before);
 	});
 });
 
