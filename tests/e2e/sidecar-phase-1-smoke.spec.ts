@@ -2,15 +2,18 @@
  * sidecar-phase-1-smoke.spec.ts — Phase 1 substrate-scaffolding smoke test
  *
  * Verifies that v0.1.5 Phase 1 substrate is wired correctly (WASM-A path):
- *   1. sqlite3.wasm artifact is present in plugin folder
- *   2. plugin.openTier2() succeeds without throwing
- *   3. sqlite-wasm DB is operational (SELECT 1 returns 1)
- *   4. sqlite_version() returns a real version string (smoke check that
+ *   1. ordinary installation contains only the standard plugin files, with no
+ *      loose SQLite runtime assets
+ *   2. automatic startup projection completes against the real embedded runtime
+ *      and yields the exact seeded query result
+ *   3. plugin.openTier2() succeeds without throwing
+ *   4. sqlite-wasm DB is operational (SELECT 1 returns 1)
+ *   5. sqlite_version() returns a real version string (smoke check that
  *      the runtime is fully initialized — sqlite-vec deferred per Ch 24
  *      §5 Q4, revisit by 2026-11-06)
- *   5. Schema migrations applied (schema_meta reaches the CURRENT authoritative
+ *   6. Schema migrations applied (schema_meta reaches the CURRENT authoritative
  *      version, `TIER2_SCHEMA_VERSION` from src/tier2/migrations.ts)
- *   6. clear-tier-2-sidecar command exists and registers
+ *   7. clear-tier-2-sidecar command exists and registers
  *
  * NOT a milestone gate (that's the bigger sidecar.spec.ts in Phase 5).
  * This is a Phase-1-specific smoke test to confirm the substrate stands up.
@@ -27,15 +30,91 @@ import { TIER2_SCHEMA_VERSION } from '../../src/tier2/migrations';
 describe('Crosswalker plugin — v0.1.5 Phase 1 substrate scaffolding (smoke)', function () {
 	this.timeout(120000);
 
-	it('sqlite3.wasm artifact is present in plugin folder', async () => {
+	it('ordinary install has the standard three distribution files and no loose SQLite assets', async () => {
 		const found = await browser.executeObsidian(async ({ app }) => {
 			// @ts-expect-error - internal plugin lookup
 			const plugin = app.plugins.plugins['crosswalker'];
 			const pluginPath = `${app.vault.configDir}/plugins/${plugin.manifest.id}`;
-			const wasmExists = await app.vault.adapter.exists(`${pluginPath}/sqlite3.wasm`);
-			return { wasmExists };
+			const listed = await app.vault.adapter.list(pluginPath);
+			const fileNames = listed.files.map((value: string) => value.split('/').pop() ?? value).sort();
+			const distributionFiles = fileNames.filter((value: string) =>
+				['main.js', 'manifest.json', 'styles.css', 'sqlite3.wasm', 'sqlite3.mjs'].includes(value));
+			return { fileNames, distributionFiles };
 		});
-		expect(found.wasmExists).toBe(true);
+		expect(found.distributionFiles).toEqual(['main.js', 'manifest.json', 'styles.css']);
+		expect(found.fileNames).not.toContain('sqlite3.wasm');
+		expect(found.fileNames).not.toContain('sqlite3.mjs');
+	});
+
+	it('automatic startup projection completes and yields the exact seeded SQLite query result', async () => {
+		const startup = await browser.executeObsidian(async ({ app }) => {
+			// @ts-expect-error - internal plugin lookup
+			const plugin = app.plugins.plugins['crosswalker'];
+			const deadline = Date.now() + 30_000;
+			let terminal: any = null;
+			while (Date.now() < deadline) {
+				const events = plugin.debug.getRingBuffer();
+				terminal = events.find((event: any) =>
+					event.category === 'tier2'
+					&& (event.op === 'auto-projection-complete' || event.op === 'auto-projection-failed'));
+				if (terminal) break;
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+			const handle = plugin.tier2Handle;
+			const diagnostics = terminal ? {
+				trace_id: terminal.trace_id,
+				readiness: terminal.readiness,
+				errorTotal: terminal.errorTotal,
+				errorSamples: terminal.errorSamples,
+				errorSamplesTruncated: terminal.errorSamplesTruncated,
+			} : null;
+			if (!terminal || terminal.op !== 'auto-projection-complete' || !handle) {
+				return { terminal, diagnostics, handlePresent: Boolean(handle), concepts: [], status: {} };
+			}
+			const concepts = handle.db.exec({
+				sql: 'SELECT curie FROM concepts ORDER BY curie',
+				rowMode: 'array',
+				returnValue: 'resultRows',
+			}) as unknown[][];
+			const statusRows = handle.db.exec({
+				sql: "SELECT key, value FROM schema_meta WHERE key IN ('last_projected_at','last_projection_mode','last_projection_success') ORDER BY key",
+				rowMode: 'array',
+				returnValue: 'resultRows',
+			}) as unknown[][];
+			return {
+				terminal,
+				diagnostics,
+				handlePresent: true,
+				concepts: concepts.map((row) => String(row[0])),
+				status: Object.fromEntries(statusRows.map((row) => [String(row[0]), String(row[1])])),
+			};
+		});
+		console.log('[tier2-startup-witness] ' + JSON.stringify({
+			terminal: startup.terminal,
+			diagnostics: startup.diagnostics,
+		}));
+
+		expect(startup.terminal?.op).toBe('auto-projection-complete');
+		expect(startup.terminal?.success).toBe(true);
+		expect(startup.terminal?.aborted).toBe(false);
+		expect(startup.terminal?.readiness?.pending).toBe(0);
+		expect(startup.terminal?.readiness?.timedOut).toBe(false);
+		expect(startup.terminal?.counts?.concepts).toBe(9);
+		expect(startup.handlePresent).toBe(true);
+		expect(startup.status.last_projection_mode).toBe('full');
+		expect(startup.status.last_projection_success).toBe('true');
+		expect(startup.status.last_projected_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+		expect(startup.concepts).toEqual([
+			'e2e-seed-secondary:CONTROL-1',
+			'nist-mini:AC-1',
+			'nist-mini:AC-2',
+			'nist-mini:AC-2(1)',
+			'nist-mini:AC-2(2)',
+			'nist-mini:AC-3',
+			'nist-mini:AU-1',
+			'nist-mini:AU-2',
+			'nist-mini:AU-3',
+		]);
 	});
 
 	it('plugin.openTier2() opens the sidecar without throwing', async () => {

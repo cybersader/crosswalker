@@ -100,6 +100,59 @@ async function clickPrimaryNav(): Promise<boolean> {
 	});
 }
 
+async function observeAutomaticStartupProjection(): Promise<any> {
+	return browser.executeObsidian(async ({ app }) => {
+		// @ts-expect-error — internal plugin registry used only by E2E.
+		const plugin = app.plugins.plugins.crosswalker;
+		const deadline = Date.now() + 30_000;
+		let terminal: any = null;
+		while (Date.now() < deadline) {
+			terminal = plugin.debug.getRingBuffer().find((event: any) =>
+				event.category === 'tier2'
+				&& (event.op === 'auto-projection-complete' || event.op === 'auto-projection-failed'));
+			if (terminal) break;
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		const pluginPath = `${app.vault.configDir}/plugins/${plugin.manifest.id}`;
+		const listed = await app.vault.adapter.list(pluginPath);
+		const fileNames = listed.files.map((value: string) => value.split('/').pop() ?? value).sort();
+		const handle = plugin.tier2Handle;
+		const diagnostics = terminal ? {
+			trace_id: terminal.trace_id,
+			readiness: terminal.readiness,
+			errorTotal: terminal.errorTotal,
+			errorSamples: terminal.errorSamples,
+			errorSamplesTruncated: terminal.errorSamplesTruncated,
+		} : null;
+		if (!terminal || terminal.op !== 'auto-projection-complete' || !handle) {
+			return { terminal, diagnostics, handlePresent: Boolean(handle), fileNames, counts: {}, status: {} };
+		}
+		const countRows = handle.db.exec({
+			sql: `
+				SELECT 'concepts', COUNT(*) FROM concepts
+				UNION ALL SELECT 'mappings', COUNT(*) FROM mappings
+				UNION ALL SELECT 'junction_notes', COUNT(*) FROM junction_notes
+				UNION ALL SELECT 'ontologies', COUNT(*) FROM ontologies
+			`,
+			rowMode: 'array',
+			returnValue: 'resultRows',
+		}) as unknown[][];
+		const statusRows = handle.db.exec({
+			sql: "SELECT key, value FROM schema_meta WHERE key IN ('last_projected_at','last_projection_mode','last_projection_success') ORDER BY key",
+			rowMode: 'array',
+			returnValue: 'resultRows',
+		}) as unknown[][];
+		return {
+			terminal,
+			diagnostics,
+			handlePresent: true,
+			fileNames,
+			counts: Object.fromEntries(countRows.map((row) => [String(row[0]), Number(row[1])])),
+			status: Object.fromEntries(statusRows.map((row) => [String(row[0]), String(row[1])])),
+		};
+	});
+}
+
 function makeNistSlice(): { csv: string; columns: string[]; rows: CorpusRow[] } {
 	const parsed = Papa.parse<CorpusRow>(readFileSync(CORPUS, 'utf8'), {
 		header: true,
@@ -146,6 +199,30 @@ describe('First run — empty vault walkthrough', function () {
 		});
 		console.log('[first-run:startup] ' + JSON.stringify(startup));
 		expect(startup.loaded).toBe(true);
+
+		// Automatic-startup witness. Do not call runProjection() or openTier2() here:
+		// either could make a broken startup path look green. The in-memory debug ring
+		// proves the layout-ready pass completed, and the already-open handle proves
+		// its exact empty-vault result and durable full/succeeded stamp.
+		const startupProjection = await observeAutomaticStartupProjection();
+		console.log('[first-run:auto-projection] ' + JSON.stringify(startupProjection));
+		expect(startupProjection.terminal?.op).toBe('auto-projection-complete');
+		expect(startupProjection.terminal?.success).toBe(true);
+		expect(startupProjection.terminal?.aborted).toBe(false);
+		expect(startupProjection.terminal?.readiness?.pending).toBe(0);
+		expect(startupProjection.terminal?.readiness?.timedOut).toBe(false);
+		expect(startupProjection.handlePresent).toBe(true);
+		expect(startupProjection.counts).toEqual({
+			concepts: 0,
+			mappings: 0,
+			junction_notes: 0,
+			ontologies: 0,
+		});
+		expect(startupProjection.status.last_projection_mode).toBe('full');
+		expect(startupProjection.status.last_projection_success).toBe('true');
+		expect(startupProjection.status.last_projected_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+		expect(startupProjection.fileNames).not.toContain('sqlite3.wasm');
+		expect(startupProjection.fileNames).not.toContain('sqlite3.mjs');
 
 		// 02 — inspect the only new vault folder a curious person can see. This does
 		// not reveal an active file; it only expands the folder already in Explorer.

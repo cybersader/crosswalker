@@ -164,6 +164,14 @@ Built on the Foundation spec. This phase expands both source-format breadth and 
 - [ ] **Improved preview** — expandable folder tree, full note preview in Step 3
 - [ ] **E2E test suite** — full import wizard workflow tests, [built from spec](/crosswalker/agent-context/zz-log/2026-04-03-deep-research-synthesis/#research-3-e2e-testing-with-wdio-obsidian)
 
+### Recipe authoring with AI assistance
+
+A canonical [recipe](/crosswalker/concepts/terminology/) is already plain JSON: every bundled recipe under `recipes/import/` uses the closed 5-mechanism grammar, and an assistant can already read and propose edits to that JSON directly. This is a distinct file and code path from the [config browser](/crosswalker/features/config-system/)'s saved-config export/import, which round-trips wizard state (`SavedConfig`) — the config browser's file import does not read or accept canonical Recipe JSON today. What is missing for recipe editing specifically is the packaging that makes an assistant round trip feel native instead of a manual copy-paste through the filesystem. Doing that safely means preserving the full canonical `RecipeDocument` rather than reconstructing a recipe from a smaller edited fragment, and giving the user an explicit preview and opt-in before any source content leaves the vault — none of this packages or sends anything automatically.
+
+- [ ] **Paste-JSON entry** — accept a pasted recipe alongside the existing file import, so an edited recipe comes back without a download-and-re-upload hop
+- [ ] **Context-pack command** — one action that copies [`spec/recipe.schema.json`](/crosswalker/agent-context/v0-1-schema-spec/), the recipe being edited, and the current source's column headers as a single block to hand an assistant. The schema plus a worked recipe is already the context an assistant needs; this only packages it
+- [ ] **Validate-on-paste** — report schema violations in the UI at paste time with the offending field named, rather than failing later during generation. Follows the [actionable-errors rule](/crosswalker/agent-context/zz-log/): name a cause and an action
+
 ---
 
 ## Crosswalks — "Link frameworks to each other and to evidence"

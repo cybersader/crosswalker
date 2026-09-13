@@ -23,6 +23,10 @@ Implement the [Tier 2](/crosswalker/concepts/terminology/) [sidecar projector](/
 The option-space, phased checklist, success criteria, and rollback sections below preserve the milestone's planning and decision history, including the attempted WASM-B path. They are not a current claim that sqlite-vec ships. For delivered state, use the Status above and the dated delivery log.
 </Aside>
 
+<Aside type="note" title="Packaging mechanism updated 2026-09-12">
+The wdio harness workaround described in the delivery log below (staging loose `sqlite3.wasm`/`sqlite3.mjs` files into the test vault before launch) has been replaced: the plugin now embeds the SQLite engine directly inside `main.js` at build time, verified byte-for-byte. Isolated real-Obsidian tests passed with the standard three distribution assets and no separate SQLite files. The test installation also contained harness/configuration files; release and BRAT installation remain untested. A related startup-readiness fix also replaced a fixed-event-count heuristic with predicate polling. Both were exercised in an isolated real-Obsidian runtime pass on 2026-09-13 (seeded vault 29/29 declarations, empty vault 1/1). Full detail: [inline SQLite distribution synthesis](/crosswalker/agent-context/zz-log/2026-09-12-inline-sqlite-distribution-synthesis/) and the dated `CHANGELOG.md` entry it links to. This does not change the Status or Status-last-verified line above; it is a scoped packaging/startup update on the unmerged `fix/d1-per-import-root` branch.
+</Aside>
+
 ## Dependencies
 
 - [v0.1.3 — Generation engine integration](/crosswalker/reference/roadmap/milestones/v0-1-3-generation-engine-integration/) (typed Tier 1 output to project from)

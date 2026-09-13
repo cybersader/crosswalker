@@ -1,7 +1,13 @@
 import esbuild from "esbuild";
 import process from "process";
 import builtins from "builtin-modules";
-import { copyFileSync, mkdirSync, existsSync, statSync, watch } from "fs";
+import { copyFileSync, mkdirSync, existsSync, watch, writeFileSync } from "fs";
+import { resolve } from "path";
+import {
+	createInlineSqliteAssetsPlugin,
+	resolveSqlitePackageAssets,
+	verifyInlineSqliteBundle,
+} from "./scripts/sqlite-inline-build.mjs";
 
 const banner =
 `/*
@@ -12,10 +18,37 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = (process.argv[2] === "production");
 const outdir = prod ? "./" : "test-vault/.obsidian/plugins/crosswalker/";
+const sqliteAssets = resolveSqlitePackageAssets();
+const sqliteMetafilePath = resolve("node_modules/.cache/crosswalker/sqlite-build-metafile.json");
 
 if (!prod && !existsSync(outdir)) {
 	mkdirSync(outdir, { recursive: true });
 }
+
+const verifyInlineSqlitePlugin = {
+	name: "crosswalker-verify-inline-sqlite",
+	setup(build) {
+		build.onEnd((result) => {
+			if (result.errors.length > 0) return;
+			try {
+				if (!result.metafile) throw new Error("esbuild did not return the required metafile");
+				mkdirSync(resolve("node_modules/.cache/crosswalker"), { recursive: true });
+				writeFileSync(sqliteMetafilePath, JSON.stringify(result.metafile, null, 2));
+				verifyInlineSqliteBundle({
+					bundlePath: resolve(outdir, "main.js"),
+					metafile: result.metafile,
+					assets: sqliteAssets,
+				});
+			} catch (error) {
+				return {
+					errors: [{
+						text: error instanceof Error ? error.message : String(error),
+					}],
+				};
+			}
+		});
+	},
+};
 
 const context = await esbuild.context({
 	banner: {
@@ -37,10 +70,6 @@ const context = await esbuild.context({
 		"@lezer/common",
 		"@lezer/highlight",
 		"@lezer/lr",
-		// v0.1.5: @sqlite.org/sqlite-wasm is dynamically imported at runtime
-		// (see src/tier2/sidecar.ts initSqlite3). External so esbuild
-		// doesn't bundle the .mjs — keeps main.js small.
-		"@sqlite.org/sqlite-wasm",
 		...builtins],
 	format: "cjs",
 	// es2020 required for BigInt literals used by sqlite-vec-wasm-demo
@@ -51,42 +80,19 @@ const context = await esbuild.context({
 	sourcemap: prod ? false : "inline",
 	treeShaking: true,
 	outdir: outdir,
+	metafile: true,
+	plugins: [
+		createInlineSqliteAssetsPlugin(sqliteAssets),
+		verifyInlineSqlitePlugin,
+	],
 });
-
-// v0.1.5 — Tier 2 sidecar substrate.
-// Copy @sqlite.org/sqlite-wasm's .wasm + .mjs into the plugin distribution
-// at build time. The plugin loads them at runtime via the plugin folder
-// (.mjs via Blob URL because Obsidian's app:// URLs can't be dynamically
-// imported as ES modules; .wasm via Obsidian's adapter URL).
-//
-// **WASM-A path** (decided 2026-05-06 after WASM-B integration revealed
-// emscripten env-detection issues with sqlite-vec-wasm-demo in Electron's
-// hybrid renderer). sqlite-vec is deferred to a future milestone — see
-// Ch 24 §5 Q4 for the date-bound revisit (2026-11-06).
-function copyTier2WasmArtifacts() {
-	const src = "node_modules/@sqlite.org/sqlite-wasm/dist";
-	const wasm = `${src}/sqlite3.wasm`;
-	const mjs = `${src}/index.mjs`;
-	if (!existsSync(wasm) || !existsSync(mjs)) {
-		console.warn(`[crosswalker] WARNING: ${src} artifacts missing — has \`bun install\` run? Tier 2 sidecar will not work.`);
-		return;
-	}
-	copyFileSync(wasm, outdir + "sqlite3.wasm");
-	// Rename to sqlite3.mjs for the runtime loader (sidecar.ts reads it
-	// from the plugin folder under that name).
-	copyFileSync(mjs, outdir + "sqlite3.mjs");
-	const wasmSize = statSync(outdir + "sqlite3.wasm").size;
-	console.log(`[crosswalker] copied @sqlite.org/sqlite-wasm artifact (${(wasmSize / 1024 / 1024).toFixed(2)} MB raw)`);
-}
 
 if (prod) {
 	await context.rebuild();
-	copyTier2WasmArtifacts();
 	process.exit(0);
 } else {
 	copyFileSync("manifest.json", outdir + "manifest.json");
 	copyFileSync("styles.css", outdir + "styles.css");
-	copyTier2WasmArtifacts();
 	await context.watch();
 
 	// esbuild only watches the JS bundle's import graph — styles.css and
@@ -103,5 +109,5 @@ if (prod) {
 		});
 	}
 
-	console.log("Watching for changes (incl. styles.css + manifest.json)...");
+	console.log("Watching for changes (incl. styles.css + manifest.json + inline sqlite assets)...");
 }

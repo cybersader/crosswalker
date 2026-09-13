@@ -3,10 +3,10 @@
  * `@sqlite.org/sqlite-wasm` ES module, plus a behavioural model of the OPFS
  * SAH pool VFS.
  *
- * Why this exists. `src/tier2/sidecar.ts` reaches the real runtime through a
- * single seam: it reads `sqlite3.mjs` off the vault adapter, wraps it in a
- * Blob, and dynamic-imports the resulting object URL. Under ts-jest that
- * dynamic import downlevels to `require(<url string>)`, so a test can hand
+ * Why this exists. `src/tier2/sidecar.ts` reaches the embedded module text
+ * through `sqlite-assets`, wraps it in a Blob, and dynamic-imports the
+ * resulting object URL. Under ts-jest that dynamic import downlevels to
+ * `require(<url string>)`, so a test can hand
  * `URL.createObjectURL` the absolute path of THIS file and the sidecar loads
  * it as if it were the real WASM module. Nothing in `src/` is modified or
  * re-exported to make that work.
@@ -180,6 +180,12 @@ class FakeDB {
 	}
 }
 
+export interface FakeSqlite3InitOptions {
+	wasmBinary?: Uint8Array;
+	locateFile?: (filename: string) => string;
+	[key: string]: unknown;
+}
+
 export interface FakeSqlite3Setup {
 	/** The namespace object `sqlite3InitModule()` resolves to. */
 	namespace: Record<string, unknown>;
@@ -210,7 +216,7 @@ export interface FakeSqlite3Setup {
  * real bootstrap removes it when the sahpool VFS is in play, which is why the
  * previous `sqlite3.opfs.unlink` guard never fired.
  */
-export function installFakeSqlite3(options: { installError?: Error } = {}): FakeSqlite3Setup {
+export function installFakeSqlite3(options: { installError?: Error; locateFileRequest?: string } = {}): FakeSqlite3Setup {
 	const pool: FakeSahPool | null = options.installError ? null : new FakeSahPool();
 	let installCalls = 0;
 	let installInvocations = 0;
@@ -239,6 +245,9 @@ export function installFakeSqlite3(options: { installError?: Error } = {}): Fake
 	const globals = globalThis as unknown as Record<string, unknown>;
 	globals.__cwFakeSqlite3 = namespace;
 	globals.__cwFakeSqlite3InitCalls = 0;
+	delete globals.__cwFakeSqlite3InitOptions;
+	if (options.locateFileRequest) globals.__cwFakeSqlite3LocateFileRequest = options.locateFileRequest;
+	else delete globals.__cwFakeSqlite3LocateFileRequest;
 
 	return {
 		namespace,
@@ -254,11 +263,26 @@ export function fakeSqlite3InitCalls(): number {
 	return (globals.__cwFakeSqlite3InitCalls as number | undefined) ?? 0;
 }
 
+/** The exact options passed to the latest fake sqlite3 initialization attempt. */
+export function fakeSqlite3InitOptions(): FakeSqlite3InitOptions | undefined {
+	const globals = globalThis as unknown as Record<string, unknown>;
+	return globals.__cwFakeSqlite3InitOptions as FakeSqlite3InitOptions | undefined;
+}
+
+/** Make the fake module exercise sqlite-wasm's locateFile callback during init. */
+export function requestFakeSqlite3Asset(filename?: string): void {
+	const globals = globalThis as unknown as Record<string, unknown>;
+	if (filename) globals.__cwFakeSqlite3LocateFileRequest = filename;
+	else delete globals.__cwFakeSqlite3LocateFileRequest;
+}
+
 /** Remove the installed namespace so a later test cannot inherit it. */
 export function clearFakeSqlite3(): void {
 	const globals = globalThis as unknown as Record<string, unknown>;
 	delete globals.__cwFakeSqlite3;
 	delete globals.__cwFakeSqlite3InitCalls;
+	delete globals.__cwFakeSqlite3InitOptions;
+	delete globals.__cwFakeSqlite3LocateFileRequest;
 }
 
 /**
@@ -267,10 +291,18 @@ export function clearFakeSqlite3(): void {
  * rather than in module scope so `jest.resetModules()` between tests does not
  * silently hand the sidecar a different instance than the test configured.
  */
-export default async function sqlite3InitModule(_options: unknown): Promise<unknown> {
+export default async function sqlite3InitModule(options: FakeSqlite3InitOptions): Promise<unknown> {
 	const globals = globalThis as unknown as Record<string, unknown>;
 	globals.__cwFakeSqlite3InitCalls =
 		((globals.__cwFakeSqlite3InitCalls as number | undefined) ?? 0) + 1;
+	globals.__cwFakeSqlite3InitOptions = options;
+	const requestedAsset = globals.__cwFakeSqlite3LocateFileRequest as string | undefined;
+	if (requestedAsset) {
+		if (typeof options.locateFile !== 'function') {
+			throw new Error(`test setup: locateFile unavailable for ${requestedAsset}`);
+		}
+		options.locateFile(requestedAsset);
+	}
 	const namespace = globals.__cwFakeSqlite3;
 	if (!namespace) throw new Error('test setup: installFakeSqlite3() was not called');
 	return namespace;

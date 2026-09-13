@@ -13,10 +13,9 @@ import { killOrphanedTestProcesses } from './tests/e2e/helpers/process-hygiene';
  *      by a prior crashed run, then builds the root plugin distribution with
  *      one retry for the esbuild-service `goroutine`/deadlock flake.
  *   2. wdio-obsidian-service copies the immutable seed into a temporary sandbox,
- *      then installs `main.js`, `manifest.json`, and `styles.css` from
- *      `plugins: ['.']` into that copy.
- *   3. The Tier 2 hook augments the installed plugin with its two runtime assets.
- *   4. Each spec runs against the isolated sandbox; the tracked seed is never
+ *      then installs the complete three-file plugin distribution (`main.js`,
+ *      `manifest.json`, and `styles.css`) from `plugins: ['.']` into that copy.
+ *   3. Each spec runs against the isolated sandbox; the tracked seed is never
  *      mutated by a test run.
  *
  * Verify locally: `bun run e2e`
@@ -123,48 +122,6 @@ export const config: Options.Testrunner = {
     // (b) build the plugin, with one retry on the esbuild deadlock flake.
     // The immutable seed needs no source-vault cleanup.
     await buildPluginWithRetry();
-  },
-
-  /**
-   * v0.1.5 Tier 2: copy sqlite-wasm runtime artifacts into the isolated
-   * sandbox's plugin folder. obsidian-launcher deliberately installs only
-   * main.js + manifest.json + styles.css for local plugins, so the E2E harness
-   * augments that installed distribution before any test runs.
-   */
-  before: async function () {
-    const fs = await import('node:fs/promises');
-    const pathMod = await import('node:path');
-    const { existsSync } = await import('node:fs');
-
-    // Get the test vault's plugin directory via the browser
-    const pluginDir = await browser.executeObsidian(({ app }) => {
-      const cfg = app.vault.configDir; // '.obsidian'
-      // @ts-expect-error - adapter.basePath is internal but stable
-      const basePath = app.vault.adapter.basePath as string;
-      return `${basePath}/${cfg}/plugins/crosswalker`;
-    });
-
-    if (!existsSync(pluginDir)) {
-      console.warn(`[wdio.before] plugin dir not found in test vault: ${pluginDir}`);
-      return;
-    }
-
-    // Copy sqlite3.wasm + sqlite3.mjs from project root (where prod
-    // build outputs them per esbuild.config.mjs) into the temp vault's
-    // plugin dir. WASM-A path uses @sqlite.org/sqlite-wasm; both
-    // artifacts loaded at runtime via the plugin folder.
-    const sourceDir = path.resolve('.');
-    const filesToCopy = ['sqlite3.wasm', 'sqlite3.mjs'];
-    for (const f of filesToCopy) {
-      const src = pathMod.join(sourceDir, f);
-      const dst = pathMod.join(pluginDir, f);
-      if (existsSync(src)) {
-        await fs.copyFile(src, dst);
-      } else {
-        console.warn(`[wdio.before] source artifact missing: ${src}`);
-      }
-    }
-    console.log(`[wdio.before] copied tier-2 artifacts into ${pluginDir}`);
   },
 
   afterTest: async function (_test: any, _context: any, { error }: any) {

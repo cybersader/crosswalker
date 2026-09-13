@@ -132,6 +132,14 @@ Expand source-format breadth and acquisition while preserving exact-source repla
 - [ ] Transform system implementation (~40 primitives across 9 categories)
 - [ ] E2E test suite (built from spec)
 
+### Recipe authoring with AI assistance
+
+A canonical recipe is already plain JSON (bundled recipes use the closed 5-mechanism grammar), and an assistant can already read and propose edits to it directly. This is separate from the config browser's saved-config export/import, which round-trips wizard state (`SavedConfig`) — not a canonical recipe, and the config browser does not read Recipe JSON today. These items package a safe assistant round trip: full canonical RecipeDocument preservation (never a rebuild from a smaller fragment), plus an explicit preview and opt-in before any content leaves the vault.
+
+- [ ] Paste-JSON entry alongside the existing file import
+- [ ] Context-pack command — copy `spec/recipe.schema.json` + the current recipe + the source's column headers in one action
+- [ ] Validate-on-paste — schema violations reported in-UI at paste time, naming the offending field, instead of failing during generation
+
 ## Crosswalks — "Link frameworks to each other and to evidence"
 
 - [ ] Cross-framework linking engine

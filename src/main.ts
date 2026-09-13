@@ -44,6 +44,7 @@ import { runEvidenceReportCommand } from './views/evidence-report-command';
 import { runHousekeepingRebaselineCommand } from './views/rebaseline-housekeeping';
 import { EvidenceLinkModal } from './views/evidence-link-modal';
 import { projectFromTier1, type ProjectionResult } from './tier2/projector';
+import { projectionErrorDiagnostics, waitForTier2StartupReadiness } from './tier2/startup-readiness';
 import {
 	getConceptsByOntology,
 	crosswalkBetween,
@@ -193,9 +194,11 @@ export default class CrosswalkerPlugin extends Plugin {
 	 * yield point, and checked before a new projection starts.
 	 */
 	private tier2TeardownInProgress = false;
+	/** Permanently set when this plugin instance begins unloading. */
+	private tier2Unloaded = false;
 
 	runProjection = async (): Promise<ProjectionResult> => {
-		if (this.tier2TeardownInProgress) {
+		if (this.tier2TeardownInProgress || this.tier2Unloaded) {
 			// A reset is deleting the database right now. Starting here would do
 			// up to a full yield-interval of work against a file that is about to
 			// disappear, so decline before opening anything.
@@ -207,6 +210,10 @@ export default class CrosswalkerPlugin extends Plugin {
 				durationMs: 0,
 			};
 		}
+		// One full pass owns the projection marks at a time. A second pass would
+		// initialize and prune through the first pass's marks, so overlapping callers
+		// share the already-running result instead of opening another pass.
+		if (this.tier2InFlightProjection) return this.tier2InFlightProjection;
 		const run = (async (): Promise<ProjectionResult> => {
 			const handle = await this.openTier2();
 			return projectFromTier1(this.app, handle.db, {
@@ -1147,11 +1154,12 @@ export default class CrosswalkerPlugin extends Plugin {
 		this.registerCrosswalkerPivotView();
 
 		// v0.1.5 Phase 4: auto-trigger Tier 2 projection on vault load.
-		// `onLayoutReady` fires once when the Obsidian workspace is fully
-		// initialized; safer than running on plugin onload (which may run
-		// before metadataCache has finished indexing the vault). Lazy +
-		// silent — projection runs in background, errors logged to debug
-		// log without surfacing a Notice unless something genuinely fails.
+		// `onLayoutReady` means the workspace is initialized, not that every
+		// Markdown file has reached a projector-safe metadata-cache state. The
+		// startup path therefore applies its own bounded readiness barrier before
+		// opening the reporting database. Projection remains lazy and silent, with
+		// every event retained in the diagnostics ring even when file logging is
+		// disabled.
 		this.app.workspace.onLayoutReady(() => {
 			void this.autoProjectOnLayoutReady();
 			// v0.1.6 Phase 3: ship reference .base files on first run
@@ -1274,7 +1282,26 @@ export default class CrosswalkerPlugin extends Plugin {
 		await this.debug.withTrace(traceId, async () => {
 			try {
 				this.debug.info('tier2', 'auto-projection-start', 'Tier 2 auto-projection: starting');
+				const shouldCancel = () => !this.settings.enableTier2Projection
+					|| this.tier2TeardownInProgress
+					|| this.tier2Unloaded;
+				const readiness = await waitForTier2StartupReadiness(this.app, shouldCancel);
+				if (readiness.cancelled || shouldCancel()) {
+					this.debug.info('tier2', 'auto-projection-cancelled', 'Tier 2 auto-projection cancelled before database access', {
+						readiness,
+					});
+					return;
+				}
+				if (readiness.timedOut && readiness.pending > 0) {
+					this.debug.warn('tier2', 'auto-projection-readiness-timeout', 'Tier 2 startup readiness deadline reached; running the strict projector', {
+						pending: readiness.pending,
+						checks: readiness.checks,
+						elapsedMs: readiness.elapsedMs,
+						timedOut: true,
+					});
+				}
 				const result = await this.runProjection();
+				const errorDiagnostics = projectionErrorDiagnostics(result.errors);
 				this.debug.info('tier2', 'auto-projection-complete', 'Tier 2 auto-projection: complete', {
 					success: result.success,
 					// An aborted pass is a success that saw only part of the vault.
@@ -1283,11 +1310,15 @@ export default class CrosswalkerPlugin extends Plugin {
 					aborted: result.aborted === true,
 					counts: result.counts,
 					durationMs: result.durationMs,
+					readiness,
+					...errorDiagnostics,
 				});
-				if (!result.success && result.errors.length > 0) {
+				if (!result.aborted && !result.success && result.errors.length > 0) {
 					new Notice(
-						`Tier 2 projection finished with ${result.errors.length} errors. Check debug log.`,
-						6000,
+						`Reporting database refresh finished with ${result.errors.length} note errors. `
+						+ 'Your notes remain available. Run "Developer tools: copy troubleshooting details to clipboard" '
+						+ 'and include the result in a bug report.',
+						9000,
 					);
 				}
 			} catch (err) {
@@ -1297,9 +1328,10 @@ export default class CrosswalkerPlugin extends Plugin {
 				// so the user knows queries against Tier 2 may not return fresh
 				// results, but don't block the plugin lifecycle.
 				new Notice(
-					// eslint-disable-next-line obsidianmd/ui/sentence-case -- "Tier 1"/"Tier 2" are Crosswalker's architecture-tier terms
-					`Tier 2 projection failed (Tier 1 vault is unaffected; queries may be stale). See debug log.`,
-					6000,
+					'Crosswalker reporting database did not start. Your notes remain available. Reload Obsidian. '
+					+ 'If it fails again, run "Developer tools: copy troubleshooting details to clipboard" '
+					+ 'and include the result in a bug report.',
+					10000,
 				);
 			}
 		});
@@ -1324,6 +1356,10 @@ export default class CrosswalkerPlugin extends Plugin {
 	}
 
 	onunload() {
+		// Cancel startup waiters and ask any active projector to stop at its next
+		// cooperative yield before this instance closes its database handle.
+		this.tier2Unloaded = true;
+		this.tier2TeardownInProgress = true;
 		// Deliberately does NOT detachLeavesOfType(VIEW_TYPE_CROSSWALKER_WORKSPACE):
 		// the official plugin guidelines say "Don't detach leaves in onunload" —
 		// Obsidian reinitializes open leaves in place on plugin update/reload.

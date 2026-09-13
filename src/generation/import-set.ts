@@ -238,14 +238,18 @@ export async function settleVaultIndex(app: App, timeoutMs = 4000): Promise<numb
 	if (on && offref) {
 		await new Promise<void>((resolve) => {
 			let done = false;
+			let timer: ReturnType<typeof setTimeout> | null = null;
 			const finish = () => {
 				if (done) return;
 				done = true;
+				if (timer !== null) clearTimeout(timer);
 				try { offref(ref); } catch { /* a host that cannot unsubscribe still resolves */ }
 				resolve();
 			};
+			// Obsidian's `resolved` event is asynchronous. Register it before the
+			// timeout so an immediately completing real cache pass cannot be missed.
 			const ref = on('resolved', finish);
-			setTimeout(finish, timeoutMs);
+			timer = setTimeout(finish, timeoutMs);
 		});
 	}
 	return countUnindexedMarkdownFiles(app);

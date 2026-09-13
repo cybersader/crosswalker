@@ -91,6 +91,11 @@ jobs:
 
       - name: Verify build outputs
         run: |
+          node scripts/verify-inline-sqlite-assets.mjs \
+            --bundle main.js \
+            --metafile node_modules/.cache/crosswalker/sqlite-build-metafile.json
+          test ! -e sqlite3.wasm
+          test ! -e sqlite3.mjs
           echo "=== Build outputs ==="
           ls -la main.js styles.css manifest.json
           echo "main.js: $(wc -c < main.js) bytes"

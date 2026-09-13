@@ -43,6 +43,8 @@ Honest record so future-us doesn't underestimate the next attempted vec integrat
 | 4 | `new URL('.', blobURL)` rejection | When loaded via Blob URL, `import.meta.url` becomes a `blob:` URL; Chromium rejects relative-URL parent computation | Patched `import.meta.url` references to a placeholder HTTPS URL ✓ |
 | 5 | `Module.postRun already processed` | Emscripten init order issue surfaced after the prior fixes. Init context is in inconsistent state | **Unresolved** — root cause not fully diagnosed; treated as evidence the demo artifact isn't tractable in this environment |
 
+> **Superseded 2026-09-12.** Issue #2 above (the wdio file-copy gap) no longer applies to the shipped distribution path: the plugin now embeds the SQLite engine directly in `main.js`, so no loose `.wasm`/`.mjs` files need to be copied into any vault, test or production. See [inline SQLite distribution synthesis](/crosswalker/agent-context/zz-log/2026-09-12-inline-sqlite-distribution-synthesis/). This does not change the sqlite-vec pivot decision recorded here or its calendar-anchored 2026-11-06 revisit.
+
 After issue #5, the user accepted the WASM-A revert. The cumulative pattern (5 issues in succession, each requiring a non-trivial workaround) is itself the diagnosis: **the demo artifact is the wrong tool for this environment**. A proper vec integration needs either upstream Electron support or a custom build (WASM-C).
 
 ## §4 What's locked in (revised v0.1.5 substrate commitments)

@@ -19,7 +19,10 @@ on:
       - 'spec/**'
       - 'manifest.json'
       - 'esbuild.config.mjs'
+      - 'scripts/sqlite-inline-build.mjs'
+      - 'scripts/verify-inline-sqlite-assets.mjs'
       - 'wdio.conf.mts'
+      - 'wdio.first-run.conf.mts'
       - 'package.json'
       - '.github/workflows/plugin-e2e.yml'
   push:
@@ -31,7 +34,10 @@ on:
       - 'spec/**'
       - 'manifest.json'
       - 'esbuild.config.mjs'
+      - 'scripts/sqlite-inline-build.mjs'
+      - 'scripts/verify-inline-sqlite-assets.mjs'
       - 'wdio.conf.mts'
+      - 'wdio.first-run.conf.mts'
       - 'package.json'
       - '.github/workflows/plugin-e2e.yml'
 
@@ -118,5 +124,3 @@ jobs:
             main.js
             manifest.json
             styles.css
-            sqlite3.mjs
-            sqlite3.wasm

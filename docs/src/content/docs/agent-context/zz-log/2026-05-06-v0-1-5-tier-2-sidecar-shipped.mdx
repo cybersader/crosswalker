@@ -62,6 +62,8 @@ The realistic-framework spec is the v0.1.5 milestone-level integration gate. It 
 
 3. **wdio service file-copy gap** — `obsidian-launcher` hardcodes copying only `manifest.json` + `main.js` + `styles.css` (verified at `obsidian-launcher/dist/chunk-DSNG7BMO.js:1535-1538`). Custom `.wasm` + `.mjs` artifacts get missed. Added a wdio `before` hook to copy them manually into the temp test vault.
 
+   > **Superseded 2026-09-12.** This staging workaround was removed once the plugin began embedding the SQLite engine directly in `main.js` at build time, so no loose `.wasm`/`.mjs` files need to be copied into any vault, test or production. See [inline SQLite distribution synthesis](/crosswalker/agent-context/zz-log/2026-09-12-inline-sqlite-distribution-synthesis/).
+
 4. **Closure-cache row semantics** — initial design had per-edge cache rows (each row encodes one mapping in the chain). This required recursive cache walks at read time, defeating the cache. **Caught on self-review**; fixed before shipping by reinterpreting cache columns as `(start_curie, predicate_filter, target_curie, shortest_depth)` so a single non-recursive `WHERE subject_id = $start AND predicate_id = $pred` returns the full closure. The wikilink-crawl skill was created in response to this near-miss — crawling Ch 18 §2.5 upfront would have surfaced the correct pattern.
 
 5. **Recipe forward-links to milestones added to spec page** — gap discovered during this session: the v0.1 schema spec didn't link forward to implementing milestones. Fixed in [Phase 3 commit](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/). Future agents arriving at the spec can now follow forward to implementation, not just backward to design history.
