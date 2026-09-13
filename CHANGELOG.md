@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### First public prerelease preparation and compatibility floor (2026-09-13)
+
+- Prepared version `0.1.0` for its first public prerelease with the standard three plugin files: `main.js`, `manifest.json`, and `styles.css`. Publication is a separate step and is not claimed here.
+- Corrected the minimum Obsidian version from `1.0.0` to `1.10.0`, based on APIs the plugin uses. The plugin version remains `0.1.0` and mobile support is not disabled. Runtime acceptance used Obsidian 1.13.7 on desktop Linux; mobile use and installation through BRAT remain unverified.
+
 ### Inline SQLite distribution and startup-readiness polling: the packaged plugin now starts Tier 2 reliably (2026-09-12; runtime acceptance 2026-09-13)
 
 Two related fixes to the Tier 2 query-database startup path. Full decision record and plain-language explanation: [inline SQLite distribution synthesis](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-09-12-inline-sqlite-distribution-synthesis/); this entry is the canonical delivery detail the synthesis page links back to rather than repeating.
