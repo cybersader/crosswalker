@@ -14,6 +14,12 @@ The 0.1 design phase concluded 2026-05-04 and implementation began the same day.
 - **A column can no longer be left with no place to land.** Turning off the last thing placing notes in the vault (folders, file names, and one file all off everywhere) is refused with a message naming what to turn on first, instead of being accepted and failing later. Resolving two columns that both shape the vault by unticking Folders and File names on one of them still works.
 - **The unreadable generate error is gone.** "Can't generate: /source/levels: must NOT have fewer than 1 items; /target/layout: must NOT have fewer than 1 items" is replaced, in both the workbench preview and the review step, with "No column is set to place notes in the vault. Open a column's mapping and turn on File names, Folders, or One file, then try again."
 
+### Fixed: changing the sheet or header row after going back now actually takes effect (2026-09-14)
+
+- **Editing the header row and clicking Next re-reads the file.** Going back to the first step of the import, raising the header row to skip banner rows above the real column headers, and clicking Next silently kept the first reading of the file: header row 0, the wrong columns, placeholder names like `__EMPTY1`, and no recognition of the source. Found on a real CRI Profile v2.2 workbook, where the fix appeared to do nothing. Changing the sheet, and changing which record list to import from a JSON file, had the same problem.
+- **What is kept.** The file, the sheet and header row you chose, and the column decisions you have already made all stay. Decisions naming a column the new reading does not have are dropped where they always were, the same way a resumed draft handles them. Going back by itself still keeps a good reading of the file; only changing one of the settings that decides how the file is read starts it over.
+- **Clearer wording.** The header row help text now reads "0-based row index of the column headers. Raise it to skip banner rows above them."
+
 ### Release workflow hardening (2026-09-14)
 
 `.github/workflows/release.yml` no longer decides anything inline. Every publication decision moved into `scripts/release-preflight.mjs`, a dependency-free Node script covered by `tests/release-preflight.test.ts` (12 cases), because none of the old YAML logic could be exercised without pushing to `main`.

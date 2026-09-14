@@ -684,6 +684,79 @@ export class ImportFlow {
 		this.renderStep();
 	}
 
+	/**
+	 * Discard everything DERIVED from the current parse, because an input that
+	 * decides what the parse produces just changed (sheet, header row, JSON record
+	 * list).
+	 *
+	 * The defect this closes: `validateCurrentStep` case 1 re-parses only when
+	 * `parsedData` is null, Back never clears it, and the Step-1 controls only
+	 * assigned their field. So editing the header row after Back and clicking Next
+	 * silently advanced with the stale Step-1 parse (header row 0, wrong columns,
+	 * `__EMPTY*` names, no recognition) — a hole in cache invalidation, reported
+	 * from a real CRI Profile v2.2 import.
+	 *
+	 * What is NOT cleared, deliberately: `sourceFile`, `availableSheets`,
+	 * `selectedSheet`, `xlsxHeaderRow`, `jsonIterator` (the inputs themselves),
+	 * `presetRecipeId`, `appliedConfig`, and the user's `columnConfigs`. Configs
+	 * that name a column the new parse does not have are already dropped by both
+	 * consumers: Step 2 seeds and renders one row per `columnInfos` entry, and
+	 * `buildConfigFromWizardState` iterates the parsed columns and skips any config
+	 * without one (generation-engine.ts, `for (const col of parsedColumns)` /
+	 * `if (!config) continue;`) — the same reconciliation a resumed draft relies on.
+	 *
+	 * Back itself is untouched: it should not throw away a valid parse.
+	 * Invalidation is keyed to the inputs that make the parse stale.
+	 */
+	private invalidateParse(): void {
+		this.parsedData = null;
+		this.columnInfos = [];
+		// Recognition is computed from the parsed columns, so all four flags are
+		// answers about a parse that no longer exists.
+		this.recognizedMatch = null;
+		this.recognizedDismissed = false;
+		this.recognizedFastPath = false;
+		this.recognizedEdited = false;
+		// Saved-config matching scores against the parsed fingerprint.
+		this.configMatches = [];
+		this.configWarnings = [];
+		// Role suggestions are per-column heuristics over `columnInfos`; clearing
+		// the latch lets them re-run against the columns the next parse yields.
+		this.suggestedColumns = new Set();
+		this.smartDefaultsApplied = false;
+		// The workbench holds `parsedData` + `columnInfos` directly.
+		this.workbench = null;
+		// The curated per-import root comes from the recognized recipe cleared above.
+		this.curatedDestination = null;
+	}
+
+	/** Step-1 sheet choice. Assignment plus invalidation, never one without the other. */
+	selectSheet(sheet: string): void {
+		if (sheet === this.selectedSheet) return;
+		this.selectedSheet = sheet;
+		this.invalidateParse();
+	}
+
+	/** Step-1 header-row choice (0-based). Non-numeric input reads as row 0. */
+	setHeaderRow(raw: string | number): void {
+		const next = Math.max(0, (typeof raw === 'number' ? raw : parseInt(raw, 10)) || 0);
+		if (next === this.xlsxHeaderRow) return;
+		this.xlsxHeaderRow = next;
+		this.invalidateParse();
+	}
+
+	/**
+	 * Step-1 JSON record-list choice. Same hole as sheet/header row: the iterator
+	 * is what `parseJSONFile` reads, so changing it after a parse makes that parse
+	 * stale. (The "keep only matching records" filter is NOT here: it is
+	 * `source.where` and runs at generation, so it never changes the parse.)
+	 */
+	setJsonIterator(iterator: string): void {
+		if (iterator === this.jsonIterator) return;
+		this.jsonIterator = iterator;
+		this.invalidateParse();
+	}
+
 	renderStep1_SelectFile(container: HTMLElement) {
 		container.createEl('h3', { text: 'Select source file' });
 		container.createEl('p', {
@@ -818,16 +891,16 @@ export class ImportFlow {
 					.addDropdown((dd) => {
 						for (const name of this.availableSheets) dd.addOption(name, name);
 						dd.setValue(this.selectedSheet ?? this.availableSheets[0]);
-						dd.onChange((v) => { this.selectedSheet = v; });
+						dd.onChange((v) => { this.selectSheet(v); });
 					});
 				new Setting(container)
 					.setName('Header row')
-					.setDesc('0-based row index of the column headers — raise it to skip banner rows above them.')
+					.setDesc('0-based row index of the column headers. Raise it to skip banner rows above them.')
 					.addText((t) => {
 						t.setValue(String(this.xlsxHeaderRow));
 						t.inputEl.type = 'number';
 						t.inputEl.min = '0';
-						t.onChange((v) => { this.xlsxHeaderRow = Math.max(0, parseInt(v, 10) || 0); });
+						t.onChange((v) => { this.setHeaderRow(v); });
 					});
 			}
 
@@ -3524,7 +3597,7 @@ export class ImportFlow {
 					this.renderSamplePreview(body, c.sample, c.sampleKeys, c.fieldCount);
 					if (c.label !== c.name) this.renderPathHint(body, c.label);
 					card.addEventListener('click', () => {
-						this.jsonIterator = c.iterator;
+						this.setJsonIterator(c.iterator);
 						renderPicks();
 					});
 				}
@@ -3563,7 +3636,7 @@ export class ImportFlow {
 		const pathInput = advBlock.createEl('input', { type: 'text', cls: 'crosswalker-field-input' });
 		pathInput.placeholder = '$.objects[*]';
 		pathInput.value = this.jsonIterator;
-		pathInput.addEventListener('input', () => { this.jsonIterator = pathInput.value.trim(); });
+		pathInput.addEventListener('input', () => { this.setJsonIterator(pathInput.value.trim()); });
 	}
 
 	/**
