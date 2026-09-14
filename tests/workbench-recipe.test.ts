@@ -17,6 +17,7 @@ import { toSourceRefs, isConstantRef } from '../src/import/mapping/types';
 import type { DebugLog } from '../src/utils/debug';
 import { deriveFacetMemberships } from '../src/import/mapping/facets';
 import { facetTagColumns, buildParentPlacementPreview, toFolderNotePaths } from '../src/import/mapping/view-model';
+import { explainRecipeError, NOTHING_PLACED_MESSAGE } from '../src/import/mapping/diagnostics';
 import { BUILT_IN_PRESETS } from '../src/import/mapping/presets';
 import { findRecipeForOntologyName } from '../src/views/workspace-view-helpers';
 import { generateNotes, type GenerationOptions } from '../src/generation/generation-engine';
@@ -292,6 +293,37 @@ describe('B6 + B2: the single-structural-mapping guard (source fix + error surfa
 		expect(wb.getPreviewError()).toBeNull(); // nothing has attempted a build yet
 		expect(wb.computePreview()).toBeNull();
 		expect(wb.getPreviewError()).toMatch(/one recipe supports exactly one structural mapping/);
+	});
+
+	it('a mapping left with nowhere to put its notes surfaces as a translated error, not raw validator text', () => {
+		// The user-reported state: one mapped id column, File names turned off, so
+		// the mapping emits no folder/file/heading at all. The validator reports
+		// "/source/levels must not have fewer than 1 items; /target/layout ...",
+		// which names a JSON pointer the user cannot act on.
+		const wb = makeWorkbench(attackRows());
+		const stripped: ImportMapping = {
+			mappings: [
+				{
+					levels: [
+						{
+							level: 'technique_id',
+							source: { column: 'technique_id' },
+							destinations: [],
+							naming: 'part',
+							missing: 'skip',
+							materialize: false,
+						},
+					],
+				},
+			],
+		};
+		(wb as unknown as { mapping: ImportMapping }).mapping = stripped;
+
+		expect(wb.computePreview()).toBeNull();
+		const raw = wb.getPreviewError();
+		expect(raw).toMatch(/must NOT have fewer than 1 items/);
+		// Both surfaces (preview rail + step-3 banner) render this instead.
+		expect(explainRecipeError(raw!)).toBe(NOTHING_PLACED_MESSAGE);
 	});
 });
 

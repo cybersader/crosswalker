@@ -26,7 +26,12 @@ import {
 	splitRow,
 	isUnmodifiedPreset,
 	structuralEqual,
+	shapeCardHint,
+	blockedPlacingToggle,
+	hasPlacingDestination,
+	NO_PLACE_TO_LAND,
 } from '../src/import/mapping/view-model';
+import { explainRecipeError, NOTHING_PLACED_MESSAGE } from '../src/import/mapping/diagnostics';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -49,6 +54,40 @@ const ATTACK = ['T1055', 'T1059', 'T1003', 'T1071', 'T1027', 'T1005', 'T1055.011
 
 function csfMapping(): StructureMapping {
 	return instantiate(BROWSABLE_FRAMEWORK, detect(rowsFrom('element_identifier', CSF))).mappings[0];
+}
+
+/**
+ * A single-level, leaf-only mapping — exactly what `instantiate.leafLevel` and
+ * the workbench's first manual "add mapping from a column" produce when nothing
+ * about the column was detected as a packed hierarchy. Every non-name card has
+ * ZERO eligible rows here, which is the state that used to render as a dead
+ * "Off" checkbox with no explanation.
+ */
+function leafOnlyMapping(column = 'profile_id'): StructureMapping {
+	return {
+		levels: [{
+			level: column,
+			source: { column },
+			destinations: [{ primitive: 'name' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		}],
+	};
+}
+
+/** A mapping with no leaf at all (the manual "route this column" default). */
+function propertyOnlyMapping(column = 'owner'): StructureMapping {
+	return {
+		levels: [{
+			level: column,
+			source: { column },
+			destinations: [{ primitive: 'property', key: column }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		}],
+	};
 }
 
 // ===========================================================================
@@ -121,6 +160,145 @@ describe('toggleDestinationAcrossMapping', () => {
 		const after = toggleDestinationAcrossMapping(csfMapping(), 'tag', true);
 		const regions = toRecipeRegions({ mappings: [after] });
 		expect(regions.also_emit?.tags?.length ?? 0).toBeGreaterThan(0);
+	});
+});
+
+// ===========================================================================
+// 2b. A card that cannot be turned on says why (no silent no-ops)
+// ===========================================================================
+
+describe('shapeCardHint', () => {
+	it('a leaf-only single-level mapping reports Folders as unavailable, with a cause and an action', () => {
+		const m = leafOnlyMapping();
+		expect(deriveShapeCards(m).folder).toBe('off');
+		const hint = shapeCardHint(m, 'folder');
+		expect(hint).not.toBeNull();
+		expect(hint).toContain('one level');
+		expect(hint).toContain('separator');
+		expect(hint).toContain('Map a column whose values split that way');
+	});
+
+	it('every non-name card on that mapping is unavailable, not merely off', () => {
+		const m = leafOnlyMapping();
+		for (const primitive of ['folder', 'tag', 'heading', 'link', 'property'] as const) {
+			expect(shapeCardHint(m, primitive)).not.toBeNull();
+		}
+	});
+
+	it('builds the worked example from a real sample value when one is supplied', () => {
+		const hint = shapeCardHint(leafOnlyMapping(), 'folder', { sampleValue: 'GV.OC-01.01' });
+		expect(hint).toContain('GV.OC-01.01 splits into GV, then GV.OC, then GV.OC-01, then GV.OC-01.01');
+	});
+
+	it('falls back to a generic example when the sample value has no separator', () => {
+		const hint = shapeCardHint(leafOnlyMapping(), 'folder', { sampleValue: 'Governance' });
+		expect(hint).toContain('GV.OC-01 splits into GV, then GV.OC, then GV.OC-01');
+	});
+
+	it('File names is unavailable on a mapping with no leaf row, and points at the matrix', () => {
+		const m = propertyOnlyMapping();
+		expect(deriveShapeCards(m).name).toBe('off');
+		const hint = shapeCardHint(m, 'name');
+		expect(hint).not.toBeNull();
+		expect(hint).toContain('Arrange levels');
+	});
+
+	it('is null for every card a real preset mapping can actually carry', () => {
+		const m = csfMapping();
+		expect(shapeCardHint(m, 'folder')).toBeNull();
+		expect(shapeCardHint(m, 'tag')).toBeNull();
+		expect(shapeCardHint(m, 'name')).toBeNull();
+	});
+
+	it('the unavailable cards are exactly the toggles that would do nothing', () => {
+		const m = leafOnlyMapping();
+		// The silent no-op this hint replaces: the write returns the mapping unchanged.
+		const after = toggleDestinationAcrossMapping(m, 'folder', true);
+		expect(structuralEqual(after, m)).toBe(true);
+		expect(deriveShapeCards(after).folder).toBe('off');
+		expect(shapeCardHint(m, 'folder')).not.toBeNull();
+
+		const nameOn = toggleDestinationAcrossMapping(propertyOnlyMapping(), 'name', true);
+		expect(structuralEqual(nameOn, propertyOnlyMapping())).toBe(true);
+		expect(shapeCardHint(propertyOnlyMapping(), 'name')).not.toBeNull();
+	});
+});
+
+// ===========================================================================
+// 2c. Never leave the import with nowhere to put its notes
+// ===========================================================================
+
+describe('blockedPlacingToggle', () => {
+	it('blocks turning File names off when it is the only thing placing notes', () => {
+		const mapping: ImportMapping = { mappings: [leafOnlyMapping()] };
+		expect(blockedPlacingToggle(mapping, 0, 'name', false)).toBe(NO_PLACE_TO_LAND);
+	});
+
+	it('allows it once the same mapping also has folders', () => {
+		// A browsable preset keeps its folder levels when the leaf name goes away.
+		const mapping: ImportMapping = { mappings: [csfMapping()] };
+		expect(blockedPlacingToggle(mapping, 0, 'name', false)).toBeNull();
+	});
+
+	it('allows it when another mapping still places notes (the two-structural fix)', () => {
+		const mapping: ImportMapping = { mappings: [csfMapping(), leafOnlyMapping()] };
+		expect(blockedPlacingToggle(mapping, 1, 'name', false)).toBeNull();
+		// And unticking BOTH cards on the first mapping stays possible.
+		const noFolders: ImportMapping = {
+			mappings: [toggleDestinationAcrossMapping(csfMapping(), 'folder', false), leafOnlyMapping()],
+		};
+		expect(blockedPlacingToggle(noFolders, 0, 'name', false)).toBeNull();
+	});
+
+	it('never blocks turning a card ON, or touching a non-placing card', () => {
+		const mapping: ImportMapping = { mappings: [leafOnlyMapping()] };
+		expect(blockedPlacingToggle(mapping, 0, 'name', true)).toBeNull();
+		expect(blockedPlacingToggle(mapping, 0, 'tag', false)).toBeNull();
+		expect(blockedPlacingToggle(mapping, 0, 'property', false)).toBeNull();
+	});
+
+	it('is a no-op on an out-of-range mapping index', () => {
+		expect(blockedPlacingToggle({ mappings: [leafOnlyMapping()] }, 7, 'name', false)).toBeNull();
+	});
+
+	it('hasPlacingDestination sees folder, name and one file, not metadata', () => {
+		expect(hasPlacingDestination(leafOnlyMapping())).toBe(true);
+		expect(hasPlacingDestination(csfMapping())).toBe(true);
+		expect(hasPlacingDestination(propertyOnlyMapping())).toBe(false);
+		expect(hasPlacingDestination(toggleDestinationAcrossMapping(propertyOnlyMapping(), 'heading', true))).toBe(true);
+	});
+});
+
+// ===========================================================================
+// 2d. The empty-layout validator error, in plain language
+// ===========================================================================
+
+describe('explainRecipeError', () => {
+	it('translates both halves of the empty-layout error', () => {
+		expect(explainRecipeError('/source/levels: must NOT have fewer than 1 items')).toBe(NOTHING_PLACED_MESSAGE);
+		expect(explainRecipeError('/target/layout: must NOT have fewer than 1 items')).toBe(NOTHING_PLACED_MESSAGE);
+	});
+
+	it('translates the joined message the recipe builder actually throws', () => {
+		// Verbatim from `buildRecipe()` on a mapping with no placing destination.
+		const joined = '/source/levels: must NOT have fewer than 1 items; /target/layout: must NOT have fewer than 1 items';
+		expect(explainRecipeError(joined)).toBe(NOTHING_PLACED_MESSAGE);
+	});
+
+	it('is insensitive to the validator\'s casing of NOT', () => {
+		expect(explainRecipeError('/target/layout must not have fewer than 1 items')).toBe(NOTHING_PLACED_MESSAGE);
+	});
+
+	it('names a cause and an action, and leaks no validator vocabulary', () => {
+		expect(NOTHING_PLACED_MESSAGE).toContain('No column is set to place notes in the vault');
+		expect(NOTHING_PLACED_MESSAGE).toContain('turn on File names, Folders, or One file');
+		expect(NOTHING_PLACED_MESSAGE).not.toMatch(/\/source|\/target|items|schema|debug log/);
+	});
+
+	it('leaves an unrelated error untouched so the caller keeps its own wording', () => {
+		expect(explainRecipeError('Two mappings both shape the vault')).toBeNull();
+		expect(explainRecipeError('/target/layout/0/template: must be string')).toBeNull();
+		expect(explainRecipeError('must NOT have fewer than 1 items')).toBeNull();
 	});
 });
 

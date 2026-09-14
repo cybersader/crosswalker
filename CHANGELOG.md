@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: shape cards that did nothing, and a column left with nowhere to land (2026-09-14)
+
+- **A shape card that cannot be turned on now says why.** Mapping a single id column produced a card set where ticking Folders, Tags, Properties, Links, or One file changed nothing at all and the card stayed Off. Those cards now read "Not available" and carry a short explanation under them: folders and the rest sit on levels above the note, this column has one level, and levels come from values that split on a separator, shown with an example built from the column's own first value.
+- **A column can no longer be left with no place to land.** Turning off the last thing placing notes in the vault (folders, file names, and one file all off everywhere) is refused with a message naming what to turn on first, instead of being accepted and failing later. Resolving two columns that both shape the vault by unticking Folders and File names on one of them still works.
+- **The unreadable generate error is gone.** "Can't generate: /source/levels: must NOT have fewer than 1 items; /target/layout: must NOT have fewer than 1 items" is replaced, in both the workbench preview and the review step, with "No column is set to place notes in the vault. Open a column's mapping and turn on File names, Folders, or One file, then try again."
+
 ### Release workflow hardening (2026-09-14)
 
 `.github/workflows/release.yml` no longer decides anything inline. Every publication decision moved into `scripts/release-preflight.mjs`, a dependency-free Node script covered by `tests/release-preflight.test.ts` (12 cases), because none of the old YAML logic could be exercised without pushing to `main`.

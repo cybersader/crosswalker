@@ -80,10 +80,13 @@ import {
 	structuralEqual,
 	facetTagColumns,
 	buildParentPlacementPreview,
+	shapeCardHint,
+	blockedPlacingToggle,
 	type ShapeCardId,
 	type Provenance,
 	type PathTreeNode,
 } from './mapping/view-model';
+import { explainRecipeError } from './mapping/diagnostics';
 
 /** Render the provenance badge(s) for a preset/config surface (spec §7j #3). */
 export function renderProvenanceBadge(parent: HTMLElement, prov: Provenance): void {
@@ -259,6 +262,13 @@ export class MappingWorkbench {
 	 * as a blocking error instead of a silent "0 deviations" state.
 	 */
 	private previewError: string | null = null;
+	/**
+	 * The last shape-card toggle that was refused because it would have left the
+	 * import with nowhere to put its notes. Rendered inline under that one card,
+	 * and cleared by the next toggle that does apply, so a refusal is never
+	 * silent (it used to be: the write simply did nothing).
+	 */
+	private blockedCard: { mi: number; primitive: DestinationPrimitive; message: string } | null = null;
 
 	// Transient view state (persists across re-renders).
 	private expanded = new Set<number>();
@@ -741,8 +751,20 @@ export class MappingWorkbench {
 	 * has nothing left to group by — clear it back to `'none'` so the
 	 * Connections card doesn't keep rendering a stale selection with zero
 	 * facet columns behind it.
+	 *
+	 * Returns FALSE when the toggle was refused (turning it off would leave the
+	 * import with no folder, file name or one file anywhere, so generation would
+	 * have nowhere to put its notes). The caller restores the checkbox and the
+	 * refusal renders under the card; it is never swallowed.
 	 */
-	private toggleShapeCard(mi: number, m: StructureMapping, primitive: DestinationPrimitive, on: boolean): void {
+	private toggleShapeCard(mi: number, m: StructureMapping, primitive: DestinationPrimitive, on: boolean): boolean {
+		const blocked = blockedPlacingToggle(this.mapping, mi, primitive, on);
+		if (blocked) {
+			this.blockedCard = { mi, primitive, message: blocked };
+			this.scheduleRerender();
+			return false;
+		}
+		this.blockedCard = null;
 		this.replaceMappingAt(mi, toggleDestinationAcrossMapping(m, primitive, on));
 		if (primitive === 'tag' && !on) {
 			const enrichment = this.mapping.enrichment;
@@ -751,6 +773,7 @@ export class MappingWorkbench {
 			}
 		}
 		this.applyChange();
+		return true;
 	}
 
 	/** Patch the batch-scope enrichment block (Pass 1.5, spec §7k) and commit.
@@ -1208,22 +1231,40 @@ export class MappingWorkbench {
 
 	private renderShapeCards(card: HTMLElement, m: StructureMapping, mi: number): void {
 		const states = deriveShapeCards(m);
+		const sampleValue = this.firstSampleValue(m);
 		const grid = card.createDiv({ cls: 'crosswalker-wb-shapes' });
 		for (const { id, label, primitive } of SHAPE_CARDS) {
 			const state = states[id];
 			const copy = SHAPE_CARD_COPY[id];
-			const stateLabel = state === 'on' ? 'On' : state === 'mixed' ? 'Some levels' : 'Off';
+			// A card no row of this mapping can carry used to render as a plain
+			// "Off" card whose checkbox silently did nothing. Say why instead.
+			const hint = shapeCardHint(m, primitive, { sampleValue });
+			const blocked = this.blockedCard && this.blockedCard.mi === mi && this.blockedCard.primitive === primitive
+				? this.blockedCard.message
+				: null;
+			const stateLabel = hint
+				? 'Not available'
+				: state === 'on' ? 'On' : state === 'mixed' ? 'Some levels' : 'Off';
 			const shape = grid.createDiv({
 				cls: 'crosswalker-wb-shape'
-					+ (state === 'on' ? ' is-on' : state === 'mixed' ? ' is-mixed' : ''),
+					+ (state === 'on' ? ' is-on' : state === 'mixed' ? ' is-mixed' : '')
+					+ (hint ? ' is-unavailable' : ''),
 			});
+			const noteId = `${this.sourceRegionId}-shape-${mi}-${id}`;
 			const control = shape.createEl('label', { cls: 'crosswalker-wb-shape-control' });
 			const cb = control.createEl('input', { type: 'checkbox' });
 			cb.checked = state === 'on';
 			cb.indeterminate = state === 'mixed';
 			if (state === 'mixed') cb.setAttr('aria-checked', 'mixed');
+			if (hint) {
+				cb.disabled = true;
+				cb.setAttr('aria-describedby', noteId);
+			}
 			cb.addEventListener('change', () => {
-				this.toggleShapeCard(mi, m, primitive, cb.checked);
+				if (this.toggleShapeCard(mi, m, primitive, cb.checked)) return;
+				// Refused: keep the control showing what the mapping actually says.
+				cb.checked = state === 'on';
+				cb.indeterminate = state === 'mixed';
 			});
 			const title = control.createSpan({ cls: 'crosswalker-wb-shape-title' });
 			wbIcon(title, copy.icon);
@@ -1235,7 +1276,22 @@ export class MappingWorkbench {
 			details.createEl('summary', { text: 'What this does' });
 			details.createDiv({ cls: 'crosswalker-wb-shape-afford', text: copy.afford });
 			details.createDiv({ cls: 'crosswalker-wb-whisper', text: copy.whisper });
+			if (hint) {
+				shape.createDiv({ cls: 'crosswalker-wb-shape-hint', text: hint, attr: { id: noteId } });
+			} else if (blocked) {
+				shape.createDiv({ cls: 'crosswalker-wb-shape-hint is-blocked', text: blocked });
+			}
 		}
+	}
+
+	/** A real value from the column a mapping reads, for worked examples in hints. */
+	private firstSampleValue(m: StructureMapping): string | null {
+		const source = m.levels[0]?.source;
+		if (!source) return null;
+		const column = this.firstColumn(source);
+		const info = this.opts.columnInfos.find((c) => c.name === column);
+		const value = info?.sampleValues.find((v) => String(v ?? '').trim() !== '');
+		return value === undefined ? null : String(value);
 	}
 
 	/** Small decorative vault-shape diagrams; labels and state text carry meaning. */
@@ -1753,7 +1809,7 @@ export class MappingWorkbench {
 				const structuralTitles = this.structuralMappingTitles();
 				const text = structuralTitles.length > 1
 					? `${structuralTitles.join(' and ')} both shape the vault. On one mapping, untick Folders and File names. Tags, Properties, and Links can stay enabled.`
-					: `Can't generate: ${this.previewError}`;
+					: explainRecipeError(this.previewError) ?? `Can't generate: ${this.previewError}`;
 				banner.createSpan({ cls: 'crosswalker-render-banner-text', text });
 				return;
 			}

@@ -40,6 +40,7 @@ import type { ImportMapping, Enrichment } from './mapping/types';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import type { RecipeDocumentOrigin } from './recipe-document';
 import { buildShapeMapRecap, deriveDestinationDefault, preferredParentNote, detectWaypointPlugin, type Provenance } from './mapping/view-model';
+import { explainRecipeError } from './mapping/diagnostics';
 import { computePlan } from './mapping/plan';
 import { outputRootPath, normalizeFolderSetting } from '../settings/folder-settings';
 import { deriveFacetMemberships } from './mapping/facets';
@@ -2956,7 +2957,11 @@ export class ImportFlow {
 	private renderPreviewErrorBanner(container: HTMLElement, message: string): void {
 		const banner = container.createEl('div', { cls: 'crosswalker-render-banner is-warning' });
 		setIcon(banner.createSpan({ cls: 'crosswalker-wb-ico crosswalker-render-banner-icon' }), 'alert-triangle');
-		banner.createEl('span', { text: `Can't generate: ${message}`, cls: 'crosswalker-render-banner-text' });
+		// The validator's own wording names a JSON pointer, not anything the user
+		// can act on, so translate the errors we understand (shared with the
+		// workbench preview rail) before falling back to the raw text.
+		const text = explainRecipeError(message) ?? `Can't generate: ${message}`;
+		banner.createEl('span', { text, cls: 'crosswalker-render-banner-text' });
 	}
 
 	/** Summary banner + expandable per-row details for render() deviations. */

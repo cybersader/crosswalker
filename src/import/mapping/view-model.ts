@@ -88,8 +88,18 @@ function rowsOf(m: StructureMapping): Row[] {
  *   - `name` lives on the leaf (the note itself), so its card is computed over
  *     leaf rows only and is therefore never mixed.
  *   - every other primitive lives on the structural (non-leaf) rows + the tail.
- *   A single-level mapping (a facet or a bare link) has no leaf marker, so its
- *   only row is eligible for the non-name primitives.
+ *
+ * Either set can be EMPTY, and an empty set is not an error — it means no row of
+ * this mapping can carry that primitive, so the card has nothing to write to:
+ *   - a single-level mapping instantiated leaf-only (`instantiate.leafLevel`, and
+ *     the first manual mapping added by hand) is ALL leaf, so every non-name
+ *     primitive has zero eligible rows;
+ *   - a facet / property-only mapping carries no `name` destination anywhere, so
+ *     `name` has zero eligible rows.
+ * Callers must not silently swallow that case: `shapeCardHint` explains it to the
+ * user instead (an earlier version of this comment claimed a single-level mapping
+ * "has no leaf marker", which is wrong and is why the Folders card sat dead with
+ * no explanation).
  */
 function eligibleRows(rows: Row[], primitive: DestinationPrimitive): Row[] {
 	if (primitive === 'name') return rows.filter((r) => r.isLeaf);
@@ -110,6 +120,103 @@ export function deriveShapeCards(m: StructureMapping): Record<ShapeCardId, Shape
 		out[card.id] = present === 0 ? 'off' : present === eligible.length ? 'on' : 'mixed';
 	}
 	return out;
+}
+
+// ============================================================================
+// Why a card can't be turned on / off (no silent no-ops)
+// ============================================================================
+
+/** Separators a packed id splits on (same set `detection.ts` scans for). */
+const LEVEL_SEPARATOR = /[._\-/:]/;
+
+/** Worked example used when the mapped column offers no usable sample value. */
+const GENERIC_SPLIT_EXAMPLE = 'GV.OC-01';
+
+/** The primitives that decide where a note lands in the vault. */
+const PLACING_PRIMITIVES = new Set<DestinationPrimitive>(['folder', 'name', 'heading']);
+
+/** Shown when a toggle would leave the import with nowhere to put its notes. */
+export const NO_PLACE_TO_LAND =
+	'This is the only thing placing notes in the vault. Turn on Folders, File names, or One file first, then turn this off.';
+
+export interface ShapeCardHintOptions {
+	/** A real value from the mapped column, used to build the worked example. */
+	sampleValue?: string | null;
+}
+
+/**
+ * Why a shape card cannot be turned on for this mapping, in plain language, or
+ * `null` when the card IS actionable.
+ *
+ * A card with zero eligible rows used to render as a normal "Off" card whose
+ * checkbox did nothing at all (`toggleDestinationAcrossMapping` returned the
+ * mapping unchanged). This is the explanation the user gets instead. Pure, so
+ * the workbench and any test can ask the same question of the same model.
+ */
+export function shapeCardHint(
+	m: StructureMapping,
+	primitive: DestinationPrimitive,
+	options: ShapeCardHintOptions = {},
+): string | null {
+	const rows = rowsOf(m);
+	if (eligibleRows(rows, primitive).length > 0) return null;
+	if (primitive === 'name') {
+		return 'No level here is the note itself, so there is no name to set. Open Arrange levels and add File name to the level that should become the note.';
+	}
+	const cause = rows.length === 1
+		? 'This column has one level, the note itself, so there is no level above it to put this on.'
+		: 'Every level of this column is the note itself, so there is no level above it to put this on.';
+	return `${cause} Levels come from values that split on a separator such as a dot, dash, slash, underscore, or colon. For example, ${splitExample(options.sampleValue)}. Map a column whose values split that way to get more levels.`;
+}
+
+/** "GV.OC-01 splits into GV, then GV.OC, then GV.OC-01" from a sample value. */
+function splitExample(sampleValue?: string | null): string {
+	const value = (sampleValue ?? '').trim();
+	const usable = value.length > 0 && value.length <= 24 && LEVEL_SEPARATOR.test(value);
+	const parts = splitPrefixes(usable ? value : GENERIC_SPLIT_EXAMPLE).slice(0, 4);
+	return `${parts[parts.length - 1]} splits into ${parts.join(', then ')}`;
+}
+
+/** Cumulative prefixes of a packed value: GV.OC-01 → GV, GV.OC, GV.OC-01. */
+function splitPrefixes(value: string): string[] {
+	const out: string[] = [];
+	let acc = '';
+	for (const piece of value.split(/([._\-/:])/)) {
+		if (piece === '') continue;
+		acc += piece;
+		if (!LEVEL_SEPARATOR.test(piece)) out.push(acc);
+	}
+	return out.length > 0 ? out : [value];
+}
+
+/** True when any row of this mapping places a note in the vault. */
+export function hasPlacingDestination(m: StructureMapping): boolean {
+	return rowsOf(m).some((r) => r.destinations.some((d) => PLACING_PRIMITIVES.has(d.primitive)));
+}
+
+/**
+ * The message to show INSTEAD of applying a card toggle that would leave the
+ * whole import with no place to put its notes (every mapping stripped of folder,
+ * file name and one file at once). Returns `null` when the toggle is safe.
+ *
+ * Scoped to the whole `ImportMapping` on purpose: one mapping legitimately ends
+ * up with no placing destination when a user resolves the two-structural-mapping
+ * conflict by unticking Folders and File names on one of them. Only the state
+ * where NOTHING places notes is the failure (`layout` serializes empty, and both
+ * `source.levels` and `target.layout` then fail their minimum of one entry).
+ */
+export function blockedPlacingToggle(
+	mapping: ImportMapping,
+	mappingIndex: number,
+	primitive: DestinationPrimitive,
+	on: boolean,
+): string | null {
+	if (on || !PLACING_PRIMITIVES.has(primitive)) return null;
+	const target = mapping.mappings[mappingIndex];
+	if (!target) return null;
+	const next = toggleDestinationAcrossMapping(target, primitive, on);
+	const after = mapping.mappings.map((m, i) => (i === mappingIndex ? next : m));
+	return after.some(hasPlacingDestination) ? null : NO_PLACE_TO_LAND;
 }
 
 // ============================================================================
