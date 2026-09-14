@@ -4,7 +4,7 @@
   "title": "Crosswalker Tier 1",
   "description": "The canonical contract for a Crosswalker vault. Tier 1 is the load-bearing primitive: any producer (the bundled engine, an external Python script, an AI agent, an MCP server, hand-written notes) that emits files conforming to this schema produces a valid Crosswalker vault. Validation surface covers YAML frontmatter shape only — folder layout and Markdown body are recipe-defined and out of scope here. See https://crosswalker.dev/spec/recipe.schema.json for recipe shape.",
   "type": "object",
-  "$comment": "v0.1. JSON Schema 2020-12. Stable URI; breaking changes will bump to /v2/. Discrimination by `kind` field: kind='junction-note' must match junction-note shape; kind='crosswalk-edge' must match crosswalk-edge shape; absent kind (or any other value) must match concept-note shape. Uses allOf+if/then so AJV can produce specific error messages from the matching branch. SchemaVer 1.3.0. Additive history: 1.1.0 (2026-08-28, Ch 43) added the optional `reviewed_against` block on junction_note_frontmatter (the control fingerprint an attestation was approved against) and the optional `review_cid` on provenance_block (the concept-side current value); 1.2.0 (2026-08-28, Ch 43) widened the crosswalk_edge_frontmatter predicate_id enum with the release-lineage pair `superseded_by` / `supersedes`. 1.3.0 (2026-08-28, Ch 43) added optional recipe-driven review_groups to concept provenance and reviewed_against so a changed whole-row fingerprint can be classified as wording, scope, or housekeeping. All steps are property/enum widenings only: every document that validated before still validates, so the $id is unchanged.",
+  "$comment": "v0.1. JSON Schema 2020-12. Stable URI; breaking changes will bump to /v2/. Discrimination by `kind` field: kind='junction-note' must match junction-note shape; kind='crosswalk-edge' must match crosswalk-edge shape; absent kind (or any other value) must match concept-note shape. Uses allOf+if/then so AJV can produce specific error messages from the matching branch. SchemaVer 1.4.0. Additive history: 1.1.0 (2026-08-28, Ch 43) added the optional `reviewed_against` block on junction_note_frontmatter (the control fingerprint an attestation was approved against) and the optional `review_cid` on provenance_block (the concept-side current value); 1.2.0 (2026-08-28, Ch 43) widened the crosswalk_edge_frontmatter predicate_id enum with the release-lineage pair `superseded_by` / `supersedes`. 1.3.0 (2026-08-28, Ch 43) added optional recipe-driven review_groups to concept provenance and reviewed_against so a changed whole-row fingerprint can be classified as wording, scope, or housekeeping. 1.4.0 (2026-09-06) added the optional strict `_crosswalker.recipe.recipe_document_digest` reference to the complete normalized canonical recipe used for a note. All steps are property/enum widenings only: every document that validated before still validates, so the $id is unchanged.",
 
   "$defs": {
     "curie": {
@@ -17,6 +17,12 @@
       "type": "string",
       "pattern": "^sha256-[a-f0-9]{64}$",
       "description": "Content identifier: sha256 hash of the canonical concept-identity record (sorted CURIEs + canonicalized attribute set + canonicalized relations). Stable across vault layouts because the recipe's render() output is NOT included. See target-structure synthesis log for the canonical-state hash spec."
+    },
+
+    "recipe_document_digest": {
+      "type": "string",
+      "pattern": "^sha256-[a-f0-9]{64}$",
+      "description": "SHA-256 digest of a complete validated canonical recipe after Crosswalker normalization. The hashed bytes are the full recursively key-sorted recipe JSON, including normalized defaults, source, target, metadata, ancestry references and array order."
     },
 
     "iso8601_datetime": {
@@ -95,7 +101,11 @@
           "additionalProperties": false,
           "properties": {
             "id": { "type": "string", "description": "Recipe identifier ('nist-80053r5-allfolders')." },
-            "hash": { "type": "string", "description": "Hash of the recipe content at production time. Format: 'sha256-{hex}'." }
+            "hash": { "type": "string", "description": "Hash of the recipe content at production time. Format: 'sha256-{hex}'." },
+            "recipe_document_digest": {
+              "$ref": "#/$defs/recipe_document_digest",
+              "description": "Digest of the complete normalized canonical recipe referenced by this provenance block."
+            }
           }
         },
         "import_set": {
@@ -113,6 +123,22 @@
               "type": "string",
               "enum": ["endpoint-v1", "set-qualified-v1"],
               "description": "Identity scheme fixed when the import set is minted. endpoint-v1 identifies crosswalk assertions by endpoints. set-qualified-v1 uses cwset-<import-set-id>-<sanitized-subject>-<sanitized-object>, allowing assertions with the same endpoints in different sets to coexist without changing any existing identity."
+            },
+            "destination": {
+              "type": "string",
+              "description": "Folder this import set was last written to. Recorded so a refresh can find where the set already lives instead of inferring it from vault paths. A hint, not authority: a reader re-validates it against the actual note paths of the set, because nothing updates it when a user renames the folder."
+            },
+            "ontology": {
+              "type": "string",
+              "description": "Ontology this import set mints its CURIEs under, pinned when the set is minted, the same way scheme is. A refresh uses the pin instead of recomputing the ontology from its own recipe: a recomputation that lands on a different answer produces CURIEs matching none of the notes the set already owns, so the run writes a second copy of the whole import and reports every original as an orphan. Absent on notes written before the pin existed; such a set is pinned on its first refresh to the ontology prefix its own notes already carry."
+            },
+            "derivation": {
+              "type": "string",
+              "enum": [
+                "filename-stem-v1",
+                "declared-facts-v1"
+              ],
+              "description": "Identity-derivation rule fixed when the import set is minted, the same way scheme and ontology are. filename-stem-v1 is the rule shipped since v0.1.0: the CURIE local part is the leaf filename stem passed through the filesystem sanitizer, which is many-to-one and rewrites even a declared curie column. declared-facts-v1 derives from the source's declared identity first (curie, then id, subject_id, control_id, code) and falls back to the filename stem only when none is present; a declared curie outside the CURIE charset is refused for that row rather than rewritten, and any sanitization that does happen is injective, so two distinct source values can never produce one CURIE. Absent means filename-stem-v1: every note written before this pin existed was written by that rule, and a refresh must keep using it or it recognises none of the notes the set already owns."
             }
           }
         },

@@ -1,5 +1,5 @@
 ---
-curie: "cis-controls-v8-subset:hub/cis-controls-v8-subset"
+curie: "cis-controls-v8-subset:hub/_root"
 kind: hub
 children:
   - "[[CIS]]"

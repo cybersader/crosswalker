@@ -12,3 +12,4 @@ export * from './strm-tsv-exporter';
 export * from './oscal-profile-exporter';
 export * from './folder-picker-modal';
 export * from './write-export-file';
+export * from './run-folder-typed-table-export';

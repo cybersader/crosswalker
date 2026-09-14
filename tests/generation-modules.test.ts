@@ -95,11 +95,11 @@ describe('legacyConfigToRecipe', () => {
 		expect(leaf.template).toBe('{control_id}.md');
 	});
 
-	it('translates frontmatter mappings into also_emit.frontmatter.managed', () => {
+	it('translates frontmatter mappings into optional also_emit.frontmatter.managed templates', () => {
 		const r = legacyConfigToRecipe(sampleLegacy);
 		expect(r.target.also_emit?.frontmatter?.managed).toEqual({
-			title: '{control_name}',
-			family_id: '{family}',
+			title: '{control_name|optional}',
+			family_id: '{family|optional}',
 		});
 	});
 

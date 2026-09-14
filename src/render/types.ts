@@ -103,6 +103,39 @@ export interface RenderReport {
 }
 
 /**
+ * AM-33 / AM-37 (2026-09-01). One rendered DIRECTORY SEGMENT, beside the layout
+ * level that produced it.
+ *
+ * A layout turns source facts into directory segments. Each segment is a value,
+ * recorded here at the moment it is produced, in order, beside the level it
+ * belongs to. One entry per segment, whatever appended it: a folder mechanism,
+ * a literal separator inside a folder template (`Frameworks/{catalog.name}`
+ * produces TWO, the second being the level's own rendered text), or the
+ * directory prefix of a file template. A literal's rendered text is its value;
+ * the level name beside it is descriptive, and repeats when one entry produced
+ * several segments.
+ *
+ * The count is therefore never a matter of luck: it equals the depth of the
+ * rendered directory by construction, so a consumer that compares them treats a
+ * mismatch as the bug it is instead of falling back to reading the path.
+ *
+ * Failure mode prevented: hub identity being RECOMPUTED by parsing a note's
+ * final vault path (`dirname(path)`) on every run and used as the lookup key.
+ * A path is a place, not a fact: it carries the import root, it carries whatever
+ * a relocation pass inserted, and it changes for reasons that have nothing to do
+ * with what the folder is ABOUT. When the key moved, the hub that plainly
+ * existed was found by nothing, a second one was written, and the first was
+ * orphaned with the user's prose on it. A path may seed a one-time mint; it may
+ * never be needed again after it (A-8 clause one).
+ */
+export interface LayoutValue {
+	/** The layout entry's declared level name (e.g. `family`, `tactic`). */
+	level: string;
+	/** The value that level rendered for this row — the segment, before it became part of any path. */
+	value: string;
+}
+
+/**
  * The Address output — what render() produces per concept.
  *
  * Per Ch 22 §3.1.

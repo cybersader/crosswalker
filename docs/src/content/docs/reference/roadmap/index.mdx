@@ -49,14 +49,16 @@ The v0.1 implementation phase breaks into 10 sequenced milestones. Each has its 
 | [v0.1.2](/crosswalker/reference/roadmap/milestones/v0-1-2-render/) | `render()` v1 — folder + file + heading | 3–5 days | ✅ Done (2026-05-05) |
 | [v0.1.3](/crosswalker/reference/roadmap/milestones/v0-1-3-generation-engine-integration/) | Generation engine integration | 3–5 days | ✅ Done (2026-05-05) |
 | [v0.1.4](/crosswalker/reference/roadmap/milestones/v0-1-4-junction-notes-and-crosswalks/) | Junction notes + crosswalk edges | 2–3 days | ✅ Done (2026-05-05) |
-| [v0.1.4.5](/crosswalker/reference/roadmap/milestones/v0-1-4-5-streaming-refactor/) | Streaming refactor (engine accepts row iterator) | 1–2 days | ✅ Done (2026-05-05) |
+| [v0.1.4.5](/crosswalker/reference/roadmap/milestones/v0-1-4-5-streaming-refactor/) | Iterator-ready engine boundary (wizard remains eager) | 1–2 days | ✅ Done (2026-05-05) |
 | [v0.1.5](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/) | Tier 2 sqlite-wasm sidecar projector | 5–8 days | ✅ Done (2026-05-06) |
 | [v0.1.6](/crosswalker/reference/roadmap/milestones/v0-1-6-bases-query-layer/) | Bases query layer + SSSOM import + recipe UX | 3–5 days (ran long — absorbed the shape-workbench side-arc) | 🚧 In progress — Phases 1–6.4 ✅ + Phase 7 (shape-workbench side-arc) ✅ 2026-07-11; v0.1.7 is active. See `CHANGELOG.md` `[Unreleased]` for delivery detail |
 | [v0.1.7](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) | Portability: exporters, reusable configurations, source bindings, MappingSets | Expanded | 🚧 In progress — exporter first slice ✅; recipe-fidelity foundation ✅ 2026-07-21; configuration library, exact source-bound replay, MappingSet envelope/UI, and exporter completion remain, now gated on the [save-and-replay](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) + [primitives](/crosswalker/agent-context/zz-log/2026-07-25-primitives-reconciliation-decision-register/) decision registers (2026-07-25). See `CHANGELOG.md` `[Unreleased]` |
 | [v0.1.8](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/) | Execution records, audit, and package manifests | Expanded | 📋 Planning; depends on v0.1.7 |
 | [v0.1-RC](/crosswalker/reference/roadmap/milestones/v0-1-rc-bundle-and-ship/) | Artifact-chain acceptance, bundle, polish, ship | 2–3 days | 📋 Planning |
 
-**Status last verified: 2026-07-25** — every cell above re-checked against the milestone pages, `CHANGELOG.md` `[Unreleased]`, and the commit log. If today is far past that date and no newer verification line has replaced it, treat this table as unverified.
+**Status last verified: 2026-09-05** — every cell above was re-checked against the milestone pages, `CHANGELOG.md` `[Unreleased]`, and the commit log. No milestone status changed in this documentation update; the `fix/d1-per-import-root` safety work remains unmerged branch work, not a shipped milestone. If today is far past this date and no newer verification line has replaced it, treat this table as unverified.
+
+**Delivery posture:** functional correctness and a usable, explicitly supported workflow come before optimizing every ingestion path. The eager in-memory wizard can remain the initial path where it works honestly; silent data loss, crashes on declared-supported inputs, and false completion are blockers. Advanced streaming, parser migration, and replay integrity for mutable multi-pass sources are staged, measured improvements, not automatic blockers for v0.1.7. See [ingestion safety and staged performance](/crosswalker/agent-context/zz-log/2026-09-05-ingestion-safety-and-staged-performance/).
 
 Total estimate: **~3–6 weeks of focused work** (running a bit long — v0.1.6 absorbed an adjacent import-wizard rebuild). The closing acceptance chain is **source bytes → reusable configuration → Knowledge Set/MappingSet → Execution Record → Package Manifest**; see [artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) and the [artifact-role synthesis](/crosswalker/agent-context/zz-log/2026-07-21-artifact-roles-and-authority-synthesis/). See the [milestone hub](/crosswalker/reference/roadmap/milestones/) for full sequencing and dependencies.
 
@@ -161,6 +163,14 @@ Built on the Foundation spec. This phase expands both source-format breadth and 
 - [ ] **[Transform system](/crosswalker/design/transformation/)** — implement 20+ transform types defined in schema (string, array, type conversion, conditional). [Current types](/crosswalker/design/transformation/)
 - [ ] **Improved preview** — expandable folder tree, full note preview in Step 3
 - [ ] **E2E test suite** — full import wizard workflow tests, [built from spec](/crosswalker/agent-context/zz-log/2026-04-03-deep-research-synthesis/#research-3-e2e-testing-with-wdio-obsidian)
+
+### Recipe authoring with AI assistance
+
+A canonical [recipe](/crosswalker/concepts/terminology/) is already plain JSON: every bundled recipe under `recipes/import/` uses the closed 5-mechanism grammar, and an assistant can already read and propose edits to that JSON directly. This is a distinct file and code path from the [config browser](/crosswalker/features/config-system/)'s saved-config export/import, which round-trips wizard state (`SavedConfig`) — the config browser's file import does not read or accept canonical Recipe JSON today. What is missing for recipe editing specifically is the packaging that makes an assistant round trip feel native instead of a manual copy-paste through the filesystem. Doing that safely means preserving the full canonical `RecipeDocument` rather than reconstructing a recipe from a smaller edited fragment, and giving the user an explicit preview and opt-in before any source content leaves the vault — none of this packages or sends anything automatically.
+
+- [ ] **Paste-JSON entry** — accept a pasted recipe alongside the existing file import, so an edited recipe comes back without a download-and-re-upload hop
+- [ ] **Context-pack command** — one action that copies [`spec/recipe.schema.json`](/crosswalker/agent-context/v0-1-schema-spec/), the recipe being edited, and the current source's column headers as a single block to hand an assistant. The schema plus a worked recipe is already the context an assistant needs; this only packages it
+- [ ] **Validate-on-paste** — report schema violations in the UI at paste time with the offending field named, rather than failing later during generation. Follows the [actionable-errors rule](/crosswalker/agent-context/zz-log/): name a cause and an action
 
 ---
 

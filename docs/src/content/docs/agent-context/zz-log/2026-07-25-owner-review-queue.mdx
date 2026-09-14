@@ -245,6 +245,8 @@ The primitives register calls these **Gate 2 — cleanup** (P7–P11) and **Gate
 
 From the [save-and-exact-replay register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) (the log tracking how a saved import re-runs later and produces the same result). Its **Gate 1** — D1 through D4 — blocks the design specification. D5 and D6 block v0.1.7 shipping; D7 and D8 block v0.1.8. **D1 must be decided after section 1a.**
 
+**Gate 1 closed 2026-09-06:** D1–D4 are ratified below and recorded in the [Gate 1 ratification](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/). That unblocks writing the design specification only — no schema field, storage, or UI exists yet, and D5–D8 remain open.
+
 ### D1 — Add a second fingerprint that identifies the exact recipe revision
 
 **What this is.** Crosswalker uses fingerprints (hashes) to answer different questions. `effective_target_hash` answers "did anything that changes output behavior change?"; `concept_cid` answers "is this the same concept?". Replay needs a third: "which exact revision of this recipe is this?" The existing `computeRecipeHash()` covers only layout, also_emit and enrichment — it is **not** a whole-recipe fingerprint and must not be repurposed as one. `metadata.based_on.hash` currently stores the effective-target hash, so redefining it silently would corrupt existing ancestry records.
@@ -256,6 +258,8 @@ From the [save-and-exact-replay register](/crosswalker/agent-context/zz-log/2026
 **Cons.** Five digests is a lot of vocabulary; it has to be taught once, clearly.
 
 **Recommendation: (a) new field, leave `recipe.hash` alone, and keep `sha256-<hex>` as the only syntax.** Two syntaxes for one hash is a needless comparison hazard.
+
+**Status: ratified (a) 2026-09-06.** A separate `recipe_document_digest`; every existing hash and ancestry field keeps its current meaning and stored value; `sha256-<hex>` is the only accepted syntax. Nothing implemented — see the [Gate 1 ratification](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/).
 
 ### D2 — Decide what a saved run is allowed to vary
 
@@ -269,6 +273,8 @@ From the [save-and-exact-replay register](/crosswalker/agent-context/zz-log/2026
 
 **Recommendation: (a) closed union.** Start closed; typed parameter slots stay available as a purely additive change if a real use case appears.
 
+**Status: ratified (a) 2026-09-06.** A closed set of explicit parser, destination, and write-policy override fields; no arbitrary or free-form parameters. Nothing implemented — see the [Gate 1 ratification](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/).
+
 ### D3 — Define what "exact replay" is allowed to promise
 
 **What this is.** "Exact replay" needs a definition you can test. Byte-identical files are not achievable today: every note records a produced-at timestamp and producer version, and `user_preserve` regions hold edits the user owns and Crosswalker must not overwrite. Option (a) promises equivalence of the **managed projection** — everything Crosswalker owns matches, excluding run-scoped provenance and user-owned regions. Option (b) promises byte-identity, but only into an empty destination.
@@ -281,6 +287,8 @@ From the [save-and-exact-replay register](/crosswalker/agent-context/zz-log/2026
 
 **Recommendation: (a) managed-projection equivalence**, with (b) available as a stricter opt-in check against a clean destination.
 
+**Status: ratified (a) 2026-09-06 (tightened).** The promise is equivalence of Crosswalker-managed content, excluding run metadata that legitimately changes and user-owned edits. Byte-identical whole files are **not** promised and, unlike the recommendation, are **not** being implemented as an opt-in check now. Nothing implemented — see the [Gate 1 ratification](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/).
+
 ### D4 — Decide whether to keep a copy of the original source file
 
 **What this is.** A hash proves a source file has not changed; it cannot bring the file back. Without retention, replay depends on the user finding the identical file again years later. Options: retain the bytes in a content-addressed store by default; verify a re-selected file instead; or support both with a visible per-binding status.
@@ -292,6 +300,8 @@ From the [save-and-exact-replay register](/crosswalker/agent-context/zz-log/2026
 **Cons.** Storage size, licensing exposure and the unproven mobile path all become real work.
 
 **Recommendation: (c) both, with explicit per-binding status — and retention off by default where source redistribution terms are unclear.** Do not promise retained-by-default until the mobile path is proven.
+
+**Status: ratified (c) 2026-09-06 (tightened).** Verified reselection and optional retained copies, each binding showing which it has. Explicit opt-in is required before **any** retained copy of a source file is stored — unconditional, not only where redistribution terms are unclear. This governs retained copies, not the ordinary in-memory reading a parse already does. Retention location, quota handling, and the mobile path remain separate open questions. Nothing implemented — see the [Gate 1 ratification](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/).
 
 ### D5 — Decide whether editing a recipe makes a new version or a new recipe
 
@@ -370,6 +380,7 @@ In reading order; each takes a minute or two.
 
 - [Primitives reconciliation — decision register](/crosswalker/agent-context/zz-log/2026-07-25-primitives-reconciliation-decision-register/) — evidence for P1–P14; its Gate 1 (schema fields) sequences before replay D1
 - [Save and exact replay — decision register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) — evidence for D1–D8
+- [Save and exact replay — Gate 1 ratification (2026-09-06)](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/) — the ratified D1–D4 answers and their non-commitments
 - [Artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) — the authority model P7 prunes and P4 enforces
 - [Artifact roles and authority synthesis](/crosswalker/agent-context/zz-log/2026-07-21-artifact-roles-and-authority-synthesis/) — why the anti-noun rule exists
 - [Roadmap milestones](/crosswalker/reference/roadmap/milestones/) — where each ratified decision lands

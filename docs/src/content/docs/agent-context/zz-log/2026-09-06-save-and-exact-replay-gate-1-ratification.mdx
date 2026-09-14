@@ -1,0 +1,96 @@
+---
+title: "Save and exact replay — Gate 1 ratified (D1–D4)"
+description: "The owner ratified all four Gate 1 decisions for save and exact replay: a separate recipe-revision digest that leaves every existing fingerprint meaning intact, a closed binding field set with no free-form parameters, managed-content equivalence as the only replay promise, and source retention that requires explicit opt-in before anything is copied. This unblocks the design specification only; no schema, storage, or UI has been implemented."
+tags: [log, decision, architecture, recipe, replay, provenance, v0-1-7, ratification]
+date: 2026-09-06
+sidebar:
+  label: "09-06 · Replay Gate 1 ratified"
+  order: -20260906
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="What this page is">
+A **ratification record**: the owner's answers to the four Gate 1 decisions held open in the [save-and-exact-replay register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) (the working log tracking how a saved import can be re-run later and produce the same result), restated as decision cards in the [owner review queue](/crosswalker/agent-context/zz-log/2026-07-25-owner-review-queue/) § 1c.
+
+**Nothing here has been built.** No schema field, storage location, or UI exists as a result of this page. Gate 1 closing unblocks writing the design specification, and only that.
+
+**Current status (added 2026-09-07, forward pointer only — the ratification below is unchanged).** Implementation has since started against **D1**: a first recipe-document digest slice, and the two optional schema reference fields it writes into, were committed to the unmerged `fix/d1-per-import-root` branch as `285592cd`. Separately, a native `.xlsx` [source-byte provenance slice](/crosswalker/agent-context/zz-log/2026-09-07-xlsx-source-snapshot-synthesis/) fills in the pre-existing `source_ref.source_hash` contract at runtime; it is neither a retained source copy nor any part of **D4**'s opt-in, which remains unimplemented, as do **D2** and **D3**. Delivery detail for both is in [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present). Nothing is merged or released, and no verdict on this page has moved.
+</Aside>
+
+## 1. The verdict
+
+All four Gate 1 decisions are ratified on their recommended options, with **D3 and D4 tightened beyond what the register recommended**. Gate 2 (D5, D6) and Gate 3 (D7, D8) stay open and unchanged.
+
+| # | Decision | Ratified | Relative to the register's recommendation |
+|---|---|---|---|
+| **D1** | Recipe-revision fingerprint | **(a)** a separate `recipe_document_digest`; every existing hash and ancestry field keeps its current meaning; `sha256-<hex>` is the only accepted syntax | As recommended |
+| **D2** | What a saved run may vary | **(a)** a closed set of explicit parser, destination, and write-policy override fields; no arbitrary or free-form parameters | As recommended |
+| **D3** | What "exact replay" promises | **(a)** equivalence of Crosswalker-managed content, excluding run metadata that legitimately changes and user-owned edits. Byte-identical whole files are **not** promised and **not** implemented as an opt-in check now | **Tightened** — the register offered byte-identity as a stricter opt-in; that option is not being built at this time |
+| **D4** | Keeping a copy of the source file | **(c)** verified reselection **and** optional retained copies, each binding visibly showing which it has. **Explicit opt-in is required before a retained copy of any source file is stored** | **Tightened** — the register recommended off-by-default only where redistribution terms are unclear; opt-in is now unconditional |
+
+## 2. Why each answer
+
+**D1 — separate digest, nothing redefined.** Crosswalker already uses several fingerprints to answer different questions: one says "did anything that changes output behavior change?", another says "is this the same concept?". Replay needs a third — "which exact revision of this recipe is this?" — and the existing recipe hash covers only part of a recipe, so repurposing it would answer the new question wrongly while silently changing the meaning of ancestry already written into shipped files. A new field keeps each fingerprint answering exactly one question, which is what makes drift diagnosable rather than a single yes/no bit. One wire syntax removes a comparison hazard that costs nothing to avoid now and is expensive to unpick later.
+
+**D2 — closed field set.** A **binding** (the record joining a saved recipe to the specific inputs it ran against: which file, which sheet, where output goes, what to do on conflict) with a free-form parameter bag would become a sixth way to change output, outside the [closed five-mechanism grammar](/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/) the project committed to, and would break `render(Recipe, ConceptIdentity)` as a pure function of the recipe. Starting closed is reversible: typed parameter slots remain available later as a purely additive change. Starting open is not.
+
+**D3 — promise only what is true in a real vault.** Every generated note records when it was produced and by what version, and user-owned regions hold edits Crosswalker must never overwrite. A byte-identity promise is therefore false the moment a user edits anything. Managed-content equivalence is testable, is what an auditor actually needs, and does not have to be narrowed later — narrowing a published promise is a breaking claim. The owner went further than the register and declined to ship byte-identity even as an opt-in check, so the project makes exactly one replay promise rather than two that need distinguishing in every conversation.
+
+**D4 — keeping someone's source is a decision the user makes.** A hash proves a file has not changed; it cannot bring the file back. Retention is genuinely useful, but some framework sources cannot be redistributed, and persisting a copy into a store the user did not ask for is not a default a compliance team should have to discover. Unconditional opt-in makes the choice visible at the moment it matters, and the per-binding status keeps the system honest about what is actually recoverable: each binding reads either "retained" or "needs reselection", never an implied guarantee.
+
+The opt-in governs **retained copies only** — bytes Crosswalker stores and keeps after a run. Reading a file to parse it during an import, and the in-memory buffers that requires, is ordinary operation and is not what this decision gates.
+
+## 3. What is locked
+
+| Aspect | Locked at Gate 1 |
+|---|---|
+| Recipe-revision fingerprint | A new, separately named digest field; not a rename or redefinition of anything shipped |
+| Existing fingerprints and ancestry | Unchanged in meaning and in stored value |
+| Hash wire syntax | `sha256-<hex>` only |
+| Binding surface | Explicit parser, destination, and write-policy override fields; closed |
+| Replay promise | Equivalence of Crosswalker-managed content only |
+| Excluded from that promise | Run metadata that legitimately varies between runs; user-owned regions |
+| Source retention | Both modes supported; per-binding status visible; no retained copy stored without explicit opt-in |
+
+## 4. What this does NOT do
+
+- It does **not** implement anything. No field exists in [`spec/tier1.schema.json` or `spec/recipe.schema.json`](/crosswalker/agent-context/v0-1-schema-spec/) as a result of this ratification, and no hashing, binding, storage, or UI code was written.
+- It does **not** close the [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) or any track within it. The reusable-configuration library, the storage layer, and the replay UI all remain unbuilt.
+- It does **not** decide Gate 2 (**D5** lineage semantics, **D6** legacy saved-setup coexistence) or Gate 3 (**D7** audit manifest overlap, **D8** signing default, both landing at [v0.1.8](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/)).
+- It does **not** settle where retained bytes live, what quota governs them, or whether the mobile path works. Those remain separate decisions, and the mobile question is still unproven.
+- It does **not** reopen **P1–P6**, the schema-field group in [owner review queue](/crosswalker/agent-context/zz-log/2026-07-25-owner-review-queue/) § 1a, which are already ratified or owner-directed. Their sequencing rule stands: those fields settle before the recipe digest is computed over them.
+- It does **not** foreclose byte-identity forever. It declines to promise or build it now; a later additive check would not contradict anything ratified here.
+
+## 5. What this unblocks
+
+| Now unblocked | Still blocked |
+|---|---|
+| Writing the Crosswalker-native design specification in `.workspace/`, with worked examples and acceptance cases | Storage and UI code, which the register gates behind Gate 1 closing **and** a written specification |
+| Defining identity and binding primitives test-first, with no storage or UI | Full NIST CSF 2.0 and NIST SP 800-53 save → reopen → replay proofs, which need the storage layer |
+| Specifying the retained-object store's contract, opt-in flow, and per-binding status surface | Choosing the store's location and quota model; proving the mobile path |
+
+## 6. Reconciliation with prior decisions
+
+| Prior commitment | Relationship |
+|---|---|
+| [Closed five-mechanism grammar](/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/) | Preserved — D2's closed field set is what keeps the binding from becoming a sixth mechanism |
+| [Portable ImportRecipe fidelity](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/) | Preserved — a recipe-revision digest names exactly the canonical JSON and normalized recipe semantics the preservation boundary already keeps intact |
+| [Artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) | Preserved — no new root artifact noun. The binding stays a binding; retained bytes remain Tier 0 inputs rather than a new root artifact |
+| [Schema-as-primitive](/crosswalker/concepts/etl-and-import/) | Preserved — direct producers that emit valid notes stay first-class with no recipe or replay binding |
+| [Every capability needs a UI](/crosswalker/agent-context/zz-log/2026-06-12-ui-parity-audit/) | D4's per-binding status and opt-in are UI obligations, recorded now so the specification carries them |
+
+## 7. Related
+
+- [Save and exact replay — decision register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) — the evidence behind D1–D8 and the multi-fingerprint model; its Gate 1 table now carries this ratification
+- [Owner review queue](/crosswalker/agent-context/zz-log/2026-07-25-owner-review-queue/) — § 1c holds the D1–D4 decision cards, now status-stamped
+- [Primitives reconciliation — decision register](/crosswalker/agent-context/zz-log/2026-07-25-primitives-reconciliation-decision-register/) — the sibling register whose schema-field gate sequences before the recipe digest
+- [Portable ImportRecipe fidelity synthesis](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/) — the preservation boundary this completes
+- [Artifact roles and authority synthesis](/crosswalker/agent-context/zz-log/2026-07-21-artifact-roles-and-authority-synthesis/) — why no new artifact noun appears here
+- [Target-structure synthesis](/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/) — the closed grammar and the `render()` coupling point D2 protects
+- [Conventions](/crosswalker/concepts/conventions/) · [Consistency models](/crosswalker/concepts/consistency-models/) — where the D3 replay promise is stated publicly once the specification lands
+- [Ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) — the Acquire stage that source retention belongs to
+- [System architecture](/crosswalker/concepts/system-architecture/) — tier boundaries retained bytes must not cross
+- [Terminology](/crosswalker/concepts/terminology/) — Recipe, binding, and the fingerprint vocabulary
+- [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) — where Gate 1 and Gate 2 land
+- [v0.1.8 milestone](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/) — where Gate 3 lands

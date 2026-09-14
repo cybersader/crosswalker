@@ -1,6 +1,6 @@
 ---
-title: "v0.1.4.5 — Streaming refactor (engine accepts row iterator)"
-description: "Refactor generateFromRecipe + generateNotes to accept an AsyncIterable<Row> instead of accumulating ParsedData.rows[] in RAM. End-to-end streaming pipeline so multi-GB inputs work. Triggered by the 2026-05-05 two-mode architecture decision."
+title: "v0.1.4.5 — Iterator-ready engine boundary"
+description: "Historical streaming milestone that added an AsyncIterable<Row> engine boundary and CSV row-queue backpressure. The current wizard still uses an eager parser path; the queue bound is not a whole-parser or source-memory guarantee."
 sidebar:
   order: 14.5
   label: "v0.1.4.5 · Streaming"
@@ -9,15 +9,23 @@ tags: [milestone, v0-1, streaming, async-iterable, papaparse, oom-fix, two-mode-
 
 import { Aside } from '@astrojs/starlight/components';
 
-## Goal
+## Historical goal
 
-Make the bundled engine **streaming-by-design** so it can handle source files larger than RAM. Refactor `generateFromRecipe` and `generateNotes` to iterate via `for await` over an `AsyncIterable<Row>` instead of pulling rows from an in-memory `ParsedData.rows[]` array. PapaParse's `step` callback feeds the async iterator directly — rows never accumulate.
+The 2026-05-05 goal was to make the bundled engine **streaming-by-design**: refactor `generateFromRecipe` and `generateNotes` to consume an `AsyncIterable<Row>` rather than requiring an in-memory `ParsedData.rows[]` array, then feed that boundary from a CSV API with bounded emitted-row queue backpressure.
 
-This is the implementation of Mode 1 (bundled projector) at scale, per the [2026-05-05 two-mode architecture decision](/crosswalker/agent-context/zz-log/2026-05-05-two-mode-architecture/). Without it, [ChunkyCSV / JSONaut](/crosswalker/concepts/etl-and-import/#why-both-modes-matter) composition with the bundled engine caps at RAM-sized inputs, defeating the purpose.
+That goal came from the [2026-05-05 two-mode architecture decision](/crosswalker/agent-context/zz-log/2026-05-05-two-mode-architecture/). The iterator-ready engine boundary shipped. Automatic large-source wizard ingestion did not.
 
 ## Status
 
-✅ Done (2026-05-05). `ParsedData.rows: Row[] | AsyncIterable<Row>` shipped with full backwards-compat. New `parseCSVFileStream()` returns ParsedData where rows is an AsyncIterable that pulls per-row from PapaParse via the step callback with backpressure (buffer caps at 100 rows). Engine `for await` loops in `generateNotes` + `generateFromRecipe` consume both forms identically. 153 tests passing (116 unit + 37 E2E across 8 spec files including new `streaming.spec.ts` with 4 tests covering AsyncIterable consumption + eager-array backwards-compat).
+✅ Done (2026-05-05) for the **iterator-ready engine boundary**. `ParsedData.rows: Row[] | AsyncIterable<Row>` shipped with backwards compatibility. `parseCSVFileStream()` exposes async row iteration with a 100-row high-water and 10-row low-water emitted-row queue, and the engine consumes sync or async iterators. That backpressure limits the row queue only; it is not a bound on parser carry, decoded records, the source, or total application memory.
+
+The original completion note recorded 153 passing tests (116 unit + 37 E2E across 8 spec files). Those historical counts were not rerun for this verification.
+
+**Status last verified:** 2026-09-05 — scoped to the streaming API, engine boundary, wizard call site, and committed E2E source: the iterator and eager-array paths still exist, but the wizard remains eager and the E2E contains no memory measurement.
+
+**Current limitation:** the wizard's current `>5 MB` branch detects streaming mode but calls `parseCSVFile(..., { streaming: true })`; that function still accumulates every row before returning. `tests/e2e/streaming.spec.ts` uses 100 synthetic async rows to prove iterator consumption and eager-array compatibility. It does not prove bounded wizard memory, a one-million-row import, or a memory ceiling.
+
+**Current delivery posture:** a correct, usable eager workflow may precede broader performance work. Advanced streaming remains staged rather than an automatic blocker for v0.1.7, but silent data loss, supported-input crashes, and false completion are never deferrable performance issues. See [ingestion safety and staged performance](/crosswalker/agent-context/zz-log/2026-09-05-ingestion-safety-and-staged-performance/).
 
 ## Dependencies
 
@@ -26,23 +34,27 @@ This is the implementation of Mode 1 (bundled projector) at scale, per the [2026
 
 **Blocks**: [v0.1.5 — Tier 2 sidecar](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/) (sidecar projector also iterates the vault streaming-style; cleanest if engine streaming foundation is in place first)
 
-## Scope
+## Original scope (historical)
+
+The checklist below preserves the 2026-05-05 plan. It is not a statement that every item received the proposed scale or memory proof.
 
 **In:**
 - `ParsedData.rows: Row[] | AsyncIterable<Row>` — streaming-friendly union; backwards-compatible with existing array consumers
 - `parseCSVStream(file)` — returns `AsyncIterable<Row>` directly via PapaParse step callback piped to async generator (no `results.data[]` accumulation)
 - `generateFromRecipe` and `generateNotes` accept either form via `for await` iteration
-- E2E test (`tests/e2e/streaming.spec.ts`) — feeds a large synthetic CSV (~1M rows or memory-budget-equivalent), confirms RAM doesn't grow with input size, confirms output Tier 1 vault is correct
+- Historical E2E target — feed a large synthetic CSV (~1M rows or memory-budget-equivalent), confirm RAM does not grow with input size, and confirm Tier 1 output. The committed spec instead uses 100 synthetic rows and has no memory oracle
 - Wizard preview unchanged — still loads first ~50 rows into a small `ParsedData` for preview UX
-- Wizard import-run uses streaming path automatically when source > 5MB (existing `shouldUseStreaming()` threshold)
+- Wizard detects sources >5 MB with `shouldUseStreaming()`; binding its generation run to `parseCSVFileStream()` remains open, as noted under Current limitation
 
 **Out:**
-- CLI pipe interface (`chunkycsv messy.xlsx | crosswalker-cli import`) — defer to v0.5+
+- CLI pipe interface (external producer piped into a future Crosswalker CLI) — defer to v0.5+
 - XML / RDF streaming parsers — defer to v0.2+
 - Web Worker offload of parse — Ch 23 §9.5 says workers are unreliable for this; main-thread cooperative-yield is the v0.1 path
 - Programmatic AsyncIterable callers (advanced composition pattern) — exposed via `plugin.runImportFromRecipe` API; doc page on it deferred to v0.2
 
-## Concrete tasks
+## Historical task plan
+
+These unchecked items preserve the original plan; they are not current completion indicators. The Status section above is authoritative about what shipped and what remains open.
 
 - [ ] Update `ParsedData` type in `src/types/config.ts` — `rows: Row[] | AsyncIterable<Row>`
 - [ ] New `src/import/parsers/csv-parser-stream.ts` — `parseCSVStream(file): AsyncIterable<Row>`; PapaParse `step` callback writes into a queue; async generator pulls from the queue
@@ -56,7 +68,9 @@ This is the implementation of Mode 1 (bundled projector) at scale, per the [2026
   - E2E (`tests/e2e/streaming.spec.ts`): synthetic 1M-row CSV via streaming path; confirm import succeeds; confirm RAM growth stays bounded; confirm output count matches input row count
   - Existing E2E (full-import-flow, crosswalks, etc.) all still pass — the array-as-iterator path is the degenerate case
 
-## Success criteria
+## Original acceptance goals (historical and unmeasured)
+
+These were the proposed 2026-05-05 targets. They are not newly passed tests, and the committed streaming E2E does not establish the scale or memory targets below.
 
 - [ ] All 33 existing E2E tests pass unchanged
 - [ ] New `streaming.spec.ts` passes; RAM ceiling confirmed bounded (heap snapshot before/after import on 1M-row CSV stays within ~50 MB)
@@ -91,7 +105,8 @@ This is the implementation of Mode 1 (bundled projector) at scale, per the [2026
 - [Tradeoffs](/crosswalker/agent-context/tradeoffs/)
 
 **Design decisions (synthesis logs):**
-- [2026-05-05 two-mode architecture decision](/crosswalker/agent-context/zz-log/2026-05-05-two-mode-architecture/) — what triggers this milestone
+- [2026-09-05 ingestion safety and staged performance](/crosswalker/agent-context/zz-log/2026-09-05-ingestion-safety-and-staged-performance/) — current functional-first sequencing and non-claims
+- [2026-05-05 two-mode architecture decision](/crosswalker/agent-context/zz-log/2026-05-05-two-mode-architecture/) — what triggered this milestone
 - [2026-05-05 ETL pipeline clarification](/crosswalker/agent-context/zz-log/2026-05-05-etl-pipeline-clarification/) — earlier framing
 - [Ch 22 synthesis](/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/) — render() purity makes streaming safe
 - [Ch 23 synthesis](/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/) — §9.5 main-thread cooperative-yield
@@ -100,8 +115,7 @@ This is the implementation of Mode 1 (bundled projector) at scale, per the [2026
 - [Ch 25 — Two-mode architecture and streaming (resolved)](/crosswalker/agent-context/zz-challenges/archive/25-two-mode-architecture-and-streaming/) — option-space + decision
 
 **External producer ecosystem (Mode 1 feeders this enables):**
-- [ChunkyCSV (user's tool)](https://github.com/cybersader) — natural feeder for streaming CSV cleanup
-- [JSONaut (user's tool)](https://github.com/cybersader) — natural feeder for streaming JSON cleanup
+- Streaming CSV/JSON cleanup tools — natural feeders for row-iterator inputs
 - dbt / Polars / DuckDB — Mode 1 feeders for SQL-shaped sources
 
 **Other milestones:**

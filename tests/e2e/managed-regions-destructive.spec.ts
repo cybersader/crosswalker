@@ -81,7 +81,7 @@ describe('Managed body regions — the destructive scenarios', function () {
 	});
 
 	it('imports, damages six notes in six different ways, and re-imports', async () => {
-		out = await browser.executeObsidian(async ({ app }, args) => {
+		out = await browser.executeObsidian(async ({ app, obsidian }, args) => {
 			// @ts-expect-error — internal API
 			const plugin = app.plugins.plugins['crosswalker'];
 			const { base, rows, recipeV1, recipeV2, start, end } = args;
@@ -114,6 +114,25 @@ describe('Managed body regions — the destructive scenarios', function () {
 			};
 
 			const first = await plugin.runImportFromRecipe(parsed, recipeV1, options);
+
+			// AM-16. The re-import below writes over the identities this first import
+			// minted, and since AM-9 the engine no longer adopts a set it happens to
+			// find in the destination: a second call with no `importSet` is a NEW set,
+			// which AM-12 then correctly refuses row by row as a cross-set collision.
+			// Naming the set the first run stamped is the E2E stand-in for the ownership
+			// click a person makes in the wizard. Read off S5-control, the one note this
+			// spec never damages, and parsed from the file's own bytes rather than the
+			// metadata cache, which may not have indexed a just-written note yet.
+			const ownedImportSet = async (): Promise<{ id: string }> => {
+				const text = await read('S5-control');
+				const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+				if (!match) throw new Error('first import stamped no frontmatter');
+				const fm = obsidian.parseYaml(match[1]) as Record<string, any> | null;
+				const id = fm?._crosswalker?.import_set?.id;
+				if (typeof id !== 'string') throw new Error('first import stamped no import set id');
+				return { id };
+			};
+			const importSet = await ownedImportSet();
 
 			// --- Damage each note in exactly one way -------------------------------
 
@@ -176,7 +195,7 @@ describe('Managed body regions — the destructive scenarios', function () {
 			for (const row of rows) before[row.id] = await read(row.id);
 
 			// --- Re-import with a CHANGED managed value ----------------------------
-			const second = await plugin.runImportFromRecipe(parsed, recipeV2, options);
+			const second = await plugin.runImportFromRecipe(parsed, recipeV2, { ...options, importSet });
 
 			const after: Record<string, string> = {};
 			for (const row of rows) after[row.id] = await read(row.id);

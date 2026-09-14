@@ -10,6 +10,8 @@ Settings (2026-07-11 redesign) open on a **hub**, not a wall of fields. A start-
 
 This page lists every setting by section, in the same order they appear in the hub.
 
+**Status last verified:** 2026-09-14 — verified against `src/settings/settings-tab.ts` and `src/import/import-preset-guide.ts`
+
 ## Launchpad
 
 Three first-class actions above the section grid, not buried in a card:
@@ -19,6 +21,8 @@ Three first-class actions above the section grid, not buried in a card:
 | **Import structured data** | Opens the [import wizard](/crosswalker/features/import-wizard/) |
 | **Manage saved configs** | Opens the [config browser](/crosswalker/features/config-system/) |
 | **Resume a draft** | Only shown when draft auto-save is on ([Drafts](#drafts)); opens the wizard's Step 1 draft picker |
+
+Below the actions sits **Browse built-in import presets**, a collapsible list of the 12 presets (source: `src/import/recipe-registry.ts`) Crosswalker recognizes on sight. Each entry gives the preset's name, one line on what it produces, a link to the publisher's download page, and a "How to import it" link into the [framework data sources guide](/crosswalker/reference/framework-data-sources/). Some entries add a short note, for example that the publisher asks you to register before downloading. The same guide appears on the workspace tab's launchpad and at the top of Step 1 of the [import wizard](/crosswalker/features/import-wizard/), so it is there wherever you start an import.
 
 ## Output
 

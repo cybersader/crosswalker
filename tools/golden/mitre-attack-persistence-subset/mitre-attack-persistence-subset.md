@@ -1,5 +1,5 @@
 ---
-curie: "mitre-attack-persistence-subset:hub/mitre-attack-persistence-subset"
+curie: "mitre-attack-persistence-subset:hub/_root"
 kind: hub
 children:
   - "[[T1078]]"

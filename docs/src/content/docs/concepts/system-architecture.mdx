@@ -9,6 +9,8 @@ tags: [architecture, tiers, components, system, design, foundation, layered]
 
 import { Aside } from '@astrojs/starlight/components';
 
+**Status last verified:** 2026-09-04 — verified against `src/` module layout (three tiers: `source/`, generation output as Tier 1 Markdown, `tier2/` for the derived projection; layers spanning `import/`, `generation/`, `tier2/`, `export/`, `ui/`) and the [artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) page.
+
 This page is the **detailed reference** for how Crosswalker's pieces fit together — the component-to-tier matrix, the read/write flows, the codebase map. It consolidates information that was previously scattered across the [ETL concept](/crosswalker/concepts/etl-and-import/), the [embedded substrates concept](/crosswalker/concepts/embedded-vs-server-substrates/), the [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/), and per-milestone pages.
 
 <Aside type="tip" title="Want the picture first?">

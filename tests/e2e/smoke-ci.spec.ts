@@ -88,7 +88,7 @@ describe('Crosswalker plugin — CI vertical smoke', function () {
 
 	after(async () => {
 		await browser.executeObsidian(() => {
-			document.querySelectorAll('.crosswalker-wizard-modal .modal-close-button').forEach((button) => {
+			document.querySelectorAll('.crosswalker-wizard-modal .modal-close-button, .crosswalker-wizard-modal .modal-header-button').forEach((button) => {
 				(button as HTMLElement).click();
 			});
 		});
@@ -117,14 +117,14 @@ describe('Crosswalker plugin — CI vertical smoke', function () {
 		expect(await modal.isDisplayed()).toBe(true);
 
 		await browser.executeObsidian(() => {
-			document.querySelectorAll('.modal-close-button').forEach((button) => {
+			document.querySelectorAll('.modal-close-button, .modal-header-button').forEach((button) => {
 				(button as HTMLElement).click();
 			});
 		});
 		await browser.pause(150);
 	});
 
-	it('writes Tier 1 provenance and retains import-set identity on immediate re-import', async () => {
+	it('writes Tier 1 provenance and retains import-set identity on an explicitly chosen re-import', async () => {
 		const first = await browser.executeObsidian(async ({ app }, args) => {
 			// @ts-expect-error - internal plugin registry used only by E2E.
 			const plugin = app.plugins.plugins.crosswalker;
@@ -144,13 +144,21 @@ describe('Crosswalker plugin — CI vertical smoke', function () {
 		const firstImportSetId = firstFrontmatter?._crosswalker?.import_set?.id;
 		expect(firstImportSetId).toMatch(/^iset-/);
 
-		// No metadata-cache barrier belongs here. The regression was specifically
-		// that an immediate second import interpreted cache lag as no import set.
+		// AM-9: the engine no longer adopts whatever set shares the destination, so
+		// a refresh is expressed here the way the wizard expresses a user's click,
+		// by naming the set. No metadata-cache barrier belongs here either: the
+		// regression this covers was an immediate second import reading cache lag as
+		// a set it could not see, and naming the set does not read the cache to find
+		// the folder's contents - it reads the notes stamped with that id.
 		const second = await browser.executeObsidian(async ({ app }, args) => {
 			// @ts-expect-error - internal plugin registry used only by E2E.
 			const plugin = app.plugins.plugins.crosswalker;
 			return plugin.runImport(args.data, args.config, args.options);
-		}, { data: smokeData, config: smokeConfig, options: importOptions });
+		}, {
+			data: smokeData,
+			config: smokeConfig,
+			options: { ...importOptions, importSet: { id: firstImportSetId } },
+		});
 		expect(second.success).toBe(true);
 
 		const secondFrontmatter = await readFrontmatterFromDisk(NOTE_PATH) as Record<string, any> | null;

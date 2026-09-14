@@ -19,7 +19,7 @@ import { applyMigrations } from '../src/tier2/migrations';
 import { projectFromTier1 } from '../src/tier2/projector';
 import { generateFromRecipe } from '../src/generation/generation-engine';
 import { computeReviewCid, computeReviewGroupCids } from '../src/generation/hash';
-import { buildEvidenceLink, reviewedAgainstFor, type EvidenceLinkInput } from '../src/views/evidence-link';
+import { buildEvidenceLink, evidenceLinkPath, reviewedAgainstFor, type EvidenceLinkInput } from '../src/views/evidence-link';
 import { EvidenceLinkModal, readReviewCid, readReviewGroups } from '../src/views/evidence-link-modal';
 import {
 	evidenceCoverageByConcept,
@@ -539,14 +539,30 @@ describe('the modal looks at the file before concluding a control has no fingerp
 		'',
 	].join('\n');
 
-	const LINK_PATH = 'Evidence/Junctions/AC-2--has_evidence--MFA policy.md';
+	// AM-22 (2026-08-31): the address carries a pair hash, so two controls sharing
+	// a file name no longer want one file. Computed through the shipped function
+	// rather than written out, so this file pins the window's behaviour and never
+	// a second, stale opinion about where a link goes. The literal it replaced was
+	// the pre-AM-22 address, and it silently made all three assertions below look
+	// at a file the window had never written.
+	const LINK_PATH = evidenceLinkPath('Evidence/Junctions', CONTROL_CURIE, CONTROL_PATH, 'Evidence/MFA policy.md');
 
+	/**
+	 * AM-43 (2026-09-02): the pair lookup runs once, before `create()`, and
+	 * prefill is display-time — so it is driven directly here before the review
+	 * controls are set. AM-41: `statusSetInThisWindow` is the record of the ACT
+	 * of choosing `approved`, and it is what gates whether `reviewed_against` is
+	 * even considered — every scenario below is "the reviewer approves this link
+	 * right now", so the act really did happen in this window.
+	 */
 	async function runModal(app: any, control: { path: string; title: string; curie: string | null; reviewCid: string | null }) {
-		const modal = new EvidenceLinkModal({ app, folder: 'Evidence/Junctions', initialControl: control });
+		const modal = new EvidenceLinkModal({ app, folder: 'Evidence/Junctions', initialControlPath: control.path });
 		(modal as any).control = control;
 		(modal as any).evidencePath = 'Evidence/MFA policy.md';
+		await (modal as any).resolvePair(control, 'Evidence/MFA policy.md');
 		(modal as any).status = 'approved';
 		(modal as any).coverage = 'full';
+		(modal as any).statusSetInThisWindow = true;
 		await (modal as any).create();
 	}
 
@@ -589,13 +605,15 @@ describe('the modal looks at the file before concluding a control has no fingerp
 		// Nothing is being approved, so there is no baseline to resolve and no
 		// reason to block on indexing.
 		const { app, created } = makeVault({ onDisk: '# no frontmatter\n', cacheReturnsNull: true });
+		const control = { path: CONTROL_PATH, title: 'AC-2', curie: CONTROL_CURIE, reviewCid: null };
 		const modal = new EvidenceLinkModal({
 			app,
 			folder: 'Evidence/Junctions',
-			initialControl: { path: CONTROL_PATH, title: 'AC-2', curie: CONTROL_CURIE, reviewCid: null },
+			initialControlPath: control.path,
 		});
-		(modal as any).control = { path: CONTROL_PATH, title: 'AC-2', curie: CONTROL_CURIE, reviewCid: null };
+		(modal as any).control = control;
 		(modal as any).evidencePath = 'Evidence/MFA policy.md';
+		await (modal as any).resolvePair(control, 'Evidence/MFA policy.md');
 		(modal as any).status = 'proposed';
 		await (modal as any).create();
 		expect(created.has(LINK_PATH)).toBe(true);

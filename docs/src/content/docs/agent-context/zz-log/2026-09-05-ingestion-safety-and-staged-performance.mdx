@@ -1,0 +1,129 @@
+---
+title: "Ingestion safety and staged performance"
+description: "Decision record for sequencing ingestion work: deliver a correct, usable supported workflow first, then add measured performance capabilities without weakening safety. It separates current evidence from proposals, keeps parser selection open, and preserves v0.1.7 priorities."
+tags: [decision, ingestion, import, performance, streaming, source-integrity, roadmap]
+date: 2026-09-05
+sidebar:
+  label: "09-05 · Staged ingestion performance"
+  order: -20260905
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="How to read this">
+**Section 1 is the thirty-second summary.** The page then narrows through an example, organizational impact, evidence, the decision, and the staged work.
+</Aside>
+
+<Aside type="caution" title="Decision record, not delivery claim">
+This page records scope and sequencing. It does not claim a bounded-memory wizard, select a new parser, set a supported file-size limit, approve implementation, or mark a milestone complete.
+</Aside>
+
+## 1. Thirty seconds
+
+Crosswalker should deliver **functional correctness and a usable supported workflow before optimizing every ingestion path**. An eager in-memory importer can be a valid first path when its supported boundary is honest and it preserves data correctly.
+
+Performance work remains additive. Advanced streaming, a parser migration, and chunk-integrity checks for sources replayed across passes are staged improvements, not automatic blockers for every usable initial release. They become required when the product claims the workflow or scale that needs them.
+
+Three failures are never “performance later” items:
+
+- silent data loss or unintended note changes;
+- a supported input crashing instead of producing an actionable refusal;
+- a partial or incomplete run being reported as complete.
+
+The active near-term roadmap remains [v0.1.7 portability](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/): canonical `RecipeDocument` fidelity, reusable configurations, source-bound proof, MappingSet portability, and exporter completion. This decision adds no milestone and no schedule.
+
+## 2. Concrete example
+
+Suppose a team imports a moderate controls CSV. The wizard can parse it eagerly, preview the result, validate it, and write the expected notes without exhausting the available environment. That is useful even if a future version handles much larger sources with lower retained memory.
+
+Now suppose a future low-memory route validates a disk-backed source in one pass and rereads it while writing. If the backing file changes between passes, Crosswalker must not validate one byte sequence and silently write another. That is a **source-consistency problem**, not merely a speed problem. The route must verify replay, capture stable bytes under an explicit storage contract, or refuse the workflow.
+
+The distinction matters: eager rows already held in memory do not automatically need a source-digest table. A replay integrity mechanism belongs at a mutable, multi-pass source boundary, not in every row representation.
+
+## 3. Why this matters for an organization
+
+Organizations need a reliable path before they need the fastest possible path. They can begin with supported source sizes and ordinary workflows, then adopt broader-scale capabilities as Crosswalker measures and hardens them.
+
+That sequencing only works when the product is truthful:
+
+- a supported workflow completes correctly;
+- an unsupported workflow refuses before dangerous work and explains the next action;
+- cancellation and failures report exact completion state rather than implying success;
+- later performance scaffolding preserves the same [schema-first import contract](/crosswalker/concepts/etl-and-import/) and [artifact authority boundaries](/crosswalker/concepts/artifact-roles-and-authority/).
+
+This lets performance evolve additively instead of forcing a premature parser or storage architecture into the critical correctness path.
+
+## 4. What is measured, and what is only proposed
+
+| Topic | Current evidence | Honest conclusion |
+|---|---|---|
+| Wizard CSV path | `import-wizard.ts` detects a large file, then calls `parseCSVFile(..., { streaming: true })`; that parser accumulates parsed rows before returning | The current wizard path is eager. A “streaming” notice or flag is not bounded-memory proof |
+| Engine boundary | `ParsedData.rows` accepts arrays or async iterables, and the engine can consume either | The engine is iterator-ready; this does not prove the wizard uses a bounded source |
+| Committed E2E | `tests/e2e/streaming.spec.ts` feeds 100 synthetic async rows and checks generated output plus eager-array compatibility | It proves iterator consumption and parity at that scale. It does not measure memory or establish the historical one-million-row target |
+| Source replay | Private, local real-Obsidian probes observed changed bytes from the same captured `File` after a same-length edit with exact modification time restored | Holding one `File` reference, size, and modification time is not sufficient source consistency for a reread-based route on the tested runtime |
+| Early record refusal | A private isolated guard rejected an unfinished record early under small fixed probe buffers | The technique is feasible in isolation. It is not an integrated parser or whole-application memory proof |
+| Parser comparison | No bundle, throughput, cancellation, or full-corpus bakeoff was run | No parser choice is settled and no dependency change is justified |
+
+The private probes are scoped experiments, not committed canonical tests. Their counters measured selected retained payload categories, not total JavaScript, browser, operating-system, vault-index, or output memory.
+
+## 5. Decision
+
+| Disposition | Decision |
+|---|---|
+| **Adopt** | Functional correctness and a usable, explicitly supported workflow come first |
+| **Adopt** | Performance capabilities must be additive and evidence-backed; measure before setting budgets or support claims |
+| **Adopt** | Source consistency is required for any route that validates and executes by rereading a mutable source |
+| **Keep open** | PapaParse 5.5.4 is the incumbent, not an architectural commitment. A controlled comparison with `csv-parse` 7.0.2 may inform a later adapter decision |
+| **Reject** | Treating advanced streaming, parser migration, or replay chunk integrity as automatic blockers for every initial release |
+| **Reject** | Adding source-hash tables to eager in-memory rows without a demonstrated replay boundary that needs them |
+| **Reject** | Inferring bounded memory from an async-iterator type, a row count, or a parser option name |
+| **Defer** | Production chunk-digest design, CSV parser bakeoff, wizard bounded-state integration, and modern incremental JSON parsing until their user workflow is prioritized and accepted |
+
+A proposed chunk-digest layer would hash captured ranges during preflight and verify each reread chunk before parser admission. Its honest guarantee would be **captured-range replay equivalence**, not an atomic file snapshot or proof of current path contents. No digest index, spool, parser replacement, or new dependency is adopted here.
+
+## 6. Near term versus midterm
+
+### Near term: keep the actual v0.1.7 priorities
+
+- Preserve the canonical [`RecipeDocument`](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/) instead of rebuilding it from a smaller UI model.
+- Complete the reusable configuration/library and source-bound proof work already named by [v0.1.7](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/).
+- Keep correctness gates load-bearing: no silent loss, crashes on declared-supported inputs, or false completion.
+- Describe the current eager wizard and iterator-ready engine accurately.
+
+### Midterm: add measured ingestion capabilities as demand requires
+
+- Wire a genuinely bounded row source through the wizard when large-source usability becomes an accepted delivery scope.
+- Compare CSV adapters behind the same correctness, cancellation, record/column, bundle, and resource tests. If results are tied, avoid migration churn.
+- Add replay integrity only for workflows that reread mutable sources across passes; keep byte coordinates separate from concept and row identity.
+- Investigate `@streamparser/json` with its WHATWG adapter for future incremental JSON work, while separately bounding large strings, deep nesting, and selected objects.
+
+No arbitrary deadline, file-size promise, or performance budget is created by this staging.
+
+## 7. Parser choice and JSONaut prior art
+
+The project owner's public [JSONaut repository](https://github.com/cybersader/jsonaut) demonstrates useful product ideas: inspect an input's shape, select the structures that matter, flatten them into usable tables, and save reusable transformation jobs. Those capabilities should inform future JSON and recipe UX.
+
+JSONaut does not settle Crosswalker's runtime or parser choice. Its prior art is the workflow separation:
+
+**inspect shape → select records → transform → validate → render**
+
+For CSV, PapaParse remains the measured incumbent. `csv-parse` 7.0.2 is a plausible challenger, but its [`max_record_size`](https://csv.js.org/parse/options/max_record_size/) counts decoded payload state rather than every raw-record or column-growth case; the [7.0.2 parser source](https://github.com/adaltas/node-csv/blob/csv-parse%407.0.2/packages/csv-parse/lib/api/index.js) must be evaluated with adversarial records. A feature name is not a complete memory contract.
+
+## 8. What this does not do
+
+- It does not declare the current wizard release-ready for arbitrary source sizes.
+- It does not relax correctness or preservation acceptance.
+- It does not promise that every supported format will share one performance profile.
+- It does not authorize a source cache, persistent private copy, digest ledger, parser migration, or JSON adapter.
+- It does not change v0.1.7 status, priorities, or completion criteria.
+
+## 9. Related
+
+- [v0.1 roadmap](/crosswalker/reference/roadmap/)
+- [v0.1 implementation milestone hub](/crosswalker/reference/roadmap/milestones/)
+- [v0.1.4.5 streaming milestone](/crosswalker/reference/roadmap/milestones/v0-1-4-5-streaming-refactor/)
+- [v0.1.7 portability milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/)
+- [Save and exact replay decision register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/)
+- [Portable ImportRecipe fidelity synthesis](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/)
+- [ETL and import](/crosswalker/concepts/etl-and-import/)
+- [Artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/)

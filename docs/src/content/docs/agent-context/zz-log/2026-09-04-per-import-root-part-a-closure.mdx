@@ -1,0 +1,198 @@
+---
+title: "Part A of the per-import-folder work closes on a narrowed bar"
+description: "Closure record for 2026-09-04. The twenty-third attempt to make the per-import-folder fix safe for a vault that already holds imports meets every check that was actually run: 2,961 unit tests green, build and lint clean, and a full Obsidian walkthrough run with nothing newly failing and nothing gone missing. This is scoped acceptance of Part A, not a shipment. The seven quarantined visual walkthroughs still fail, four large-corpus walkthroughs never ran, and the branch is unmerged. The durable result is the rule the last three attempts supply: a mechanism extended to a new writer states what that writer's subject is made of, and a fact a run carries is a fact a run claims."
+tags: [decision, correctness, provenance, import, testing, session-summary]
+date: 2026-09-04
+sidebar:
+  label: "09-04 · Per-import folder, Part A closes"
+  order: -20260904
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="How to read this">
+This page narrows as it goes. **Section 1 is thirty seconds** and stands on its own. Stop wherever you have enough.
+</Aside>
+
+<Aside type="caution" title="What this page is and is not">
+This is a **closure record for Part A**, on the checks that were run. It is not a release note and not a readiness claim. The branch is unmerged and the walkthrough suite is not wholly green. Section 6 lists everything still uncovered.
+
+It **amends nothing** in [the 2026-08-28 log](/crosswalker/agent-context/zz-log/2026-08-28-first-run-and-the-blind-spots-that-hid-it/), which holds the original defect and the first nine attempts. Read that one for the history; this one only says where the work landed.
+</Aside>
+
+## 1. Thirty seconds
+
+**Crosswalker** imports compliance frameworks into an Obsidian vault as ordinary markdown notes and lets you link evidence to them.
+
+A defect found on 2026-08-28 meant every import wrote into one shared folder instead of getting its own. Fixing that was easy. Making the fix **safe for a vault that already holds imports** was not: it took twenty-three attempts, each measured against a bar written down before the attempt started, and each of the first twenty-two failed it.
+
+**The twenty-third meets every check that was actually run.** 2,961 unit tests pass and none fail. The build and the linter are clean. A full run of the walkthroughs inside real Obsidian shows 175 checks passing, **nothing that passed before now failing**, and **nothing that used to be checked gone missing**.
+
+**What it is not.** Seven long-standing visual walkthroughs still fail and are still quarantined. Four large-corpus walkthroughs did not run at all. Nothing is merged and nothing is released. This is acceptance of one bounded piece of work against its own bar, not a statement that importing is safe for every input.
+
+---
+
+## 2. Two minutes: the concrete case, and what used to happen to it
+
+Say your vault holds a framework you imported last month, and beside its folder you keep your own note about it. Something ordinary:
+
+```markdown
+---
+title: Don't Panic
+created: 2024-01-05
+notes: |
+  Reviewed with the audit team.
+  Second pass scheduled.
+# my own reminder
+owner: security
+---
+
+My own prose about this framework.
+```
+
+Crosswalker maintains a **contents list** (an index of the notes in the folder this note sits beside) inside that note. To do it, it used to rebuild the whole note from its parsed properties. On a refresh that imported **nothing new**, that note came back as:
+
+```markdown
+---
+title: "Don't Panic"
+created: "2024-01-05"
+notes: Reviewed with the audit team. Second pass scheduled.
+owner: security
+---
+
+My own prose about this framework.
+```
+
+Four things happened to a note nobody asked to change. The date gained quotes. The apostrophe forced quotes. The comment vanished. And the multi-line value was **folded into one line**, which is not a formatting change: it is a different value. On a file saved with Windows line endings, every line ending in the file changed too.
+
+Now, the same refresh leaves that note **byte-for-byte identical**. The writer edits only the two blocks it owns and copies every other line through exactly as written, in the line endings the file already had.
+
+<Aside type="note" title="Why that example, and not a prettier one">
+The properties in it were chosen because each one defeats a different shortcut. Any fixture built by asking Crosswalker to generate the note would have survived the old code by construction, which is exactly why the defect lived through a green suite: the test wrote the note the same way the code rebuilt it, so the round trip could not fail. The witness for this fix is a **hand-written string**, compared byte-for-byte.
+</Aside>
+
+---
+
+## 3. Why this matters for a real organization
+
+An organization does not import a framework once. It imports NIST CSF, then MITRE ATT&CK, then a second release of the first one, and people write their own notes alongside all of them and link evidence to the controls.
+
+Three properties have to hold for that to be usable, and all three are what this arc was about:
+
+| Property | Why an organization needs it |
+|---|---|
+| **A refresh that changes nothing changes nothing** | If a routine refresh silently edits notes people wrote, nobody trusts the tool with a vault that matters. Git history fills with noise and a real change is invisible in it |
+| **Notes are matched by what they are, not where they sit** | People move and rename notes. If identity is a file path, every reorganization looks like a deletion and a creation |
+| **When it cannot know, it refuses by name** | A tool that guesses under uncertainty produces wrong answers confidently. One that names what it saw produces a question a person can answer |
+
+The third is the one worth dwelling on. Most of the twenty-three attempts failed because something was **deciding a fact instead of reading one** — inferring which collection an import belonged to from a folder name, inferring that a note it could not read was not its own, inferring a folder's contents from the batch in front of it. Each fix removed one guess and revealed the next one underneath.
+
+---
+
+## 4. What changed
+
+Beyond the note-preservation fix in section 2:
+
+- **A damaged contents list is reported, not half-written.** If the markers around the list are corrupted, the run says so and writes nothing to that note. Previously a corrupted marker was read the same as no list at all, so the properties half was rebuilt and the body half was left stale.
+- **A home note you renamed by hand is named once, not reported missing.** A framework's home note whose recorded identity you had edited used to be refused and, on the same results screen, listed as gone from your source. The identity it carries is now claimed where the results are counted, so it is left alone and mentioned once.
+- **A crosswalk import no longer silently drops edges.** Several mappings that reduced to the same generated file name were written into one file, last writer winning, with nothing said. A mapping is identified by the **pair of concepts it connects**, not by the two file names it was built from.
+- **A qualified identifier round-trips.** When a second release is imported alongside the first, its identifiers are **qualified** (uniformly re-prefixed so the two releases do not collide). That transform is now recorded and reversible, so an export can be re-imported and mean what it meant. Previously a qualified set could not re-import its own export at all.
+- **An evidence-link update preserves your review fields.** Reviewer, review date, confidence, expiry, notes and scope survive an update byte-for-byte unless you changed them in the window yourself.
+
+Delivery detail in user-facing language lives in [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md), which is the single canonical record of what is coming. It is not restated here.
+
+### The rules the arc produced
+
+The durable output is not the code. It is a short list of rules, each one bought with a failed attempt:
+
+| Rule | The failure that bought it |
+|---|---|
+| Record the fact, never infer it | A destination guessed from folder shape |
+| A path may seed an identity, never be needed again | A note that moved became a duplicate |
+| Absence is not a fact | An unindexed vault read as an empty one |
+| When you cannot know, refuse by name | A refusal that named no cause |
+| A refusal names the population it looked at | A list computed from a batch that could not see everything it named |
+| A fact about a note is not a fact about its folder | One unreadable note condemning its whole folder |
+| Provenance belongs to the run that wrote the note | A run that wrote nothing restamping what it did not touch |
+| **A mechanism extended to a new writer states what that writer's subject is made of** | A byte comparison designed for notes Crosswalker wrote, moved onto a note the user wrote |
+| **A fact a run carries is a fact a run claims** | An identity carried at the writer and absent from the list that accounts for it |
+
+The last two are this stretch's contribution, and they are the same miss twice: a rule was extended to a new subject without asking what the new subject is made of — whose bytes, whose identity, whose list.
+
+---
+
+## 5. How it was measured
+
+| Gate | Result |
+|---|---|
+| Unit tests | 2,961 passing, 2 skipped, **0 failing** |
+| The frozen regression file | unmodified, its 299 tests passing |
+| Build, lint | both clean |
+| Obsidian walkthroughs, default set | 208 checks: 175 pass, 7 fail, 26 skipped |
+| Versus the frozen baseline | **0 newly failing, 0 gone missing**; 2 added, both passing |
+| Versus the previous run | **0 newly failing, 0 gone missing, 0 added** — all 208 unchanged |
+| The seven failures | matched **by identity**, line for line, against the known quarantine list |
+| Refresh-that-changes-nothing probe | 4 index notes, 0 timestamps changed, 0 notes changed, 0 written, no orphans |
+
+<Aside type="caution" title="The walkthrough run exits with a failure, and that is being reported honestly">
+The Obsidian run **does not exit clean**. It exits 1, because seven checks fail. They are the same seven quarantined visual walkthroughs that have failed throughout, established here by comparing their identities line for line rather than by counting them. Reporting this run as green would be false, and the acceptance is worded to avoid it.
+</Aside>
+
+An earlier unit run in this same stretch **failed**, on two checks covering Windows line endings. That log is kept rather than overwritten, because it is the evidence that prompted the corrections. The passing run is a separately named log. Both are retained.
+
+---
+
+## 6. What is still open
+
+### Not covered by this acceptance
+
+| Item | State |
+|---|---|
+| Seven quarantined visual walkthroughs | Still failing. None fixed, none removed from the list. No removal condition was observed, so nothing was removed |
+| Four large-corpus walkthroughs, three release-blocking | **Did not run.** Unverified since 2026-08-27 |
+| Windows line endings, and corrupted contents markers | Unit tests only. **No walkthrough inside real Obsidian exercises either shape** |
+| One properties-append boundary on a Windows-line-ending file | **Unresolved reachability, not proven safe.** No route to it was found through the ownership checks that exist; no route was proven impossible either. Cosmetic if reached |
+| A removed identity shortcut | Its narrow cases have passing tests. The wider scenario it was reasoned out of is an argument from the invariant, **not a reproduced failure** |
+| Replace-mode grouping-note observation, and a grouping note dragged to the vault root | **Deferred to Part B**, by decision, not closed |
+| A readiness wait in the release-drift walkthrough | Kept as a guard and **explicitly not credited** with the recovery of the two checks that came back. Disabling it earlier did not change the result, so the mechanism is unestablished |
+
+### Decisions the owner still holds
+
+1. **Merge timing** for the branch. The evidence is now complete enough to prepare the funnel; the decision is not made.
+2. **Whether the acceptance clause is amended** to name the passing log directly, or left as written with the dated clarification carrying it.
+3. **Where walkthrough quarantine evidence lives** — it currently sits outside version control, so the rows cite artifacts a reader cannot open.
+4. **Part B scope** — the deferrals above, plus the identity-constructor and read-state work already specified.
+
+### One process note, recorded rather than smoothed over
+
+Two consecutive attempts were decided by a step that produced **nothing** — one lost to a session limit, one to a server error — in both cases on work that was probably fine. A step that produced no output is not a step that passed. That is now written into the process: the gate a missing step owned has no evidence, and the next attempt owns it first.
+
+---
+
+## 7. Follow-up recorded 2026-09-05: preservation checked inside Obsidian
+
+**The unit-only limitation in section 6 is now superseded for four specific cases.** The [kept-host preservation spec](https://github.com/cybersader/crosswalker/blob/fix/d1-per-import-root/tests/e2e/kept-host-preservation.spec.ts) calls the production importer inside real Obsidian and reads the resulting files through its vault adapter. It does not click through the import wizard. No production code changed in this follow-up.
+
+A **kept host** (an existing note beside the folder whose contents list it carries) was seeded with handwritten properties, comments, a multiline value, and **CRLF** (Windows line endings). On an unchanged refresh, the note stayed byte-for-byte identical and the run made zero recorded writes. When one source row was added, only the expected managed list content and the permitted timestamp field could differ; the comparison kept all other bytes exact, including line endings.
+
+Two more cases supplied a duplicated end marker, with and without a `children:` property. Each reported the parser's actual corruption verdict and left the host unchanged, including the old children list when present. These cases do not establish behavior for every malformed, nested, or unclosed marker sequence.
+
+The targeted run passed all four declarations. The full default run then measured **212 declarations: 179 passing, 7 failing, 26 skipped**, with exactly those four new passing declarations and all 208 prior results unchanged. Its exit code remains **1**: the failing and skipped identities are unchanged, and no quarantine entry was cleared. Section 5 remains the original pass-23 measurement, not a table rewritten to conceal a later result.
+
+The first targeted attempt was blocked by a fixture mistake: two differently located notes claimed the same identifier. The importer correctly refused the collision. The corrected fixtures use separate identities, not merely separate folders; all four cases were rerun, with their assertions unchanged. That failed attempt's evidence is retained.
+
+**What this unblocks:** the exercised preservation cases no longer depend solely on a mocked vault. It does not decide merge timing, clear the large-corpus or quarantine work, resolve the properties-append boundary, or change Part B's scope. Delivery detail remains in the [changelog](https://github.com/cybersader/crosswalker/blob/fix/d1-per-import-root/CHANGELOG.md).
+
+---
+
+## Related
+
+- [First run was broken, and every gate was green](/crosswalker/agent-context/zz-log/2026-08-28-first-run-and-the-blind-spots-that-hid-it/) — the original defect and the first nine attempts. This page continues it and replaces none of it
+- [Re-import is identity reconciliation](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/) — the first path-inference defect in the family
+- [Import-set ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/) — where *paths are guesses, not facts* was first written down
+- [Closure cache fix, and what it means](/crosswalker/agent-context/zz-log/2026-08-20-closure-cache-fix-and-what-it-means/) — the same absence-read-as-fact family, in the query layer
+- [Evidence closeout](/crosswalker/agent-context/zz-log/2026-08-21-evidence-closeout/) — the evidence surfaces whose update path is preserved here
+- [Challenge 44 E2E testing strategy synthesis](/crosswalker/agent-context/zz-log/2026-08-24-e2e-testing-strategy-synthesis/) — the seeded walkthrough vault whose blind spots this arc kept running into
+- [Terminology](/crosswalker/concepts/terminology/) — definitions for the terms used above
+- [v0.1 milestone track](/crosswalker/reference/roadmap/milestones/) — where Part B and explicit relocation have to land
+- [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md) — the delivery detail, in user-facing language

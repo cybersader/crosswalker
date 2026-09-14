@@ -59,11 +59,34 @@ export interface ExistingNote {
 	frontmatter: Record<string, unknown>;
 	/** Body text with the frontmatter block removed. Raw bytes, unnormalised. */
 	body: string;
+	/**
+	 * The properties block's YAML as it is written on disk, between the fences,
+	 * unparsed and unnormalised ('' when the note has no block).
+	 *
+	 * Carried so a writer that must keep a user's key BYTE-FOR-BYTE can copy the
+	 * lines rather than re-serialise a parsed value. Round-tripping through a
+	 * parser and back is how a quoted string loses its quotes, a date becomes a
+	 * timestamp, and a comment disappears: all invisible to the merge, all visible
+	 * to the person whose note it is.
+	 */
+	frontmatterText: string;
 }
 
 // Exactly the inverse of `buildNoteContent`: the fence, its YAML, the closing
 // fence, and the ONE blank line buildNoteContent puts between them and the body.
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n(?:\r?\n)?|$)/;
+
+/**
+ * Split note text into its properties block and its body. THE one place that
+ * knows where a note's frontmatter ends, so a second reader cannot disagree with
+ * this one about it.
+ */
+export function splitNoteText(text: string): { frontmatterText: string; body: string } {
+	const match = FRONTMATTER_RE.exec(text);
+	return match
+		? { frontmatterText: match[1], body: text.slice(match[0].length) }
+		: { frontmatterText: '', body: text };
+}
 
 /**
  * Read an existing note's frontmatter and body, failing closed.
@@ -89,6 +112,7 @@ export async function readExistingNote(app: App, file: TFile): Promise<ExistingN
 
 	const match = FRONTMATTER_RE.exec(text);
 	const body = match ? text.slice(match[0].length) : text;
+	const frontmatterText = match ? match[1] : '';
 
 	const cached = app.metadataCache?.getFileCache?.(file)?.frontmatter;
 	if (cached && typeof cached === 'object' && Object.keys(cached).some((k) => k !== 'position')) {
@@ -96,11 +120,11 @@ export async function readExistingNote(app: App, file: TFile): Promise<ExistingN
 		for (const [k, v] of Object.entries(cached)) {
 			if (k !== 'position') frontmatter[k] = v;
 		}
-		return { frontmatter, body };
+		return { frontmatter, body, frontmatterText };
 	}
 
 	// Cache miss (or an empty cache entry). Parse the file ourselves.
-	if (!match) return { frontmatter: {}, body };
+	if (!match) return { frontmatter: {}, body, frontmatterText };
 	let parsed: unknown;
 	try {
 		parsed = parseYaml(match[1]);
@@ -110,11 +134,11 @@ export async function readExistingNote(app: App, file: TFile): Promise<ExistingN
 			`its properties block is not valid YAML (${err instanceof Error ? err.message : String(err)}).`,
 		);
 	}
-	if (parsed === null || parsed === undefined) return { frontmatter: {}, body };
+	if (parsed === null || parsed === undefined) return { frontmatter: {}, body, frontmatterText };
 	if (typeof parsed !== 'object' || Array.isArray(parsed)) {
 		throw new ExistingNoteReadError('frontmatter-unreadable', 'its properties block is not a YAML mapping.');
 	}
-	return { frontmatter: parsed as Record<string, unknown>, body };
+	return { frontmatter: parsed as Record<string, unknown>, body, frontmatterText };
 }
 
 export interface MergeExistingNoteArgs {

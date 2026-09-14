@@ -16,8 +16,10 @@
 
 import { App, ItemView, WorkspaceLeaf, TAbstractFile, TFile, TFolder, setIcon, parseYaml } from 'obsidian';
 import CrosswalkerPlugin from '../main';
+import { outputRootFile } from '../settings/folder-settings';
 import { ImportFlow, type ImportFlowHost } from '../import/import-wizard';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
+import { renderPresetGuide } from '../import/import-preset-guide';
 import {
 	deriveInstalledOntologies,
 	findRecipeForOntologyIdentity,
@@ -192,6 +194,8 @@ export class CrosswalkerWorkspaceView extends ItemView {
 				this.startFlow();
 			});
 		}
+
+		renderPresetGuide(bar);
 	}
 
 	private launchButton(
@@ -220,7 +224,10 @@ export class CrosswalkerWorkspaceView extends ItemView {
 		const section = root.createDiv({ cls: 'crosswalker-workspace-installed' });
 		section.createDiv({ cls: 'crosswalker-workspace-installed-heading', text: 'Installed frameworks' });
 
-		const outputRoot = this.app.vault.getAbstractFileByPath(this.plugin.settings.defaultOutputPath);
+		// AM-53. Through the one accessor. Read raw, a trailing separator in the
+		// setting made this lookup answer null and this section render "Nothing
+		// imported yet" over a vault that had just imported successfully.
+		const outputRoot = outputRootFile(this.app, this.plugin.settings);
 		const node = await toMinimalNode(outputRoot, this.app);
 		if (token !== this.renderToken) return; // superseded by a newer render
 		const summaries = deriveInstalledOntologies(node);

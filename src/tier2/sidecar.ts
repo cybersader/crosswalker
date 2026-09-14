@@ -5,11 +5,13 @@
  * .crosswalker.sqlite file at vault root, applies schema migrations,
  * and returns a handle for the projector + query API.
  *
- * **WASM packaging** (decided 2026-05-06 after WASM-B integration
- * attempt): v0.1.5 ships **WASM-A** — plain `@sqlite.org/sqlite-wasm`
- * (no sqlite-vec). The official SQLite-team build is hardened for
- * Electron's hybrid `window`+`process` renderer environment via
- * well-established Obsidian-plugin precedent. WASM-B (sqlite-vec
+ * **WASM packaging**: v0.1.5 ships **WASM-A** — plain
+ * `@sqlite.org/sqlite-wasm` (no sqlite-vec). Its installed WASM bytes and
+ * module text are embedded into main.js at build time, decoded lazily when
+ * this sidecar initializes, and require no loose plugin-folder assets. The
+ * official SQLite-team build is hardened for Electron's hybrid
+ * `window`+`process` renderer environment via well-established
+ * Obsidian-plugin precedent. WASM-B (sqlite-vec
  * compiled in via sqlite-vec-wasm-demo) hit 5 emscripten env-detection
  * issues in succession during integration; the demo artifact assumes
  * pure-browser semantics that Electron's renderer doesn't satisfy.
@@ -27,7 +29,9 @@
  * main thread with cooperative yielding handled by the projector.
  */
 
-import { App, Plugin, normalizePath } from 'obsidian';
+import { App, Plugin } from 'obsidian';
+import { normalizeSidecarPath } from '../settings/folder-settings';
+import { getSqlite3MjsText, getSqlite3WasmBytes } from './sqlite-assets';
 
 /**
  * Handle returned from openSidecar(). Wraps the sqlite-wasm
@@ -109,27 +113,17 @@ let openedInMemoryThisSession: boolean | null = null;
  * Subsequent calls return the cached module.
  *
  * `@sqlite.org/sqlite-wasm` ships an Electron-compatible build (no
- * env-detection throws on hybrid `window`+`process` renderer
- * environments), so loading is straightforward: copy the .wasm to
- * the plugin folder, point locateFile at it via Obsidian's
- * getResourcePath URL.
+ * env-detection throws on hybrid `window`+`process` renderer environments).
+ * The build embeds its WASM bytes and module text into main.js. WASM decoding
+ * happens per initialization attempt; the module text still loads through the
+ * established Blob-URL import because Obsidian's app:// URLs cannot be
+ * dynamic-imported as ES modules.
  */
-async function initSqlite3(plugin: Plugin): Promise<any> {
+async function initSqlite3(_plugin: Plugin): Promise<any> {
 	if (cachedSqlite3) return cachedSqlite3;
 
-	const pluginPath = `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`;
-	const mjsPath = `${pluginPath}/sqlite3.mjs`;
-	const wasmPath = `${pluginPath}/sqlite3.wasm`;
-
-	// Read the .wasm bytes — passed directly to sqlite3InitModule via
-	// `wasmBinary` to avoid any fetch path through app:// URLs.
-	const wasmBytes = await plugin.app.vault.adapter.readBinary(wasmPath);
-
-	// Read the .mjs as text and load it via Blob URL. Obsidian's app://
-	// URLs can't be dynamic-imported as ES modules, but Blob URLs can.
-	// The official @sqlite.org/sqlite-wasm has no env-detection traps,
-	// so this is a simple Blob URL load with no patches needed.
-	const mjsText = await plugin.app.vault.adapter.read(mjsPath);
+	const wasmBytes = getSqlite3WasmBytes();
+	const mjsText = getSqlite3MjsText();
 	const mjsBlob = new Blob([mjsText], { type: 'application/javascript' });
 	const mjsBlobUrl = URL.createObjectURL(mjsBlob);
 
@@ -142,10 +136,20 @@ async function initSqlite3(plugin: Plugin): Promise<any> {
 	const sqlite3InitModule = mod.default ?? mod.sqlite3InitModule ?? mod;
 
 	cachedSqlite3 = await sqlite3InitModule({
-		// Pass the .wasm bytes directly — bypasses fetch entirely.
-		wasmBinary: new Uint8Array(wasmBytes),
+		// Pass the embedded .wasm bytes directly, bypassing fetch entirely.
+		wasmBinary: wasmBytes,
 		locateFile: (filename: string) => {
-			return plugin.app.vault.adapter.getResourcePath(`${pluginPath}/${filename}`);
+			// The pinned module calls locateFile for sqlite3.wasm even when
+			// wasmBinary is supplied. Returning the ordinary filename is expected and
+			// silent; Emscripten consumes wasmBinary before attempting a fetch.
+			if (filename === 'sqlite3.wasm') return filename;
+			const error = new Error(
+				`SQLite reporting database requested unexpected runtime asset "${filename}". `
+				+ 'Reload Obsidian, then use "Developer tools: copy troubleshooting details to clipboard" '
+				+ 'when reporting the problem.',
+			);
+			error.name = 'UnexpectedSqliteAssetRequestError';
+			throw error;
 		},
 		print: () => {},
 		printErr: (msg: string) => {
@@ -199,7 +203,15 @@ async function installSahPool(sqlite3: any): Promise<any> {
  * change exists to remove. Reimplementing the rule is how that came back.
  */
 function sahPoolKeyFor(sidecarPath: string): string {
-	return new URL(normalizePath(sidecarPath).replace(/^\/+/, ''), 'file://localhost/').pathname;
+	// S10 (2026-09-04). THE ONE normalization for this setting, shared with the
+	// open path and with the settings accessor. A bare `normalizePath` here was a
+	// second spelling: it does not trim, and it answers `'/'` where the accessor
+	// answers the default file name, so a pasted leading space keyed the pool
+	// under a name the pool does not hold - and a clear that finds no files
+	// deletes nothing and reports the index as already empty. The leading-slash
+	// strip is kept as a defensive no-op: the normalizer already removes edge
+	// separators, and the URL constructor must not be handed an absolute path.
+	return new URL(normalizeSidecarPath(sidecarPath).replace(/^\/+/, ''), 'file://localhost/').pathname;
 }
 
 /**
@@ -219,7 +231,9 @@ export async function openSidecar(
 	options: { sidecarPath?: string } = {},
 ): Promise<SidecarHandle> {
 	const sqlite3 = await initSqlite3(plugin);
-	const sidecarPath = normalizePath(options.sidecarPath ?? '.crosswalker.sqlite');
+	// S10. Same reading as `sahPoolKeyFor` and as the settings accessor, so open
+	// and clear cannot disagree about which file the query index is.
+	const sidecarPath = normalizeSidecarPath(options.sidecarPath);
 
 	// OPFS sahpool VFS is registered by sqlite-wasm at init when available.
 	// We open the database via the OPFS path. sqlite-wasm exposes the OO1

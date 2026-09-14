@@ -17,6 +17,8 @@ Wire the two non-[concept-note](/crosswalker/concepts/terminology/) [Tier 1](/cr
 
 ✅ Done (2026-05-05). Recipe schema extended with `kind: concept | junction-note | crosswalk-edge` on layout entries (default `concept`, backwards-compatible). render() emits `kind` discriminator into Address.frontmatter when non-default. New native-recipe entry point `generateFromRecipe()` + `plugin.runImportFromRecipe()` runs render() against any Ch 22 recipe, validates against `spec/tier1.schema.json` pre-write (STRM predicate enforcement happens here), writes spec-conformant Tier 1 output. Three starter recipes shipped: CSF→800-53 crosswalk, ISO 27001→800-53 crosswalk, evidence junction-notes — plus a `recipes/starter/README.md` documenting that the recipe shape is generic over framework pairs (CIS↔800-53, MITRE↔800-53, CRI↔NIST CSF, etc., all use the same template; only ontology slugs + folder paths change).
 
+**Status last verified:** 2026-09-05 — scoped to static contracts at commit `30aee63b`: `spec/recipe.schema.json` still defines the three `kind` values with `concept` as default, `render()` still emits the non-default discriminator, both native-recipe entry points remain wired, and all three named starter recipes remain present. The 2026-05-05 runtime acceptance evidence remains historical and was not rerun.
+
 ## Dependencies
 
 - [v0.1.3 — Generation engine integration](/crosswalker/reference/roadmap/milestones/v0-1-3-generation-engine-integration/)

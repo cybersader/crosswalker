@@ -65,14 +65,23 @@ describe('recognizedDestination (spec §7m)', () => {
 		expect(recognizedDestination(e, '')).toBe(e.suggestedFolder);
 	});
 
-	it('an explicit plugin-wide default output path always wins', () => {
+	it('re-parents the curated folder under an explicit plugin-wide default', () => {
+		// This used to assert that the plugin-wide default won outright, which
+		// threw the curated folder away AND flattened the import into the shared
+		// root. The global default is the PARENT of the per-import root, never the
+		// destination itself (owner rule, 2026-07-11). See destination-default.test.ts.
 		const e = entry('cis-controls-v8-flat');
-		expect(recognizedDestination(e, 'My vault path')).toBe('My vault path');
+		expect(recognizedDestination(e, 'My vault path')).toBe('My vault path/CIS Controls v8');
 	});
 
 	it('trims whitespace-only global defaults back to the suggestedFolder', () => {
 		const e = entry('scf-2026-flat');
 		expect(recognizedDestination(e, '   ')).toBe(e.suggestedFolder);
+	});
+
+	it('returns null for the generic single-segment fallback, so the caller derives from the file name', () => {
+		const generic = { ...entry('scf-2026-flat'), suggestedFolder: 'Frameworks' };
+		expect(recognizedDestination(generic, 'Ontologies')).toBeNull();
 	});
 });
 

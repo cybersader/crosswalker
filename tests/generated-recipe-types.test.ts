@@ -22,6 +22,7 @@ describe('schema-generated recipe type contract', () => {
 			'enrichment?: BatchEnrichmentPass15',
 			'metadata?: RecipeDisplayMetadata',
 			'based_on?: RecipeAncestryReference',
+			'recipe_document_digest?: string',
 			'version?: string',
 			'body?: [BodyProjectionEntry, ...BodyProjectionEntry[]]',
 			'query?: QueryBlock',
@@ -52,7 +53,12 @@ describe('schema-generated recipe type contract', () => {
 	it('represents metadata, source version, body, and deferred fields on the generated root', () => {
 		const recipe: CrosswalkerImportRecipe = {
 			recipe: 'generated-root-coverage',
-			metadata: { based_on: { recipe: 'base' } },
+			metadata: {
+				based_on: {
+					recipe: 'base',
+					recipe_document_digest: `sha256-${'0'.repeat(64)}`,
+				},
+			},
 			source: { ontology: 'test', version: '1', levels: ['leaf'] },
 			target: {
 				layout: [{ level: 'leaf', mechanism: 'file', template: '{id}.md' }],

@@ -4,13 +4,33 @@ description: How to install Crosswalker in your Obsidian vault.
 tags: [getting-started, obsidian-plugins]
 ---
 
+## Requirements
+
+Crosswalker requires Obsidian 1.10.0 or newer. This minimum is based on the Obsidian APIs the plugin uses; it is not a claim of execution testing on version 1.10.0. The current prerelease candidate was tested on Obsidian 1.13.7 on desktop Linux. Mobile use is not yet verified.
+
+Enable the built-in Bases plugin if you want to use Crosswalker's pivot views.
+
 ## From community plugins (coming soon)
 
 Crosswalker is not yet listed in the Obsidian community plugins registry. Once submitted, you'll be able to install it directly from Settings > Community Plugins.
 
+## Prerelease installation through BRAT
+
+Crosswalker ships as GitHub prereleases (`0.1.0` published 2026-09-13; `0.1.1` is the current candidate). An actual BRAT installation has not yet been tested by the maintainer; if BRAT reports a problem, the [manual installation](#manual-installation) steps below use the same three release files.
+
+1. Install and enable the BRAT community plugin
+2. In BRAT, choose **Add a beta plugin**
+3. Enter `cybersader/crosswalker`
+4. Choose the latest available release, or select `0.1.1` when BRAT offers version selection
+5. Enable Crosswalker in Settings > Community Plugins
+
+Already added through BRAT? Use BRAT's **Check for updates** to move to a newer prerelease.
+
+Back up your vault first and try the prerelease in a test vault before using it with important data.
+
 ## Manual installation
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/cybersader/crosswalker/releases)
+1. Download `main.js`, `manifest.json`, and `styles.css` from the selected [Crosswalker release](https://github.com/cybersader/crosswalker/releases)
 2. Create a folder: `your-vault/.obsidian/plugins/crosswalker/`
 3. Copy the three files into that folder
 4. Open Obsidian, go to Settings > Community Plugins

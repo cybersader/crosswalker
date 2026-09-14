@@ -39,7 +39,9 @@ import {
 	type SssomRow,
 } from './sssom-parser';
 import { sha256Hex } from '../generation/hash';
-import type { ImportSetOption, ImportSetReference } from '../generation/import-set';
+import { readNoteFrontmatterState } from '../export/vault-reader';
+import { derivationOf, type ImportSetOption, type ImportSetReference } from '../generation/import-set';
+import { injectiveEndpointToken } from '../generation/curie';
 import {
 	assertionBaseKey,
 	mappingOccurrenceContentKey,
@@ -47,6 +49,15 @@ import {
 	normalizeMappingSetId,
 	normalizePredicateModifierInput,
 } from '../utils/mapping-provenance';
+
+/**
+ * The curie prefix every SSSOM crosswalk edge is minted under, whatever the
+ * ontology pair. Named once (AM-18, 2026-08-31) because it is what any caller
+ * asking "would a new set here collide" has to compare against: the SSSOM path
+ * overrides the engine's ontology-derived prefix with this literal, so the
+ * ontology pair is NOT the identity space these edges occupy.
+ */
+export const SSSOM_CURIE_PREFIX = 'sssom';
 
 /** Options accepted by importSssom(). */
 export interface SssomImportOptions {
@@ -223,7 +234,7 @@ async function runImportSssom(
 	});
 
 	if (parsed.errors.length === 0) {
-		preflightMappingSetDestinations(app, destinationSets, parsed.errors);
+		await preflightMappingSetDestinations(app, destinationSets, parsed.errors);
 	}
 	if (parsed.errors.length > 0) {
 		result.skipped = 'parse-error';
@@ -263,7 +274,7 @@ async function runImportSssom(
 			sourceFileName: normalizedHeaderId || fallbackId,
 			strictValidation: true,
 			curieLocalPart: (row, _rowNum, importSet) => sssomEdgeCurie(row, importSet),
-			curiePrefix: 'sssom',
+			curiePrefix: SSSOM_CURIE_PREFIX,
 			onProgress: options.onProgress,
 		},
 		debug,
@@ -406,11 +417,25 @@ function normalizeOptionalString(value: unknown): string {
 	return typeof value === 'string' ? value.trim() : '';
 }
 
-function preflightMappingSetDestinations(
+/**
+ * Refuse to import into a destination already holding edges from a different
+ * mapping set.
+ *
+ * Pass-9 secondary finding, closed 2026-08-31: this read the metadata cache and
+ * nothing else, so a crosswalk note Obsidian had not reached yet answered "no
+ * frontmatter", was skipped, and a guard whose entire purpose is to REFUSE a
+ * mismatch passed silently. Absence read as fact, inside a guard - the failure
+ * this project has now shipped fixes for six times.
+ *
+ * The raw read is bounded to files under the destination prefixes, exactly as
+ * `collectObservations` bounds its own fallback, so a cold cache costs a read
+ * per candidate note rather than a whole-vault content scan.
+ */
+async function preflightMappingSetDestinations(
 	app: App,
 	destinationSets: Map<string, string>,
 	errors: string[],
-): void {
+): Promise<void> {
 	const getMarkdownFiles = app.vault.getMarkdownFiles?.bind(app.vault);
 	if (!getMarkdownFiles) return;
 	const files = getMarkdownFiles();
@@ -418,8 +443,24 @@ function preflightMappingSetDestinations(
 		const prefix = `${leaf.replace(/\/+$/, '')}/`;
 		for (const file of files) {
 			if (!file.path.startsWith(prefix)) continue;
-			const fm = app.metadataCache.getFileCache(file)?.frontmatter;
-			if (!fm || fm.kind !== 'crosswalk-edge') continue;
+			let fm = app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+			if (!fm) {
+				const read = await readNoteFrontmatterState(app, file);
+				if (read.state === 'unreadable') {
+					// Not "no mapping set id" and not "a different one": nothing is
+					// known. A note in the destination that cannot be read is a reason
+					// to stop, not a reason to proceed.
+					errors.push(
+						`Crosswalker could not read the properties of ${file.path} in destination ${leaf}, `
+						+ 'so it could not confirm the destination is safe to import into. '
+						+ "Fix that note's properties block, then import again.",
+					);
+					continue;
+				}
+				if (read.state === 'none') continue;
+				fm = read.frontmatter;
+			}
+			if (fm.kind !== 'crosswalk-edge') continue;
 			const storedId = normalizeMappingSetId(fm.mapping_set_id);
 			if (storedId !== expectedId) {
 				errors.push(
@@ -442,16 +483,34 @@ export function sssomEdgeCurie(
 	row: Record<string, unknown>,
 	importSet: ImportSetReference,
 ): string {
-	const subj = sanitizeCuriePart(row.subject_id);
-	const obj = sanitizeCuriePart(row.object_id);
+	// AM-27. The endpoint sanitizer is part of the identity, so which one runs is
+	// the SET's pinned derivation, not this version's preference. Under the legacy
+	// pin the collapsing form below is reproduced byte-for-byte, because it is what
+	// every junction note already in a vault carries.
+	const sanitize = derivationOf(importSet) === 'declared-facts-v1'
+		? injectiveEndpointToken
+		: legacySanitizeCuriePart;
+	const subj = sanitize(String(row.subject_id ?? 'unknown'));
+	const obj = sanitize(String(row.object_id ?? 'unknown'));
 	if (importSet.scheme === 'endpoint-v1') return `cw-${subj}-${obj}`;
 	if (importSet.scheme === 'set-qualified-v1') return `cwset-${importSet.id}-${subj}-${obj}`;
 	const exhaustive: never = importSet.scheme;
 	throw new Error(`Unsupported import set scheme: ${String(exhaustive)}.`);
 }
 
-function sanitizeCuriePart(value: unknown): string {
-	return String(value ?? 'unknown').replace(/[^a-zA-Z0-9_-]+/g, '-');
+/**
+ * AM-27. `filename-stem-v1` only. FROZEN.
+ *
+ * Many-to-one: `NIST:AC-2` and `NIST/AC-2` and `NIST AC 2` all become
+ * `NIST-AC-2`, so two SSSOM rows mapping different endpoints produce one edge
+ * identity, and the second row silently replaces the first's assertion. Kept
+ * unchanged anyway - it is a record of what is in people's vaults, and changing
+ * it would re-identify every junction note ever imported. New sets get
+ * `injectiveEndpointToken`, which keeps the same readable shape and appends a
+ * digest of the exact endpoint whenever a character had to be replaced.
+ */
+function legacySanitizeCuriePart(value: string): string {
+	return value.replace(/[^a-zA-Z0-9_-]+/g, '-');
 }
 
 /** Convert a SssomRow to a plain Record for the generation engine. */

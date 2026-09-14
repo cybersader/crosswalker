@@ -86,6 +86,21 @@ export function buildProvenance(input: ProvenanceInput, pluginVersion: string): 
 		block.import_set = {
 			id: input.importSet.id,
 			scheme: input.importSet.scheme,
+			// Where the set lives, recorded so a refresh never has to infer it from
+			// vault paths. An import that guesses its own destination wrong writes a
+			// second copy of itself beside the first.
+			...(input.importSet.destination ? { destination: input.importSet.destination } : {}),
+			// AM-6. The ontology the set is pinned to, stamped beside the scheme it is
+			// pinned to. Without it a refresh recomputes the ontology from its own
+			// recipe, and a recomputation that lands on a different answer writes a
+			// second copy of the framework and orphans the first.
+			...(input.importSet.ontology ? { ontology: input.importSet.ontology } : {}),
+			// AM-27. The identity-derivation rule the set is pinned to. Omitted when
+			// absent, and absence is the legacy filename-stem rule: a set written
+			// before this pin existed must keep deriving the identities its notes
+			// already carry, or the next refresh recognises none of them and writes
+			// the whole framework a second time.
+			...(input.importSet.derivation ? { derivation: input.importSet.derivation } : {}),
 		};
 	}
 

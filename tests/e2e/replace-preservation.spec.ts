@@ -51,7 +51,7 @@ const EDITS: Record<string, string> = {
 
 describe('Replace preserves user-authored note bodies (Ch 45 §4.2)', function () {
 	it('prose typed into three generated notes survives a re-import byte-for-byte', async () => {
-		const result = await browser.executeObsidian(async ({ app }, args) => {
+		const result = await browser.executeObsidian(async ({ app, obsidian }, args) => {
 			// @ts-expect-error — internal API
 			const plugin = app.plugins.plugins['crosswalker'];
 			const { base, rows, recipeV1, recipeV2, edits } = args;
@@ -81,6 +81,28 @@ describe('Replace preserves user-authored note bodies (Ch 45 §4.2)', function (
 			// 1. First import.
 			const first = await plugin.runImportFromRecipe(parsed, recipeV1, options);
 
+			// AM-16. The re-import below writes over the identities the first import
+			// minted, and since AM-9 the engine no longer adopts a set it happens to
+			// find in the destination: a second call with no `importSet` is a NEW set,
+			// which AM-12 then correctly refuses row by row as a cross-set collision.
+			// Naming the set the first run stamped is the E2E stand-in for the ownership
+			// click a person makes in the wizard. Read off a generated note rather than
+			// out of the run result, because the note on disk is where ownership is
+			// actually recorded. Parsed from the file's own bytes, not from the metadata
+			// cache, which may not have indexed a just-written note yet.
+			const ownedImportSet = async (): Promise<{ id: string }> => {
+				const file = app.vault.getAbstractFileByPath(`${base}/${rows[0].id}.md`);
+				if (!file) throw new Error(`first import wrote no note at ${base}/${rows[0].id}.md`);
+				// @ts-expect-error - TFile at runtime
+				const text = await app.vault.read(file);
+				const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+				if (!match) throw new Error('first import stamped no frontmatter');
+				const fm = obsidian.parseYaml(match[1]) as Record<string, any> | null;
+				const id = fm?._crosswalker?.import_set?.id;
+				if (typeof id !== 'string') throw new Error('first import stamped no import set id');
+				return { id };
+			};
+
 			// 2. A person opens each note and types into it, below the region.
 			const before: Record<string, string> = {};
 			for (const row of rows) {
@@ -94,7 +116,11 @@ describe('Replace preserves user-authored note bodies (Ch 45 §4.2)', function (
 			}
 
 			// 3. Re-import with a CHANGED source value, so the region must rebuild.
-			const second = await plugin.runImportFromRecipe(parsed, recipeV2, options);
+			const second = await plugin.runImportFromRecipe(
+				parsed,
+				recipeV2,
+				{ ...options, importSet: await ownedImportSet() },
+			);
 
 			const after: Record<string, string> = {};
 			for (const row of rows) after[row.id] = await readNote(row.id);

@@ -13,6 +13,7 @@
  */
 
 import * as XLSX from 'xlsx';
+import { computeSourceByteDigest } from '../../generation/hash';
 import { ParsedData } from '../../types/config';
 
 export interface XLSXParseOptions {
@@ -25,9 +26,14 @@ export interface XLSXParseOptions {
 /** Collapse internal whitespace + trim — the shared header-key normalization. */
 const normKey = (k: string): string => k.replace(/\s+/g, ' ').trim();
 
+/** Decode from a disposable copy so the XLSX library never receives owned bytes. */
+function readWorkbookBytes(sourceBytes: Uint8Array): XLSX.WorkBook {
+	return XLSX.read(sourceBytes.slice(), { type: 'array' });
+}
+
 async function readWorkbook(file: File): Promise<XLSX.WorkBook> {
-	const buf = await file.arrayBuffer();
-	return XLSX.read(buf, { type: 'array' });
+	const captured = new Uint8Array(await file.arrayBuffer());
+	return readWorkbookBytes(captured);
 }
 
 /** List sheet names so the wizard can offer a picker before parsing. */
@@ -41,7 +47,12 @@ export async function listXLSXSheets(file: File): Promise<string[]> {
  * Cells arrive as display text (strings); empty cells as ''.
  */
 export async function parseXLSXFile(file: File, options: XLSXParseOptions = {}): Promise<ParsedData> {
-	const wb = await readWorkbook(file);
+	// One source read per parse. Own a private copy for the life of the returned
+	// join accessor: File bytes can change between reads even when size/mtime do
+	// not, and a decoder may mutate the input it receives.
+	const sourceBytes = Uint8Array.from(new Uint8Array(await file.arrayBuffer()));
+	const sourceByteDigest = computeSourceByteDigest(sourceBytes);
+	const wb = readWorkbookBytes(sourceBytes);
 
 	let sheetName: string;
 	if (typeof options.sheet === 'number') {
@@ -79,16 +90,16 @@ export async function parseXLSXFile(file: File, options: XLSXParseOptions = {}):
 		rows,
 		rowCount: rows.length,
 		sheetName,
+		sourceByteDigest,
 		// Ch 46 source contract 4.2: `source.joins` locates a secondary
-		// collection in ANOTHER SHEET OF THIS SAME WORKBOOK. The handle is lazy
-		// on purpose: the workbook is re-read only if a join is actually
-		// declared, so an import that declares none pays nothing in retained
-		// memory for the possibility.
+		// collection in ANOTHER SHEET OF THESE SAME CAPTURED WORKBOOK BYTES. The
+		// handle re-decodes only when a join is declared; it retains the private
+		// source snapshot, not the decoded workbook or an externally mutable File.
 		container: {
 			kind: 'workbook',
-			sheetNames: wb.SheetNames,
+			sheetNames: [...wb.SheetNames],
 			readSheet: async (sheet: string, headerRow: number) => {
-				const secondaryWorkbook = await readWorkbook(file);
+				const secondaryWorkbook = readWorkbookBytes(sourceBytes);
 				return readSheetRows(secondaryWorkbook, sheet, headerRow);
 			},
 		},

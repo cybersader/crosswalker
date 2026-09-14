@@ -76,7 +76,13 @@ function makeApp(seed: Record<string, SeedNote>) {
 		},
 	};
 
+	(app as unknown as { __files: Map<string, string> }).__files = files;
 	return app as any;
+}
+
+/** The in-memory file map behind one `makeApp`, for byte-for-byte comparisons. */
+function files(app: unknown): Map<string, string> {
+	return (app as { __files: Map<string, string> }).__files;
 }
 
 const RECIPE_ID = 'attack-import';
@@ -187,16 +193,53 @@ describe('generateNotes orphan detection', () => {
 		expect(result.orphans).toBeUndefined();
 	});
 
-	it('blocks an ambiguous destination and reports the available set ids and counts', async () => {
+	it('mints into a destination two other sets already share, and orphans neither', async () => {
+		// AM-9. This used to be a hard block, because the engine tried to pick an
+		// owner out of the folder and could not. It no longer picks: no option means
+		// a new set, and a new set owns nothing, so the two sets already there are
+		// untouched and cannot be reported as orphans of this run.
+		//
+		// The row is `C`, not `A`. AM-12 (2026-08-30) refuses a row whose identity
+		// another set already holds, so a run producing `attack:A` here would be
+		// reporting a cross-set collision -- correct behaviour, and a different
+		// claim from this one. The collision case is the test immediately below;
+		// this one is about ownership, so its row collides with nothing.
 		const app = makeApp({
 			'Frameworks/A.md': { curie: 'attack:A', recipeId: RECIPE_ID, importSetId: 'iset-abc123' },
 			'Frameworks/B.md': { curie: 'attack:B', recipeId: RECIPE_ID, importSetId: 'iset-def456' },
 		});
 		const autoOptions = { ...OPTIONS, importSet: undefined };
+		const result = await generateNotes(app, parsed(['C']), CONFIG, autoOptions);
+		expect(result.errors).toEqual([]);
+		expect(result.success).toBe(true);
+		expect(result.orphans ?? []).toEqual([]);
+	});
+
+	it('refuses a row whose identity one of those sets already holds, and annexes nothing', async () => {
+		// AM-12. The other half of the same seam. A new set owns nothing, so the
+		// note holding `attack:A` is outside it -- and the write path used to
+		// resolve through a vault-wide identity index, take that note as the row's
+		// existing file, merge into it and re-stamp it with this run's set id. The
+		// vault-wide index now only DETECTS: the row is reported by name and
+		// dropped, and the foreign note is left exactly as it was.
+		const app = makeApp({
+			'Frameworks/A.md': { curie: 'attack:A', recipeId: RECIPE_ID, importSetId: 'iset-abc123' },
+			'Frameworks/B.md': { curie: 'attack:B', recipeId: RECIPE_ID, importSetId: 'iset-def456' },
+		});
+		const before = new Map(app.vault.getMarkdownFiles().map((f: { path: string }) => [f.path, files(app).get(f.path)]));
+		const autoOptions = { ...OPTIONS, importSet: undefined };
 		const result = await generateNotes(app, parsed(['A']), CONFIG, autoOptions);
-		expect(result.success).toBe(false);
-		expect(result.errors[0].message).toContain('iset-abc123 (1 notes)');
-		expect(result.errors[0].message).toContain('iset-def456 (1 notes)');
+
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0].message).toBe(
+			'Cross-set identity collision: attack:A is claimed by import set iset-abc123 at Frameworks/A.md. '
+			+ 'Nothing was written for it. Refresh that set instead, or rename this source so it uses its own identities.',
+		);
+		expect(result.created).toEqual([]);
+		expect(result.moved ?? []).toEqual([]);
+		// AM-7: a run that refused a row did not answer the orphan question.
+		expect(result.orphansChecked).toBe(false);
+		for (const [path, text] of before) expect(files(app).get(path)).toBe(text);
 	});
 
 	it('never reports a hand-written note with no provenance', async () => {

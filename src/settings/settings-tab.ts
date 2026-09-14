@@ -11,6 +11,7 @@ import type { DebugLevel } from '../utils/debug';
 import { exportConfigToString, importConfig } from '../config/config-manager';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { ImportWizardModal } from '../import/import-wizard';
+import { renderPresetGuide } from '../import/import-preset-guide';
 import { SavedConfig } from '../types/config';
 import CrosswalkerPlugin from '../main';
 import {
@@ -25,6 +26,13 @@ import {
 	draftPathDisplay,
 	type PreviewTreeNode,
 } from './setting-previews';
+import {
+	outputRootPath,
+	DEFAULT_EVIDENCE_JUNCTION_FOLDER,
+	DEFAULT_EVIDENCE_REPORT_FOLDER,
+	DEFAULT_TIER2_SIDECAR_PATH,
+	tier2SidecarPath,
+} from './folder-settings';
 import type { Enrichment } from '../import/mapping/types';
 import {
 	buildParentPlacementPreview,
@@ -191,7 +199,10 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 				id: 'output',
 				title: 'Output',
 				icon: 'folder',
-				summary: () => s.defaultOutputPath || 'Vault root',
+				// AM-53. The summary states the root the product will actually use, so a
+			// setting that reads `Frameworks/` on the card and resolves to
+			// `Frameworks` everywhere else cannot look like two different folders.
+			summary: () => outputRootPath(s) || 'Vault root',
 				render: (root) => this.renderOutput(root),
 			},
 			{
@@ -337,6 +348,8 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 				new ImportWizardModal(this.app, this.plugin).open();
 			});
 		}
+
+		renderPresetGuide(bar);
 	}
 
 	private launchButton(
@@ -384,7 +397,9 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 		});
 
 		refresh = this.addPreview(root, 'Where imports land', (el) => {
-			this.renderTree(el, outputPathTree(this.plugin.settings.defaultOutputPath));
+			// AM-53. The preview shows where imports land, so it must read the root the
+			// same way the import does.
+			this.renderTree(el, outputPathTree(outputRootPath(this.plugin.settings)));
 		});
 	}
 
@@ -985,11 +1000,11 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 					.setPlaceholder('Evidence/junctions')
 					.setValue(this.plugin.settings.evidenceJunctionFolder)
 					.onChange(async (value) => {
-						this.plugin.settings.evidenceJunctionFolder = value || 'Evidence/Junctions';
+						this.plugin.settings.evidenceJunctionFolder = value || DEFAULT_EVIDENCE_JUNCTION_FOLDER;
 						await this.plugin.saveSettings();
 					});
 				new FolderSuggest(this.app, text.inputEl, async (value) => {
-					this.plugin.settings.evidenceJunctionFolder = value || 'Evidence/Junctions';
+					this.plugin.settings.evidenceJunctionFolder = value || DEFAULT_EVIDENCE_JUNCTION_FOLDER;
 					await this.plugin.saveSettings();
 				});
 			});
@@ -1002,11 +1017,11 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 					.setPlaceholder('Reports')
 					.setValue(this.plugin.settings.evidenceReportFolder)
 					.onChange(async (value) => {
-						this.plugin.settings.evidenceReportFolder = value || 'Reports';
+						this.plugin.settings.evidenceReportFolder = value || DEFAULT_EVIDENCE_REPORT_FOLDER;
 						await this.plugin.saveSettings();
 					});
 				new FolderSuggest(this.app, text.inputEl, async (value) => {
-					this.plugin.settings.evidenceReportFolder = value || 'Reports';
+					this.plugin.settings.evidenceReportFolder = value || DEFAULT_EVIDENCE_REPORT_FOLDER;
 					await this.plugin.saveSettings();
 				});
 			});
@@ -1020,18 +1035,22 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 					.setPlaceholder('.crosswalker.sqlite')
 					.setValue(this.plugin.settings.tier2SidecarPath)
 					.onChange(async (value) => {
-						this.plugin.settings.tier2SidecarPath = value || '.crosswalker.sqlite';
+						this.plugin.settings.tier2SidecarPath = value || DEFAULT_TIER2_SIDECAR_PATH;
 						await this.plugin.saveSettings();
 						refreshSidecar();
 					});
 				new FolderSuggest(this.app, text.inputEl, async (value) => {
-					this.plugin.settings.tier2SidecarPath = value || '.crosswalker.sqlite';
+					this.plugin.settings.tier2SidecarPath = value || DEFAULT_TIER2_SIDECAR_PATH;
 					await this.plugin.saveSettings();
 					refreshSidecar();
 				});
 			});
 		refreshSidecar = this.addPreview(details, 'Index file', (el) => {
-			this.renderPathChip(el, 'database', sidecarPathDisplay(this.plugin.settings.tier2SidecarPath));
+			// S14 (2026-09-04). Through the accessor, like every other reader of this
+			// setting. Reading the field raw showed the text as typed while
+			// `openSidecar` and `clearSidecar` act on the normalized value, so the
+			// chip could name a file the buttons beside it do not open.
+			this.renderPathChip(el, 'database', sidecarPathDisplay(tier2SidecarPath(this.plugin.settings)));
 		});
 	}
 

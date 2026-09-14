@@ -51,6 +51,20 @@ export interface WizardDraft {
 	columnConfigsDict: Record<string, { useAs: string; outputKey: string }>;
 	config: Partial<ImportRecipe>;
 	outputPath: string;
+	/**
+	 * The user typed the destination, as opposed to the wizard filling it in.
+	 * Absent on a pre-flag draft hydrates as `false`, which re-derives the
+	 * per-import root on resume. That is deliberate: those drafts always recorded
+	 * the bare global output path, which was never a choice, so replaying it would
+	 * replay the flattened-destination defect it came from.
+	 */
+	destinationEdited?: boolean;
+	/**
+	 * Curated per-import root from the recognized recipe that seeded this draft
+	 * (`recognizedDestination` in import-wizard.ts). Absent when nothing was
+	 * recognized; resume then derives from the source file name.
+	 */
+	curatedDestination?: string;
 	overwriteMode: 'skip' | 'replace' | 'error';
 	frameworkId: string;
 

@@ -231,6 +231,26 @@ describe('Crosswalker plugin — v0.1.4 junction notes + crosswalk edges', funct
 	});
 
 	it('rejects invalid STRM predicate at write time (strict validation gate)', async () => {
+		// AM-21 (2026-08-31). This probe imports the SAME subject/object pair as the
+		// first case above, through the same recipe, so it renders the same file stem
+		// and therefore the same curie. Since AM-9 the engine no longer adopts a set
+		// it happens to find, so a second call with no `importSet` mints a NEW one --
+		// and AM-12 then correctly refuses the row as a cross-set identity collision
+		// BEFORE it can reach the Tier 1 validation this case exists to exercise. The
+		// run still fails and still reports an error, which is why the first two
+		// assertions kept passing; the error just said something else entirely.
+		//
+		// The strict predicate gate did not regress. The probe relied on adoption.
+		// Naming the set the first import stamped is the E2E stand-in for the
+		// ownership click a person makes in the wizard -- the same repair AM-16
+		// applied to its three siblings -- and it puts the row back on the path
+		// where an invalid predicate is what stops it. Read from the file's own
+		// bytes, not the metadata cache, which may not have indexed a just-written
+		// note yet.
+		const owner = await readFrontmatterMatching(CROSSWALK_DIR, 'pr-ac-01');
+		const ownedSetId = (owner.frontmatter as any)?._crosswalker?.import_set?.id;
+		expect(typeof ownedSetId).toBe('string');
+
 		const result = await browser.executeObsidian(
 			async ({ app }, args) => {
 				// @ts-expect-error - internal plugin lookup
@@ -251,6 +271,7 @@ describe('Crosswalker plugin — v0.1.4 junction notes + crosswalk edges', funct
 					overwriteMode: 'replace',
 					createFolders: true,
 					strictValidation: true,
+					importSet: { id: ownedSetId },
 				},
 			},
 		);

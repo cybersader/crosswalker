@@ -1,0 +1,101 @@
+---
+title: "Inline SQLite distribution and startup readiness — synthesis"
+description: "The plugin now embeds its SQLite engine inside main.js and polls the actual pending-metadata predicate at startup instead of counting a fixed number of events. Isolated real-Obsidian tests passed for a seeded vault and a new empty vault on 2026-09-13; this is local installation-shaped acceptance, not a published release or a BRAT install test."
+tags: [decision, tier-2, sqlite, packaging, installation, release, startup]
+date: 2026-09-12
+sidebar:
+  label: "09-12 · Inline SQLite distribution"
+  order: -20260912
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="How to read this">
+Section 1 is the whole story in one breath. Section 4 is the evidence, verdict only — delivery detail lives in [`CHANGELOG.md`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md) under `[Unreleased]`, not here. Section 7 is a short pre-release checklist embedded in this page rather than a standalone document.
+</Aside>
+
+<Aside type="caution" title="Local acceptance, not a release claim">
+This log records two packaging/startup fixes, their deterministic build/test evidence, two independent source-only reviews, and a real-Obsidian runtime pass dated 2026-09-13 UTC. It does **not** claim a BRAT installation, mobile execution, or a published release — those remain separate, not-yet-taken steps. See §8 for the full limitations list.
+</Aside>
+
+## 1. Thirty seconds
+
+Crosswalker now carries its reporting-database engine inside the standard three-file plugin package. Isolated real-Obsidian tests passed for both a seeded vault and a new empty vault, including automatic startup. This is local installation-shaped acceptance, not a published release or a BRAT download/install test.
+
+Two fixes landed together. First, the [Tier 2](/crosswalker/concepts/terminology/) (the deletable, recoverable SQLite sidecar Crosswalker projects vault frontmatter into) loader used to expect two loose files — `sqlite3.wasm` and `sqlite3.mjs` — beside `main.js`, but the documented three-file install path never places them there. The engine is now embedded directly in `main.js` at build time and checked byte-for-byte by a build-time verifier. Second, the startup barrier that decides when Tier 2 is safe to query used to count a fixed number of metadata-cache events and assume that meant every file's frontmatter had arrived; it now polls the actual pending-metadata predicate on a bounded, monotonic-clock timer instead. Both fixes are in the same bundle validated in the 2026-09-13 runtime pass below.
+
+## 2. A concrete example
+
+**What did *not* need fixing.** Obsidian's own search, [Bases](/crosswalker/concepts/terminology/) views, and Crosswalker's own file-backed pivot tables read directly from vault Markdown — they never depended on Tier 2 and are unaffected by any of this. Tier 2 is a separate, deletable SQLite sidecar that only Crosswalker's own reporting and housekeeping commands query; it is what needed the missing engine files, and it is what needed correct startup timing.
+
+**Why "the UI looks ready" isn't the same question as "the data is ready."** Obsidian tells a plugin its workspace layout is ready before it has necessarily finished handing that plugin every file's parsed frontmatter. The old startup check counted a fixed number of "resolved" metadata events (three) as a stand-in for "all files are parsed" — on a vault where a few files resolve late or out of order, that undercounted and let a projection start with incomplete data. The fix asks the direct question instead, repeatedly: *are there still files with no parsed metadata yet?* It rechecks that at most every 100 milliseconds, for up to a 12-second waiting budget, and proceeds the moment the answer is no — not after a fixed count of "3 resolved events." The 2026-09-13 runtime pass shows both ends of this: the seeded-vault run was not ready at the first check and became ready after one polling interval (`checks: 2, elapsedMs: 100.3`), while the empty-vault first run was ready immediately (`checks: 1, elapsedMs: 0`, no timer even scheduled). Existing error-handling and orphan-pruning safety behavior is unchanged either way.
+
+## 3. Why this matters
+
+A user following the documented install steps — copy three files, enable the plugin — got a Tier 2 that could never start, because the loader's actual file dependency didn't match what that install path provides. That gap is now closed at the packaging level, and the timing gap that could let a projection start against partially-loaded metadata is closed at the startup level. Both were demonstrated broken in isolation before the fix (a real-Obsidian `ENOENT` probe for the first; an isolated old-code replay for the second) and are now demonstrated working together in a real-Obsidian runtime pass.
+
+## 4. Evidence (verdict only — detail lives in CHANGELOG)
+
+| Evidence | Verdict |
+|---|---|
+| Real-Obsidian ENOENT probe (2026-09-10), old loader | Reproduced the missing-file failure directly, once |
+| Isolated Jest reproduction, old loader dependency | Confirms the same dependency in code, separately from the probe above |
+| Isolated replay of the old readiness helper against a preserved snapshot | Confirms premature settlement: `Expected false; Received true` |
+| Inline-SQLite delivery: full unit suite, lint, build, release verifier, six static gates | All green / exit 0 |
+| Startup-readiness delivery: full unit suite, lint, build, release verifier, six static gates | All green / exit 0 |
+| Later, separate focused test-only correction (3 suites, 36 tests) | Green; not a new combined full-suite count |
+| Independent source-only review, inline-SQLite delivery | Cleared |
+| Independent source-only review, startup-readiness delivery | Cleared, with four non-blocking findings |
+| Real-Obsidian runtime, seeded vault (2026-09-13) | 29 of 29 declarations passed |
+| Real-Obsidian runtime, new empty vault, first run (2026-09-13) | 1 of 1 declaration passed |
+
+Exact byte counts, SHA-256 hashes, suite/test counts, and finding text are in [`CHANGELOG.md`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md) under `[Unreleased]` — read there, not duplicated here.
+
+## 5. Decision
+
+| What | Decision |
+|---|---|
+| Distribution shape | Embed the resolved `@sqlite.org/sqlite-wasm` package files inside `main.js` at build time; no loose SQLite files ship |
+| Verification | A build-time verifier proves byte/SHA-256 equality between embedded and source package files; it is a static proof, not a runtime test |
+| Startup barrier | Poll the real pending-metadata predicate on a bounded, monotonic-clock timer (≤100ms interval, ≤12s deadline) instead of counting a fixed number of events |
+| Standalone early Tier 2 calls | Out of scope — this fix covers only the normal startup path, not a standalone `openTier2`/schema-rebuild call made outside it |
+| Release workflow | `.github/workflows/release.yml` gains a verifier-invocation step; trigger, tag delete-and-recreate behavior, and the missing `--prerelease` flag are unchanged — see §7 |
+
+## 6. Superseded by this delivery
+
+- [v0.1.5 Tier 2 sidecar shipped](/crosswalker/agent-context/zz-log/2026-05-06-v0-1-5-tier-2-sidecar-shipped/) — decision item 3, the wdio staging workaround for the two loose files, no longer applies
+- [WASM-A pivot synthesis](/crosswalker/agent-context/zz-log/2026-05-06-wasm-a-pivot-synthesis/) — issue #2 in the five-issue table, the same wdio file-copy gap, no longer applies
+- [v0.1.5 milestone page](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/) carries a scoped callout pointing here; its Status and Status-last-verified lines are unchanged
+
+## 7. Before the next release
+
+- Verify `package.json` and `manifest.json` versions agree
+- Resolve the tag delete-and-recreate behavior and the missing `--prerelease` flag in `release.yml` — pre-existing gates, not something this delivery clears
+
+:::note[Update 2026-09-14]
+Both gates were resolved by a later release-workflow hardening pass, which is recorded under `[Unreleased]` in [`CHANGELOG.md`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md). The workflow no longer deletes or recreates tags, skips an already published version instead of republishing it, and publishes `0.x` versions with `--prerelease`. This log's own text above is left as written on 2026-09-12.
+:::
+
+- Confirm the tagged commit matches (or is source-identical to) the reviewed and runtime-tested commit
+- Confirm exactly three release assets (`main.js`, `manifest.json`, `styles.css`)
+- Run an actual BRAT install test only after a separately approved release — not authorized by this work
+
+## 8. What this does not do
+
+- No real BRAT or release-artifact install was exercised — only a local development-vault install shape
+- No mobile Obsidian execution
+- OPFS-versus-in-memory persistence mode was not observed in either runtime run
+- No load-timing or performance measurement beyond the two data points in §2
+- The 12-second waiting budget is a bound, not a proof of sufficiency for larger or slower vaults than the two tested here
+- An unrelated Mocha/screenshot-capture hang seen on an earlier attempt did not recur here, but was neither explained nor patched by this work
+- No milestone status changes anywhere as a result of this delivery
+
+## Related
+
+- [v0.1.5 — Tier 2 sqlite-wasm sidecar](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/)
+- [v0.1.5 Tier 2 sidecar shipped (2026-05-06)](/crosswalker/agent-context/zz-log/2026-05-06-v0-1-5-tier-2-sidecar-shipped/)
+- [WASM-A pivot synthesis (2026-05-06)](/crosswalker/agent-context/zz-log/2026-05-06-wasm-a-pivot-synthesis/)
+- [Tier 2 substrate synthesis (Ch 24)](/crosswalker/agent-context/zz-log/2026-05-04-tier-2-substrate-synthesis/)
+- [Embedded vs server substrates](/crosswalker/concepts/embedded-vs-server-substrates/)
+- [Terminology](/crosswalker/concepts/terminology/)
+- `CHANGELOG.md` `[Unreleased]` — canonical delivery detail for both fixes in this synthesis

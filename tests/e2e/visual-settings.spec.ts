@@ -43,6 +43,10 @@ describe('Visual — redesigned settings tab', function () {
 		// -- Stage A: open settings → Crosswalker tab → the overview hub.
 		const hub = await browser.executeObsidian(async ({ app }) => {
 			const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+			// A settings surface already on screen would be refocused, not reopened.
+			// @ts-expect-error -- internal setting API
+			app.setting?.close?.();
+			await sleep(150);
 			// @ts-expect-error — internal setting API
 			app.setting.open();
 			await sleep(300);

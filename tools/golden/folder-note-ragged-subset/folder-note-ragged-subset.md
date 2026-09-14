@@ -1,5 +1,5 @@
 ---
-curie: "folder-note-ragged-subset:hub/folder-note-ragged-subset"
+curie: "folder-note-ragged-subset:hub/_root"
 kind: hub
 children:
   - "[[X1000]]"

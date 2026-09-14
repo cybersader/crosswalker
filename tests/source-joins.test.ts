@@ -17,8 +17,11 @@
  * reconstructions at the real shapes and the real counts.
  */
 
+import { createHash } from 'node:crypto';
 import { TFile, TFolder } from 'obsidian';
+import * as XLSX from 'xlsx';
 import { generateFromRecipe } from '../src/generation/generation-engine';
+import { parseXLSXFile } from '../src/import/parsers/xlsx-parser';
 import { computeRecipeHash, recipeHashCanonicalInput } from '../src/generation/hash';
 import { prepareSourceStage } from '../src/source';
 import { SourceStageError } from '../src/source/errors';
@@ -838,6 +841,21 @@ const OPTIONS = {
 	curieLocalPart: (row: Record<string, unknown>) => String(row.ID),
 };
 
+function xlsxPayload(primaryName: string, joinedLabel: string): ArrayBuffer {
+	const wb = XLSX.utils.book_new();
+	XLSX.utils.book_append_sheet(
+		wb,
+		XLSX.utils.aoa_to_sheet([['ID', 'Name'], ['T1548', primaryName]]),
+		'Primary',
+	);
+	XLSX.utils.book_append_sheet(
+		wb,
+		XLSX.utils.aoa_to_sheet([['key', 'label'], ['T1548', joinedLabel]]),
+		'Lookup',
+	);
+	return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+}
+
 describe('engine level — the alias lands in the note through the frozen grammar', () => {
 	it('C13 — a "one" join is addressed by dotted traversal and by literal-key quoting', async () => {
 		const { app, files } = makeApp();
@@ -858,6 +876,34 @@ describe('engine level — the alias lands in the note through the frozen gramma
 		const note = files.get('Out/T1548.md') ?? '';
 		expect(note).toContain('mitigation: Privileged Account Management');
 		expect(note).toContain('spaced: spaced key value');
+	});
+
+	it('an XLSX join and emitted source hash both come from the first captured bytes after the File changes', async () => {
+		const payloadA = xlsxPayload('Primary A', 'Joined from A');
+		const payloadB = xlsxPayload('Primary A', 'Joined from B');
+		let read = 0;
+		const file = {
+			name: 'mutable.xlsx',
+			type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+			size: payloadA.byteLength,
+			lastModified: 0,
+			arrayBuffer: jest.fn(async () => [payloadA, payloadB][Math.min(read++, 1)].slice(0)),
+		} as unknown as File & { arrayBuffer: jest.Mock };
+		const parsed = await parseXLSXFile(file, { sheet: 'Primary' });
+		const recipe = recipeWithJoins(
+			{ lookup: { from: { sheet: 'Lookup' }, on: { primary: 'ID', secondary: 'key' }, cardinality: 'one' } },
+			{ title: '{Name}', joined: '{lookup.label}' },
+		);
+		const { app, files } = makeApp();
+		const result = await generateFromRecipe(app, parsed, recipe, OPTIONS as any);
+		expect(result.errors).toEqual([]);
+		const note = files.get('Out/T1548.md') ?? '';
+		expect(note).toContain('title: Primary A');
+		expect(note).toContain('joined: Joined from A');
+		expect(note).not.toContain('Joined from B');
+		const expectedDigest = `sha256-${createHash('sha256').update(new Uint8Array(payloadA)).digest('hex')}`;
+		expect(note).toContain(`source_hash: ${expectedDigest}`);
+		expect(file.arrayBuffer).toHaveBeenCalledTimes(1);
 	});
 
 	it('a "many" join lands as a YAML array with no template change', async () => {

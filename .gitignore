@@ -1,5 +1,7 @@
 # Build output (root level)
 /main.js
+# Legacy loose SQLite artifacts are no longer emitted, but remain ignored so
+# pre-existing local copies cannot be committed accidentally.
 /sqlite3.wasm
 /sqlite3.mjs
 *.js.map
@@ -26,11 +28,9 @@ test-vault/.obsidian/plugins/crosswalker/sqlite3.mjs
 test-vault/.obsidian/cache/
 test-vault/.obsidian/plugins/*/data.json
 
-# First-run E2E fixture: wdio.first-run.conf.mts copies the sqlite runtime in
-# during onPrepare so the very first frame is release-faithful, and removes it in
-# onComplete. A killed or crashed run strands the copies. Only the two .obsidian
-# json files under this fixture are tracked, both outside plugins/, so ignoring
-# this subtree untracks nothing.
+# First-run E2E fixture: launcher/plugin copies can be stranded by a killed run.
+# Only the two .obsidian JSON files under this fixture are tracked, both outside
+# plugins/, so ignoring this subtree untracks nothing.
 tests/e2e/first-run-vault/.obsidian/plugins/
 
 # Runtime state written by the plugin's first-run hook

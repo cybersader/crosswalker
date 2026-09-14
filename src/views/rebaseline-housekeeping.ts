@@ -9,6 +9,7 @@
 import { App, Modal, Notice, Setting, TFile } from 'obsidian';
 import { readReviewGroupCids, type ReviewGroupCids } from '../generation/hash';
 import { hashFrontmatter } from '../tier2/projector';
+import { readNoteFrontmatterState } from '../export/vault-reader';
 
 export interface HousekeepingRebaselineCandidate {
 	vaultPath: string;
@@ -16,6 +17,15 @@ export interface HousekeepingRebaselineCandidate {
 	subjectCurie: string;
 	reviewCid: string;
 	reviewGroups: ReviewGroupCids;
+	/**
+	 * AM-25 (2026-08-31). WHICH link the report row was about.
+	 *
+	 * The junction's own identity, carried from the query index to the write so
+	 * the note found at `vaultPath` can be checked against it before an audit fact
+	 * is stamped on it. It was available in Tier 2 all along and was never
+	 * selected.
+	 */
+	junctionCurie: string;
 }
 
 /** Extract the first-cell junction links from selected report rows. */
@@ -56,7 +66,11 @@ export function resolveHousekeepingRebaselineCandidates(
 					c.review_cid,
 					c.review_wording_cid,
 					c.review_scope_cid,
-					c.review_housekeeping_cid
+					c.review_housekeeping_cid,
+					-- AM-25. The junction's OWN identity. The row is still found by
+					-- path (the report renders links, and a link is a path), but what
+					-- is written is checked against this before it is written.
+					j.curie
 				FROM junction_notes_with_freshness j
 				LEFT JOIN concepts c
 				  ON c.rowid = (
@@ -89,12 +103,22 @@ export function resolveHousekeepingRebaselineCandidates(
 		if (!subjectCurie || !/^sha256-[a-f0-9]{64}$/.test(reviewCid) || !reviewGroups) {
 			throw new Error(`${path} has no complete current fingerprint set.`);
 		}
+		// AM-25. A projected junction always carries a curie (`junction_notes.curie`
+		// is NOT NULL and projection rejects a junction without one), so an empty
+		// value here means the index row is not the shape this command believes it
+		// is. Refuse rather than write an audit fact with nothing to check it
+		// against.
+		const junctionCurie = typeof row[9] === 'string' ? row[9].trim() : '';
+		if (!junctionCurie) {
+			throw new Error(`${path} has no recorded identity in the coverage index, so Crosswalker cannot confirm which link it is.`);
+		}
 		out.push({
 			vaultPath: String(row[0]),
 			status: row[1] === null || row[1] === undefined ? null : String(row[1]),
 			subjectCurie,
 			reviewCid,
 			reviewGroups,
+			junctionCurie,
 		});
 	}
 	return out;
@@ -127,11 +151,49 @@ export async function applyHousekeepingRebaseline(
 	// Resolve every selected note before the first write. This cannot make vault
 	// writes transactional, but it prevents a missing later selection from
 	// producing an avoidable half-applied batch.
-	const files = candidates.map((candidate) => {
+	//
+	// AM-25 (2026-08-31). And every note is CHECKED before the first write, not
+	// merely resolved. This is the only write in the plugin that asserts an audit
+	// fact - `reviewed_against` is the baseline a compliance claim rests on - and
+	// it was asserting it by address: a Tier 2 row selected `WHERE vault_path =`,
+	// parsed out of a generated report, then stamped onto whatever note now sits
+	// at that path. A stale report plus a stale projection (one note deleted,
+	// another created at the same path) recorded an attestation baseline onto a
+	// note nothing had ever identified. The junction's own curie is the fact that
+	// says which link it is; one mismatch refuses the whole selection, through the
+	// same refuse-all path every other check here uses.
+	const files: { candidate: HousekeepingRebaselineCandidate; file: TFile }[] = [];
+	for (const candidate of candidates) {
 		const file = app.vault.getAbstractFileByPath(candidate.vaultPath);
 		if (!(file instanceof TFile)) throw new Error(`Evidence link not found: ${candidate.vaultPath}`);
-		return { candidate, file };
-	});
+		const read = await readNoteFrontmatterState(app, file);
+		if (read.state === 'unreadable') {
+			// AM-19's rule, at this site: nothing was established about this note, so
+			// nothing may be claimed about it. Never "this is not the link" and never
+			// an invitation to move or delete it.
+			throw new Error(
+				`Crosswalker could not read the properties of ${candidate.vaultPath}, `
+				+ 'so it could not confirm which link it is. Nothing was recorded. '
+				+ "Fix that note's properties block, then run this again.",
+			);
+		}
+		const actual = read.state === 'ok' && typeof read.frontmatter.curie === 'string'
+			? read.frontmatter.curie.trim()
+			: '';
+		if (!actual) {
+			throw new Error(
+				`${candidate.vaultPath} carries no identity, so Crosswalker cannot confirm it is the link the report named. `
+				+ 'Nothing was recorded. Regenerate the coverage report, then try again.',
+			);
+		}
+		if (actual !== candidate.junctionCurie) {
+			throw new Error(
+				`${candidate.vaultPath} is not the link the report named: the report row is ${candidate.junctionCurie}, `
+				+ `the note there is ${actual}. Nothing was recorded. Regenerate the coverage report, then try again.`,
+			);
+		}
+		files.push({ candidate, file });
+	}
 	const sourceHashes = new Map<string, string>();
 
 	for (const { candidate, file } of files) {

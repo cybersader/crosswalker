@@ -100,7 +100,7 @@ describe('Visual — the furnished vault: review-screen plan line, home note, fo
 
 	after(async () => {
 		await browser.executeObsidian(async ({ app }) => {
-			document.querySelector<HTMLElement>('.modal-close-button')?.click();
+			document.querySelector<HTMLElement>('.modal-close-button, .modal-header-button')?.click();
 			// @ts-expect-error — internal plugins API
 			const plugin = app.plugins.plugins['crosswalker'];
 			if (plugin) {
@@ -151,7 +151,7 @@ describe('Visual — the furnished vault: review-screen plan line, home note, fo
 				}
 				return null;
 			};
-			document.querySelector<HTMLElement>('.modal-close-button')?.click();
+			document.querySelector<HTMLElement>('.modal-close-button, .modal-header-button')?.click();
 			await sleep(300);
 
 			// @ts-expect-error — commands API is untyped

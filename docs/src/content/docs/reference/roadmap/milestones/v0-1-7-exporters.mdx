@@ -17,6 +17,12 @@ Make the portable parts of the import/export chain explicit without collapsing d
 
 🚧 In progress (started 2026-07-12) — exporter first slice ✅; ImportRecipe fidelity foundation ✅ 2026-07-21. Remaining scope is the reusable-configuration library lifecycle, separate source/run binding + full-source replay proofs, and the minimal MappingSet portability envelope. Delivery detail lives only in `CHANGELOG.md` `[Unreleased]`.
 
+**Scoped addendum, 2026-09-09** — the Track 2 paragraph below only, re-checked against the targeted real-Obsidian acceptance run of `tests/e2e/visual-wizard-formats.spec.ts` and its independent evidence review. **No status cell, checkbox or success criterion changed** — a passing targeted runtime acceptance on unmerged branch work satisfies none of them, and the source-byte-hash clause still asks for a hash recorded in a run binding that does not exist. No other section of this page was re-verified on this date.
+
+**Scoped addendum, 2026-09-07** — the Track 2 paragraph below only. Re-checked against the local working tree (`src/import/parsers/xlsx-parser.ts`, `src/generation/hash.ts`, `src/generation/generation-engine.ts`, `src/generation/provenance.ts`) and `CHANGELOG.md` `[Unreleased]`. No status cell, checkbox or success criterion changed, and no other section of this page was re-verified on this date.
+
+**Status last verified:** 2026-09-06 — verified against `CHANGELOG.md` `[Unreleased]`, `src/main.ts`, `src/export/`, and the targeted real-Obsidian typed-export walkthrough. Typed mapping command wiring is complete; see [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present) for measured delivery detail. The parent command/settings task and OSCAL target-shape decision remain open. The per-import-root work already on this unmerged branch remains separate from this milestone slice.
+
 ## Dependencies
 
 - [v0.1.5 — Tier 2 sidecar](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/) (joins, coverage matrices, deduped exports use sidecar queries)
@@ -45,9 +51,9 @@ Make the portable parts of the import/export chain explicit without collapsing d
 
 - [x] SSSOM TSV exporter — shipped 2026-07-12 as `src/export/sssom-exporter.ts`, reading Tier 1 directly via `src/export/vault-reader.ts` (implementation delta from the sidecar-read plan above; vault is canonical, sidecar not required for export)
 - [x] Round-trip test (SSSOM) — import → export → import, edge sets deep-equal order-independent; the STRM byte-identical round-trip remains open
-- [ ] STRM TSV exporter — engine shipped + tested (`src/export/strm-tsv-exporter.ts`); command wiring pending
+- [x] STRM-shaped typed mapping table exporter — engine and typed-command wiring complete. See [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present)
 - [ ] OSCAL JSON exporter — skeleton shipped (`imports` shell real); make an explicit target-shape decision before crosswalk-edge emission. OSCAL 1.1.x Profile has no mapping construct, so the exporter must remain an honest non-implementation unless a valid OSCAL target shape is selected and documented
-- [ ] Command-palette + settings UI — two commands live ("Export folder as crosswalk mapping file", "Export folder as CSV"); STRM command + settings toggle for SSSOM pending (off by default since "zero GRC adoption" per [Ch 19](/crosswalker/agent-context/zz-research/2026-05-02-challenge-19-overengineering-stress-test/))
+- [ ] Command-palette + settings UI — typed mapping command wiring is complete; remaining exporter commands and the settings toggle for SSSOM remain pending (off by default since "zero GRC adoption" per [Ch 19](/crosswalker/agent-context/zz-research/2026-05-02-challenge-19-overengineering-stress-test/)). See [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present)
 - [ ] Validation — exports against published STRM / OSCAL / SSSOM JSON Schemas (not all are formal but where they exist)
 
 ### Track 1 — ImportRecipe / reusable-configuration library lifecycle
@@ -61,6 +67,10 @@ Make the portable parts of the import/export chain explicit without collapsing d
 - [ ] Add save, reopen, browse, inspect, export, and delete UI; preserve identity, hash, ancestry, opaque fields, and portability blockers across the full lifecycle
 
 ### Track 2 — Source/run binding and exact replay
+
+Gate 1 of the [save-and-exact-replay register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) closed 2026-09-06 — see the [Gate 1 ratification](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/) for the ratified digest, binding-surface, replay-promise, and source-retention answers. That unblocks writing the design specification; Gate 2 (D5, D6) remains open. A first recipe-document digest slice is implemented locally and has passed independent verification; it remains unmerged and unreleased — see [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present). None of the checkboxes below are satisfied by it.
+
+A second slice — [XLSX source-byte provenance](/crosswalker/agent-context/zz-log/2026-09-07-xlsx-source-snapshot-synthesis/), 2026-09-07 — gives the pre-existing `_crosswalker.source_ref.source_hash` contract its first live runtime producer and guarantees that a primary sheet and any joined sheet come from one byte snapshot. It is unmerged and unreleased. Its core gates passed on 2026-09-07, and its **targeted Tier 1 runtime acceptance passed on 2026-09-09**, including the negative control that a JSON import records no byte fingerprint. That is a scoped runtime result with open qualifications, not a full-suite, Tier 2 or milestone clearance. Counts, outcomes and the qualification list in [CHANGELOG.md — Real-Obsidian acceptance rerun](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#real-obsidian-acceptance-rerun-the-six-targeted-declarations-passed-2026-09-09). **It satisfies none of the checkboxes below**, including the source-byte-hash clause, which asks for a hash recorded in a *run binding* alongside recipe reference, parser selectors, destination and parameters — none of which exists. **Remaining gates:** Gate 2 (D5 lineage semantics, D6 legacy saved-setup coexistence) is open and blocks this track; Gate 3 (D7, D8) lands at [v0.1.8](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/); D4's opt-in for retained source copies is ratified but unimplemented.
 
 - [ ] Keep the reusable configuration independent from a concrete run binding
 - [ ] Record recipe reference + canonical recipe hash, exact source-byte hash, parser selectors (for example sheet/header/iterator), destination, and bound parameters

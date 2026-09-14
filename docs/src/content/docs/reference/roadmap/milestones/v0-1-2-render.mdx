@@ -17,6 +17,8 @@ Implement the address-rendering function from [Ch 22](/crosswalker/agent-context
 
 ✅ Done (2026-05-05). Pure `render(Recipe, ConceptIdentity) → Address` shipped with folder/file/heading mechanisms wired; tag/wikilink layout-mechanisms throw informative "deferred to v0.2" errors; 7-filter closed pipeline; 37 unit tests + 6 E2E tests (including determinism: 100 unit iterations + 50 E2E iterations all producing byte-identical output).
 
+**Status last verified:** 2026-09-05 — scoped to the core render contract at commit `30aee63b`: `src/render/index.ts` still dispatches folder/file/heading and routes tag/wikilink to explicit deferral stubs, while `src/render/template.ts` still rejects unknown filters. The seven-filter list and test counts above describe the 2026-05-05 delivery slice; later additive filters exist, and no historical test count was rerun here.
+
 ## Dependencies
 
 - [v0.1.1 — Type system + validation foundation](/crosswalker/reference/roadmap/milestones/v0-1-1-types-and-validation/) (typed `Recipe` and `ConceptIdentity` interfaces required)

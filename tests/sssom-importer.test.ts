@@ -234,12 +234,21 @@ x:C\tskos:exactMatch\ty:D\tset:two\tC\tD\tsemapv:ManualMappingCuration\t1`;
 	 * endpoint-derived, so a note keeps the identity it already had and reconciliation
 	 * can still follow it. The cost, restored from pre-P3 behavior and asserted here
 	 * so it is visible rather than discovered: two assertions sharing endpoints
-	 * collapse onto one note, and every mapping set shares the pair root.
+	 * resolve to one identity, and every mapping set shares the pair root.
 	 *
 	 * mapping_set_id is still recorded on the note as provenance. It simply does not
 	 * participate in identity, which is what makes it migration-free.
+	 *
+	 * AM-27 (2026-08-31) changed two things here, both deliberately. This import
+	 * names no set, so it MINTS one, and a new set derives identities injectively:
+	 * the endpoint token `x:A` can no longer be written as `x-A`, because `x-A` is
+	 * a different endpoint that used to answer to the same name. The readable head
+	 * is unchanged and a digest of the exact endpoint is appended. And the second
+	 * row sharing a pair is now a NAMED REFUSAL rather than a silent overwrite.
+	 * A set that already exists keeps its old form - see the endpoint-v1
+	 * byte-identity test below.
 	 */
-	it('writes endpoint-identified notes in one shared folder, collapsing duplicate endpoints', async () => {
+	it('writes endpoint-identified notes in one shared folder, refusing a duplicate pair', async () => {
 		const { app, written } = makeMockApp();
 		const result = await importSssom(app, mixed, null, null, { runTier2Projection: false });
 		expect(result.skipped).toBeUndefined();
@@ -249,10 +258,22 @@ x:C\tskos:exactMatch\ty:D\tset:two\tC\tD\tsemapv:ManualMappingCuration\t1`;
 		expect(new Set(paths).size).toBe(2);
 		// One shared destination folder, not one per mapping set.
 		expect(new Set(paths.map((path) => path.split('/').slice(0, -1).join('/'))).size).toBe(1);
-		// Endpoint-derived filenames, not mapping-set/assertion keys.
-		// Endpoint-derived and lowercased by the filename mechanism, e.g.
-		// _crosswalker/mappings/x-to-y/cw-x-a-y-b.md
-		expect(paths.every((path) => /\/cw-x-[a-d]-y-[a-d]\.md$/.test(path))).toBe(true);
+		// Endpoint-derived filenames, not mapping-set/assertion keys: the readable
+		// head still names the endpoints, lowercased by the filename mechanism, which
+		// also collapses the curie's `--` escape marker to a single hyphen. The
+		// ADDRESS is a slug; the digest that makes the pair injective lives in the
+		// note's `curie`, which is asserted below.
+		expect(paths.every((path) => /\/cw-x-[a-d](-[0-9a-f]{10})?-y-[a-d](-[0-9a-f]{10})?\.md$/.test(path))).toBe(true);
+		const curies = [...written.values()]
+			// The emitter quotes a value containing a colon, and every curie has one.
+			.map((text) => /^curie: (.*)$/m.exec(text.replace(/^---\n/, ''))?.[1]?.trim().replace(/^["']|["']$/g, ''))
+			.filter((value): value is string => typeof value === 'string');
+		expect(curies).toHaveLength(2);
+		expect(curies.every((curie) => /^sssom:cw-x-[A-D]--[0-9a-f]{10}-y-[A-D]--[0-9a-f]{10}$/.test(curie))).toBe(true);
+
+		// The third row of the pair is reported, not silently merged into the first.
+		expect(result.generation!.errors).toHaveLength(1);
+		expect(result.generation!.errors[0].message).toContain('Duplicate identity in this import');
 
 		// Provenance is still carried, it just is not part of identity.
 		const bodies = [...written.values()].join('\n');
@@ -262,22 +283,30 @@ x:C\tskos:exactMatch\ty:D\tset:two\tC\tD\tsemapv:ManualMappingCuration\t1`;
 	/**
 	 * Endpoint-derived identity is order-independent by construction: the same rows in
 	 * any order produce the same note paths. Note what this does NOT claim — two rows
-	 * that differ only in metadata share endpoints, so they share one note and the
-	 * later write wins. set-qualified-v1 isolates releases from each other; it does
-	 * not turn metadata-distinct duplicates inside one release into separate assertions.
+	 * that differ only in metadata share endpoints, so they resolve to one identity;
+	 * AM-27 (2026-08-31) makes the second one a named refusal rather than the silent
+	 * overwrite it used to be. set-qualified-v1 isolates releases from each other; it
+	 * does not turn metadata-distinct duplicates inside one release into separate
+	 * assertions.
+	 *
+	 * The header carries every column the bundled crosswalk recipe renders. It used
+	 * to carry the minimum, which made render() fail on every row and left this test
+	 * comparing two empty path lists — green about nothing.
 	 */
 	it('produces the same note paths regardless of source row order', async () => {
 		const header = `# subject_source: "x"
 # object_source: "y"
-subject_id\tpredicate_id\tobject_id\tmapping_set_id\tmapping_justification`;
-		const first = 'x:A\tskos:exactMatch\ty:B\tset:one\tsemapv:ManualMappingCuration';
-		const second = 'x:A\tskos:exactMatch\ty:B\tset:one\tsemapv:LexicalMatching';
+subject_id\tpredicate_id\tobject_id\tmapping_set_id\tsubject_label\tobject_label\tmapping_justification\tconfidence`;
+		const first = 'x:A\tskos:exactMatch\ty:B\tset:one\tA\tB\tsemapv:ManualMappingCuration\t1';
+		const second = 'x:A\tskos:exactMatch\ty:B\tset:one\tA\tB\tsemapv:LexicalMatching\t1';
 		const a = makeMockApp();
 		const b = makeMockApp();
 		await importSssom(a.app, `${header}\n${first}\n${second}`, null, null, { runTier2Projection: false });
 		await importSssom(b.app, `${header}\n${second}\n${first}`, null, null, { runTier2Projection: false });
 		const paths = (written: Map<string, string>) => [...written.keys()].filter((path) => path.endsWith('.md')).sort();
 		expect(paths(a.written)).toEqual(paths(b.written));
+		// Not vacuously equal: both runs actually wrote the one note the pair resolves to.
+		expect(paths(a.written)).toHaveLength(1);
 	});
 
 	const releaseHeader = `# subject_source: "x"
@@ -368,3 +397,22 @@ subject_id	predicate_id	object_id	mapping_set_id	subject_label	object_label	mapp
 		]);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// AM-26 sweep (2026-08-31): NOT COVERED HERE, and the reason is worth recording.
+//
+// `preflightMappingSetDestinations` is meant to refuse an import into a folder
+// already holding another mapping set's edges, and pass 10 gave it a
+// raw-frontmatter fallback so a cache-cold crosswalk note could no longer slip
+// past it. No test asserts that fallback because the guard CANNOT FIRE: the
+// `destinationSets` map it iterates is constructed empty at
+// `sssom-importer.ts:173` and nothing ever writes to it. `git log -S` puts it in
+// that state since `b74bb17a` (release isolation held), which removed the
+// per-mapping-set subfolder that used to populate it — so the guard has never
+// run in any shipped build, and every import already lands in the shared pair
+// root regardless of what is there.
+//
+// Any test written here would pass for the wrong reason (an empty loop refuses
+// nothing), so this is left as a written gap rather than a green assertion.
+// Reopening it is a product decision, not a test one.
+// ---------------------------------------------------------------------------

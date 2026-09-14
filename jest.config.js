@@ -10,6 +10,8 @@ module.exports = {
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
     "^obsidian$": "<rootDir>/tests/__mocks__/obsidian.ts",
+    "^virtual:sqlite3-wasm-base64$": "<rootDir>/tests/fixtures/sqlite-wasm-asset.ts",
+    "^virtual:sqlite3-mjs-text$": "<rootDir>/tests/fixtures/sqlite-mjs-asset.ts",
   },
   noStackTrace: true,
   // Capped deliberately. Jest defaults to roughly one worker per core, which is

@@ -17,7 +17,9 @@ import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import type { DebugLog } from '../src/utils/debug';
 import type { ParsedData, ImportRecipe } from '../src/types/config';
 import { generateNotes } from '../src/generation/generation-engine';
+import { computeRecipeDocumentDigest, computeRecipeHash } from '../src/generation/hash';
 import { render } from '../src/render';
+import { validateRecipe } from '../src/validation/validator';
 
 const rich = richFixture as unknown as CrosswalkerImportRecipe;
 const debug = { info() {}, trace() {}, warn() {}, error() {} } as unknown as DebugLog;
@@ -58,6 +60,59 @@ describe('RecipeDocument canonical preservation boundary', () => {
 		expect(patched.recipe.recipe).toBe(rich.recipe);
 		expect(recipesSemanticallyEqual(patched.recipe, rich)).toBe(true);
 		expect(serializeCanonicalRecipe(patched.recipe)).toBe(serializeCanonicalRecipe(rich));
+	});
+
+	it('a no-op patch without ancestry does not mint an id, ancestry, or digest', () => {
+		const withoutAncestry = JSON.parse(JSON.stringify(rich)) as CrosswalkerImportRecipe;
+		delete withoutAncestry.metadata?.based_on;
+		const loaded = loadRecipeDocument(withoutAncestry, { origin: 'bundled' });
+		expect(loaded.ok).toBe(true);
+		if (!loaded.ok) return;
+
+		const patched = patchRecipeDocument(loaded.document);
+		expect(patched.ok).toBe(true);
+		if (!patched.ok) return;
+		expect(patched.dirty).toBe(false);
+		expect(patched.recipe.recipe).toBe(withoutAncestry.recipe);
+		expect(patched.recipe.metadata?.based_on).toBeUndefined();
+	});
+
+	it('preserves an existing ancestor digest and opaque canonical fields through no-op serialization', () => {
+		const withDigest = JSON.parse(JSON.stringify(rich)) as CrosswalkerImportRecipe & Record<string, unknown>;
+		withDigest.$comment = 'Opaque author note';
+		withDigest.metadata!.based_on!.recipe_document_digest = `sha256-${'2'.repeat(64)}`;
+		(withDigest.query as Record<string, unknown>).opaque_extension = { keep: ['first', 'second'] };
+		const loaded = loadRecipeDocument(withDigest, { origin: 'bundled' });
+		expect(loaded.ok).toBe(true);
+		if (!loaded.ok) return;
+
+		const patched = patchRecipeDocument(loaded.document);
+		expect(patched.ok).toBe(true);
+		if (!patched.ok) return;
+		expect(patched.dirty).toBe(false);
+		expect(patched.recipe.metadata?.based_on?.recipe_document_digest).toBe(`sha256-${'2'.repeat(64)}`);
+
+		const reparsed = JSON.parse(serializeCanonicalRecipe(patched.recipe)) as CrosswalkerImportRecipe & Record<string, unknown>;
+		expect(reparsed.$comment).toBe('Opaque author note');
+		expect(reparsed.metadata?.based_on?.recipe_document_digest).toBe(`sha256-${'2'.repeat(64)}`);
+		expect((reparsed.query as Record<string, unknown>).opaque_extension).toEqual({ keep: ['first', 'second'] });
+	});
+
+	it('a dirty fresh document keeps its id and does not mint ancestry', () => {
+		const fresh = JSON.parse(JSON.stringify(rich)) as CrosswalkerImportRecipe;
+		delete fresh.metadata?.based_on;
+		const loaded = loadRecipeDocument(fresh, { origin: 'fresh' });
+		expect(loaded.ok).toBe(true);
+		if (!loaded.ok) return;
+		const mapping = JSON.parse(JSON.stringify(loaded.document.mapping)) as ImportMapping;
+		mapping.enrichment = { ...(mapping.enrichment ?? {}), parent_note: 'folder-note' };
+
+		const patched = patchRecipeDocument(loaded.document, { mapping });
+		expect(patched.ok).toBe(true);
+		if (!patched.ok) return;
+		expect(patched.dirty).toBe(true);
+		expect(patched.recipe.recipe).toBe(fresh.recipe);
+		expect(patched.recipe.metadata?.based_on).toBeUndefined();
 	});
 
 	it('preserves prefixed multi-column templates in the bundled crosswalk recipe', () => {
@@ -149,9 +204,11 @@ describe('RecipeDocument canonical preservation boundary', () => {
 		expect(patched.recipe.target.layout.at(-1)?.kind).toBe('crosswalk-edge');
 	});
 
-	it('customization creates deterministic ancestry and never mutates original', () => {
+	it('customization creates deterministic ancestry from the normalized original and never mutates it', () => {
 		const document = loadRich();
 		const before = serializeCanonicalRecipe(document.original);
+		const originalDigest = computeRecipeDocumentDigest(document.original);
+		const originalEffectiveHash = computeRecipeHash(document.original.target, document.original.source);
 		const mapping = JSON.parse(JSON.stringify(document.mapping)) as ImportMapping;
 		mapping.enrichment = { ...(mapping.enrichment ?? {}), parent_note: 'folder-note' };
 
@@ -162,9 +219,14 @@ describe('RecipeDocument canonical preservation boundary', () => {
 		expect(patched.recipe.recipe).toBe('portable-contract-rich-custom');
 		expect(patched.recipe.metadata?.based_on).toEqual({
 			recipe: 'portable-contract-rich',
-			hash: expect.stringMatching(/^sha256-[a-f0-9]{64}$/),
+			hash: originalEffectiveHash,
+			recipe_document_digest: originalDigest,
 			spec_version: 'https://crosswalker.dev/spec/recipe.schema.json',
 		});
+		expect(patched.recipe.metadata?.based_on?.recipe_document_digest).not.toBe(
+			computeRecipeDocumentDigest(patched.recipe),
+		);
+		expect(validateRecipe(patched.recipe).valid).toBe(true);
 		expect(serializeCanonicalRecipe(document.original)).toBe(before);
 	});
 

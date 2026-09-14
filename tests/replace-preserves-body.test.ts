@@ -17,6 +17,7 @@
 
 import { TFile, TFolder } from 'obsidian';
 import { generateFromRecipe, generateNotes } from '../src/generation/generation-engine';
+import { discoverImportSets, type ImportSetOption } from '../src/generation/import-set';
 import type { GenerationOptions } from '../src/generation/generation-engine';
 import type { Recipe } from '../src/render';
 import type { GenerationResult, ImportRecipe, ParsedData } from '../src/types/config';
@@ -148,32 +149,58 @@ interface RunArgs {
 	importSet?: 'new';
 }
 
+/**
+ * Ownership for one run, said out loud.
+ *
+ * AM-9 (2026-08-30): the engine used to look at the destination folder and, if
+ * exactly one import set already lived there, silently refresh it. Every case
+ * below that imports twice relied on that, which is why an omitted ownership
+ * option used to mean "refresh". The branch is deleted -- a folder is an
+ * address, and an address does not name an owner -- so an omitted option now
+ * MINTS A NEW SET, and "Replace twice is byte-identical" would be comparing two
+ * notes stamped with two different `import_set.id` values.
+ *
+ * The cases are not retired; a re-import under Replace is exactly what this
+ * file is the acceptance gate for. It is now named, the same way the wizard
+ * names it after its review step. The first run into a vault still mints,
+ * because there is nothing yet to name, and an explicit `new` still skips
+ * discovery entirely for the unreadable-frontmatter cases.
+ */
+async function ownershipFor(app: any, explicit?: 'new'): Promise<ImportSetOption | undefined> {
+	if (explicit) return explicit;
+	const [existing] = await discoverImportSets(app, undefined);
+	return existing ? { id: existing.id } : undefined;
+}
+
 /** The two entry points, behind one signature, so every case runs on both. */
 const PATHS: Array<{ name: string; run: (a: RunArgs) => Promise<GenerationResult> }> = [
 	{
 		name: 'generateNotes (wizard path)',
-		run: ({ app, data, rec, mode, importSet }) => {
+		run: async ({ app, data, rec, mode, importSet }) => {
+			const owner = await ownershipFor(app, importSet);
 			const options: GenerationOptions = {
 				basePath: BASE,
 				overwriteMode: mode ?? 'replace',
 				createFolders: true,
 				sourceFileName: 'source.csv',
 				recipeOverride: rec ?? recipe(),
-				...(importSet ? { importSet } : {}),
+				...(owner ? { importSet: owner } : {}),
 			};
 			return generateNotes(app, data ?? parsed(), wizardConfig, options);
 		},
 	},
 	{
 		name: 'generateFromRecipe (native recipe path)',
-		run: ({ app, data, rec, mode, importSet }) =>
-			generateFromRecipe(app, data ?? parsed(), rec ?? recipe(), {
+		run: async ({ app, data, rec, mode, importSet }) => {
+			const owner = await ownershipFor(app, importSet);
+			return generateFromRecipe(app, data ?? parsed(), rec ?? recipe(), {
 				basePath: BASE,
 				overwriteMode: mode ?? 'replace',
 				createFolders: true,
 				sourceFileName: 'source.csv',
-				...(importSet ? { importSet } : {}),
-			}),
+				...(owner ? { importSet: owner } : {}),
+			});
+		},
 	},
 ];
 

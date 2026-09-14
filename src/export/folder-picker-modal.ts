@@ -33,7 +33,7 @@ export class ExportFolderPickerModal extends FuzzySuggestModal<TFolder> {
 	}
 
 	getItemText(folder: TFolder): string {
-		return folder.path === '' ? '/ (vault root)' : folder.path;
+		return folder.isRoot() ? '/ (vault root)' : folder.path;
 	}
 
 	onChooseItem(folder: TFolder): void {

@@ -62,7 +62,7 @@ export async function closeImportWizard(options: { timeoutMs?: number } = {}): P
 			let clicked = 0;
 			while (live().length > 0) {
 				const target = live()[live().length - 1];
-				const button = target.querySelector<HTMLElement>('.modal-close-button');
+				const button = target.querySelector<HTMLElement>('.modal-close-button, .modal-header-button');
 				if (button) {
 					button.click();
 					clicked += 1;

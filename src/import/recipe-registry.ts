@@ -162,6 +162,10 @@ export interface RecipeRegistryEntry {
 	suggestedFolder: string;
 	/** Curated, advisory Pass 1.5 enrichment recommendation for this shape (see module doc comment). */
 	recommendedEnrichment: RecipeEnrichmentHint;
+	/** Where a GRC team obtains the file this preset expects. Absent for a user's own spreadsheet. */
+	sourceLink?: { label: string; url: string; note?: string };
+	/** Docs page section explaining which export or sheet to use and the import gotchas. */
+	docsUrl: string;
 	/** Every `{column}` token the recipe references (normalized-compared at match). */
 	signatureColumns: string[];
 	/** Columns used by STRUCTURAL layout entries — a hard gate for a confident match. */
@@ -418,6 +422,97 @@ const DEFAULTS: Record<
 	},
 };
 
+const FRAMEWORK_DATA_SOURCES_URL =
+	'https://cybersader.github.io/crosswalker/reference/framework-data-sources/';
+
+/** Publisher-download and import-instruction links shown by the shared preset guide. */
+const SOURCE_GUIDANCE: Record<
+	string,
+	{ sourceLink?: { label: string; url: string; note?: string }; docsUrl: string }
+> = {
+	'nist-csf-2-cprt-hierarchical': {
+		sourceLink: { label: 'Get the CPRT export from NIST', url: 'https://csrc.nist.gov/projects/cprt' },
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#nist-csf-20`,
+	},
+	'nist-csf-2-cprt': {
+		sourceLink: { label: 'Get the CPRT export from NIST', url: 'https://csrc.nist.gov/projects/cprt' },
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#nist-csf-20`,
+	},
+	'nist-csf-2-flat': {
+		sourceLink: {
+			label: 'Get the CSF 2.0 core workbook from NIST',
+			url: 'https://www.nist.gov/cyberframework',
+		},
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#nist-csf-20`,
+	},
+	'nist-csf-2-withdrawal-lineage': {
+		sourceLink: {
+			label: 'Get the CSF 2.0 core workbook from NIST',
+			url: 'https://www.nist.gov/cyberframework',
+			note: 'Derived from the core workbook.',
+		},
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#withdrawal-lineage`,
+	},
+	'mitre-attack-technique-flat': {
+		sourceLink: {
+			label: 'Get the ATT&CK Excel export from MITRE',
+			url: 'https://attack.mitre.org/resources/attack-data-and-tools/',
+			note: 'Use the Excel export, not the STIX bundle.',
+		},
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#mitre-attck-enterprise`,
+	},
+	'cis-controls-v8-controls': {
+		sourceLink: {
+			label: 'Get CIS Controls v8 from CIS',
+			url: 'https://www.cisecurity.org/controls',
+			note: 'Free registration required. Crosswalker does not distribute this file.',
+		},
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#cis-controls-v812`,
+	},
+	'cis-controls-v8-flat': {
+		sourceLink: {
+			label: 'Get CIS Controls v8 from CIS',
+			url: 'https://www.cisecurity.org/controls',
+			note: 'Free registration required. Crosswalker does not distribute this file.',
+		},
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#cis-controls-v812`,
+	},
+	'scf-2026-flat': {
+		sourceLink: {
+			label: 'Get the SCF workbook from the Secure Controls Framework',
+			url: 'https://securecontrolsframework.com/scf-download/',
+			note: 'Free download under the SCF terms of use.',
+		},
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#secure-controls-framework-20261`,
+	},
+	'nist-800-53-r5-flat': {
+		sourceLink: {
+			label: 'Get SP 800-53 Rev. 5 from NIST',
+			url: 'https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final',
+		},
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#nist-sp-800-53-rev-5`,
+	},
+	'cri-profile-v2-2-flat': {
+		sourceLink: {
+			label: 'Get the CRI Profile from the Cyber Risk Institute',
+			url: 'https://cyberriskinstitute.org/the-profile/',
+			note: 'Free registration required. Crosswalker does not distribute this file.',
+		},
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#cri-profile-v22`,
+	},
+	'olir-crosswalk-edge': {
+		sourceLink: {
+			label: 'Get a crosswalk from the NIST OLIR catalog',
+			url: 'https://csrc.nist.gov/projects/olir/informative-reference-catalog',
+			note: 'Download an Informative Reference or Derived Relationship Mapping as a spreadsheet.',
+		},
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#crosswalk-data-sources`,
+	},
+	'evidence-junction-notes': {
+		docsUrl: FRAMEWORK_DATA_SOURCES_URL,
+	},
+};
+
 /** Build a registry entry from a bundled raw recipe. */
 function toEntry(raw: unknown): RecipeRegistryEntry {
 	const r = raw as RawRecipe;
@@ -428,6 +523,7 @@ function toEntry(raw: unknown): RecipeRegistryEntry {
 		suggestedFolder: 'Frameworks',
 		recommendedEnrichment: NO_ENRICHMENT,
 	};
+	const guidance = SOURCE_GUIDANCE[r.recipe] ?? { docsUrl: FRAMEWORK_DATA_SOURCES_URL };
 	const structuralDepth = (r.target.layout ?? []).filter(
 		(e) => e.mechanism === 'folder' || e.mechanism === 'heading',
 	).length;
@@ -440,6 +536,8 @@ function toEntry(raw: unknown): RecipeRegistryEntry {
 		routingKind: deriveRoutingKind(r),
 		suggestedFolder: meta.suggestedFolder,
 		recommendedEnrichment: meta.recommendedEnrichment,
+		sourceLink: guidance.sourceLink,
+		docsUrl: guidance.docsUrl,
 		signatureColumns: signature,
 		requiredColumns: required,
 		structuralDepth,

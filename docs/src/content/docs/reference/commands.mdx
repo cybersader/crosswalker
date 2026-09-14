@@ -6,7 +6,7 @@ tags: [obsidian, getting-started]
 
 Access these from Obsidian's command palette (`Ctrl/Cmd + P`). Obsidian adds the **Crosswalker:** prefix; the leading words keep related actions together.
 
-**Status last verified:** 2026-08-28 — verified against `src/main.ts` and the command palette captured by the real-Obsidian `tests/e2e/first-run.spec.ts` run.
+**Status last verified:** 2026-09-06 — verified against `src/main.ts`, the export path unit tests, and the targeted real-Obsidian export walkthroughs. All three export commands below opened the real folder picker and selected its friendly `/ (vault root)` choice. The CSV and crosswalk commands ran against Obsidian's actual root (`path: /`, `isRoot(): true`), wrote `vault.export.csv` and `vault.export.tsv`, preserved source notes and existing hidden-style export files, and retained their overwrite-by-default policy for corrected destinations. The typed mapping command separately passed its nested-folder, root, cancellation, and confirmed-replacement scenarios. This is scoped command coverage, not a full-E2E or quarantine-clearance claim; all remaining entries retain the 2026-08-28 command-palette baseline from `tests/e2e/first-run.spec.ts`.
 
 ## Start here
 
@@ -27,8 +27,9 @@ Access these from Obsidian's command palette (`Ctrl/Cmd + P`). Obsidian adds the
 | Command | Description |
 |---|---|
 | **Crosswalker: Import and export: import crosswalk mapping file** | Imports relationships between two frameworks from a mapping file. |
-| **Crosswalker: Import and export: export folder as a crosswalk mapping file** | Exports relationship notes beneath a chosen folder. |
-| **Crosswalker: Import and export: export folder as CSV** | Exports notes beneath a chosen folder as CSV. |
+| **Crosswalker: Import and export: export folder as a crosswalk mapping file** | Exports relationship notes beneath a chosen folder to `<folder>.export.tsv`, or `vault.export.tsv` for the vault root. Existing output retains the command's overwrite-by-default behavior. |
+| **Crosswalker: Import and export: export folder as a typed mapping table** | Exports typed relationship notes beneath a chosen folder to `<folder>.export.typed-mappings.tsv` (or `vault.export.typed-mappings.tsv` for the vault root). Existing output requires confirmation; zero exportable rows write nothing. |
+| **Crosswalker: Import and export: export folder as CSV** | Exports notes beneath a chosen folder to `<folder>.export.csv`, or `vault.export.csv` for the vault root. Existing output retains the command's overwrite-by-default behavior. |
 
 ## Explore data
 

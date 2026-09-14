@@ -1,5 +1,9 @@
 name: Release Obsidian Plugin
 
+# Every publication decision lives in scripts/release-preflight.mjs, not in this
+# file, so tests/release-preflight.test.ts can prove it without running Actions.
+# This workflow never deletes, moves, or recreates a tag, and never overwrites an
+# existing release: an already published version is reported and skipped.
 on:
   push:
     branches:
@@ -7,46 +11,56 @@ on:
   workflow_dispatch:
     inputs:
       force_release:
-        description: 'Force release even if version unchanged'
+        description: 'Publish this version even if package.json did not change in this push'
         required: false
-        default: 'false'
+        default: false
         type: boolean
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   check-version:
     runs-on: ubuntu-latest
     outputs:
-      version-changed: ${{ steps.version-check.outputs.changed }}
-      new-version: ${{ steps.version-check.outputs.version }}
+      changed: ${{ steps.version-check.outputs.changed }}
+      version: ${{ steps.version-check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
-      - name: Check if version changed
+      # Cheap early exit only. The real publication decision is the preflight in
+      # the next job. HEAD^ is the first parent, which for a merge commit is main
+      # before the merge: exactly the baseline we want to compare against.
+      - name: Check whether the package version changed
         id: version-check
+        env:
+          FORCE_RELEASE: ${{ github.event.inputs.force_release }}
         run: |
           current=$(node -p "require('./package.json').version")
-          previous=$(git show HEAD~1:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8')).version" 2>/dev/null || echo "0.0.0")
+          previous=$(git show 'HEAD^:package.json' 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" 2>/dev/null || echo "0.0.0")
 
           echo "Current version: $current"
           echo "Previous version: $previous"
+          echo "version=$current" >> "$GITHUB_OUTPUT"
 
-          if [ "$current" != "$previous" ] || [ "${{ github.event.inputs.force_release }}" == "true" ]; then
-            echo "Version changed from $previous to $current"
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "version=$current" >> $GITHUB_OUTPUT
+          if [ "$current" != "$previous" ] || [ "$FORCE_RELEASE" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Version unchanged"
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-  build-and-release:
+  release:
     needs: check-version
-    if: needs.check-version.outputs.version-changed == 'true'
+    if: needs.check-version.outputs.changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.check-version.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -56,65 +70,104 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          # Pinned to the version bun.lock was resolved with locally. Bump this
+          # deliberately, together with the lockfile, never as a drive-by.
+          bun-version: 1.3.14
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
-      - name: Extract release notes from CHANGELOG.md
-        id: changelog
+      - name: Read publication state
+        id: published
         run: |
-          tag="${{ needs.check-version.outputs.new-version }}"
-          echo "Extracting notes for version $tag"
-
-          notes=$(awk -v ver="$tag" '
-            /^## \[/ {
-              if (found) exit
-              if ($0 ~ "\\[" ver "\\]") found=1
-              next
-            }
-            /^---/ { if (found) exit }
-            found { print }
-          ' CHANGELOG.md)
-
-          if [ -z "$notes" ]; then
-            notes="Release $tag"
-            echo "Warning: No changelog entry found for $tag"
+          if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "$notes" > release_notes.md
-          echo "=== Release notes ==="
-          cat release_notes.md
+          if gh release view "${VERSION}" --json id >/dev/null 2>&1; then
+            echo "release_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Decides publish or skip, validates version consistency across
+      # package.json, manifest.json and versions.json, extracts the release notes
+      # from CHANGELOG.md with no fallback body, and decides the prerelease flag.
+      - name: Release preflight
+        id: preflight
+        env:
+          TAG_EXISTS: ${{ steps.published.outputs.tag_exists }}
+          RELEASE_EXISTS: ${{ steps.published.outputs.release_exists }}
+          FORCE_RELEASE: ${{ github.event.inputs.force_release }}
+        run: |
+          if [ "$FORCE_RELEASE" = "true" ]; then
+            node scripts/release-preflight.mjs --tag-exists "$TAG_EXISTS" --release-exists "$RELEASE_EXISTS" --force --github-output "$GITHUB_OUTPUT"
+          else
+            node scripts/release-preflight.mjs --tag-exists "$TAG_EXISTS" --release-exists "$RELEASE_EXISTS" --github-output "$GITHUB_OUTPUT"
+          fi
+
+      # A skip is a success. The job ends here with a notice and no publication.
+      - name: Report skipped release
+        if: steps.preflight.outputs.action == 'skip'
+        env:
+          REASON: ${{ steps.preflight.outputs.reason }}
+        run: |
+          echo "::notice::Release skipped: $REASON"
 
       - name: Build plugin
+        if: steps.preflight.outputs.action == 'publish'
         run: bun run build
 
       - name: Verify build outputs
+        if: steps.preflight.outputs.action == 'publish'
         run: |
+          node scripts/verify-inline-sqlite-assets.mjs \
+            --bundle main.js \
+            --metafile node_modules/.cache/crosswalker/sqlite-build-metafile.json
+          test ! -e sqlite3.wasm
+          test ! -e sqlite3.mjs
           echo "=== Build outputs ==="
           ls -la main.js styles.css manifest.json
           echo "main.js: $(wc -c < main.js) bytes"
           echo "styles.css: $(wc -c < styles.css) bytes"
 
-      - name: Create tag and release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify release assets
+        if: steps.preflight.outputs.action == 'publish'
         run: |
-          tag="${{ needs.check-version.outputs.new-version }}"
+          test -f main.js
+          test -f manifest.json
+          test -f styles.css
+          node -e "const m = JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')); if (m.version !== process.env.VERSION) { console.error('manifest.json version ' + m.version + ' does not match release version ' + process.env.VERSION); process.exit(1); } console.log('manifest.json version matches ' + m.version);"
 
-          git config user.name github-actions
-          git config user.email github-actions@github.com
+      # Create only. A tag is never deleted, moved, or force pushed. If the push
+      # loses a race the step fails loudly rather than replacing published state.
+      - name: Create and push tag
+        if: steps.preflight.outputs.action == 'publish'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$VERSION" "$GITHUB_SHA"
+          git push origin "refs/tags/$VERSION"
 
-          # Delete existing tag if re-running
-          git tag -d "$tag" 2>/dev/null || true
-          git push origin ":refs/tags/$tag" 2>/dev/null || true
+      - name: Publish GitHub release
+        if: steps.preflight.outputs.action == 'publish'
+        env:
+          NOTES: ${{ steps.preflight.outputs.notes_path }}
+          PRERELEASE: ${{ steps.preflight.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            gh release create "$VERSION" --title "$VERSION" --notes-file "$NOTES" --prerelease --latest=false main.js manifest.json styles.css
+          else
+            gh release create "$VERSION" --title "$VERSION" --notes-file "$NOTES" --latest=true main.js manifest.json styles.css
+          fi
 
-          # Create and push tag
-          git tag "$tag"
-          git push origin "$tag"
-
-          # Create GitHub release with build artifacts
-          gh release create "$tag" \
-            --title="$tag" \
-            --notes-file release_notes.md \
-            main.js manifest.json styles.css
+      - name: Verify published release
+        if: steps.preflight.outputs.action == 'publish'
+        env:
+          PRERELEASE: ${{ steps.preflight.outputs.prerelease }}
+        run: |
+          gh release view "$VERSION" --json tagName,isPrerelease,assets > release-view.json
+          node -e "const r = JSON.parse(require('fs').readFileSync('release-view.json', 'utf8')); const names = r.assets.map((a) => a.name).sort(); const want = ['main.js', 'manifest.json', 'styles.css']; if (names.join(',') !== want.join(',')) { console.error('published assets ' + names.join(',') + ' do not match ' + want.join(',')); process.exit(1); } if (String(r.isPrerelease) !== process.env.PRERELEASE) { console.error('published prerelease flag ' + r.isPrerelease + ' does not match expected ' + process.env.PRERELEASE); process.exit(1); } console.log('published ' + r.tagName + ' prerelease=' + r.isPrerelease);"
+          rm -f release-view.json

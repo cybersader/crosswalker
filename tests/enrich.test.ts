@@ -54,13 +54,37 @@ function attackBatch(): EnrichNote[] {
 
 const CONFIG = { children_lists: true, facet_notes: 'notes' as const, parent_note: 'sibling' as const };
 
+/**
+ * AM-66 (2026-09-04). THE WRITE SET THIS FILE MEANS: every note in the batch.
+ *
+ * Decided once for the whole file, because every fixture here is a LIVE import
+ * writing every note it hands over. There is no kept row anywhere in this file -
+ * no assertion in it is about a row the run declined to write.
+ *
+ * Stated rather than left to `enrich()` to infer: AM-65 made the fact required
+ * because, while it was optional, an omitted write set silently meant "everything
+ * is writable" - true for THIS file and false for the kept-row fixtures, so the
+ * one default served one caller and quietly broke the other with nothing in the
+ * output naming the omission.
+ *
+ * ONE note in this file carries `renderedPath` (`relocatedBatch()`'s T1078, the
+ * only 5-argument `note(...)` call in the file), and it is IN the write set: its
+ * `renderedPath` is render()'s own evidence that this import wants the sibling
+ * form, and the three declarations that use it assert the relocation this run
+ * PERFORMS. That is AM-65's structural rule verbatim - a note whose rendered
+ * folder differs from its own and which IS in the write set is a relocation, not
+ * a hold - and it is why the deleted inference was a defect: it read relocation
+ * evidence as a hold. Assertions are unchanged.
+ */
+const writable = (notes: EnrichNote[]): Set<string> => new Set(notes.map((n) => n.path));
+
 // ===========================================================================
 // Acceptance case 1 — children lists
 // ===========================================================================
 
 describe('enrich — children lists (design §5 case 1)', () => {
 	it('T1078 gains a sorted children list of its four sub-techniques', () => {
-		const result = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
 		expect(result.childrenByPath.get('T1078.md')).toEqual([
 			'[[T1078.001]]',
 			'[[T1078.002]]',
@@ -77,7 +101,7 @@ describe('enrich — children lists (design §5 case 1)', () => {
 			attackBatch()[1],
 			attackBatch()[2],
 		];
-		const result = enrich(shuffled, { ontology: 'attack', config: CONFIG });
+		const result = enrich(shuffled, { writeSet: writable(shuffled), ontology: 'attack', config: CONFIG });
 		expect(result.childrenByPath.get('T1078.md')).toEqual([
 			'[[T1078.001]]',
 			'[[T1078.002]]',
@@ -87,12 +111,12 @@ describe('enrich — children lists (design §5 case 1)', () => {
 	});
 
 	it('a note with no children gets no children patch', () => {
-		const result = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
 		expect(result.childrenByPath.has('T1078/T1078.001.md')).toBe(false);
 	});
 
 	it('children_lists off → no children patches (but parent links still counted)', () => {
-		const result = enrich(attackBatch(), {
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()),
 			ontology: 'attack',
 			config: { children_lists: false, facet_notes: 'none' },
 		});
@@ -107,7 +131,7 @@ describe('enrich — children lists (design §5 case 1)', () => {
 
 describe('enrich — facet hub notes (design §5 case 2)', () => {
 	it('Persistence.md exists with kind:facet, sorted members, facet tag, H1 body', () => {
-		const result = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
 		expect(result.hubs).toHaveLength(1);
 		const hub = result.hubs[0];
 		expect(hub.path).toBe('Persistence.md');
@@ -131,7 +155,7 @@ describe('enrich — facet hub notes (design §5 case 2)', () => {
 			{ ...note('T1548.md', 'T1548', '', 'Privilege Escalation'), facets: [{ namespace: 'tactic', value: 'Privilege Escalation' }] },
 			{ ...note('T1548/T1548.001.md', 'T1548.001', 'T1548', 'Privilege Escalation'), facets: [{ namespace: 'tactic', value: 'Privilege Escalation' }] },
 		];
-		const result = enrich(batch, { ontology: 'attack', config: CONFIG });
+		const result = enrich(batch, { writeSet: writable(batch), ontology: 'attack', config: CONFIG });
 		// Filenames preserve spaces (mirrors the fs-safe filter); curie value-slug
 		// lowercases + hyphenates.
 		expect(result.hubs.map((h) => h.path)).toEqual(['Persistence.md', 'Privilege Escalation.md']);
@@ -139,7 +163,7 @@ describe('enrich — facet hub notes (design §5 case 2)', () => {
 	});
 
 	it('facet_notes tags-only → no hub notes', () => {
-		const result = enrich(attackBatch(), {
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()),
 			ontology: 'attack',
 			config: { children_lists: true, facet_notes: 'tags-only' },
 		});
@@ -152,13 +176,13 @@ describe('enrich — facet hub notes (design §5 case 2)', () => {
 			{ ...note('B.md', 'B', '', 'Pair'), facets: [{ namespace: 'tactic', value: 'Pair' }] },
 			{ ...note('C.md', 'C', '', 'Pair'), facets: [{ namespace: 'tactic', value: 'Pair' }] },
 		];
-		const result = enrich(batch, { ontology: 'attack', config: CONFIG });
+		const result = enrich(batch, { writeSet: writable(batch), ontology: 'attack', config: CONFIG });
 		expect(HUB_MIN_MEMBERS).toBe(2);
 		expect(result.hubs.map((h) => h.path)).toEqual(['Pair.md']); // Solo (1 member) skipped
 	});
 
 	it('hub_note_folder places hubs under the given folder', () => {
-		const result = enrich(attackBatch(), {
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()),
 			ontology: 'attack',
 			config: { ...CONFIG, hub_note_folder: 'Facets' },
 		});
@@ -172,7 +196,7 @@ describe('enrich — facet hub notes (design §5 case 2)', () => {
 
 describe('enrich — edge count', () => {
 	it('edgeCount = parent links + children entries + member entries', () => {
-		const result = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
 		// 4 parent links + 4 children entries + 5 hub members = 13.
 		expect(result.edgeCount).toBe(13);
 	});
@@ -184,14 +208,14 @@ describe('enrich — edge count', () => {
 
 describe('enrich — determinism (design §5 case 4)', () => {
 	it('two runs over the same batch produce deep-equal results', () => {
-		const a = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
-		const b = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
+		const a = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
+		const b = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
 		expect(serialize(a)).toEqual(serialize(b));
 	});
 
 	it('input order does not change the hubs or edge count', () => {
-		const forward = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
-		const reversed = enrich([...attackBatch()].reverse(), { ontology: 'attack', config: CONFIG });
+		const forward = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
+		const reversed = enrich([...attackBatch()].reverse(), { writeSet: writable([...attackBatch()].reverse()), ontology: 'attack', config: CONFIG });
 		expect(serialize(forward)).toEqual(serialize(reversed));
 	});
 });
@@ -282,7 +306,7 @@ function relocatedBatch(): EnrichNote[] {
 
 describe('enrich — parent_note: folder-note relocation (design §5 case 5)', () => {
 	it('relocates T1078.md → T1078/T1078.md (a colliding folder already exists)', () => {
-		const result = enrich(attackBatch(), {
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()),
 			ontology: 'attack',
 			config: { ...CONFIG, parent_note: 'folder-note' },
 		});
@@ -306,32 +330,32 @@ describe('enrich — parent_note: folder-note relocation (design §5 case 5)', (
 			note('T1548.md', 'T1548', '', 'Privilege Escalation'),
 			note('T1548/T1548.001.md', 'T1548.001', 'T1548', 'Privilege Escalation'),
 		];
-		const result = enrich(batch, { ontology: 'attack', config: { ...CONFIG, parent_note: 'folder-note' } });
+		const result = enrich(batch, { writeSet: writable(batch), ontology: 'attack', config: { ...CONFIG, parent_note: 'folder-note' } });
 		expect(result.relocations.map((r) => r.curie)).toEqual(['attack:T1078', 'attack:T1548']);
 	});
 
 	it('a parent with no children is left as a sibling (no folder to relocate into)', () => {
 		const batch = [note('T1136.md', 'T1136', '', 'Persistence')];
-		const result = enrich(batch, { ontology: 'attack', config: { ...CONFIG, parent_note: 'folder-note' } });
+		const result = enrich(batch, { writeSet: writable(batch), ontology: 'attack', config: { ...CONFIG, parent_note: 'folder-note' } });
 		expect(result.relocations).toEqual([]);
 	});
 
 	it('a parent whose children do NOT nest under its own folder is left as a sibling', () => {
 		// flat-and-linked shape: parent link exists, but no folder mirrors T1078.
 		const batch = [note('T1078.md', 'T1078', '', 'Persistence'), note('T1078.001.md', 'T1078.001', 'T1078', 'Persistence')];
-		const result = enrich(batch, { ontology: 'attack', config: { ...CONFIG, parent_note: 'folder-note' } });
+		const result = enrich(batch, { writeSet: writable(batch), ontology: 'attack', config: { ...CONFIG, parent_note: 'folder-note' } });
 		expect(result.relocations).toEqual([]);
 	});
 
 	it('is idempotent: an already folder-note-shaped parent is not relocated again', () => {
-		const result = enrich(relocatedBatch(), { ontology: 'attack', config: { ...CONFIG, parent_note: 'folder-note' } });
+		const result = enrich(relocatedBatch(), { writeSet: writable(relocatedBatch()), ontology: 'attack', config: { ...CONFIG, parent_note: 'folder-note' } });
 		expect(result.relocations).toEqual([]);
 		expect(result.deviations).toEqual([]);
 		expect(result.childrenByPath.get('T1078/T1078.md')).toHaveLength(4);
 	});
 
 	it('streamed sources fall back to sibling with a deviation (v1 restriction)', () => {
-		const result = enrich(attackBatch(), {
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()),
 			ontology: 'attack',
 			config: { ...CONFIG, parent_note: 'folder-note' },
 			streamed: true,
@@ -348,7 +372,7 @@ describe('enrich — parent_note: folder-note relocation (design §5 case 5)', (
 			// An unrelated note happens to already occupy the relocation target.
 			note('T1078/T1078.md', 'other', '', 'Persistence'),
 		];
-		const result = enrich(batch, { ontology: 'attack', config: { ...CONFIG, parent_note: 'folder-note' } });
+		const result = enrich(batch, { writeSet: writable(batch), ontology: 'attack', config: { ...CONFIG, parent_note: 'folder-note' } });
 		expect(result.relocations).toEqual([]);
 		expect(result.deviations).toHaveLength(1);
 		expect(result.deviations[0]).toMatch(/could not relocate attack:T1078/);
@@ -357,7 +381,7 @@ describe('enrich — parent_note: folder-note relocation (design §5 case 5)', (
 	});
 
 	it('sibling placement (default) records no deviation and no relocations', () => {
-		const result = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
 		expect(result.deviations).toEqual([]);
 		expect(result.relocations).toEqual([]);
 	});
@@ -365,7 +389,7 @@ describe('enrich — parent_note: folder-note relocation (design §5 case 5)', (
 
 describe('enrich — parent_note flip-back: folder-note → sibling (design §4, least-surprising)', () => {
 	it('relocates an already folder-note-shaped parent back to sibling when the config no longer asks for folder-note', () => {
-		const result = enrich(relocatedBatch(), { ontology: 'attack', config: CONFIG }); // config: parent_note 'sibling'
+		const result = enrich(relocatedBatch(), { writeSet: writable(relocatedBatch()), ontology: 'attack', config: CONFIG }); // config: parent_note 'sibling'
 		expect(result.relocations).toEqual([{ curie: 'attack:T1078', from: 'T1078/T1078.md', to: 'T1078.md' }]);
 		expect(result.deviations).toEqual([
 			'parent_note: relocated attack:T1078 back to sibling form (T1078/T1078.md → T1078.md).',
@@ -377,13 +401,13 @@ describe('enrich — parent_note flip-back: folder-note → sibling (design §4,
 	it('flip-back also fires when parent_note is left unset (sibling is the implicit default)', () => {
 		const { parent_note, ...rest } = CONFIG;
 		void parent_note;
-		const result = enrich(relocatedBatch(), { ontology: 'attack', config: rest });
+		const result = enrich(relocatedBatch(), { writeSet: writable(relocatedBatch()), ontology: 'attack', config: rest });
 		expect(result.relocations).toHaveLength(1);
 		expect(result.relocations[0].to).toBe('T1078.md');
 	});
 
 	it('is idempotent: an already sibling-shaped batch has nothing to flip back', () => {
-		const result = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
 		expect(result.relocations).toEqual([]);
 	});
 
@@ -399,7 +423,7 @@ describe('enrich — parent_note flip-back: folder-note → sibling (design §4,
 			note('GV/GV.md', 'GV', '', 'Govern'), // no renderedPath — render() intends exactly this path.
 			note('GV/GV.OC.md', 'GV.OC', 'GV', 'Govern'),
 		];
-		const result = enrich(nativelyNested, { ontology: 'csf', config: CONFIG });
+		const result = enrich(nativelyNested, { writeSet: writable(nativelyNested), ontology: 'csf', config: CONFIG });
 		expect(result.relocations).toEqual([]);
 		expect(result.deviations).toEqual([]);
 	});
@@ -413,7 +437,7 @@ describe('enrich — parent resolution ignores empty [[]]', () => {
 	it('empty parent link yields no children edge', () => {
 		expect(extractWikilinkTargets('[[]]')).toEqual([]);
 		// Root T1078 has parent "[[]]" — it must not become its own or anyone's child.
-		const result = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
 		let rootChildEdges = 0;
 		for (const kids of result.childrenByPath.values()) rootChildEdges += kids.length;
 		expect(rootChildEdges).toBe(4); // only the 4 real sub-techniques
@@ -442,8 +466,8 @@ const LEVEL_HUB_CONFIG = { ...CONFIG, level_hubs: 'notes' as const };
 
 describe('enrich — level hubs off by default (no config change)', () => {
 	it('level_hubs omitted → no hosted patches, no synthetic notes, edgeCount unchanged', () => {
-		const withoutHubs = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
-		const withHubsOff = enrich(attackBatch(), { ontology: 'attack', config: { ...CONFIG, level_hubs: 'none' } });
+		const withoutHubs = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
+		const withHubsOff = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: { ...CONFIG, level_hubs: 'none' } });
 		expect(withoutHubs.levelHubs.hostedChildrenByPath.size).toBe(0);
 		expect(withoutHubs.levelHubs.notes).toEqual([]);
 		expect(withHubsOff.levelHubs.hostedChildrenByPath.size).toBe(0);
@@ -453,7 +477,7 @@ describe('enrich — level hubs off by default (no config change)', () => {
 
 describe('enrich — level hubs, hosted case (a sibling/folder-note IS the folder)', () => {
 	it('T1078.md (sibling, folder T1078/ holds its children) hosts the folder\'s Contents list', () => {
-		const result = enrich(attackBatch(), { ontology: 'attack', config: LEVEL_HUB_CONFIG });
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: LEVEL_HUB_CONFIG });
 		expect(result.levelHubs.hostedChildrenByPath.get('T1078.md')).toEqual([
 			'[[T1078.001]]',
 			'[[T1078.002]]',
@@ -469,14 +493,14 @@ describe('enrich — level hubs, hosted case (a sibling/folder-note IS the folde
 			{ path: 'T1078/T1078.001.md', curie: 'attack:T1078.001', frontmatter: { parent: '[[T1078]]', curie: 'attack:T1078.001' }, facets: [] },
 			{ path: 'T1078/T1078.002.md', curie: 'attack:T1078.002', frontmatter: { parent: '[[T1078]]', curie: 'attack:T1078.002' }, facets: [] },
 		];
-		const result = enrich(folderNoteBatch, { ontology: 'attack', config: { level_hubs: 'notes' } });
+		const result = enrich(folderNoteBatch, { writeSet: writable(folderNoteBatch), ontology: 'attack', config: { level_hubs: 'notes' } });
 		expect(result.levelHubs.hostedChildrenByPath.get('T1078/T1078.md')).toEqual(['[[T1078.001]]', '[[T1078.002]]']);
 		expect(result.levelHubs.notes).toEqual([]);
 	});
 
 	it('edgeCount includes hosted level-hub child links (sum-not-dedupe, same convention as children_lists)', () => {
-		const without = enrich(attackBatch(), { ontology: 'attack', config: CONFIG });
-		const withHubs = enrich(attackBatch(), { ontology: 'attack', config: LEVEL_HUB_CONFIG });
+		const without = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: CONFIG });
+		const withHubs = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: LEVEL_HUB_CONFIG });
 		// 4 hosted children counted again, on top of children_lists' own 4.
 		expect(withHubs.edgeCount).toBe(without.edgeCount + 4);
 	});
@@ -491,12 +515,17 @@ describe('enrich — level hubs, synthetic case (pure structural folder, no matc
 	}
 
 	it('creates a synthetic hub note at <folder>/<folder>.md with kind: hub and a managed Contents section', () => {
-		const result = enrich(familyBatch(), { ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'Persistence' });
+		const result = enrich(familyBatch(), { writeSet: writable(familyBatch()), ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'Persistence' });
 		expect(result.levelHubs.hostedChildrenByPath.size).toBe(0);
 		expect(result.levelHubs.notes).toHaveLength(1);
 		const hub = result.levelHubs.notes[0];
 		expect(hub.path).toBe('Persistence/Persistence.md');
-		expect(hub.curie).toBe('attack:hub/persistence');
+		// This folder IS the import root, so its path relative to the root is
+		// empty and it takes the reserved local part. The address-derived form it
+		// used to carry travels as an alias so hubs already written under it stay
+		// reconcilable (see the hub-identity block at the bottom of this file).
+		expect(hub.curie).toBe('attack:hub/_root');
+		expect(hub.legacyCuries).toEqual(['attack:hub/persistence']);
 		expect(hub.frontmatter.kind).toBe('hub');
 		expect(hub.frontmatter.children).toEqual(['[[T1078]]', '[[T1098]]']);
 		expect(hub.childrenLinks).toEqual(['[[T1078]]', '[[T1098]]']);
@@ -507,7 +536,7 @@ describe('enrich — level hubs, synthetic case (pure structural folder, no matc
 
 	it('hub notes are sorted by path, deterministic across input order', () => {
 		const shuffled = [familyBatch()[1], familyBatch()[0]];
-		const result = enrich(shuffled, { ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'Persistence' });
+		const result = enrich(shuffled, { writeSet: writable(shuffled), ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'Persistence' });
 		expect(result.levelHubs.notes[0].frontmatter.children).toEqual(['[[T1078]]', '[[T1098]]']);
 	});
 });
@@ -519,19 +548,22 @@ describe('enrich — level hubs, root/home hub (design step 4.5 root fallback)',
 			{ path: 'Frameworks/MITRE/T1078.md', curie: 'attack:T1078', frontmatter: {}, facets: [] },
 			{ path: 'Frameworks/MITRE/T1078/T1078.001.md', curie: 'attack:T1078.001', frontmatter: { parent: '[[T1078]]' }, facets: [] },
 		];
-		const result = enrich(batch, { ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'Frameworks/MITRE' });
+		const result = enrich(batch, { writeSet: writable(batch), ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'Frameworks/MITRE' });
 		// One hub for the root (hosted by nothing → synthetic at Frameworks/MITRE/MITRE.md)
 		// and the T1078 folder is hosted by the sibling note. No duplicate root note.
 		const rootHubs = result.levelHubs.notes.filter((h) => h.path === 'Frameworks/MITRE/MITRE.md');
 		expect(rootHubs).toHaveLength(1);
 		expect(rootHubs[0].frontmatter.children).toEqual(['[[T1078]]']);
+		// The destination is two segments deep and NONE of it reaches the identity.
+		expect(rootHubs[0].curie).toBe('attack:hub/_root');
+		expect(rootHubs[0].legacyCuries).toEqual(['attack:hub/frameworks/mitre']);
 		expect(result.levelHubs.hostedChildrenByPath.get('Frameworks/MITRE/T1078.md')).toEqual(['[[T1078.001]]']);
 	});
 
 	it('rootFolder that is NOT a tracked ancestor (bare golden-vault harness) falls back to a top-level home note with no duplicate entries', () => {
 		// attackBatch()'s paths are never prefixed by "attack-corpus" — the exact
 		// shape tests/helpers/golden-vault.ts hits (rootFolder: corpusId).
-		const result = enrich(attackBatch(), { ontology: 'attack', config: LEVEL_HUB_CONFIG, rootFolder: 'attack-corpus' });
+		const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: LEVEL_HUB_CONFIG, rootFolder: 'attack-corpus' });
 		const home = result.levelHubs.notes.find((h) => h.path === 'attack-corpus.md');
 		expect(home).toBeDefined();
 		// T1078.md is BOTH a top-level sibling file AND the host of the T1078/
@@ -546,7 +578,7 @@ describe('enrich — level hubs, root/home hub (design step 4.5 root fallback)',
 			{ path: 'A.md', curie: 'attack:A', frontmatter: {}, facets: [] },
 			{ path: 'B.md', curie: 'attack:B', frontmatter: {}, facets: [] },
 		];
-		const result = enrich(flat, { ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'flat-corpus' });
+		const result = enrich(flat, { writeSet: writable(flat), ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'flat-corpus' });
 		const home = result.levelHubs.notes.find((h) => h.path === 'flat-corpus.md');
 		expect(home!.frontmatter.children).toEqual(['[[A]]', '[[B]]']);
 	});
@@ -562,7 +594,7 @@ describe('enrich — level hubs, root/home hub (design step 4.5 root fallback)',
 			// attackBatch(): 5 notes, all facet tactic=Persistence → 1 facet hub
 			// (>= HUB_MIN_MEMBERS). LEVEL_HUB_CONFIG turns on both facet_notes and
 			// level_hubs, exactly like browsable-framework's preset defaults.
-			const result = enrich(attackBatch(), { ontology: 'attack', config: LEVEL_HUB_CONFIG, rootFolder: 'attack-corpus' });
+			const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: LEVEL_HUB_CONFIG, rootFolder: 'attack-corpus' });
 			expect(result.hubs.map((h) => h.path)).toEqual(['Persistence.md']); // step 4 already ran
 			const home = result.levelHubs.notes.find((h) => h.path === 'attack-corpus.md')!;
 			expect(home.frontmatter.children).toEqual(['[[T1078]]']); // structural children unaffected
@@ -583,7 +615,7 @@ describe('enrich — level hubs, root/home hub (design step 4.5 root fallback)',
 				{ path: 'Frameworks/T1078.md', curie: 'attack:T1078', frontmatter: {}, facets: [{ namespace: 'tactic', value: 'Persistence' }] },
 				{ path: 'Frameworks/T1078/T1078.001.md', curie: 'attack:T1078.001', frontmatter: { parent: '[[T1078]]' }, facets: [{ namespace: 'tactic', value: 'Persistence' }] },
 			];
-			const result = enrich(batch, { ontology: 'attack', config: LEVEL_HUB_CONFIG, rootFolder: 'Frameworks' });
+			const result = enrich(batch, { writeSet: writable(batch), ontology: 'attack', config: LEVEL_HUB_CONFIG, rootFolder: 'Frameworks' });
 			const root = result.levelHubs.notes.find((h) => h.path === 'Frameworks/Frameworks.md')!;
 			expect(root.facetLinks).toEqual(['[[Persistence]]']);
 			expect(root.body).toContain('**Facets:**\n- [[Persistence]]');
@@ -597,7 +629,7 @@ describe('enrich — level hubs, root/home hub (design step 4.5 root fallback)',
 			];
 			// Only 2 members hit HUB_MIN_MEMBERS exactly, so flip facet_notes off
 			// to isolate "no facet hubs exist at all" from the min-members guard.
-			const result = enrich(singleton, { ontology: 'attack', config: { ...LEVEL_HUB_CONFIG, facet_notes: 'none' }, rootFolder: 'flat' });
+			const result = enrich(singleton, { writeSet: writable(singleton), ontology: 'attack', config: { ...LEVEL_HUB_CONFIG, facet_notes: 'none' }, rootFolder: 'flat' });
 			const home = result.levelHubs.notes.find((h) => h.path === 'flat.md')!;
 			expect(home.facetLinks).toBeUndefined();
 			expect(home.body).not.toContain('**Facets:**');
@@ -607,7 +639,7 @@ describe('enrich — level hubs, root/home hub (design step 4.5 root fallback)',
 			// Mirrors generation-engine.ts's re-import path: buildManagedChildrenSection
 			// is called fresh with childrenLinks + a facetGroup derived from facetLinks,
 			// then merged over whatever body the vault currently holds.
-			const result = enrich(attackBatch(), { ontology: 'attack', config: LEVEL_HUB_CONFIG, rootFolder: 'attack-corpus' });
+			const result = enrich(attackBatch(), { writeSet: writable(attackBatch()), ontology: 'attack', config: LEVEL_HUB_CONFIG, rootFolder: 'attack-corpus' });
 			const home = result.levelHubs.notes.find((h) => h.path === 'attack-corpus.md')!;
 			const facetGroup = home.facetLinks ? [{ label: 'Facets', links: home.facetLinks }] : [];
 			const fresh = buildManagedChildrenSection('Contents', home.childrenLinks ?? [], facetGroup);
@@ -689,5 +721,107 @@ describe('ensureWaypointMarker — opt-in, additive, idempotent (2026-07-11 ICSB
 	it('never strips or duplicates a block Waypoint has already expanded', () => {
 		const expanded = '# T1078\n\n%% Begin Waypoint %%\n- [[Some Note]]\n%% End Waypoint %%\n';
 		expect(ensureWaypointMarker(expanded)).toBe(expanded);
+	});
+});
+
+// ===========================================================================
+// F-4 / F-5: hub identity does not encode the hub's address.
+//
+// A level hub's curie used to be derived from its FULL vault path
+// (`${ontology}:hub/${slugPath(folder)}`), so changing an import's destination
+// did not merely relocate a hub, it RENAMED it. The note at the old address kept
+// a curie nothing would ever claim again (a permanent orphan) while a second note
+// was created for the "new" identity. This is the same rule the rest of the
+// codebase already obeys -- identity must not be derived from address -- broken
+// one level deeper than concepts.
+//
+// The superseded absolute form travels on `legacyCuries` because a hub CAN carry
+// user prose and user frontmatter (generation-engine.ts routes both hub kinds
+// through the merge path), so regenerating one at the new address and deleting
+// the old is not available: it would destroy that content.
+//
+// The legacy forms below are the shapes real vaults hold. Both appear verbatim in
+// this repo's own test-vault, written by an earlier build:
+//   test-vault/Frameworks/Frameworks.md                   -> shape-workbench:hub/frameworks
+//   test-vault/Frameworks/MITRE ATT&CK/MITRE ATT&CK.md    -> shape-workbench:hub/frameworks/mitre-att-ck
+// ===========================================================================
+
+describe('enrich -- hub identity is independent of the destination (F-4)', () => {
+	/** The same two-concept import, rendered under any destination folder. */
+	function importedInto(root: string): EnrichNote[] {
+		return [
+			{ path: `${root}/Persistence/T1078.md`, curie: 'attack:T1078', frontmatter: {}, facets: [] },
+			{ path: `${root}/Persistence/T1098.md`, curie: 'attack:T1098', frontmatter: {}, facets: [] },
+		];
+	}
+
+	function hubCuries(root: string): string[] {
+		const result = enrich(importedInto(root), { writeSet: writable(importedInto(root)), ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: root });
+		return result.levelHubs.notes.map((h) => h.curie).sort();
+	}
+
+	it('a sub-folder hub is named by its path RELATIVE to the import root', () => {
+		const result = enrich(importedInto('Ontologies'), { writeSet: writable(importedInto('Ontologies')),
+			ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'Ontologies',
+		});
+		const sub = result.levelHubs.notes.find((h) => h.path === 'Ontologies/Persistence/Persistence.md')!;
+		expect(sub.curie).toBe('attack:hub/persistence');
+		expect(sub.curie).not.toContain('ontologies');
+	});
+
+	it('the SAME import under a different destination produces the SAME hub identities', () => {
+		// The single property F-4 exists for. Pre-fix these two lists differ in
+		// every element, which is why moving a destination orphaned every hub.
+		expect(hubCuries('Ontologies')).toEqual(hubCuries('Ontologies/attack-mini'));
+		expect(hubCuries('Ontologies')).toEqual(['attack:hub/_root', 'attack:hub/persistence']);
+	});
+
+	it('carries the superseded address-derived form as an alias, per destination', () => {
+		const flat = enrich(importedInto('Ontologies'), { writeSet: writable(importedInto('Ontologies')),
+			ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'Ontologies',
+		}).levelHubs.notes;
+		expect(flat.map((h) => [h.curie, h.legacyCuries])).toEqual([
+			['attack:hub/_root', ['attack:hub/ontologies']],
+			['attack:hub/persistence', ['attack:hub/ontologies/persistence']],
+		]);
+
+		// Hub order follows path, which reorders under a nested root, so compare
+		// the alias SET rather than pinning an incidental sort.
+		const nested = enrich(importedInto('Ontologies/attack-mini'), { writeSet: writable(importedInto('Ontologies/attack-mini')),
+			ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'Ontologies/attack-mini',
+		}).levelHubs.notes;
+		expect(nested.flatMap((h) => h.legacyCuries ?? []).sort()).toEqual([
+			'attack:hub/ontologies/attack-mini',
+			'attack:hub/ontologies/attack-mini/persistence',
+		]);
+	});
+
+	it('the reserved root local part cannot collide with a real folder name', () => {
+		// Slugging lowercases and strips to [a-z0-9-], so no folder a user can
+		// create produces a leading underscore. A folder literally named "_root"
+		// slugs to "root" and stays distinct from the reserved "_root".
+		const underscoreRoot: EnrichNote[] = [
+			{ path: 'Ontologies/_root/T1078.md', curie: 'attack:T1078', frontmatter: {}, facets: [] },
+			{ path: 'Ontologies/_root/T1098.md', curie: 'attack:T1098', frontmatter: {}, facets: [] },
+		];
+		const result = enrich(underscoreRoot, { writeSet: writable(underscoreRoot), ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'Ontologies' });
+		const curies = result.levelHubs.notes.map((h) => h.curie);
+		expect(curies).toContain('attack:hub/_root');
+		expect(curies).toContain('attack:hub/root');
+		expect(new Set(curies).size).toBe(curies.length);
+	});
+
+	it('the bare-harness fallback root (not a tracked ancestor) also takes the reserved local part', () => {
+		// golden-vault.ts passes a corpus id that prefixes nothing. The home note
+		// it produces must not be named after that id either, or the same import
+		// run through the harness and through generation would disagree.
+		const bareHarness: EnrichNote[] = [
+			{ path: 'A.md', curie: 'attack:A', frontmatter: {}, facets: [] },
+			{ path: 'B.md', curie: 'attack:B', frontmatter: {}, facets: [] },
+		];
+		const result = enrich(bareHarness, { writeSet: writable(bareHarness), ontology: 'attack', config: { level_hubs: 'notes' }, rootFolder: 'flat-corpus' });
+		const home = result.levelHubs.notes.find((h) => h.path === 'flat-corpus.md')!;
+		expect(home.curie).toBe('attack:hub/_root');
+		expect(home.legacyCuries).toEqual(['attack:hub/flat-corpus']);
 	});
 });

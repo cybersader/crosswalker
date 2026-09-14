@@ -17,6 +17,8 @@ Make the schema artifacts [`spec/tier1.schema.json`](https://github.com/cybersad
 
 ✅ Done (2026-05-04). 27 unit tests + 5 validation E2E tests passing. AJV (Ajv2020) + ajv-formats wired into plugin startup; validator handles exposed on plugin instance for E2E reachability; spec/*.schema.json compiled at load with fail-fast on schema malformation. `CrosswalkerConfig` interface renamed to `ImportRecipe` across the codebase (4 source files); semantic migration to the spec-shape `ImportRecipe` deferred to v0.1.2 where `render()` lands.
 
+**Status last verified:** 2026-09-05 — scoped to the validation/type foundation at commit `30aee63b`: `package.json` still exposes `codegen`, generated recipe and Tier 1 types remain under `src/types/generated/`, `src/validation/validator.ts` still initializes Ajv2020 with `strict: false` and exports both validators, and `src/main.ts` still initializes the validator at plugin load. The 2026-05-04 acceptance counts above are historical delivery evidence and were not rerun in this documentation-only check.
+
 **Open question status (decided 2026-05-04)**:
 - ✅ Q1: Generated TS types **committed** to `src/types/generated/` for PR-diff visibility on schema impact
 - ⏸ Q2: AJV **strict mode deferred** — current setup is `strict: false`; revisit at v0.2 once we have more spec experience

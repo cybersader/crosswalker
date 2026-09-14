@@ -17,6 +17,8 @@ Connect [`render()`](/crosswalker/reference/roadmap/milestones/v0-1-2-render/) t
 
 ✅ Done (2026-05-05). Generation engine refactored to call `render()` per row via `legacyConfigToRecipe()` Phase-0 compat shim; managed/user_preserve frontmatter merge wired into 'replace' mode; spec-conformant `_crosswalker` provenance via `buildProvenance`; path collision detection. 113 tests passing (85 unit + 28 E2E across 6 spec files including a full-flow test that imports a 3-row dataset, modifies a frontmatter field, re-imports, and verifies user-edited keys survived).
 
+**Status last verified:** 2026-09-05 — scoped to the milestone's surviving engine contracts at commit `30aee63b`: both generation entry points remain, the legacy recipe shim, frontmatter merge and provenance builders remain active, and the engine still performs pre-write Tier 1 validation plus path/identity collision refusal. Later re-import and ownership work extends this historical slice; the 2026-05-05 acceptance count and wizard behavior were not rerun here.
+
 ## Dependencies
 
 - [v0.1.1 — Type system + validation foundation](/crosswalker/reference/roadmap/milestones/v0-1-1-types-and-validation/)

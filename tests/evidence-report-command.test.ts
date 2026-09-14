@@ -75,6 +75,12 @@ function mockApp() {
 			createFolder: async (path: string) => { folders.add(path); },
 			create: async (path: string, data: string) => { files.set(path, data); },
 			modify: async (file: { path: string }, data: string) => { files.set(file.path, data); },
+			// The writer now READS an existing note before replacing it (AM-17
+			// sweep): a report may only overwrite a note that says it is a
+			// generated report. A double with no reader would make every re-run
+			// look like a stranger's note.
+			read: async (file: { path: string }) => files.get(file.path) ?? '',
+			cachedRead: async (file: { path: string }) => files.get(file.path) ?? '',
 		},
 		workspace: {
 			getLeaf: () => ({ openFile: async (file: { path: string }) => { opened.push(file.path); } }),
@@ -148,6 +154,30 @@ describe('writing the report', () => {
 		expect(app.folders.has('Reports')).toBe(true);
 	});
 
+	/**
+	 * S11 (2026-09-04, pass 19): the vault root is now a REACHABLE
+	 * `reportFolder` (`evidenceReportFolder` normalizes `'/'` to `''` and
+	 * RETURNS it, rather than substituting the default). At the root,
+	 * `evidenceReportPath` composes `Evidence coverage - x.md` with NO leading
+	 * separator, so `path.lastIndexOf('/')` is `-1`.
+	 *
+	 * THE VAULT-DAMAGE MODE THIS PINS. Before the fix, the folder was derived
+	 * as `path.slice(0, path.lastIndexOf('/'))`. On a separator-free path that
+	 * is `slice(0, -1)` -- the TRUTHY string "Evidence coverage - x.m" (the
+	 * filename minus its last character) -- which the next line would have
+	 * handed to `createFolder`, creating a bogus folder beside the report
+	 * instead of skipping folder creation entirely.
+	 */
+	it('at the vault root (reportFolder ""), never creates a truncated bogus folder -- the separator is located BEFORE it is sliced at', async () => {
+		seedOntology(db, 'nist-800-53', ['nist:AC-1']);
+		const app = mockApp();
+		const path = await writeEvidenceReport({ ...deps(app), reportFolder: '' }, 'nist-800-53');
+		expect(path.startsWith('/')).toBe(false);
+		expect(path).not.toContain('/'); // a bare file name, no directory component
+		expect(app.folders.size).toBe(0); // createFolder was never called
+		expect(app.files.has(path)).toBe(true); // the report itself was still written
+	});
+
 	it('writes a report naming the uncovered control', async () => {
 		seedOntology(db, 'nist-800-53', ['nist:AC-1']);
 		const app = mockApp();
@@ -162,6 +192,76 @@ describe('writing the report', () => {
 		await writeEvidenceReport(deps(app), 'nist-800-53');
 		await writeEvidenceReport(deps(app), 'nist-800-53');
 		expect(app.files.size).toBe(1);
+	});
+
+	it('refuses to replace a note it did not generate, and says what to do', async () => {
+		// AM-17 sweep (2026-08-31). `reportFolder` is a user SETTING and the
+		// filename is derived from an ontology id, so a note of the user's own can
+		// legitimately sit at exactly this path -- and it was being replaced in
+		// full, the same failure the evidence-link window carried. A report has no
+		// curie, so the identity it is checked against is the marker it stamps on
+		// itself.
+		seedOntology(db, 'nist-800-53', ['nist:AC-1']);
+		const app = mockApp();
+		const path = evidenceReportPath('Reports', 'nist-800-53');
+		const mine = '---\ntitle: My own coverage notes\n---\nWork in progress.\n';
+		app.files.set(path, mine);
+
+		await expect(writeEvidenceReport(deps(app), 'nist-800-53')).rejects.toThrow(/did not generate/);
+		// Untouched, byte for byte.
+		expect(app.files.get(path)).toBe(mine);
+	});
+
+	it('still replaces its own previous report, which is what re-running is for', async () => {
+		// The control for the case above. A guard that refused everything would
+		// make the command a one-shot, and the refusal test would pass for the
+		// wrong reason.
+		seedOntology(db, 'nist-800-53', ['nist:AC-1']);
+		const app = mockApp();
+		const path = await writeEvidenceReport(deps(app), 'nist-800-53');
+		expect(app.files.get(path)).toContain('crosswalker_generated: true');
+		await expect(writeEvidenceReport(deps(app), 'nist-800-53')).resolves.toBe(path);
+		expect(app.files.size).toBe(1);
+	});
+
+	it('tells the user to FIX a damaged report, and never that it is a stranger\'s', async () => {
+		// AM-26 (2026-08-31), pass-9 record #3. The two-state read answered null
+		// both for a stranger's plain note and for a report of OURS whose YAML a
+		// user damaged, and this site then told the second one "a note that
+		// Crosswalker did not generate already sits at ... Move or rename that
+		// note." That is AM-19's exact false cause plus its banned destructive
+		// instruction, at a site added by the same pass that wrote AM-19.
+		//
+		// Nothing was established about the note, so nothing may be claimed about
+		// it: name the state, ask for the fix, write nothing.
+		seedOntology(db, 'nist-800-53', ['nist:AC-1']);
+		const app = mockApp();
+		const path = evidenceReportPath('Reports', 'nist-800-53');
+		const damaged = '---\n: : :\ncrosswalker_generated: true\n---\nA report a hand edit broke.\n';
+		app.files.set(path, damaged);
+
+		await expect(writeEvidenceReport(deps(app), 'nist-800-53'))
+			.rejects.toThrow(/could not read the properties/);
+		await expect(writeEvidenceReport(deps(app), 'nist-800-53'))
+			.rejects.toThrow(/Fix that note's properties block/);
+		await expect(writeEvidenceReport(deps(app), 'nist-800-53'))
+			.rejects.not.toThrow(/did not generate/);
+		await expect(writeEvidenceReport(deps(app), 'nist-800-53'))
+			.rejects.not.toThrow(/Move or rename/);
+		// Untouched, byte for byte.
+		expect(app.files.get(path)).toBe(damaged);
+	});
+
+	it('still calls a readable stranger\'s note a stranger\'s note', async () => {
+		// The control for the case above. `none` IS a fact about the file: it has
+		// no properties block, so it carries no marker, and saying so is honest.
+		// A guard that answered "fix your note" about everything would tell a
+		// person to repair a note they wrote on purpose.
+		seedOntology(db, 'nist-800-53', ['nist:AC-1']);
+		const app = mockApp();
+		const path = evidenceReportPath('Reports', 'nist-800-53');
+		app.files.set(path, 'Just prose, no properties block.\n');
+		await expect(writeEvidenceReport(deps(app), 'nist-800-53')).rejects.toThrow(/did not generate/);
 	});
 
 	it('reports an unknown index freshness rather than implying it is current', async () => {

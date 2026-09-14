@@ -209,6 +209,10 @@ export interface RecipeAncestryReference {
 	 */
 	hash?: string;
 	/**
+	 * Optional digest of the complete normalized canonical ancestor recipe named by `recipe`.
+	 */
+	recipe_document_digest?: string;
+	/**
 	 * Optional recipe-spec URI receipt for the ancestor recipe.
 	 */
 	spec_version?: 'https://crosswalker.dev/spec/recipe.schema.json';

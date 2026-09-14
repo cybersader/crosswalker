@@ -1,5 +1,5 @@
 ---
-curie: "sample-nist-controls:hub/sample-nist-controls"
+curie: "sample-nist-controls:hub/_root"
 kind: hub
 children:
   - "[[AC]]"

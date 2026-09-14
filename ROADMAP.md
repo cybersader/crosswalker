@@ -38,13 +38,13 @@ The 0.1 design phase concluded with all named architectural questions resolved. 
 
 Mirrors the docs [milestone status snapshot](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/) — that page is the live source; treat this as a snapshot.
 
-**Status last verified: 2026-07-25** — every line below re-checked against the milestone pages, `CHANGELOG.md` `[Unreleased]`, and the commit log. If today is far past that date and no newer verification line has replaced it, treat this list as unverified.
+**Status last verified: 2026-09-05** — every line below was re-checked against the milestone pages, `CHANGELOG.md` `[Unreleased]`, and the commit log. No milestone status changed in this documentation update; the `fix/d1-per-import-root` safety work remains unmerged branch work, not a shipped milestone. If today is far past this date and no newer verification line has replaced it, treat this list as unverified.
 
 - [x] v0.1.1 — Type system + validation foundation (2026-05-04)
 - [x] v0.1.2 — `render()` v1 (2026-05-05)
 - [x] v0.1.3 — Generation engine integration (2026-05-05)
 - [x] v0.1.4 — Junction notes + crosswalk edges (2026-05-05)
-- [x] v0.1.4.5 — Streaming refactor (2026-05-05)
+- [x] v0.1.4.5 — Iterator-ready engine boundary; wizard remains eager (2026-05-05)
 - [x] v0.1.5 — Tier 2 sqlite-wasm sidecar projector (2026-05-06)
 - [ ] **v0.1.6 — Bases query layer + SSSOM import + recipe UX** — 🚧 in progress. Phases 1–6.4 (Bases pivot view, SSSOM import, primitives, ingestion-corpus sprint) shipped through 2026-06-12. A concurrent **shape-workbench side-arc** (2026-07-05 → 2026-07-11, tracked as Phase 7) then landed inside this milestone's window. Full architectural record: [shape-workbench synthesis log](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-07-11-shape-workbench-architecture-synthesis/). Delivery detail for both Phase 6.4 and Phase 7 lives in `CHANGELOG.md` `[Unreleased]`, not restated here (per the [docs anti-duplication convention](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-07-11-docs-sync-and-anti-duplication-convention/)). v0.1.7 is active.
 - [ ] v0.1.7 — Portability (exporters, reusable configurations, source bindings, MappingSets) — 🚧 in progress (exporter first slice landed 2026-07-12; canonical recipe-fidelity foundation landed 2026-07-21; configuration library, exact source-bound replay, minimal MappingSet envelope/UI, exporter completion, and explicit OSCAL target-shape decision remain, now gated on the [save-and-replay](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) and [primitives](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-07-25-primitives-reconciliation-decision-register/) decision registers of 2026-07-25; detail in `CHANGELOG.md` `[Unreleased]`)
@@ -52,6 +52,8 @@ Mirrors the docs [milestone status snapshot](https://cybersader.github.io/crossw
 - [ ] v0.1-RC — Artifact-chain acceptance, bundle, polish, ship — planning
 
 Closing acceptance chain: **source bytes → reusable configuration → Knowledge Set/MappingSet → Execution Record → Package Manifest**. See [artifact roles and authority](https://cybersader.github.io/crosswalker/concepts/artifact-roles-and-authority/) and the [artifact-role synthesis](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-07-21-artifact-roles-and-authority-synthesis/).
+
+**Delivery posture:** functional correctness and a usable, explicitly supported workflow come before optimizing every ingestion path. The eager in-memory wizard can remain the initial path where it works honestly; silent data loss, crashes on declared-supported inputs, and false completion are blockers. Advanced streaming, parser migration, and replay integrity for mutable multi-pass sources are staged, measured improvements, not automatic blockers for v0.1.7. See [ingestion safety and staged performance](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-09-05-ingestion-safety-and-staged-performance/).
 
 ## Foundation — earlier resolved decisions
 
@@ -129,6 +131,14 @@ Expand source-format breadth and acquisition while preserving exact-source repla
 - [ ] `graph_edges` wired (schema-reserved at v0.1)
 - [ ] Transform system implementation (~40 primitives across 9 categories)
 - [ ] E2E test suite (built from spec)
+
+### Recipe authoring with AI assistance
+
+A canonical recipe is already plain JSON (bundled recipes use the closed 5-mechanism grammar), and an assistant can already read and propose edits to it directly. This is separate from the config browser's saved-config export/import, which round-trips wizard state (`SavedConfig`) — not a canonical recipe, and the config browser does not read Recipe JSON today. These items package a safe assistant round trip: full canonical RecipeDocument preservation (never a rebuild from a smaller fragment), plus an explicit preview and opt-in before any content leaves the vault.
+
+- [ ] Paste-JSON entry alongside the existing file import
+- [ ] Context-pack command — copy `spec/recipe.schema.json` + the current recipe + the source's column headers in one action
+- [ ] Validate-on-paste — schema violations reported in-UI at paste time, naming the offending field, instead of failing during generation
 
 ## Crosswalks — "Link frameworks to each other and to evidence"
 

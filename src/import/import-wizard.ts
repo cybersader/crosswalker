@@ -11,17 +11,19 @@ import {
 	type RenderReport,
 	type PreviewRowNotes,
 } from '../render';
-import { legacyConfigToRecipe } from '../generation/legacy-recipe-shim';
+import { legacyConfigToRecipe, IDENTITY_SENTINELS, LEGACY_ONTOLOGY_SENTINEL } from '../generation/legacy-recipe-shim';
 import { describeConflict } from '../generation/managed-body';
 import { shorthandToSourceExpression } from '../source';
 import { findMatchingConfigs, ConfigMatch } from '../config/config-manager';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { VaultImportFilePicker } from '../ui/vault-file-picker';
+import { renderPresetGuide } from './import-preset-guide';
 import {
 	generateNotes,
 	buildConfigFromWizardState,
 	deriveIdSplitTemplates,
 	estimateOutput,
+	slugifyForCurie,
 	GenerationOptions
 } from '../generation/generation-engine';
 import {
@@ -39,6 +41,7 @@ import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import type { RecipeDocumentOrigin } from './recipe-document';
 import { buildShapeMapRecap, deriveDestinationDefault, preferredParentNote, detectWaypointPlugin, type Provenance } from './mapping/view-model';
 import { computePlan } from './mapping/plan';
+import { outputRootPath, normalizeFolderSetting } from '../settings/folder-settings';
 import { deriveFacetMemberships } from './mapping/facets';
 import {
 	bestRecognizedRecipe,
@@ -47,18 +50,56 @@ import {
 	type RecipeMatch,
 	type RecipeRegistryEntry,
 } from './recipe-registry';
-import { discoverImportSets, type DiscoveredImportSet, type ImportSetOption } from '../generation/import-set';
+import { discoverImportSets, newSetSchemeFrom, settleVaultIndex, type DiscoveredImportSet, type ImportSetOption } from '../generation/import-set';
 
 /**
- * Curated destination default for a recognized recipe (spec §7m): an explicit
- * plugin-wide default output path always wins (the user already told us where
- * their imports go); otherwise the registry's curated `suggestedFolder`
- * ("Frameworks/CIS Controls v8", etc.) beats the generic `Frameworks/<file
- * name>` fallback `deriveDestinationDefault` would otherwise produce.
+ * Curated per-import root for a recognized recipe (spec §7m), or `null` when the
+ * registry has nothing more specific than its generic fallback and the
+ * destination should be derived from the source file name instead.
+ *
+ * This used to return the plugin-wide default output path verbatim whenever it
+ * was non-empty, which threw the curated folder away AND flattened the import
+ * into the shared root. The global default is the PARENT, not the destination:
+ * a curated `Frameworks/NIST CSF 2.0` under a global root of `Ontologies`
+ * becomes `Ontologies/NIST CSF 2.0`. The curated leading segment is the
+ * registry's stand-in for whatever root the user actually configured, so it is
+ * replaced rather than nested (which would read `Ontologies/Frameworks/...`).
+ *
+ * Crosswalk-edge and junction-note recipes are NOT ontology output: their
+ * curated homes (`_crosswalker/mappings`, `Evidence/Junctions`) sit deliberately
+ * outside the ontology root and are used verbatim, because re-parenting them
+ * would relocate the mapping and evidence surfaces that read them.
  */
-export function recognizedDestination(entry: RecipeRegistryEntry, globalDefault: string): string {
-	const explicit = (globalDefault ?? '').trim();
-	return explicit || entry.suggestedFolder;
+export function recognizedDestination(entry: RecipeRegistryEntry, globalDefault: string): string | null {
+	const suggested = (entry.suggestedFolder ?? '').trim().replace(/^\/+|\/+$/g, '');
+	if (!suggested) return null;
+	if (entry.routingKind !== 'concept') return suggested;
+	const tail = suggested.split('/').filter(Boolean).slice(1);
+	// A single-segment suggestion is the registry's generic fallback ("Frameworks"),
+	// not a per-import root. Derive from the source file name instead.
+	if (tail.length === 0) return null;
+	// AM-53, extended (2026-09-04). THROUGH THE ONE NORMALIZATION, for the same
+	// reason `deriveDestinationDefault` is: what this composes is shown to the user
+	// as the destination they accept, and a second spelling of the normalization made
+	// the shown string and the written string differ.
+	const root = normalizeFolderSetting(globalDefault ?? '') || 'Frameworks';
+	return `${root}/${tail.join('/')}`;
+}
+
+/**
+ * Where an import lands when the user has not chosen a destination: the curated
+ * per-import root if a recognized recipe supplies one, otherwise
+ * `<global output path>/<source basename>`. Either way the import gets its OWN
+ * root inside the global path, so two unrelated sources never share a folder and
+ * cannot be mistaken for each other's import set (owner rule, 2026-07-11).
+ */
+export function resolveDestinationDefault(
+	globalDefault: string,
+	sourceFileName: string | null | undefined,
+	curated: RecipeRegistryEntry | null | undefined,
+): string {
+	const curatedRoot = curated ? recognizedDestination(curated, globalDefault) : null;
+	return curatedRoot ?? deriveDestinationDefault(globalDefault, sourceFileName);
 }
 
 /**
@@ -217,10 +258,69 @@ export class ImportFlow {
 	private workbenchHintDismissed: boolean = false;
 	/** Import-set choice belongs to one destination; changing the path resets it. */
 	private importSetChoice: ImportSetOption | null = null;
-	private importSetChoiceBasePath: string = '';
 
 	// Output settings (captured from Step 4)
 	outputPath: string = '';
+	/**
+	 * The user CHOSE the destination (typed it), as opposed to the wizard having
+	 * filled it in. The per-import root default gates on this recorded intent and
+	 * never on `outputPath` being empty: the constructor used to seed `outputPath`
+	 * from `settings.defaultOutputPath`, which ships non-empty, so an emptiness
+	 * test could never fire and the per-import root rule (owner, 2026-07-11) never
+	 * ran once. Emptiness is a property of the value; only a flag records intent.
+	 */
+	private destinationEdited: boolean = false;
+	/**
+	 * Curated per-import root from the recognized recipe driving this session
+	 * (`recognizedDestination`), or null when nothing was recognized. Held as the
+	 * resolved string so a draft can carry it across a resume.
+	 */
+	private curatedDestination: string | null = null;
+	/**
+	 * Every import set in the VAULT, discovered once on entering step 3.
+	 *
+	 * Whole-vault, not destination-scoped, because "which set owns this source"
+	 * cannot be asked by naming a destination without assuming the answer — and
+	 * because the destination-scoped question answered "the one set that happens
+	 * to sit in this folder", which is how a second framework was attributed to
+	 * the first. Cached because `currentOutputPath()` reads it and is called ~16
+	 * times per render, and because it must stay synchronous.
+	 *
+	 * AM-10. TRI-STATE, and the third state is not the empty one.
+	 *   - a list (possibly empty): discovery ran, and this is what the vault holds
+	 *   - null: discovery has not run, or could not run
+	 *
+	 * Failure mode prevented: `?? []` reading "we have not looked yet" as "there is
+	 * nothing there". The review screen then draws no ownership control while the
+	 * vault holds three sets, which is a lie the user acts on, and the generation
+	 * path proceeds on a picture it never took. Same rule as the metadata cache:
+	 * absent-because-pending is never absent-because-none.
+	 *
+	 * Every reader either awaits `prepareStep3` first or fails closed on null. A
+	 * flow constructed with no vault at all is NOT null: `prepareStep3` records an
+	 * empty list there, because "there is no vault" is itself a complete answer.
+	 */
+	private discoveredSets: DiscoveredImportSet[] | null = null;
+	/** Discovery threw (malformed provenance somewhere). Shown, not swallowed. */
+	private setDiscoveryError: string | null = null;
+	/** Obsidian had not finished indexing when step 3 was entered (A-4). */
+	private indexingBlocked: string | null = null;
+	/**
+	 * A-4 / AM-10. The one wording for "the vault has not been read yet", so the
+	 * cold-cache refusal and the not-yet-discovered refusal cannot drift into two
+	 * different explanations of the same state.
+	 */
+	private static readonly STILL_INDEXING = 'Obsidian is still indexing your vault. Wait a moment and open the import again.';
+	/** Source state step-3 preparation last SETTLED for, so the vault scan runs once. */
+	private step3Signature: string | null = null;
+	/**
+	 * Source state last seen at step-3 entry, kept separately from the settled
+	 * marker: a cold-cache refusal clears the settled marker so the next entry
+	 * retries, and that retry must not read as "the user picked a different file"
+	 * and throw away an ownership choice they already made.
+	 */
+	private step3SourceSignature: string | null = null;
+	private step3InFlight = false;
 	overwriteMode: 'skip' | 'replace' | 'error' = 'skip';
 	frameworkId: string = '';
 
@@ -258,8 +358,9 @@ export class ImportFlow {
 		// Register once for hosts whose keyboard lifecycle sits above the rendered
 		// DOM. The workspace host omits this and uses the workbench-local fallback.
 		host.registerEscapeHandler?.(() => this.closeWorkbenchTransient());
-		// Initialize from settings
-		this.outputPath = plugin.settings.defaultOutputPath;
+		// `outputPath` deliberately stays empty until the user types one. Seeding it
+		// from settings here is what made the destination look "chosen" to every
+		// downstream check. The effective path comes from `currentOutputPath()`.
 	}
 
 	/** Consume Escape only while Step 2 is showing an open workbench surface. */
@@ -334,7 +435,12 @@ export class ImportFlow {
 		this.columnInfos = draft.columnInfos ?? [];
 		this.columnConfigs = dictToColumnConfigs(draft.columnConfigsDict ?? {});
 		this.config = draft.config ?? {};
-		this.outputPath = draft.outputPath ?? this.plugin.settings.defaultOutputPath;
+		this.outputPath = draft.outputPath ?? '';
+		// Absent on a pre-flag draft hydrates as false, so it re-derives. That is the
+		// right default: those drafts recorded a destination that was ALWAYS the bare
+		// global root, never a choice, so honouring it would replay the defect.
+		this.destinationEdited = draft.destinationEdited ?? false;
+		this.curatedDestination = draft.curatedDestination ?? null;
 		this.overwriteMode = draft.overwriteMode ?? 'skip';
 		this.frameworkId = draft.frameworkId ?? '';
 		// Restored column decisions are authoritative — don't let a re-parse
@@ -389,6 +495,13 @@ export class ImportFlow {
 				this.pendingDismissed = null;
 			}
 		}
+
+		// AM-10. The third entry into step 3, and the only one that can land
+		// straight on step 4 with a live Generate button. Await the vault scan
+		// before the caller renders: a draft resumed while Obsidian is still
+		// indexing would otherwise draw the Generate screen over an unasked
+		// question, and one click writes with nobody having chosen an owner.
+		if (this.currentStep >= 3) await this.prepareStep3();
 
 		this.plugin.debug.info('drafts', 'resumed', 'Draft hydrated into wizard', {
 			draftId: draft.id,
@@ -499,7 +612,22 @@ export class ImportFlow {
 		const navRight = navRow.createEl('div', { cls: 'crosswalker-nav-right' });
 		this.createPrimaryButton(navRight);
 
-		header.createEl('h2', { text: 'Import structured data' });
+		// AM-10. All four entries (Next from step 2, the recognized-recipe fast
+		// path, a draft resume onto step 3 or step 4) now AWAIT `prepareStep3`
+		// before they render, so this arm is a backstop for a future fifth entry
+		// rather than the mechanism. It stays fire-and-forget on purpose: a render
+		// cannot await, and a render that silently proceeded on a null list is
+		// exactly what the awaits above exist to prevent. Signature-guarded, so
+		// this is one string compare on every render after the first.
+		if (this.currentStep >= 3) {
+			void this.prepareStep3()
+				.then(({ changed }) => { if (changed) this.renderStep(); })
+				.catch((error) => {
+					this.plugin.debug.error('wizard', 'step3-prepare-failed', 'Could not prepare the review screen', {
+						error: error instanceof Error ? error.message : String(error),
+					});
+				});
+		}
 
 		// Content based on step
 		const content = contentEl.createEl('div', { cls: 'crosswalker-wizard-content' });
@@ -540,6 +668,7 @@ export class ImportFlow {
 		this.recognizedDismissed = false;
 		this.recognizedFastPath = false;
 		this.recognizedEdited = false;
+		this.curatedDestination = null;
 		this.workbench = null;
 		this.parsedData = null;
 		this.availableSheets = [];
@@ -574,6 +703,8 @@ export class ImportFlow {
 			href: 'https://cybersader.github.io/crosswalker/reference/framework-data-sources/',
 		});
 		help.appendText(' lists where to get each framework, which sheet to use, and the import gotchas.');
+
+		renderPresetGuide(container);
 
 		// Primary: pick from the vault. Obsidian's explorer hides csv/xlsx/json
 		// unless "Detect all file extensions" is on, so the vault picker must
@@ -621,6 +752,7 @@ export class ImportFlow {
 				this.recognizedDismissed = false;
 				this.recognizedFastPath = false;
 				this.recognizedEdited = false;
+				this.curatedDestination = null;
 				this.workbench = null;
 				this.parsedData = null;
 				this.availableSheets = [];
@@ -1087,7 +1219,7 @@ export class ImportFlow {
 		// (when live — spec §7m curated defaults) what the enrichment hint adds.
 		const rowCount = this.parsedData?.rowCount ?? 0;
 		const shapes = summarizeRecipeShapes(entry);
-		const dest = recognizedDestination(entry, this.plugin.settings.defaultOutputPath);
+		const dest = resolveDestinationDefault(outputRootPath(this.plugin.settings), this.sourceFile?.name ?? null, entry);
 		const enrichment = honestEnrichment(entry);
 		card.createEl('p', { cls: 'crosswalker-recognized-desc', text: entry.description });
 		const summary = card.createEl('div', { cls: 'crosswalker-recognized-summary' });
@@ -1107,9 +1239,9 @@ export class ImportFlow {
 		// Actions — one confident primary, escape hatches beside it.
 		const actions = card.createEl('div', { cls: 'crosswalker-recognized-actions' });
 		const importBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Import with this configuration' });
-		importBtn.addEventListener('click', () => this.startRecognizedRecipe(3));
+		importBtn.addEventListener('click', () => { void this.startRecognizedRecipe(3); });
 		const customizeBtn = actions.createEl('button', { text: 'Customize' });
-		customizeBtn.addEventListener('click', () => this.startRecognizedRecipe(2));
+		customizeBtn.addEventListener('click', () => { void this.startRecognizedRecipe(2); });
 		const scratchBtn = actions.createEl('button', { cls: 'crosswalker-recognized-quiet', text: 'Start from scratch' });
 		scratchBtn.addEventListener('click', () => {
 			this.recognizedDismissed = true;
@@ -1128,7 +1260,7 @@ export class ImportFlow {
 	 * the review screen (`toStep` 3) or the workbench (`toStep` 2, "Customize"). The
 	 * SAME recipe/render pipeline drives generation; the card just fronts it with trust.
 	 */
-	private startRecognizedRecipe(toStep: number): void {
+	private async startRecognizedRecipe(toStep: number): Promise<void> {
 		if (!this.recognizedMatch || !this.parsedData) return;
 		const { entry } = this.recognizedMatch;
 		this.recognizedFastPath = true;
@@ -1137,7 +1269,9 @@ export class ImportFlow {
 		// Curated defaults (spec §7m): the registry's suggestedFolder becomes the
 		// destination (unless a plugin-wide default already overrides it), and any
 		// LIVE recommendedEnrichment hint rides along on the seeded mapping.
-		this.outputPath = recognizedDestination(entry, this.plugin.settings.defaultOutputPath);
+		// Records the curated ROOT, not a user choice: `destinationEdited` stays
+		// false so the breadcrumb still reads as autofilled and stays editable.
+		this.curatedDestination = recognizedDestination(entry, outputRootPath(this.plugin.settings));
 		// Seed from the COMPLETE canonical recipe. The RecipeDocument keeps every
 		// deferred/read-only field while exposing its editable mapping to the workbench.
 		// No curated overlay is applied here: an untouched recognized recipe must retain
@@ -1152,6 +1286,12 @@ export class ImportFlow {
 			toStep,
 		});
 		this.scheduleDraftSave();
+		// AM-10. One of the three entries into step 3, and the one that skips the
+		// step-2 Next gate entirely. Await the vault scan BEFORE the first render:
+		// a review screen drawn on `discoveredSets === null` shows no ownership
+		// control at all, so there is nothing on screen for the user to click and
+		// no way to tell that from a vault with no imports in it.
+		if (toStep >= 3) await this.prepareStep3();
 		this.renderStep();
 	}
 
@@ -1559,7 +1699,7 @@ export class ImportFlow {
 		return new MappingWorkbench({
 			parsedData: this.parsedData!,
 			columnInfos: this.columnInfos,
-			outputPath: this.outputPath || this.plugin.settings.defaultOutputPath,
+			outputPath: this.currentOutputPath(),
 			debug: this.plugin.debug,
 			defaultPresetId: 'browsable-framework',
 			initialMapping,
@@ -1597,14 +1737,22 @@ export class ImportFlow {
 			text: 'Where it lands, what gets made, and why these settings. Change anything, then generate.',
 			cls: 'setting-item-description',
 		});
+		if (this.jsonWhere.trim()) {
+			container.createEl('p', {
+				text: 'Preview uses unfiltered source samples. Your filter is applied during generation.',
+				cls: 'setting-item-description',
+			});
+		}
 		if (!this.workbench) {
 			container.createEl('p', { text: 'Go back and configure the mapping first.' });
 			return;
 		}
 
-		// (a) Destination block — WHERE.
+		// (a) Destination block — WHERE. The vault work behind it (`prepareStep3`)
+		// is armed once in `renderStep`, so every route into step 3 gets the same
+		// answer and this render stays synchronous.
 		this.renderDestinationBlock(container);
-		void this.renderImportSetReview(container, this.currentOutputPath());
+		this.renderImportSetReview(container);
 
 		// (b) Shape-map recap table (moved here from step 4) — WHAT.
 		container.createEl('h4', { text: 'Your shape map' });
@@ -1696,123 +1844,547 @@ export class ImportFlow {
 		});
 	}
 
+	/**
+	 * The one place that answers "where does this import land". Every write path,
+	 * preview, tree, breadcrumb and ownership check reads THIS, so what the user is
+	 * shown is always what gets written (and two surfaces can never disagree).
+	 *
+	 * Precedence, highest first:
+	 *   1. refreshing an existing set: that set's own root, which nothing overrides
+	 *   2. the user typed a destination (the new-set branch only)
+	 *   3. a curated recipe's suggested folder
+	 *   4. the derived per-import root
+	 *
+	 * A REFRESH NEVER DERIVES A ROOT, and that is the whole rule. A derived root is
+	 * a pure function of (global output path, source file name), which is right for
+	 * a first import and wrong for every refresh where the source was renamed or
+	 * where the notes predate the per-import root rule and sit in the flat shared
+	 * folder. Landing a refresh anywhere other than where its own notes live does
+	 * not relocate them: it writes a SECOND copy of the import beside the first and
+	 * reports paths the user has never seen. So the destination for a refresh is a
+	 * property of the set, read from what the set already owns, never inferred from
+	 * this source. Moving a set to a different folder is a separate, explicit
+	 * operation with its own confirmation, not something an import decides.
+	 *
+	 * Stays synchronous and side-effect-free: every surface reads it, several times
+	 * per render. `prepareStep3` does the vault work once, off to the side, and
+	 * leaves the answer in `discoveredSets`.
+	 */
 	private currentOutputPath(): string {
-		return this.outputPath || this.plugin.settings.defaultOutputPath;
+		// AM-63 (2026-09-04). THROUGH THE ONE NORMALIZER, at the one place every
+		// surface reads.
+		//
+		// Failure mode prevented: a guard comparing a raw typed string against
+		// normalized vault paths. The destination is free text, and the occupancy
+		// check that stops a new import set landing in another set's folder built its
+		// prefix from it with a local `.trim().replace(/\/+$/, '')` - a fraction of
+		// one of the four mutations a vault path actually receives. `Frameworks//NIST`
+		// typed over an occupied `Frameworks/NIST` matched no vault path, the guard
+		// reported the folder free, and the engine then normalized the same string and
+		// minted a second set into the first one's folder. A backslash and a pasted
+		// non-breaking space reach the same place.
+		//
+		// Normalizing HERE also makes the string the wizard displays the string the
+		// engine writes, which is the rule this accessor exists for.
+		return normalizeFolderSetting(this.currentOutputPathRaw());
 	}
 
 	/**
-	 * Inline ownership review. Zero sets stays silent and mints at generation;
-	 * one set defaults to refresh; several sets require an explicit choice.
+	 * The destination AS CHOSEN, before normalization. Private and used by exactly
+	 * one caller: nothing may compare this against a vault path, which is the whole
+	 * point of AM-63.
 	 */
-	private async renderImportSetReview(container: HTMLElement, basePath: string): Promise<void> {
-		// Reserve this block before discovery yields so later review controls keep
-		// their intended order while cache-cold frontmatter is read asynchronously.
-		const wrap = container.createDiv();
-		let sets: DiscoveredImportSet[];
+	private currentOutputPathRaw(): string {
+		const refreshRoot = this.refreshTargetRoot();
+		if (refreshRoot) return refreshRoot;
+		if (this.destinationEdited) {
+			const chosen = this.outputPath.trim();
+			if (chosen) return chosen;
+		}
+		return this.curatedDestination
+			?? deriveDestinationDefault(outputRootPath(this.plugin.settings), this.sourceFile?.name ?? null);
+	}
+
+	/** The discovered set this import is refreshing, or null when minting a new one. */
+	private refreshTargetSet(): DiscoveredImportSet | null {
+		const choice = this.importSetChoice;
+		if (!choice || typeof choice === 'string') return null;
+		// AM-10. Undiscovered reads as "not refreshing" here on purpose: this is a
+		// synchronous display helper called several times per render, and the
+		// fail-closed lives at the two places that decide something, which are
+		// `selectedImportSet` and `newSetOccupancyProblem`. A choice cannot be set
+		// before discovery in any case, because the only control that sets one is
+		// drawn from the discovered list.
+		if (this.discoveredSets === null) return null;
+		return this.discoveredSets.find((set) => set.id === choice.id) ?? null;
+	}
+
+	/** Where a refresh writes: the set's own root, or null when not refreshing. */
+	private refreshTargetRoot(): string | null {
+		return this.refreshTargetSet()?.root ?? null;
+	}
+
+	/**
+	 * A-3: the set being refreshed exists but its notes do not share one folder, so
+	 * there is no root to write back to. Fail closed rather than guess: a guessed
+	 * root is exactly the second-copy failure the rule above exists to prevent.
+	 */
+	private refreshRootProblem(): string | null {
+		const set = this.refreshTargetSet();
+		if (!set || set.root) return null;
+		return 'Crosswalker cannot tell where this framework lives. Its notes are spread across more than one folder. Import it as a new set, or move its notes into one folder first.';
+	}
+
+	/**
+	 * A-6: a NEW set must not be minted into a folder another set already owns.
+	 * Two sets sharing one root collide on hub paths forever, and the collision is
+	 * invisible until a later refresh reports notes it never wrote. One check, fail
+	 * closed, and the destination is editable on this branch so the user has an out.
+	 *
+	 * Only stamped ownership counts. Legacy notes carry no import_set block and are
+	 * deliberately outside every set, so a legacy flat vault does not block a second
+	 * framework from landing in its own derived root.
+	 */
+	private newSetOccupancyProblem(): string | null {
+		if (this.refreshTargetSet()) return null;
+		// AM-10. Nothing discovered yet is not "the folder is free". Say so, rather
+		// than returning a clean bill of health nobody checked for; `selectedImportSet`
+		// fails closed on the same state, so this only decides which message shows.
+		if (this.discoveredSets === null) {
+			return this.indexingBlocked ?? this.setDiscoveryError ?? ImportFlow.STILL_INDEXING;
+		}
+		const sets = this.discoveredSets;
+		if (sets.length === 0) return null;
+		// AM-63. The accessor already returns the one normalized spelling; the local
+		// second spelling that used to be here is what let this guard miss.
+		const root = this.currentOutputPath();
+		if (!root) return null;
+		const prefix = `${root}/`;
+		const occupant = sets.find((set) => set.paths.some((path) => path.startsWith(prefix)));
+		if (!occupant) return null;
+		return `${root} already holds notes owned by import set ${occupant.id}. Choose another folder for this import, or refresh that set instead.`;
+	}
+
+	/**
+	 * What this source stamps onto the notes it writes: the recipe id and the
+	 * ontology prefix its curies carry. Both are read off the SAME recipe
+	 * generation will use, and the ontology is slugified exactly the way
+	 * generation slugifies it, so a comparison against a stamped note is
+	 * like-for-like rather than nearly-like.
+	 *
+	 * Returns nulls for anything unbuildable (a workbench mapping mid-edit, a
+	 * recipe that fails its guards). Nulls match nothing, so the answer degrades to
+	 * "new set", which is the safe direction: a new set owns nothing and can
+	 * therefore damage nothing.
+	 */
+	private sourceIdentityKeys(): { recipeId: string | null; ontologyPrefix: string | null } {
+		const none = { recipeId: null, ontologyPrefix: null };
+		if (!this.parsedData) return none;
 		try {
-			sets = await this.importSetsForDestination(basePath);
-		} catch (error) {
-			wrap.createEl('p', {
-				text: error instanceof Error ? error.message : String(error),
-				cls: 'crosswalker-warning',
-			});
-			return;
+			const workbenchMode = this.isWorkbenchMode() && !!this.workbench;
+			const config = workbenchMode
+				? this.buildWorkbenchConfig()
+				: buildConfigFromWizardState(this.columnConfigs, this.parsedData.columns, this.appliedConfig?.config?.mapping?.filename);
+			const recipe = workbenchMode && this.workbench
+				? this.workbench.buildRecipe()
+				// AM-1: the SAME source file name generation passes (doGenerate's
+				// `sourceFileName`), so the ontology compared here is the ontology
+				// that will be stamped. Omitting it would compare the sentinel
+				// against a stem and match nothing, which mints a duplicate set.
+				: legacyConfigToRecipe(config as ImportRecipe, { sourceFileName: this.sourceFile?.name });
+			// Mirrors generateNotes' `provenanceRecipeId`: a workbench import passes a
+			// recipeOverride and stamps the recipe's own id; a classic import stamps
+			// the applied config's id when it has one.
+			const recipeId = workbenchMode ? recipe.recipe : (this.appliedConfig?.id ?? recipe.recipe);
+			// Mirrors generateNotes' `ontologyId`, slugified the same way. Deliberately
+			// the UNQUALIFIED prefix: AM-13's set-qualified form depends on a set id
+			// that does not exist yet at this point, and both readers below want the
+			// bare ontology - the offer compares it against a set's pin, and the
+			// collision test asks whether that bare space is already occupied.
+			const ontologyId = recipe.source?.ontology ?? config.name ?? LEGACY_ONTOLOGY_SENTINEL;
+			return {
+				recipeId: recipeId ?? null,
+				ontologyPrefix: slugifyForCurie(ontologyId),
+			};
+		} catch {
+			return none;
+		}
+	}
+
+	/**
+	 * AM-5. The ONE set this source may be OFFERED as a refresh target, or null.
+	 *
+	 * An offer, never a default. Matching a source to a set is a guess about
+	 * ownership, and the facts available to guess with are not owned by one
+	 * framework each: bundled recipes share ontology labels, a re-used saved
+	 * config gives two frameworks one recipe id, and two vendor exports both
+	 * named `controls.csv` share a file stem. A wrong guess writes one framework
+	 * into another and orphans the first, which is the worst thing this product
+	 * can do, so the guess only ever puts a button on screen.
+	 *
+	 * Requires a REAL ontology on the source side: a sentinel means `nobody told
+	 * us`, and a placeholder stamped on every nameless classic import
+	 * distinguishes nothing. Several candidates produce no offer either, because
+	 * `which one` is exactly the question a guess cannot answer.
+	 */
+	private offeredRefreshSet(sets: readonly DiscoveredImportSet[]): DiscoveredImportSet | null {
+		const prefix = this.sourceIdentityKeys().ontologyPrefix;
+		if (prefix === null || ImportFlow.isIdentitySentinel(prefix)) return null;
+		// The pinned ontology counts as well as the stamped curie prefixes. A set
+		// minted set-qualified (AM-13) writes `<ontology>-<set id>` prefixes, so a
+		// prefix-only comparison would stop offering it the moment it became the
+		// thing AM-13 exists to create. The pin is the unqualified ontology, which
+		// is exactly what this source proposes.
+		const candidates = sets.filter((set) =>
+			set.ontologyPrefixes.includes(prefix)
+			|| (set.ontology !== undefined && slugifyForCurie(set.ontology) === prefix));
+		return candidates.length === 1 ? candidates[0] : null;
+	}
+
+	/**
+	 * Is this identity value a placeholder rather than a fact?
+	 *
+	 * The literals live at their mint site (`legacy-recipe-shim.ts`) and are
+	 * imported, never retyped: a second copy is a copy that drifts, and a drifted
+	 * copy silently re-admits the placeholder. Both the raw form and the
+	 * slugified form are covered because an ontology reaches this test after
+	 * `slugifyForCurie` (that is how it is compared against stamped curies).
+	 */
+	private static readonly IDENTITY_SENTINEL_FORMS: ReadonlySet<string> = new Set([
+		...IDENTITY_SENTINELS,
+		...IDENTITY_SENTINELS.map((value) => slugifyForCurie(value)),
+	]);
+
+	private static isIdentitySentinel(value: string | null): boolean {
+		return value !== null && ImportFlow.IDENTITY_SENTINEL_FORMS.has(value);
+	}
+
+	/*
+	 * AM-5. THE PRESELECT USED TO LIVE HERE, AND NOTHING REPLACES IT.
+	 *
+	 * A refresh is chosen, never guessed. Every version of this method picked a
+	 * refresh target for the user out of facts stamped on existing notes: first
+	 * whichever set shared the destination folder, then whichever set shared the
+	 * source's recipe id or ontology. Four passes failed at it, because none of
+	 * those facts names an owner. Recipe ids name instructions, not ownership;
+	 * bundled recipes share ontology labels across frameworks; file stems
+	 * collide. Each version narrowed the guess and each one still guessed.
+	 *
+	 * The failure mode is not symmetric, which is why refining it was the wrong
+	 * move. Guessing `new set` when the user meant refresh costs a duplicate
+	 * folder the user can see and delete. Guessing `refresh` when the user meant
+	 * a new framework overwrites another framework in place and reports the
+	 * originals as orphans, and by then the notes are gone. So the default is
+	 * always the harmless one, and the only route into a refresh is a click
+	 * (`offeredRefreshSet` above suggests one; `renderImportSetReview` lists
+	 * every set so any of them can be picked deliberately).
+	 */
+
+	/**
+	 * Everything step 3 needs to answer "where does this land and what does it
+	 * own", resolved ONCE per source.
+	 *
+	 * Step 3 is reachable three ways (Next from step 2, the recognized-recipe fast
+	 * path, and a draft resume), and step 4 is reachable directly from a draft
+	 * resume, so this is armed from the renderer rather than from one navigation
+	 * arm: a hook on the Next path alone leaves the other entries on the new-set
+	 * default without ever having looked at the vault.
+	 *
+	 * `force` re-runs a settled answer, which is what the Next button needs after a
+	 * cold-cache refusal: the user waited, so ask again.
+	 */
+	private async prepareStep3(force = false): Promise<{ ok: boolean; changed: boolean }> {
+		const signature = `${this.sourceFile?.name ?? ''}::${this.parsedData?.rowCount ?? -1}`;
+		if (this.step3InFlight) return { ok: this.indexingBlocked === null, changed: false };
+		if (!force && this.step3Signature === signature) {
+			return { ok: this.indexingBlocked === null, changed: false };
+		}
+		// Same seam the destination tests rely on: a flow constructed without a real
+		// vault has nothing to discover and nothing to block on.
+		const app = this.app as App | undefined;
+		if (!app?.vault?.getMarkdownFiles || !app.metadataCache) {
+			// AM-10. An EMPTY list, not null. "There is no vault" is a complete
+			// answer to "what sets exist", so it must not read as "we have not
+			// looked yet" - the readers below fail closed on that, and this seam
+			// would then block a flow that has nothing to block on.
+			this.discoveredSets = [];
+			this.setDiscoveryError = null;
+			this.indexingBlocked = null;
+			this.step3Signature = signature;
+			return { ok: true, changed: false };
 		}
 
-		if (sets.length === 0) {
-			wrap.remove();
-			return;
+		this.step3InFlight = true;
+		if (this.step3SourceSignature !== signature) {
+			// A different source is a different question, so the previous answer to
+			// "refresh or new" no longer applies.
+			//
+			// AM-5. Clearing the choice returns to the ONLY default there is: a new
+			// set. Nothing recomputes a preselect afterwards, so a choice carried
+			// over from the previous file would be the last surviving guess about
+			// ownership, and it would be a guess made about a different source.
+			this.step3SourceSignature = signature;
+			this.importSetChoice = null;
 		}
-		wrap.addClass('crosswalker-import-set-review');
-
-		if (sets.length === 1) {
-			const set = sets[0];
-			if (this.importSetChoice !== 'new') this.importSetChoice = { id: set.id };
-			const line = wrap.createEl('p', { cls: 'setting-item-description' });
-			if (this.importSetChoice === 'new') {
-				line.setText('Importing as a new set. The existing set will remain separate.');
-				const refresh = wrap.createEl('button', { text: `Refresh ${set.id} instead` });
-				refresh.addEventListener('click', () => {
-					this.importSetChoice = { id: set.id };
-					this.renderStep();
-				});
-			} else {
-				line.setText(`Refreshing import set ${set.id} (${set.noteCount} existing notes)`);
-				const fresh = wrap.createEl('button', { text: 'Import as a new set instead' });
-				fresh.addEventListener('click', () => {
-					this.importSetChoice = 'new';
-					this.renderStep();
+		// Recorded BEFORE the work, not after it succeeds. A throw that left this
+		// unset would re-run a whole-vault scan on every re-render of the review
+		// screen, which on a shared machine is the expensive failure mode.
+		this.step3Signature = signature;
+		const before = this.step3StateKey();
+		try {
+			if (!(await this.ensureVaultIndexed(app))) {
+				this.indexingBlocked = ImportFlow.STILL_INDEXING;
+				this.discoveredSets = null;
+				this.setDiscoveryError = null;
+				// A refusal is not a settled answer: let the next entry ask again.
+				this.step3Signature = null;
+				return { ok: false, changed: before !== this.step3StateKey() };
+			}
+			this.indexingBlocked = null;
+			try {
+				this.discoveredSets = await discoverImportSets(app, undefined);
+				this.setDiscoveryError = null;
+			} catch (error) {
+				// Malformed provenance on any note in the vault throws here. Surface it
+				// instead of proceeding on a partial picture: choosing an owner from a
+				// list that threw is how a refresh writes into the wrong set.
+				this.discoveredSets = null;
+				this.setDiscoveryError = error instanceof Error ? error.message : String(error);
+				this.plugin.debug.warn('wizard', 'set-discovery-failed', 'Whole-vault import set discovery failed', {
+					error: this.setDiscoveryError,
 				});
 			}
+			// AM-5. Nothing preselects an ownership choice here. See the note where
+			// the preselect used to be, above `offeredRefreshSet`.
+			if (this.discoveredSets) {
+				this.plugin.debug.info('wizard', 'sets-discovered', `Discovered ${this.discoveredSets.length} import set(s) in the vault`, {
+					sets: this.discoveredSets.map((set) => ({ id: set.id, root: set.root, notes: set.noteCount })),
+				});
+			}
+			return { ok: true, changed: before !== this.step3StateKey() };
+		} finally {
+			this.step3InFlight = false;
+		}
+	}
+
+	/** Everything a step-3 render draws from the vault, as one comparable string. */
+	private step3StateKey(): string {
+		const choice = this.importSetChoice;
+		const choiceKey = choice === null ? '' : (typeof choice === 'string' ? choice : choice.id);
+		return [
+			this.indexingBlocked ?? '',
+			this.setDiscoveryError ?? '',
+			// AM-10. Null and an empty list draw different screens, so they must not
+			// hash the same: `?? []` here made "discovery finished, nothing found"
+			// look unchanged from "discovery has not run" and suppressed the re-render.
+			this.discoveredSets === null ? '<undiscovered>' : this.discoveredSets.map((set) => `${set.id}@${set.root ?? ''}`).join(','),
+			choiceKey,
+		].join('|');
+	}
+
+	/**
+	 * A-4: a null `getFileCache` means "Obsidian has not reached this file yet",
+	 * never "this file has no properties". Whole-vault discovery has no
+	 * raw-frontmatter fallback (deliberately, so it never turns into a whole-vault
+	 * content scan), so a cold cache would show a vault with fewer sets than it has
+	 * and quietly mint a duplicate of one of them.
+	 *
+	 * AM-24 (2026-08-31): the wait-then-recount MECHANISM is now
+	 * `settleVaultIndex`, shared with the qualification rule that carries the same
+	 * precondition internally. The wizard keeps its own message and its own
+	 * blocked-screen handling; what it no longer keeps is a second copy of how the
+	 * measurement is taken. `settleVaultIndex` resolves on its own timeout as well
+	 * as on the `resolved` event, so its return value is always a fresh count and
+	 * never an assumption that the await meant anything.
+	 */
+	private async ensureVaultIndexed(app: App): Promise<boolean> {
+		const remaining = await settleVaultIndex(app);
+		if (remaining > 0) {
+			this.plugin.debug.warn('wizard', 'vault-not-indexed', `Vault still indexing: ${remaining} file(s) unread`, { remaining });
+		}
+		return remaining === 0;
+	}
+
+	/**
+	 * Inline ownership review, over the WHOLE VAULT.
+	 *
+	 * AM-5. Built from `sets`, every set in the vault, NOT from a matched
+	 * subset. Two earlier versions narrowed this list: first to the destination
+	 * folder, then to sets whose stamped facts matched the source. Both were
+	 * guesses about ownership, and a narrowed list also hides the sets it left
+	 * out, so a legacy set the source does not resemble became unrefreshable.
+	 * The user sees everything and picks.
+	 *
+	 * Synchronous: it reads the list `prepareStep3` already resolved, so the
+	 * ownership control cannot render a different answer from the destination
+	 * breadcrumb sitting above it.
+	 */
+	private renderImportSetReview(container: HTMLElement): void {
+		if (this.indexingBlocked) {
+			container.createEl('p', { text: this.indexingBlocked, cls: 'crosswalker-warning' });
 			return;
 		}
+		if (this.setDiscoveryError) {
+			container.createEl('p', { text: this.setDiscoveryError, cls: 'crosswalker-warning' });
+			return;
+		}
+		// AM-10. Null reached this render, so discovery has not run. Drawing the
+		// zero-sets screen here would tell the user this vault holds no imports
+		// while it may hold three, and the ownership control they need would not
+		// exist. Say what is actually true and draw nothing to act on.
+		if (this.discoveredSets === null) {
+			container.createEl('p', { text: ImportFlow.STILL_INDEXING, cls: 'crosswalker-warning' });
+			return;
+		}
+		const sets = this.discoveredSets;
+		if (sets.length === 0) return;
 
-		wrap.createEl('p', {
-			text: 'This destination contains multiple import sets. Choose which set to refresh, or import as a new set.',
-			cls: 'crosswalker-warning',
-		});
-		const list = wrap.createEl('ul');
-		for (const set of sets) {
-			list.createEl('li', { text: `${set.id}: ${set.noteCount} existing notes` });
+		const refreshing = this.refreshTargetSet();
+		const wrap = container.createDiv({ cls: 'crosswalker-import-set-review' });
+
+		const line = wrap.createEl('p', { cls: 'setting-item-description' });
+		if (refreshing) {
+			line.setText(`Refreshing import set ${refreshing.id} (${refreshing.noteCount} existing notes)`);
+		} else {
+			line.setText(sets.length === 1
+				? 'Importing as a new set. The one import already in this vault stays separate.'
+				: `Importing as a new set. The ${sets.length} imports already in this vault stay separate.`);
 		}
 
+		// Every set, with the facts that tell them apart. A minted id is
+		// deliberately meaningless, so a user choosing which one to overwrite needs
+		// its size, its folder and what produced it in front of them.
+		const list = wrap.createEl('ul');
+		for (const set of sets) list.createEl('li', { text: ImportFlow.describeSet(set) });
+
+		// New set is FIRST and is what a fresh review shows, because it is the
+		// only choice that cannot damage anything: a new set owns no notes.
 		new Setting(wrap)
 			.setName('Import set')
-			.setDesc('Required because this destination contains more than one owned collection')
+			.setDesc('A new set is the default. Choose an existing set only to refresh the notes it already owns.')
 			.addDropdown((dropdown) => {
-				dropdown.addOption('', 'Choose one');
-				for (const set of sets) dropdown.addOption(set.id, `${set.id} (${set.noteCount} existing notes)`);
 				dropdown.addOption('__new__', 'Import as a new set');
-				const value = this.importSetChoice === 'new'
-					? '__new__'
-					: (this.importSetChoice && typeof this.importSetChoice === 'object' ? this.importSetChoice.id : '');
-				dropdown.setValue(value).onChange((selected) => {
-					this.importSetChoice = selected === '__new__'
-						? 'new'
-						: (selected ? { id: selected } : null);
-					this.renderStep();
+				for (const set of sets) dropdown.addOption(set.id, ImportFlow.describeSet(set));
+				dropdown.setValue(refreshing ? refreshing.id : '__new__').onChange((selected) => {
+					this.chooseImportSet(selected === '__new__' ? 'new' : { id: selected });
 				});
 			});
+
+		// AM-5. The offer, and it is only ever an offer: one line, one click.
+		// Matching a source to a set is a guess about ownership, and a wrong guess
+		// writes one framework into another and orphans the first. A guess is
+		// allowed to suggest; it is never allowed to decide.
+		const offer = refreshing ? null : this.offeredRefreshSet(sets);
+		if (offer) {
+			const suggest = wrap.createEl('button', { text: `Looks like ${offer.id}. Refresh it instead?` });
+			suggest.addEventListener('click', () => this.chooseImportSet({ id: offer.id }));
+		}
+		if (refreshing) {
+			const fresh = wrap.createEl('button', { text: 'Import as a new set instead' });
+			fresh.addEventListener('click', () => this.chooseImportSet('new'));
+		}
+
+		const problem = this.refreshRootProblem() ?? this.newSetOccupancyProblem();
+		if (problem) wrap.createEl('p', { text: problem, cls: 'crosswalker-warning' });
 	}
 
-	private async importSetsForDestination(basePath: string): Promise<DiscoveredImportSet[]> {
-		const normalized = normalizePath(basePath || '');
-		if (normalized !== this.importSetChoiceBasePath) {
-			this.importSetChoiceBasePath = normalized;
-			this.importSetChoice = null;
-		}
-		const sets = await discoverImportSets(this.app, normalized);
-		if (sets.length === 1 && typeof this.importSetChoice !== 'string') {
-			this.importSetChoice = { id: sets[0].id };
-		} else if (sets.length > 1) {
-			const choice = this.importSetChoice;
-			if (choice && typeof choice === 'object' && !sets.some((set) => set.id === choice.id)) {
-				this.importSetChoice = null;
-			}
-		} else if (sets.length === 0) {
-			this.importSetChoice = null;
-		}
-		return sets;
+	/** One set as the review names it: id, size, where it lives, what made it. */
+	private static describeSet(set: DiscoveredImportSet): string {
+		const where = set.root ?? 'more than one folder';
+		const notes = set.noteCount === 1 ? 'note' : 'notes';
+		const recipe = set.recipeIds.length > 0 ? set.recipeIds.join(', ') : 'an unrecorded recipe';
+		return `${set.id}: ${set.noteCount} ${notes} in ${where}, from ${recipe}`;
 	}
 
-	private async selectedImportSet(basePath: string): Promise<ImportSetOption | undefined> {
-		const sets = await this.importSetsForDestination(basePath);
-		if (sets.length === 0) return undefined;
-		if (sets.length === 1) {
-			return typeof this.importSetChoice === 'string' ? this.importSetChoice : { id: sets[0].id };
-		}
+	/**
+	 * Record the ownership decision the user made. AM-5: this is the ONLY way
+	 * a refresh is ever selected, so there is no default left to suppress and
+	 * no `the user chose it` flag to keep.
+	 */
+	private chooseImportSet(choice: ImportSetOption | null): void {
+		this.importSetChoice = choice;
+		this.renderStep();
+	}
+
+	/**
+	 * The ownership option generation runs with. Reads the same cached list the
+	 * review screen rendered, so the set the user chose on screen is the set
+	 * generation resolves. Throws when the answer is not established; callers turn
+	 * that into a Notice rather than generating on a guess.
+	 */
+	private selectedImportSet(): ImportSetOption {
+		if (this.indexingBlocked) throw new Error(this.indexingBlocked);
+		if (this.setDiscoveryError) throw new Error(this.setDiscoveryError);
+		// AM-10. Null is not an empty vault, it is an unasked question. Every entry
+		// into step 3 and step 4 awaits `prepareStep3`, so reaching here on null is
+		// a bug in the navigation; fail closed rather than generate on a picture
+		// nobody took. Belt-and-braces since AM-9 (the engine mints rather than
+		// adopts now), and it stays because a screen that lists no sets while the
+		// vault holds three is a lie the user acts on.
+		if (this.discoveredSets === null) throw new Error(ImportFlow.STILL_INDEXING);
+
 		const choice = this.importSetChoice;
-		if (typeof choice === 'string') return choice;
-		if (choice && sets.some((set) => set.id === choice.id)) return { id: choice.id };
-		throw new Error('Choose an import set to refresh, or choose to import as a new set.');
+		// AM-15. The dropdown's literal `new` is a request for a NEW SET, not a
+		// request for a particular identity scheme, so it still has to go through the
+		// AM-13 qualification below. Returning it verbatim here is what made AM-13
+		// dead on the ordinary click: every wizard import that reached this line
+		// minted `endpoint-v1` even when its curie space was already occupied, and
+		// then met the existing set as an AM-12 collision on every single row.
+		// `new-set-qualified` is already an answer to that question and passes
+		// through untouched.
+		if (typeof choice === 'string') {
+			return choice === 'new' ? this.newSetOption() : choice;
+		}
+		if (choice) {
+			const set = this.discoveredSets.find((candidate) => candidate.id === choice.id);
+			if (!set) throw new Error('Choose an import set to refresh, or choose to import as a new set.');
+			const problem = this.refreshRootProblem();
+			if (problem) throw new Error(problem);
+			return { id: set.id };
+		}
+
+		// AM-5 + AM-9. No click, so this is a new set - including on an empty vault,
+		// where `undefined` would once have been equivalent. It is not equivalent
+		// any more and it never was worth relying on: the engine used to read
+		// `undefined` as "adopt whatever shares the destination folder". Saying
+		// `new` out loud is the whole point of the rule, so nothing below the click
+		// is left with a decision to make.
+		//
+		// AM-13. WHICH new set, though, is decided by whether its identities would
+		// collide. See `newSetOption`.
+		return this.newSetOption();
 	}
 
-	private async validateImportSetSelection(basePath: string): Promise<boolean> {
+	/**
+	 * AM-13. The new-set option this source should mint, on EVERY route to a new
+	 * set: the explicit `new` click and the no-click default alike (AM-15).
+	 *
+	 * AM-18 (2026-08-31): the RULE itself now lives once, in `import-set.ts`
+	 * beside the mint, and this delegates to it. The wizard's own copy was the
+	 * only correct one of three; the modal asked whether a folder was empty and
+	 * the dev command asked nothing. What stays here is the wizard's cached
+	 * whole-vault snapshot, which is deliberately not re-read at generate time
+	 * (AM-10: a null snapshot is an unasked question, not an empty vault) - so
+	 * the pure form of the rule is the one this calls.
+	 */
+	private newSetOption(): ImportSetOption {
+		// `?? []` matches the pre-AM-18 behaviour exactly: an unanswered discovery
+		// question collides with nothing and degrades to the plain default. The
+		// caller above already fails closed on a null snapshot.
+		return newSetSchemeFrom(this.discoveredSets ?? [], this.sourceIdentityKeys().ontologyPrefix);
+	}
+
+	private validateImportSetSelection(): boolean {
+		const occupancy = this.newSetOccupancyProblem();
+		if (occupancy) {
+			new Notice(occupancy, 10000);
+			return false;
+		}
 		try {
-			await this.selectedImportSet(basePath);
+			this.selectedImportSet();
 			return true;
 		} catch (error) {
-			new Notice(error instanceof Error ? error.message : String(error));
+			new Notice(error instanceof Error ? error.message : String(error), 10000);
 			return false;
 		}
 	}
@@ -1823,26 +2395,48 @@ export class ImportFlow {
 	 * folder without closing the modal.
 	 */
 	private renderDestinationBlock(container: HTMLElement): void {
-		// Autofill a sensible default the first time we reach the review screen.
-		if (!this.outputPath || !this.outputPath.trim()) {
-			this.outputPath = deriveDestinationDefault(this.plugin.settings.defaultOutputPath, this.sourceFile?.name ?? null);
-		}
+		// No autofill-by-mutation here. Rendering used to derive the default and
+		// write it back, which meant the value depended on which screen you had
+		// visited; the step-2 preview and this breadcrumb could disagree. The
+		// default now lives in `currentOutputPath()`, which every surface reads.
 		const block = container.createEl('div', { cls: 'crosswalker-dest-block' });
 		const head = block.createEl('div', { cls: 'crosswalker-dest-head' });
 		head.createEl('div', { cls: 'crosswalker-dest-label', text: 'Destination' });
 		const revealBtn = head.createEl('button', { cls: 'crosswalker-dest-reveal', text: 'Show in file explorer' });
 		revealBtn.addEventListener('click', () => this.revealDestinationInExplorer());
 		this.renderDestinationPath(block.createEl('div', { cls: 'crosswalker-dest-pathwrap' }));
+		const refreshing = this.refreshTargetSet();
+		if (refreshing?.root) {
+			block.createEl('p', {
+				cls: 'setting-item-description',
+				text: `Refreshing into ${refreshing.root}. A refresh always writes back to where its own notes already live. To put this framework somewhere else, import it as a new set.`,
+			});
+		}
 	}
 
 	/** Breadcrumb path display / inline text editor toggle for the destination. */
 	private renderDestinationPath(wrap: HTMLElement): void {
+		const refreshRoot = this.refreshTargetRoot();
+		if (refreshRoot) {
+			// Read-only on purpose (A-1). Editing the destination during a refresh is
+			// a relocation request, and relocation is a separate explicit operation
+			// with its own confirmation. Offering the field here would let a typo
+			// fork the import into a second copy of itself.
+			this.renderPathSegments(wrap.createEl('div', { cls: 'crosswalker-dest-crumb crosswalker-dest-readonly' }), refreshRoot);
+			return;
+		}
 		if (this.destEditing) {
-			const input = wrap.createEl('input', { type: 'text', cls: 'crosswalker-dest-input', value: this.outputPath });
+			const input = wrap.createEl('input', { type: 'text', cls: 'crosswalker-dest-input', value: this.currentOutputPath() });
 			// eslint-disable-next-line obsidianmd/ui/sentence-case -- placeholder is an example vault path
 			input.placeholder = 'Frameworks/My import';
 			const commit = () => {
-				this.outputPath = input.value.trim() || this.outputPath;
+				const typed = input.value.trim();
+				// Only a non-empty value records intent. Clearing the field must fall back
+				// to the derived default rather than stranding the import at the vault root.
+				if (typed) {
+					this.outputPath = typed;
+					this.destinationEdited = true;
+				}
 				this.destEditing = false;
 				this.scheduleDraftSave();
 				this.renderStep();
@@ -1856,17 +2450,22 @@ export class ImportFlow {
 			return;
 		}
 		const crumb = wrap.createEl('button', { cls: 'crosswalker-dest-crumb', attr: { title: 'Click to edit the destination path' } });
-		const segs = this.outputPath.split('/').filter(Boolean);
-		if (segs.length === 0) {
-			crumb.createEl('span', { cls: 'crosswalker-dest-seg', text: '(vault root)' });
-		} else {
-			segs.forEach((seg, i) => {
-				if (i > 0) crumb.createEl('span', { cls: 'crosswalker-dest-sep', text: '/' });
-				crumb.createEl('span', { cls: 'crosswalker-dest-seg', text: seg });
-			});
-		}
+		this.renderPathSegments(crumb, this.currentOutputPath());
 		setIcon(crumb.createEl('span', { cls: 'crosswalker-dest-editicon' }), 'pencil');
 		crumb.addEventListener('click', () => { this.destEditing = true; this.renderStep(); });
+	}
+
+	/** Draw one vault path as slash-separated segments inside `host`. */
+	private renderPathSegments(host: HTMLElement, path: string): void {
+		const segs = path.split('/').filter(Boolean);
+		if (segs.length === 0) {
+			host.createEl('span', { cls: 'crosswalker-dest-seg', text: '(vault root)' });
+			return;
+		}
+		segs.forEach((seg, i) => {
+			if (i > 0) host.createEl('span', { cls: 'crosswalker-dest-sep', text: '/' });
+			host.createEl('span', { cls: 'crosswalker-dest-seg', text: seg });
+		});
 	}
 
 	/**
@@ -1899,7 +2498,8 @@ export class ImportFlow {
 	}
 
 	private async revealDestinationInExplorer(): Promise<void> {
-		const target = this.outputPath.trim().replace(/\/+$/, '');
+		// AM-63. Same rule here: one normalizer, at the accessor.
+		const target = this.currentOutputPath();
 		// Walk up to the nearest existing folder (target or an ancestor).
 		let folder: TFolder | null = null;
 		let probe = target;
@@ -2192,6 +2792,8 @@ export class ImportFlow {
 			columnConfigsDict: columnConfigsToDict(this.columnConfigs),
 			config: this.config,
 			outputPath: this.outputPath,
+			destinationEdited: this.destinationEdited,
+			...(this.curatedDestination ? { curatedDestination: this.curatedDestination } : {}),
 			overwriteMode: this.overwriteMode,
 			frameworkId: this.frameworkId,
 			// B5: which entry path produced this draft's mapping (see
@@ -2229,6 +2831,12 @@ export class ImportFlow {
 			text: 'Review the folder structure and sample notes before generating.',
 			cls: 'setting-item-description'
 		});
+		if (this.jsonWhere.trim()) {
+			container.createEl('p', {
+				text: 'Preview uses unfiltered source samples. Your filter is applied during generation.',
+				cls: 'setting-item-description',
+			});
+		}
 
 		if (!this.parsedData) {
 			container.createEl('p', { text: 'No data to preview.' });
@@ -2322,8 +2930,9 @@ export class ImportFlow {
 				// Same basePath + normalizePath combination generation-engine's
 				// buildNoteDataViaRender uses, so the path shown here is the
 				// actual vault path the row will land at, not an approximation.
-				const path = this.outputPath
-					? normalizePath(`${this.outputPath}/${address.primary.path}`)
+				const base = this.currentOutputPath();
+				const path = base
+					? normalizePath(`${base}/${address.primary.path}`)
 					: normalizePath(address.primary.path);
 				perRow.push({ row: rowNum, notes: report.notes, path });
 			} catch {
@@ -2407,7 +3016,7 @@ export class ImportFlow {
 			el.style.paddingLeft = `${depth * 22}px`;
 			el.setText(`${icon} ${text}`);
 		};
-		line(0, '📁', `${this.outputPath || 'output'}/`);
+		line(0, '📁', `${this.currentOutputPath() || 'output'}/`);
 
 		const sampleRows = this.parsedData && Array.isArray(this.parsedData.rows)
 			? (this.parsedData.rows as Record<string, unknown>[]).slice(0, 50)
@@ -2496,12 +3105,12 @@ export class ImportFlow {
 	 */
 	buildFolderTreePreview(config: Partial<ImportRecipe>): string {
 		if (!this.parsedData || !config.mapping) {
-			return `${this.outputPath}/\n└── (No hierarchy configured)`;
+			return `${this.currentOutputPath()}/\n└── (No hierarchy configured)`;
 		}
 
 		const hierarchyColumns: HierarchyMapping[] = config.mapping.hierarchy || [];
 		if (hierarchyColumns.length === 0) {
-			return `${this.outputPath}/\n└── (Flat structure - all notes in root folder)`;
+			return `${this.currentOutputPath()}/\n└── (Flat structure - all notes in root folder)`;
 		}
 
 		// Collect unique paths from data (limit to first 50 rows for performance).
@@ -2528,7 +3137,7 @@ export class ImportFlow {
 		}
 
 		// Build tree string
-		const lines: string[] = [`${this.outputPath}/`];
+		const lines: string[] = [`${this.currentOutputPath()}/`];
 
 		// Get root level items
 		const rootItems = paths.get('') || new Set();
@@ -2689,7 +3298,15 @@ export class ImportFlow {
 		if (this.isWorkbenchMode()) {
 			const confirm = container.createEl('div', { cls: 'crosswalker-gen-confirm' });
 			confirm.createEl('span', { cls: 'crosswalker-gen-confirm-lead', text: 'Creating in: ' });
-			confirm.createEl('span', { cls: 'mono', text: this.outputPath || this.plugin.settings.defaultOutputPath || '(vault root)' });
+			confirm.createEl('span', { cls: 'mono', text: this.currentOutputPath() || '(vault root)' });
+		} else if (this.refreshTargetRoot()) {
+			// A refresh writes back to its set's own root (A-1), so classic mode
+			// confirms it read-only too. Leaving the editor live here would show a
+			// field that accepts a path and then silently ignores it, which is worse
+			// than not offering one.
+			const confirm = container.createEl('div', { cls: 'crosswalker-gen-confirm' });
+			confirm.createEl('span', { cls: 'crosswalker-gen-confirm-lead', text: 'Refreshing into: ' });
+			confirm.createEl('span', { cls: 'mono', text: this.currentOutputPath() || '(vault root)' });
 		} else {
 			// Output path setting
 			new Setting(container)
@@ -2697,9 +3314,12 @@ export class ImportFlow {
 				.setDesc('Folder where notes will be created')
 				.addText((text) => {
 					text.setPlaceholder('Ontologies')
-						.setValue(this.outputPath)
+						.setValue(this.currentOutputPath())
 						.onChange((value) => {
 							this.outputPath = value;
+							// Typing here IS the choice. Seeding the field above deliberately
+							// does not set it, so an untouched field keeps deriving.
+							this.destinationEdited = true;
 							this.scheduleDraftSave();
 						});
 					// Refresh the inline set list once the destination edit is complete.
@@ -2707,7 +3327,7 @@ export class ImportFlow {
 				});
 		}
 
-		void this.renderImportSetReview(container, this.currentOutputPath());
+		this.renderImportSetReview(container);
 
 		// Framework ID setting (for _crosswalker metadata)
 		new Setting(container)
@@ -3062,8 +3682,19 @@ export class ImportFlow {
 					return parseSuccess;
 				}
 				return true;
+			case 2: {
+				// Resolved (and forced, so a user who waited out an indexing refusal
+				// gets a fresh answer) before step 3 renders, so the destination the
+				// review screen shows is the one generation will actually write to.
+				const { ok } = await this.prepareStep3(true);
+				if (!ok && this.indexingBlocked) {
+					new Notice(this.indexingBlocked, 10000);
+					return false;
+				}
+				return true;
+			}
 			case 3:
-				return !this.isWorkbenchMode() || await this.validateImportSetSelection(this.currentOutputPath());
+				return !this.isWorkbenchMode() || this.validateImportSetSelection();
 			default:
 				return true;
 		}
@@ -3182,7 +3813,12 @@ export class ImportFlow {
 			new Notice('No data to generate. Please go back and select a file.');
 			return;
 		}
-		if (!await this.validateImportSetSelection(this.currentOutputPath())) return;
+		// AM-10. Step 4 is reachable without ever having passed the step-2 Next
+		// gate (a draft resumes straight onto it). Signature-guarded, so on every
+		// normal path this is one string compare; on the path that skipped
+		// discovery it is the scan that has to happen before anything is written.
+		await this.prepareStep3();
+		if (!this.validateImportSetSelection()) return;
 
 		// Phase 3.5c: thread a fresh trace_id through the entire generation
 		// flow. Every wizard / generation / Tier 2 / view event that fires
@@ -3212,7 +3848,7 @@ export class ImportFlow {
 		const outputPath = this.currentOutputPath();
 		const options: GenerationOptions = {
 			basePath: outputPath,
-			importSet: await this.selectedImportSet(outputPath),
+			importSet: this.selectedImportSet(),
 			overwriteMode: this.overwriteMode,
 			createFolders: true,
 			frameworkId: this.frameworkId || undefined,
@@ -3272,18 +3908,12 @@ export class ImportFlow {
 				options.recipeOverride = this.workbench.buildRecipe();
 			}
 
-			// The wizard's filter field keeps its comma shorthand, but it now writes
-			// `source.where`. One predicate for CSV, XLSX and JSON alike, guarded and
-			// portable with the recipe, instead of a JSON-only silent one.
-			if (this.jsonWhere) {
-				const where = shorthandToSourceExpression(this.jsonWhere);
-				if (where && options.recipeOverride) {
-					options.recipeOverride = {
-						...options.recipeOverride,
-						source: { ...options.recipeOverride.source, where },
-					};
-				}
-			}
+			// The UI keeps its comma shorthand. GenerationOptions carries the one
+			// translated run expression across BOTH ordinary and workbench modes; the
+			// engine applies it after resolving the recipe without changing which entry
+			// path owns provenance. Blank input supplies no override.
+			const sourceWhere = shorthandToSourceExpression(this.jsonWhere);
+			if (sourceWhere) options.sourceWhere = sourceWhere;
 
 			// Run generation
 			const result = await generateNotes(
@@ -3307,16 +3937,39 @@ export class ImportFlow {
 
 			// Show results
 			if (result.success) {
+				// AM-3. The moved and orphan counts ride on the success notice, on
+				// EVERY run. A clean refresh closes the wizard without drawing a
+				// results screen, so a screen-only report is a report the common case
+				// never sees.
+				//
+				// AM-7. And an orphan count that was NOT COMPUTED is not zero. The
+				// engine suppresses detection whenever it cannot prove it read the
+				// whole source; printing `No orphans.` there tells a GRC user their
+				// framework is intact when nobody checked. Tri-state, same rule as the
+				// metadata cache: not-checked is its own answer and it is said out loud.
+				const movedCount = result.moved?.length ?? 0;
+				const orphanCount = result.orphans?.length ?? 0;
+				const orphansChecked = result.orphansChecked !== false;
+				const movedText = movedCount === 0 ? 'Nothing moved.' : `${movedCount} moved.`;
+				const orphanText = !orphansChecked
+					? 'Orphans not checked.'
+					: (orphanCount === 0 ? 'No orphans.' : `${orphanCount} orphans.`);
+				// Anything but a clean, fully checked run sends the user to the screen
+				// that carries the detail, and the same flag gates drawing it below.
+				const needsResults = movedCount > 0 || orphanCount > 0 || !orphansChecked;
+				const counts = `${movedText} ${orphanText}${needsResults ? ' See results.' : ''}`;
 				const message = `✅ Created ${result.created.length} notes` +
 					(result.skipped.length > 0 ? `, skipped ${result.skipped.length} existing` : '') +
-					` in ${(result.duration / 1000).toFixed(1)}s`;
+					` in ${(result.duration / 1000).toFixed(1)}s. ${counts}`;
 				new Notice(message, 5000);
 
-				// "Success" with nothing created (or row-level errors) is a trap the
-				// user can't see — surface the first cause instead of a silent zero.
+				// AM-4. An identity collision (and any other row error) reaches the
+				// user on a run that would otherwise close the window. "Success" with
+				// nothing created, or with row-level errors, is a trap the user cannot
+				// see; the results screen leads with the error list, so the notice
+				// points at it rather than trying to summarize it here.
 				if (result.errors.length > 0) {
-					const first = result.errors[0];
-					new Notice(`⚠️ ${result.errors.length} row(s) failed — first error: ${typeof first === 'string' ? first : (first as { message?: string }).message ?? JSON.stringify(first)}`, 10000);
+					new Notice(`Import finished with ${result.errors.length} errors. See results.`, 10000);
 				}
 				if (result.conflicts && result.conflicts.length > 0) {
 					const n = result.conflicts.length;
@@ -3356,6 +4009,22 @@ export class ImportFlow {
 				// moment to drain before exposing the completed import.
 				if (result.created.length > 0) await this.waitForMetadataResolve();
 
+				// A-7. A successful run that rearranged the vault or left notes behind
+				// has something the user must see, and closing on it is how `moved` and
+				// `orphans` stayed invisible for as long as they did. Everything else
+				// still closes straight through.
+				// AM-4. Errors force the results screen. `result.success` stays true
+				// for a run that hit per-row errors (an "Ambiguous identity" collision
+				// is raised at row 0 and is the case that found this), and closing on
+				// it destroyed the only surface that ever showed them. Same family as
+				// the purge that reported success. Errors first, then the two counts.
+				// AM-7 joins AM-4 here: a run that could not check for orphans has
+				// something to explain, and the notice already points at this screen.
+				if (result.errors.length > 0 || needsResults) {
+					this.renderGenerationResults(result);
+					return;
+				}
+
 				// Reached "done" — host decides what that means (close the
 				// modal, or reset the workspace view to its launchpad).
 				this.host.close();
@@ -3391,6 +4060,12 @@ export class ImportFlow {
 		errors: { row: number; message: string }[];
 		conflicts?: Array<{ path: string; code: string; detail: string }>;
 		filteredOut?: number;
+		/** Notes the run relocated by identity. Empty unless a root actually moved. */
+		moved?: Array<{ curie: string; from: string; to: string }>;
+		/** Identities this set held that the source no longer produces. */
+		orphans?: Array<{ curie: string; path: string }>;
+		/** AM-7. False when orphan detection was suppressed, so `no orphans` is never printed for a run that never looked. */
+		orphansChecked?: boolean;
 	}) {
 		const contentEl = this.host.containerEl;
 		contentEl.empty();
@@ -3411,6 +4086,46 @@ export class ImportFlow {
 		if (result.filteredOut !== undefined && result.filteredOut > 0) {
 			summary.createEl('p', {
 				text: `🔍 Filtered out: ${result.filteredOut} ${result.filteredOut === 1 ? 'row' : 'rows'} did not match the filter.`,
+			});
+		}
+		// A-7. `moved` and `orphans` were written by the engine and read by nothing,
+		// which made two of the acceptance clauses untestable and hid a real answer
+		// from the user. A move is a rearranged vault; an orphan is a control that
+		// vanished from a framework release. Both are things a GRC user must see.
+		//
+		// `moved` is empty by construction while a refresh cannot change a root.
+		// Rendering it now is what makes the future explicit relocation observable
+		// the day it ships, instead of landing silent.
+		//
+		// The moved line renders even at zero. A refresh that moved nothing is the
+		// contract holding, and a user who cannot see the zero cannot tell the
+		// difference between "nothing moved" and "nobody checked".
+		const moved = result.moved ?? [];
+		summary.createEl('p', {
+			text: moved.length === 0
+				? '📦 Moved: 0 notes. Nothing was relocated.'
+				: `📦 Moved: ${moved.length} ${moved.length === 1 ? 'note was' : 'notes were'} relocated.`,
+		});
+		const orphans = result.orphans ?? [];
+		// AM-7. An orphan count that was not computed is not zero. Detection is
+		// suppressed whenever the run cannot prove it read the whole source, and
+		// the absence of orphans then looks exactly like a clean result. Saying so
+		// is the whole point: the user must know the question was not answered.
+		if (result.orphansChecked === false) {
+			summary.createEl('p', {
+				// No leading icon here, unlike its siblings. `obsidianmd/ui/sentence-case`
+				// reads a leading emoji as the first word, so the `Orphans` behind it is a
+				// capitalised later word and the literal fails the gate (verified: the same
+				// sentence passes the moment the icon is dropped, and fails again with any
+				// icon in front of it). The sibling lines escape only because the rule
+				// inspects plain string literals and their `text` is a template literal or a
+				// ternary. Gaming it that way here would hide a real finding, and the words
+				// are what carry the meaning, so the icon is what gives way.
+				text: 'Orphans: not checked. This run could not confirm it read the whole source, so it cannot say whether any notes are missing.',
+			});
+		} else if (orphans.length > 0) {
+			summary.createEl('p', {
+				text: `🕳️ Orphans: ${orphans.length} ${orphans.length === 1 ? 'note is' : 'notes are'} no longer in the source. They were kept, not deleted.`,
 			});
 		}
 		// A conflict carries the same weight as an error on this screen. A note
@@ -3461,6 +4176,40 @@ export class ImportFlow {
 			}
 		}
 
+		// Moved details
+		if (moved.length > 0) {
+			contentEl.createEl('h4', { text: 'Notes moved' });
+			const list = contentEl.createEl('div', { cls: 'crosswalker-error-list' });
+			for (const move of moved.slice(0, 20)) {
+				list.createEl('p', {
+					text: `${move.from} → ${move.to}`,
+					cls: 'crosswalker-error-item',
+				});
+			}
+			if (moved.length > 20) {
+				list.createEl('p', { text: `... and ${moved.length - 20} more`, cls: 'setting-item-description' });
+			}
+		}
+
+		// Orphan details
+		if (orphans.length > 0) {
+			contentEl.createEl('h4', { text: 'Notes no longer in the source' });
+			contentEl.createEl('p', {
+				text: 'These notes were made by an earlier import of this set and the source no longer contains them. Nothing was deleted. Review them and remove them yourself if they are gone for good.',
+				cls: 'setting-item-description',
+			});
+			const list = contentEl.createEl('div', { cls: 'crosswalker-error-list' });
+			for (const orphan of orphans.slice(0, 20)) {
+				list.createEl('p', {
+					text: `${orphan.curie}: ${orphan.path}`,
+					cls: 'crosswalker-error-item',
+				});
+			}
+			if (orphans.length > 20) {
+				list.createEl('p', { text: `... and ${orphans.length - 20} more`, cls: 'setting-item-description' });
+			}
+		}
+
 		// Close button
 		const footer = contentEl.createEl('div', { cls: 'crosswalker-wizard-footer' });
 		const closeBtn = footer.createEl('button', { text: 'Close' });
@@ -3480,18 +4229,25 @@ export class ImportWizardModal extends Modal {
 
 	constructor(app: App, plugin: CrosswalkerPlugin, opts?: { presetRecipeId?: string; prefillFile?: TFile }) {
 		super(app);
-		// Put workbench-specific shortcuts in a child scope. Child handlers run
-		// before Modal's inherited Escape-to-close binding, so an open evidence card
-		// or column chooser gets the first Escape without weakening normal modal close.
+		// Put workbench-specific shortcuts in a child scope. A child scope is consulted
+		// before its parent, so this wins over Modal's own Escape-to-close binding and
+		// an open evidence card or column chooser gets the first Escape. Registering on
+		// Modal's scope instead would let Modal's earlier binding close the modal first.
 		this.scope = new Scope(this.scope);
 		this.flow = new ImportFlow(app, plugin, {
 			containerEl: this.contentEl,
 			close: () => this.close(),
 			registerEscapeHandler: (handler) => {
-				// Registered after Modal's own Escape binding. Scope evaluates the
-				// newest matching handler first, so return false only when the
-				// workbench consumed Escape and the modal must remain open.
-				this.scope.register([], 'Escape', () => handler() ? false : undefined);
+				// `Scope.handleKey` stops at the first binding that matches a specific
+				// key, whatever it returns, and only falls through to the parent scope
+				// when nothing matched. So this handler owns both outcomes: closing the
+				// modal here is what Modal's own binding, which this child scope has
+				// always shadowed, would have done.
+				this.scope.register([], 'Escape', () => {
+					if (handler()) return false;
+					this.close();
+					return false;
+				});
 			},
 		});
 		if (opts?.presetRecipeId) this.flow.presetRecipeId = opts.presetRecipeId;

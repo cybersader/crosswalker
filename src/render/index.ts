@@ -14,7 +14,7 @@
  * those emit on every note regardless of layout mechanism choice.
  */
 
-import type { ConceptIdentity, Address, RenderReport, VariadicConfig } from './types';
+import type { ConceptIdentity, Address, RenderReport, VariadicConfig, LayoutValue } from './types';
 import { renderTemplate, renderTemplateValue, RenderError } from './template';
 import { renderBodyProjection, type BodyProjection } from './body';
 import { applyFolder, applyVariadicFolder } from './mechanisms/folder';
@@ -32,6 +32,7 @@ export type {
 	RenderNoteCode,
 	RenderReport,
 	VariadicConfig,
+	LayoutValue,
 } from './types';
 export { RenderError } from './template';
 export { renderTemplate, renderTemplateValue } from './template';
@@ -173,8 +174,31 @@ export interface RecipeEnrichment {
  * `report` (optional): when provided, per-row deviations (skipped folder
  * levels, split/regex fallbacks) are recorded into it. Purely observational —
  * output is byte-identical with or without it.
+ *
+ * `layoutValues` (optional, AM-33 / AM-37): when provided, every DIRECTORY
+ * SEGMENT of `address.primary.path` is appended to it, in order, as the segment
+ * is produced — by a folder mechanism (fixed or variadic), by a literal
+ * separator inside a folder template, or by the directory prefix of a file
+ * template. The guarantee is byte-level and load-bearing: after render, the
+ * k-th entry's `value` is byte-identical to the k-th segment of the rendered
+ * directory, and the list is exactly as long as that directory is deep. A
+ * consumer can therefore compare the two, and a disagreement is a bug rather
+ * than a case to fall back on. Also purely observational — the Address is
+ * byte-identical with or without it, so nothing hashed or asserted about
+ * render's output changes shape.
+ *
+ * Failure mode prevented: a consumer that needs to know what a folder level was
+ * ABOUT going back to `dirname(finalPath)` to find out. Parsing a path to
+ * recover the facts that built it is a guess, and hub identity was built on that
+ * guess (adversarial pass 12, CONFIRMED 1). The facts are handed over here
+ * instead, at the one moment they are known for certain.
  */
-export function render(recipe: Recipe, identity: ConceptIdentity, report?: RenderReport): Address {
+export function render(
+	recipe: Recipe,
+	identity: ConceptIdentity,
+	report?: RenderReport,
+	layoutValues?: LayoutValue[],
+): Address {
 	const address: Address = {
 		primary: { path: '' },
 		wikilinkTarget: '',
@@ -202,13 +226,18 @@ export function render(recipe: Recipe, identity: ConceptIdentity, report?: Rende
 						entry as Parameters<typeof applyVariadicFolder>[1],
 						identity.scope,
 						report,
+						layoutValues,
 					);
 				} else {
-					applyFolder(address, entry as Parameters<typeof applyFolder>[1], identity.scope, report);
+					applyFolder(address, entry as Parameters<typeof applyFolder>[1], identity.scope, report, layoutValues);
 				}
 				break;
 			case 'file':
-				applyFile(address, entry as Parameters<typeof applyFile>[1], identity.scope, report);
+				// AM-37: `layoutValues` reaches the file mechanism too. Its template
+				// may render directory prefixes, and a directory nobody recorded a
+				// value for is a directory whose hub identity has to be guessed back
+				// out of the path.
+				applyFile(address, entry as Parameters<typeof applyFile>[1], identity.scope, report, layoutValues);
 				break;
 			case 'heading':
 				applyHeading(address, entry as Parameters<typeof applyHeading>[1], identity.scope, report);

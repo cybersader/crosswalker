@@ -587,9 +587,11 @@ export class MappingWorkbench {
 		this.renderCanvas(grid.createDiv({ cls: 'crosswalker-wb-canvas' }));
 		this.renderPreviewRail(grid.createDiv({ cls: 'crosswalker-wb-rail crosswalker-wb-preview' }));
 
-		// Escape and click-away stay scoped to this workbench. The modal host also
-		// routes Escape through its Obsidian Scope before Modal's close handler;
-		// the workspace host relies on this local DOM fallback instead.
+		// Escape and click-away stay scoped to this workbench. The workspace (tab)
+		// host registers no Obsidian Scope, so this local listener is its only
+		// Escape path. The modal host does register one, and that binding always
+		// consumes Escape, so whichever of the two runs first the outcome is the
+		// same: there, this listener is redundant rather than load-bearing.
 		grid.addEventListener('keydown', (event) => {
 			if (event.key !== 'Escape' || !this.closeTransientUi()) return;
 			event.preventDefault();
@@ -626,6 +628,10 @@ export class MappingWorkbench {
 	 * Close the topmost transient workbench surface. Modal hosts call this from
 	 * their Obsidian Scope so Escape is consumed before Modal closes; workspace
 	 * hosts reach the same path through the workbench-local keydown listener.
+	 *
+	 * This method is the modal host's Escape close-suppression allow-list: any new
+	 * transient surface (popover, inline confirmation) must be closed here, or
+	 * Escape will tear down the whole wizard instead of just that surface.
 	 */
 	closeTransientUi(): boolean {
 		if (this.mappingChooserOpen) {

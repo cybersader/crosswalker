@@ -54,6 +54,21 @@ const parsedDataMock = {
 	headerRow: 0,
 };
 
+/**
+ * The set the first import minted, read back off a note it wrote.
+ *
+ * AM-9: the engine no longer adopts whatever set shares the destination folder,
+ * so a re-import that means "refresh what is already here" has to say which set.
+ * In the product that is a click on the ownership review; here it is the id the
+ * first run stamped.
+ */
+async function ownedImportSet(): Promise<{ id: string }> {
+	const fm = await readFrontmatterFromDisk(`${TEST_VAULT_DIR}/AC/AC-1.md`) as Record<string, any> | null;
+	const id = fm?._crosswalker?.import_set?.id;
+	if (typeof id !== 'string') throw new Error('first import stamped no import set id');
+	return { id };
+}
+
 describe('Crosswalker plugin — full import flow (v0.1.3)', function () {
 	this.timeout(120000); // generation can be slow on cold cache
 
@@ -161,7 +176,8 @@ describe('Crosswalker plugin — full import flow (v0.1.3)', function () {
 			requireKeys: ['reviewer', 'review_date'],
 		});
 
-		// Re-run the import (replace mode → should merge, not overwrite)
+		// Re-run the import (replace mode → should merge, not overwrite), naming the
+		// set the first run minted. See `ownedImportSet`.
 		await browser.executeObsidian(
 			async ({ app }, args) => {
 				// @ts-expect-error - internal API
@@ -171,7 +187,12 @@ describe('Crosswalker plugin — full import flow (v0.1.3)', function () {
 			{
 				parsedData: parsedDataMock,
 				config: sampleConfig,
-				options: { ...sampleConfig.output, sourceFileName: 'test.csv', configId: 'v0-1-3-test' },
+				options: {
+					...sampleConfig.output,
+					sourceFileName: 'test.csv',
+					configId: 'v0-1-3-test',
+					importSet: await ownedImportSet(),
+				},
 			},
 		);
 
@@ -197,7 +218,16 @@ describe('Crosswalker plugin — full import flow (v0.1.3)', function () {
 			return await app.vault.read(file);
 		}, TEST_VAULT_DIR);
 
-		// Re-run import
+		// Re-run import as a refresh of the set already here. Without naming it the
+		// run would mint a new set, and the stamped import_set id in the frontmatter
+		// would differ between the two reads below - which is a real difference, not
+		// a timestamp, so idempotency has to be asserted about a refresh.
+		const refreshOptions = {
+			...sampleConfig.output,
+			sourceFileName: 'test.csv',
+			configId: 'v0-1-3-test',
+			importSet: await ownedImportSet(),
+		};
 		await browser.executeObsidian(
 			async ({ app }, args) => {
 				// @ts-expect-error
@@ -207,7 +237,7 @@ describe('Crosswalker plugin — full import flow (v0.1.3)', function () {
 			{
 				parsedData: parsedDataMock,
 				config: sampleConfig,
-				options: { ...sampleConfig.output, sourceFileName: 'test.csv', configId: 'v0-1-3-test' },
+				options: refreshOptions,
 			},
 		);
 

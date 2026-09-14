@@ -121,8 +121,38 @@ export class FileManager {
   });
 }
 
+/**
+ * AM-45 (2026-09-02). The host's four mutations, not two.
+ *
+ * This mock used to collapse separators and stop, which made it useless for the
+ * one obligation the pinning tests carry: proving that a recorded layout value
+ * and the path segment it describes are the SAME BYTES in a vault. A test that
+ * passes against a mock that mutates nothing proves the two derivations are one
+ * function; it proves nothing about the vault, where `normalizePath` also strips
+ * edge separators, folds `U+00A0`/`U+202F` to an ordinary space, and normalizes
+ * the whole string to NFC. NFC is the dangerous one: it changes bytes WITHOUT
+ * changing the segment count, so it slips past an arity check and silently
+ * re-identifies every hub under a decomposed character.
+ *
+ * Kept byte-for-byte in step with `src/render/vault-path.ts`, which is the pure
+ * copy the runtime-agnostic render layer uses. If those two ever drift, AM-44's
+ * elementwise check refuses the hub by name instead of guessing.
+ *
+ * S5 (2026-09-04). The FIFTH behaviour, and the one a test could not have found
+ * by comparing the two copies to each other: the host answers `'/'` for a path
+ * that normalizes to nothing, and both copies answered `''`. A mock that is
+ * pinned as "the host's mutations" and answers a falsy string where the host
+ * answers a truthy one turns every emptiness guard in the product green under
+ * test and leaves it dead in a vault.
+ */
 export function normalizePath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/\/+/g, '/');
+  let out = path.replace(/([\\/])+/g, '/');
+  out = out.replace(/(^\/+|\/+$)/g, '');
+  // Escapes, not the characters themselves: a literal non-breaking space in
+  // source is invisible and one stray editor pass would silently delete the fold.
+  out = out.replace(/\u00A0|\u202F/g, ' ');
+  out = out.normalize('NFC');
+  return out === '' ? '/' : out;
 }
 
 // parseYaml — minimal block-YAML parser covering exactly the dialect this

@@ -1,5 +1,5 @@
 ---
-curie: "nist-csf-2-0-govern-identify:hub/nist-csf-2-0-govern-identify"
+curie: "nist-csf-2-0-govern-identify:hub/_root"
 kind: hub
 children:
   - "[[GV]]"

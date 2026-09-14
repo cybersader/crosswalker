@@ -34,7 +34,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as XLSX from 'xlsx';
 import { buildEvidenceLink } from '../../src/views/evidence-link';
-import { requireFrontmatterIndexed } from './helpers/vault-readiness';
+import { readFrontmatterFromDisk, requireFrontmatterIndexed } from './helpers/vault-readiness';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const V15 = path.join(ROOT, 'Frameworks', 'enterprise-attack-v15.1.xlsx');
@@ -146,6 +146,16 @@ async function runRecipe(
 	recipe: unknown,
 	destination: string,
 	sourceFileName: string,
+	/**
+	 * AM-16. The ownership decision, named explicitly on any call that writes
+	 * over identities an earlier call already minted. Since AM-9 the engine no
+	 * longer adopts a set it happens to find in the destination, so omitting this
+	 * on a re-import asks for a NEW set, which AM-12 then correctly refuses row
+	 * by row as a cross-set collision. This is the E2E stand-in for the ownership
+	 * click a person makes in the wizard. Omitted on a first import, which
+	 * genuinely is a new set.
+	 */
+	importSet?: { id: string },
 ): Promise<any> {
 	return browser.executeObsidian(async ({ app }, args) => {
 		// @ts-expect-error — Crosswalker E2E API
@@ -165,14 +175,32 @@ async function runRecipe(
 				createFolders: true,
 				strictValidation: true,
 				sourceFileName: args.sourceFileName,
+				...(args.importSet ? { importSet: args.importSet } : {}),
 			},
 		);
-	}, { columns, rows, recipe, destination, sourceFileName });
+	}, { columns, rows, recipe, destination, sourceFileName, importSet });
 }
 
-async function importRelease(rows: Record<string, string>[], sourceFileName: string): Promise<any> {
+async function importRelease(
+	rows: Record<string, string>[],
+	sourceFileName: string,
+	importSet?: { id: string },
+): Promise<any> {
 	const { columns, rows: picked } = subset(rows);
-	return runRecipe(columns, picked, RECIPE, DESTINATION, sourceFileName);
+	return runRecipe(columns, picked, RECIPE, DESTINATION, sourceFileName, importSet);
+}
+
+/**
+ * AM-16. The import set the 15.1 import minted, read off a note it generated.
+ * The note on disk is where ownership is actually recorded, and it is read from
+ * the file's own bytes rather than the metadata cache, which may not have
+ * indexed a just-written note yet.
+ */
+async function ownedImportSet(): Promise<{ id: string }> {
+	const fm = await readFrontmatterFromDisk(`${DESTINATION}/${SCENARIOS[0].id}.md`) as Record<string, any> | null;
+	const id = fm?._crosswalker?.import_set?.id;
+	if (typeof id !== 'string') throw new Error('the 15.1 import stamped no import set id');
+	return { id };
 }
 
 /** Projection result plus every junction's freshness, keyed by note path. */
@@ -261,11 +289,67 @@ describe('Ch 43 — a real ATT&CK release re-import, end to end', function () {
 		reviewCid: string;
 		reviewGroups: { wording: string; scope: string; housekeeping: string };
 	}>;
+	/** AM-74. When the second import started, so a later `produced_at` is provable. */
+	let reimportStartedAt = '';
 
 	before(() => {
 		v15 = loadTechniques(V15);
 		v16 = loadTechniques(V16);
 	});
+
+	/**
+	 * AM-74 (2026-09-04). WAIT FOR WHAT THE SECOND IMPORT CHANGED.
+	 *
+	 * `requireFrontmatterIndexed({ requireKeys: ['curie', '_crosswalker'] })` is
+	 * satisfied by the state the FIRST import left in the cache: both keys were
+	 * already there. So it cannot detect re-indexing after the SECOND write, and the
+	 * two declarations that read `review_cid` (and, through the projector, Tier 2)
+	 * ran against a cache that had not caught up. That is
+	 * `project_cache_lag_is_not_absence` in its documented shape: a cache read that
+	 * cannot tell "not there" from "not indexed yet". The engine's end state is
+	 * correct - the two later declarations in this file assert it and pass - and the
+	 * fix belongs here, in the spec's readiness gate, not in the engine.
+	 *
+	 * The gate waits for a fact only the re-import can produce: for every subject
+	 * this release genuinely changed, the cached `review_cid` differs from the value
+	 * snapshotted BEFORE the re-import (`stamped`, written by the first import),
+	 * or the note's `_crosswalker.produced_at` is later than the re-import's start.
+	 * If it never arrives, the re-import did not restamp what it should have, and
+	 * that is an engine finding rather than a timing one - which is why the failure
+	 * message says so.
+	 */
+	const awaitReimportVisible = async (startedAtIso: string): Promise<void> => {
+		const expectChanged = SCENARIOS.filter((s) => s.expectFlag).map((s) => s.id);
+		await browser.waitUntil(
+			async () => {
+				const seen = await browser.executeObsidian(async ({ app, obsidian }, args) => {
+					const out: Record<string, { cid: string; producedAt: string }> = {};
+					for (const id of args.ids) {
+						const file = app.vault.getAbstractFileByPath(`${args.destination}/${id}.md`);
+						if (!(file instanceof obsidian.TFile)) return null;
+						const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+						if (!fm) return null;
+						const cw = (fm._crosswalker || {}) as Record<string, unknown>;
+						out[id] = { cid: String(cw.review_cid || ''), producedAt: String(cw.produced_at || '') };
+					}
+					return out;
+				}, { ids: expectChanged, destination: DESTINATION });
+				if (!seen) return false;
+				return expectChanged.every((id) => {
+					const row = seen[id];
+					if (!row) return false;
+					return row.cid !== stamped[id].reviewCid || row.producedAt > startedAtIso;
+				});
+			},
+			{
+				timeout: 120000,
+				interval: 250,
+				timeoutMsg: 'the re-import\'s own restamp never reached the metadata cache for every changed subject '
+					+ '(if the notes on disk do carry new review_cid values, this is a cache-lag gate problem; if they '
+					+ 'do not, the re-import did not restamp them and that is an engine finding)',
+			},
+		);
+	};
 
 	it('starts from a clean destination', async () => {
 		const cleaned = await browser.executeObsidian(async ({ app }, folders) => {
@@ -499,7 +583,10 @@ describe('Ch 43 — a real ATT&CK release re-import, end to end', function () {
 	});
 
 	it('THE CLAIM: re-importing 16.1 invalidates exactly the changed subjects', async () => {
-		const result = await importRelease(v16, 'enterprise-attack-v16.1.xlsx');
+		// AM-74. The instant before the write, so `produced_at` can be compared
+		// against it: everything the gate below waits for is later than this.
+		reimportStartedAt = new Date().toISOString();
+		const result = await importRelease(v16, 'enterprise-attack-v16.1.xlsx', await ownedImportSet());
 		expect(result.success).toBe(true);
 		expect(result.errors).toEqual([]);
 
@@ -509,6 +596,9 @@ describe('Ch 43 — a real ATT&CK release re-import, end to end', function () {
 			requireKeys: ['curie', '_crosswalker'],
 			timeoutMs: 120000,
 		});
+		// AM-74. Both keys above predate this import, so that gate cannot see the
+		// second write. See `awaitReimportVisible`.
+		await awaitReimportVisible(reimportStartedAt);
 
 		// The engine must have re-stamped: a changed row means a changed hash,
 		// and an unchanged row means a byte-identical one.
@@ -545,6 +635,12 @@ describe('Ch 43 — a real ATT&CK release re-import, end to end', function () {
 	});
 
 	it('the vault can name which links stopped counting and which cannot be judged', async () => {
+		// AM-74. The same gate as the declaration above, for the same reason: these
+		// rows are the projection of frontmatter read through the metadata cache
+		// (`src/tier2/projector.ts`), so they can only be as current as that cache.
+		// Satisfied already when the previous declaration ran, and asserted here so
+		// this declaration does not depend on that ordering.
+		await awaitReimportVisible(reimportStartedAt);
 		const report = await browser.executeObsidian(async ({ app }) => {
 			// @ts-expect-error — Crosswalker E2E API
 			const plugin = app.plugins.plugins['crosswalker'];

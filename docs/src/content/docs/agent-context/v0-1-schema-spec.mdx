@@ -9,7 +9,11 @@ tags: [schema, foundation, v0-1, architecture]
 
 
 :::tip[Current contract verification]
-**Status last verified:** 2026-08-28 — re-checked field by field against [`spec/tier1.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/tier1.schema.json), [`spec/recipe.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/recipe.schema.json), and `src/tier2/schema.sql`.
+**Scoped addendum, 2026-09-09** — the runtime-producer status callout in [§ Source-byte digest](#source-byte-digest-what-source_hash-records) only, re-checked against the targeted real-Obsidian acceptance run of `tests/e2e/visual-wizard-formats.spec.ts` and its independent evidence review. **No schema statement, field table, count or `$id` on this page changed**, and no schema file was touched. The 2026-09-07 addendum below and every other section stand exactly as written.
+
+**Scoped addendum, 2026-09-07** — one subsection only. `source_ref` and its `source_hash` property were re-checked field by field against `spec/tier1.schema.json § $defs.provenance_block.properties.source_ref` (unchanged: five optional properties, `minProperties: 1`, `source_hash` still a plain unpatterned string) and against `buildSourceRef()` in `src/generation/provenance.ts` (unchanged: conditional emission, omitted when falsy). The new runtime producer was read in `src/import/parsers/xlsx-parser.ts` and `src/generation/hash.ts` on the local working tree. **Producer status at the time of writing:** uncommitted, unmerged, unreleased, and partially verified — see the status callout in that subsection. No other section of this page was re-verified on this date, and the lines below stand unchanged.
+
+**Status last verified:** 2026-09-06 — the recipe-document digest additions were checked field by field against the local working tree: both new `recipe_document_digest` definitions and reference locations in [`spec/tier1.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/tier1.schema.json) and [`spec/recipe.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/recipe.schema.json), the helper and the reduced effective-target input in `src/generation/hash.ts`, `normalizeRecipe()` and the fork branch in `src/import/recipe-document.ts`, and the generated `RecipeAncestryReference`. That work has since passed independent verification (full unit suite, golden tests, lint, build, `codegen --check`, fixture no-drift, and all six static gates — detail in [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present)) and remains unmerged and unreleased. The rest of the page retains its 2026-08-31 field-by-field verification against those two schemas and `src/tier2/schema.sql`.
 
 The machine-readable contracts and canonical SQL remain authoritative. Sections §3 and §7 below summarize the shipped shapes. Historical TypeScript/YAML sketches are labeled as history and must not be used as implementation contracts.
 
@@ -122,20 +126,92 @@ Tier 1 (the canonical Markdown representation) is governed by [`spec/tier1.schem
 | Field | Required | Meaning |
 |---|---:|---|
 | `spec_version` | Yes | Tier 1 contract version used to write the record |
-| `source_ref` | Yes | Stable or human-readable source reference |
+| `source_ref` | Yes | Stable or human-readable source reference. Five properties, none of them individually required, plus `additionalProperties: false` (source: `spec/tier1.schema.json § $defs.provenance_block.properties.source_ref`): `file`, `url`, `curie`, `version`, and `source_hash`, the fingerprint of the source bytes the record was produced from. **What validation actually enforces is `minProperties: 1`** — any single one of the five satisfies it, `version` or `source_hash` alone included. The schema's own description text states a stricter intent, "At least one of file/url/curie required", but that sentence is descriptive and the current contract does not enforce it; do not rely on it when validating third-party records. See [the source-byte subsection](#source-byte-digest-what-source_hash-records) |
 | `produced_at` | Yes | ISO 8601 production timestamp |
 | `producer` | No | Producer name and version |
-| `recipe` | No | Recipe identifier and content hash used for this output |
-| `import_set` | No | Durable ownership stamp: `id` matches `^iset-[a-z0-9]{6}$`; `scheme` is fixed at mint. The closed enum is `endpoint-v1 | set-qualified-v1` (source: `spec/tier1.schema.json § $defs.provenance_block.properties.import_set.properties.scheme.enum`) |
+| `recipe` | No | Reference to the recipe used for this output. Three optional properties, none required (source: `spec/tier1.schema.json § $defs.provenance_block.properties.recipe`): `id`, the recipe identifier; `hash`, the long-standing effective-target receipt, still typed as a plain string with no pattern — deliberately left permissive so existing records keep validating; and `recipe_document_digest`, added 2026-09-06, strictly `^sha256-[a-f0-9]{64}$` via `$defs.recipe_document_digest`. Nothing in the generation path writes the digest field yet — see [the digest subsection](#recipe-document-digest-two-reference-fields) |
+| `import_set` | No | Durable ownership stamp. Five properties, two of them required when the block is present (source: `spec/tier1.schema.json § $defs.provenance_block.properties.import_set`): `id` (required) matches `^iset-[a-z0-9]{6}$`; `scheme` (required) is fixed at mint, closed enum `endpoint-v1` or `set-qualified-v1`; `destination` (optional) records the folder the set was last written to; `ontology` (optional) pins the CURIE prefix the set mints under; `derivation` (optional) pins how the set turns a source row into a CURIE local part, closed enum `filename-stem-v1` or `declared-facts-v1`. See the two subsections below |
 | `concept_cid` | No | Content identifier for the declared concept-identity scope; layout and mapping-only defaults do not enter a concept's scope |
 | `review_cid` | No | The same identity record hashed with the review-normalization rule applied to every string value, so cosmetically-different content (citation markers, curly quotes, collapsed whitespace, markdown link destinations) hashes identically here and differently in `concept_cid`. This normalized whole-row hash is the only changed/not-changed gate. Absent means the producer computed none, which is not a claim that the content is unchanged |
 | `review_groups` | No | Three recipe-driven explanation hashes, all required when the block is present: `wording`, `scope`, and `housekeeping` (source: `spec/tier1.schema.json § $defs.review_group_cids`). They classify a changed `review_cid`; they never replace or narrow the whole-row gate |
 
 
+#### Source-byte digest: what `source_hash` records
+
+`source_ref.source_hash` (a fingerprint of the bytes a record was produced from) answers exactly one question: **which source bytes made this note?** Its schema definition has not changed and is not new — a plain string, deliberately unpatterned, described as "Hash of the source file at import time. Format: `sha256-{hex}`" (source: `spec/tier1.schema.json § $defs.provenance_block.properties.source_ref.properties.source_hash`). It has always been optional and permissive so that external producers writing valid Tier 1 keep validating; **no schema version, `$id` or pattern moved when the runtime producer described below was added.**
+
+**What produces it today.** Two producers, one of them new:
+
+| Producer | Emits | Notes |
+|---|---|---|
+| The external fixture CLI | Yes, long-standing | Pre-existing raw-byte provenance; unchanged |
+| Native `.xlsx` import in the plugin | Yes, new 2026-09-07 | `sha256-` plus 64 lowercase hex characters over the complete pre-parse workbook payload, computed before any decode (`computeSourceByteDigest()` in `src/generation/hash.ts`) |
+| Native CSV, JSON and SSSOM import | No | Unchanged. These do **not** synthesize a digest from decoded text or parsed rows, because a fingerprint of decoded output answers a different question |
+
+The XLSX parse reads its file once and keeps those bytes privately for the life of the join handle it returns, so a declared [`source.joins`](/crosswalker/agent-context/zz-log/2026-08-27-source-contract-delivered/) secondary sheet decodes from the same snapshot rather than a fresh read that could return different bytes. **The guarantee is scoped to one parse, not to a wizard session:** the earlier sheet-name listing is a separate discovery read that takes no snapshot and computes no digest, so what the digest identifies is the bytes behind one import's rows and joins. Rationale and the worked example are in the [XLSX source snapshot log](/crosswalker/agent-context/zz-log/2026-09-07-xlsx-source-snapshot-synthesis/).
+
+**What the field does and does not assert.**
+
+- **Absent means unrecorded, never unchanged.** A native runtime import without a recorded byte digest omits `source_hash`; existing notes and output from external producers may already carry it. A mixed vault is expected, and nothing backfills the field — existing skip, no-op and ownership-preservation rules stay authoritative over any urge to rewrite a note just to populate provenance.
+- **It identifies bytes, not selectors.** Sheet choice, header row and filters are not part of it; two imports of one workbook with different settings produce the same digest.
+- **It is not a signature and not a replay record.** It proves nothing about who produced the record, does not store the source, does not diagnose drift against a file selected later, and is not the source/run binding that [v0.1.7 Track 2](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) still owes.
+- **The engine does not verify a caller-supplied value.** `buildProvenance()` in `src/generation/provenance.ts` emits `source_hash` when a truthy value is supplied and omits it otherwise; that function is unchanged. A programmatic producer supplying its own digest is responsible for it identifying the original source bytes from which the accompanying rows were parsed, not a serialization of those rows.
+
+:::caution[Status of the runtime producer]
+The XLSX runtime producer is **implemented on an unmerged branch and unreleased**. Its targeted runtime acceptance passed on 2026-09-09: a real import wrote a note whose `source_hash` equalled a host-side digest of the same workbook payload the wizard was handed, and the companion negative control executed — a JSON import wrote a note carrying a nested `source_ref` of `{ file: … }` **with no `source_hash` inside it**. That is the distinction the field draws, and it is narrower than "no provenance": the JSON note still records which file produced it. The XLSX check is a **same-payload digest comparison, not proof of external file authenticity**. **This is a scoped Tier 1 runtime result, not a full-suite, Tier 2 or milestone clearance**: no standalone build or other verification suite was run for it, though the normal E2E `onPrepare` build ran as part of the invocation. The schema contract described above is unchanged and shipped; only the producer is new work. Delivery detail, and the independent review's open qualifications, are in [CHANGELOG.md — Real-Obsidian acceptance rerun](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#real-obsidian-acceptance-rerun-the-six-targeted-declarations-passed-2026-09-09).
+:::
+
+#### Recipe-document digest: two reference fields
+
+A **recipe-document digest** (a fingerprint naming one complete recipe revision) answers a question the existing hashes cannot: *which exact revision of this recipe is this?* It is stored in exactly two places, both optional, both new on 2026-09-06:
+
+| Schema | Location | Means |
+|---|---|---|
+| `spec/recipe.schema.json` (SchemaVer 1.10.0) | `metadata.based_on.recipe_document_digest` | The complete ancestor recipe named by `based_on.recipe` |
+| `spec/tier1.schema.json` (SchemaVer 1.4.0) | `_crosswalker.recipe.recipe_document_digest`, inside `$defs.provenance_block.properties.recipe` | The complete recipe referenced by that note's provenance |
+
+Both accept only `^sha256-[a-f0-9]{64}$` through a local `$defs.recipe_document_digest` in each schema. Both are optional, so recipes and notes written before this addition still validate, and neither schema `$id` changed.
+
+**Normalized input, and what that includes.** The digest is computed by `computeRecipeDocumentDigest(recipe)` in `src/generation/hash.ts`, which is `sha256-` plus the SHA-256 of `canonicalStringify()` over the whole recipe object. **It neither validates nor normalizes what it is given**: its precondition is a validated canonical recipe already put through `normalizeRecipe()` (`src/import/recipe-document.ts § normalizeRecipe`). Any external producer computing this digest must therefore do both steps first — passing raw recipe JSON straight in yields a digest for a different object than the one Crosswalker would identify. Keeping normalization on the caller also keeps the module graph acyclic — `recipe-document.ts` imports `hash.ts`, never the reverse.
+
+Because normalization runs first, the digest covers the defaults `normalizeRecipe()` supplies: `spec_version`, `target.linkStyle`, the folder `variadic` defaults (`segment`, `drop_last`, `max_depth`, `on_overflow`), and the `also_emit.body` defaults (`position`, `format`, `omit_if_empty`, and `heading_depth` for `section` entries) — sourced from that function. The practical consequence for external producers: **an omitted default and an explicitly written equivalent default identify the same revision and digest identically.** This is a digest of a normalized canonical recipe, not of arbitrary raw recipe JSON, and object key order and input-file whitespace do not affect it while array order does.
+
+**How it differs from the existing recipe hash.** `computeRecipeHash()` hashes a deliberately reduced slice — `layout`, `also_emit`, `enrichment`, `auto_heading`, `source.where`, `source.joins` (source: `src/generation/hash.ts § recipeHashCanonicalInput`) — because it answers "did anything that changes output behavior change?" The document digest covers the whole recipe, so a changed recipe id, title, or ancestry reference changes the digest while leaving the effective-target hash fixed. Both meanings, and every value already written under them, are unchanged by this addition.
+
+**No self-field and no stripping.** Digests live on references to *other* documents, so a recipe never carries its own digest: an own-digest property on recipe metadata is rejected by the closed metadata schema. Nothing is excluded before hashing either — an ancestor digest string already present in a recipe is ordinary document content and participates in that recipe's digest, as does any similarly named key inside an opaque block.
+
+**What emits it today.** Only the existing fork path: when `patchRecipeDocument()` customizes a recognized recipe and writes `metadata.based_on`, it records the digest of the normalized original *before* the descendant's edits (`src/import/recipe-document.ts § patchRecipeDocument`). Fresh documents still get no ancestry, and a no-op patch mints nothing. **The Tier 1 field is contract only**: no generation path stamps `_crosswalker.recipe.recipe_document_digest` yet, and this slice adds no recipe storage, recipe-library UI, source retention, or replay execution.
+
+#### What is pinned to the set, and why
+
+`scheme`, `destination`, `ontology` and `derivation` are all recorded on the set rather than recomputed per run. They exist because the same question - *where does this import already live, and under what names?* - was previously answered by looking at the vault, and looking at the vault answers a different question: it describes an address, not an owner.
+
+| Property | Required | Pinned when | What a run does with it |
+|---|---:|---|---|
+| `id` | Yes | Minted once, crypto-random and meaningless | Names the set. A refresh reuses it; nothing derives it from a recipe, a destination, or a source, because all three legitimately change |
+| `scheme` | Yes | Mint | Fixes crosswalk-assertion identity for the life of the set. A refresh may not change it |
+| `destination` | No | Re-stamped every run | A hint about where the set lives, so a refresh does not have to infer a root from a derived default. Never authority: nothing updates it when a user renames the folder in the file explorer, so a reader re-validates it against the set's actual note paths before writing there |
+| `ontology` | No | Mint; a legacy set is pinned on its first refresh to the prefix its own notes already carry | The CURIE prefix a refresh mints under. A run uses the pin in preference to the ontology its own recipe implies |
+| `derivation` | No | Mint | Which rule turns a source row into a CURIE local part. A run uses the set's pin, never this version's current rule |
+
+`ontology` prevents a specific and total failure: a refresh that recomputes the ontology from its own recipe can land on a different answer than the one the set's notes carry - a renamed saved config, a differently named export file - and every CURIE it then writes matches none of the notes it owns. The run writes a second copy of the whole import beside the first and reports every original as an orphan. Absent on notes written before the pin existed, which is why a legacy set is pinned from its own notes rather than from the run.
+
+`derivation` prevents the same failure from the opposite direction, and it is why the identity rule could be corrected at all. The rule shipped since v0.1.0 builds a concept's CURIE local part out of its leaf filename stem, passed through the filesystem sanitizer, so `AC 2`, `AC-2` and `AC/2` all collapse onto one identity and even a declared `curie` column gets rewritten. Correcting that rule in place would give every note in every existing vault a new CURIE, and the next refresh would recognise none of them. So the rule is pinned instead: a set stamped `filename-stem-v1`, or carrying no stamp at all, keeps the legacy derivation byte-exact forever, and only a newly minted set derives under `declared-facts-v1` (source: `src/generation/import-set.ts § derivationOf`).
+
+`declared-facts-v1` consults the source's own identity columns first, in the order `curie`, `id`, `subject_id`, `control_id`, `code`, and falls back to the filename stem only when none is present. A declared `curie` outside the CURIE charset is refused for that row by name rather than rewritten. Any sanitization that does happen is injective: a value already inside the charset passes through unchanged, and any other value becomes `<safe form>..<short digest of the exact raw value>`, so two distinct source values can never produce one CURIE (source: `src/generation/curie.ts § injectiveCurieLocalPart`).
+
+Independently of any pin, a single run refuses to produce one CURIE twice. The second row to claim an identity is reported by name alongside the row that claimed it first, and nothing is written for it. That guard changes no identity, so it applies to legacy sets as well as new ones (source: `src/generation/generation-engine.ts § duplicateCurieMessage`).
+
+Neither optional property is an ownership decision. Ownership is carried only by `id`, and the set a run writes under is chosen by the caller, never inferred by the engine from what happens to sit in the destination folder (source: `src/generation/import-set.ts § resolveImportSet`).
+
+#### Crosswalk assertion identity
+
 Crosswalk assertion identity (the stable name of one mapping note) follows the owning set's fixed scheme. Both values and forms below are defined by `spec/tier1.schema.json § $defs.provenance_block.properties.import_set.properties.scheme`:
 
 - `endpoint-v1`: `cw-<sanitized-subject>-<sanitized-object>`. This is the original form and remains byte-identical on refresh.
 - `set-qualified-v1`: `cwset-<import-set-id>-<sanitized-subject>-<sanitized-object>`. The `cwset-` marker makes the form visibly distinct; the minted set id lets equal endpoint pairs in different import sets coexist. Row order and mapping-set metadata do not enter either form.
+
+Endpoint sanitization follows the set's `derivation` pin for the same reason the concept rule does: under `filename-stem-v1` the original many-to-one form is reproduced byte-for-byte, and only a set minted under `declared-facts-v1` sanitizes endpoints injectively (source: `src/import/sssom-importer.ts § sssomEdgeCurie`).
 
 A refresh always reuses the stored scheme. Choosing coexistence mints a new import set whose assertions use `set-qualified-v1`; no existing note is migrated, moved, or re-identified. See the [import-set ownership decision](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/#how-this-dissolves-release-isolation-rather-than-mitigating-it).
 
@@ -193,7 +269,7 @@ A mapping set (one published collection of mapping assertions) gives repeated as
 
 ### Additive compatibility
 
-All six 2026-08-21 additions are optional at their containing-record boundary: `parent_curie`, `subject_curie`, `object_curie`, `mapping_set_id`, `predicate_modifier`, and `_crosswalker.import_set`. When `import_set` is present, both its `id` and `scheme` are required (source: `spec/tier1.schema.json § $defs.provenance_block.properties.import_set`). Legacy Tier 1 records without an ownership stamp therefore continue to validate. Producers clear a declared managed field when its rendered source becomes empty, but never clear a `user_preserve` field.
+All six 2026-08-21 additions are optional at their containing-record boundary: `parent_curie`, `subject_curie`, `object_curie`, `mapping_set_id`, `predicate_modifier`, and `_crosswalker.import_set`. When `import_set` is present, both its `id` and `scheme` are required (source: `spec/tier1.schema.json § $defs.provenance_block.properties.import_set`). Legacy Tier 1 records without an ownership stamp therefore continue to validate. The 2026-08-31 addition of `_crosswalker.import_set.derivation` is optional for the same reason and carries a further guarantee: its absence is a meaningful value, not a missing one, and means `filename-stem-v1`. Producers clear a declared managed field when its rendered source becomes empty, but never clear a `user_preserve` field.
 
 ## §4 Recipe Schema Contract and ImportRecipe specification
 
@@ -214,7 +290,7 @@ The active import workbench now retains the full validated canonical recipe thro
 
 Current additive fields include:
 
-- optional display metadata and structured `metadata.based_on` ancestry;
+- optional display metadata and structured `metadata.based_on` ancestry, which since 2026-09-06 may also carry `recipe_document_digest`, a strict digest of the complete normalized ancestor recipe (see [the digest subsection](#recipe-document-digest-two-reference-fields) for its input contract and how it differs from the effective-target hash);
 - optional `source.version` as compatibility metadata, never stronger than verified run provenance;
 - ordered `target.also_emit.body` projections (`append | section` × `text | code | quote | list`);
 - typed managed scalar coercion through the closed `number` template filter;

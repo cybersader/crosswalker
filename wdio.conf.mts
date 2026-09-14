@@ -1,3 +1,4 @@
+import 'wdio-obsidian-service';
 import type { Options } from '@wdio/types';
 import path from 'path';
 import { killOrphanedTestProcesses } from './tests/e2e/helpers/process-hygiene';
@@ -13,10 +14,9 @@ import { killOrphanedTestProcesses } from './tests/e2e/helpers/process-hygiene';
  *      by a prior crashed run, then builds the root plugin distribution with
  *      one retry for the esbuild-service `goroutine`/deadlock flake.
  *   2. wdio-obsidian-service copies the immutable seed into a temporary sandbox,
- *      then installs `main.js`, `manifest.json`, and `styles.css` from
- *      `plugins: ['.']` into that copy.
- *   3. The Tier 2 hook augments the installed plugin with its two runtime assets.
- *   4. Each spec runs against the isolated sandbox; the tracked seed is never
+ *      then installs the complete three-file plugin distribution (`main.js`,
+ *      `manifest.json`, and `styles.css`) from `plugins: ['.']` into that copy.
+ *   3. Each spec runs against the isolated sandbox; the tracked seed is never
  *      mutated by a test run.
  *
  * Verify locally: `bun run e2e`
@@ -35,6 +35,9 @@ const REPO_ROOT = path.resolve('.');
 const E2E_SEED_VAULT = path.resolve('./tests/e2e/seed-vault');
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Per worker process (one Obsidian session); see the `beforeSuite` hook below.
+let settingsPopoutDisabled = false;
 
 /** Build the plugin, retrying once if the esbuild-service deadlock flake
  *  signature ("goroutine ... deadlock" — a Go-runtime panic from esbuild's
@@ -125,46 +128,36 @@ export const config: Options.Testrunner = {
     await buildPluginWithRetry();
   },
 
-  /**
-   * v0.1.5 Tier 2: copy sqlite-wasm runtime artifacts into the isolated
-   * sandbox's plugin folder. obsidian-launcher deliberately installs only
-   * main.js + manifest.json + styles.css for local plugins, so the E2E harness
-   * augments that installed distribution before any test runs.
-   */
-  before: async function () {
-    const fs = await import('node:fs/promises');
-    const pathMod = await import('node:path');
-    const { existsSync } = await import('node:fs');
-
-    // Get the test vault's plugin directory via the browser
-    const pluginDir = await browser.executeObsidian(({ app }) => {
-      const cfg = app.vault.configDir; // '.obsidian'
-      // @ts-expect-error - adapter.basePath is internal but stable
-      const basePath = app.vault.adapter.basePath as string;
-      return `${basePath}/${cfg}/plugins/crosswalker`;
+  // Obsidian 1.13 added "Open settings in a window" and defaults the
+  // `settingsPopoutWindow` vault config to true, which moves the settings modal
+  // into a second Electron window the WebDriver session cannot see: the driver's
+  // window never contains `.modal.mod-settings`, so every screenshot shows a bare
+  // vault even though `openTabById()` succeeded against the detached tree. Force
+  // the in-window modal once per session, before any spec opens settings. The
+  // sandbox vault is a throwaway copy, so this is left set for the whole run.
+  //
+  // This must be `beforeSuite`, not `before`: WDIO runs every `before` hook
+  // concurrently, and wdio-obsidian-service's own `before` is what installs
+  // `browser.executeObsidian`, so a config-level `before` sees it undefined
+  // (observed 2026-09-14). `beforeSuite` runs once the service has finished
+  // preparing the app. It fires per `describe`, so the flag keeps it to one
+  // config write per session.
+  beforeSuite: async function () {
+    if (settingsPopoutDisabled) return;
+    settingsPopoutDisabled = true;
+    const popout = await browser.executeObsidian(({ app }) => {
+      const vault = app.vault as unknown as {
+        getConfig?: (key: string) => unknown;
+        setConfig?: (key: string, value: unknown) => void;
+      };
+      const previous = vault.getConfig?.('settingsPopoutWindow') ?? null;
+      vault.setConfig?.('settingsPopoutWindow', false);
+      // A popout already on screen would be refocused rather than re-homed.
+      // @ts-expect-error -- internal setting API
+      app.setting?.close?.();
+      return previous;
     });
-
-    if (!existsSync(pluginDir)) {
-      console.warn(`[wdio.before] plugin dir not found in test vault: ${pluginDir}`);
-      return;
-    }
-
-    // Copy sqlite3.wasm + sqlite3.mjs from project root (where prod
-    // build outputs them per esbuild.config.mjs) into the temp vault's
-    // plugin dir. WASM-A path uses @sqlite.org/sqlite-wasm; both
-    // artifacts loaded at runtime via the plugin folder.
-    const sourceDir = path.resolve('.');
-    const filesToCopy = ['sqlite3.wasm', 'sqlite3.mjs'];
-    for (const f of filesToCopy) {
-      const src = pathMod.join(sourceDir, f);
-      const dst = pathMod.join(pluginDir, f);
-      if (existsSync(src)) {
-        await fs.copyFile(src, dst);
-      } else {
-        console.warn(`[wdio.before] source artifact missing: ${src}`);
-      }
-    }
-    console.log(`[wdio.before] copied tier-2 artifacts into ${pluginDir}`);
+    console.log('[harness:settings-popout] ' + JSON.stringify({ default: popout, now: false }));
   },
 
   afterTest: async function (_test: any, _context: any, { error }: any) {

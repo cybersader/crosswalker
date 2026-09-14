@@ -11,11 +11,17 @@
  */
 
 import { browser } from '@wdio/globals';
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import * as XLSX from 'xlsx';
 import { closeImportWizard, requireImportWizard, clearAllDrafts } from './helpers/wizard-modal';
-import { waitForVaultIndexed } from './helpers/vault-readiness';
+import { readFrontmatterMatching, waitForVaultIndexed } from './helpers/vault-readiness';
+import {
+  finishWizardWithDriver,
+  type WizardFinishOutcome,
+  type WizardGenerationSnapshot,
+} from './helpers/wizard-generation-outcome';
 
 /**
  * Selector for the live wizard. Every query below is scoped to this element
@@ -116,22 +122,29 @@ async function driveWizard(args: {
       dd.dispatchEvent(new Event('change'));
     }
     if (a.iterator !== undefined || a.where !== undefined) {
-      // CONDITION: both JSON controls (iterator + filter) exist.
-      const texts = await until(() => {
-        const found = Array.from(modal.querySelectorAll('input[type=text]')) as HTMLInputElement[];
-        return found.length >= 2 ? found : null;
+      // CONDITION: the specific filter and advanced iterator controls both exist.
+      const filterSelector = 'input.crosswalker-field-input[placeholder="e.g. status=active"]';
+      const iteratorSelector = 'details.crosswalker-advanced input.crosswalker-field-input[placeholder="$.objects[*]"]';
+      const ready = await until(() => {
+        const filterCount = modal.querySelectorAll(filterSelector).length;
+        const iteratorCount = modal.querySelectorAll(iteratorSelector).length;
+        return filterCount > 0 && iteratorCount > 0 ? true : null;
       }, 8000);
-      if (!texts) {
-        const seen = modal.querySelectorAll('input[type=text]').length;
-        return 'NO_JSON_INPUTS(' + seen + ')';
+      const filters = Array.from(modal.querySelectorAll(filterSelector)) as HTMLInputElement[];
+      const iterators = Array.from(modal.querySelectorAll(iteratorSelector)) as HTMLInputElement[];
+      if (!ready) {
+        return `MISSING_JSON_CONTROLS(filter=${filters.length},iterator=${iterators.length})`;
+      }
+      if (filters.length !== 1 || iterators.length !== 1) {
+        return `AMBIGUOUS_JSON_CONTROLS(filter=${filters.length},iterator=${iterators.length})`;
       }
       if (a.iterator !== undefined) {
-        texts[0].value = a.iterator;
-        texts[0].dispatchEvent(new Event('input'));
+        iterators[0].value = a.iterator;
+        iterators[0].dispatchEvent(new Event('input'));
       }
       if (a.where !== undefined) {
-        texts[1].value = a.where;
-        texts[1].dispatchEvent(new Event('input'));
+        filters[0].value = a.where;
+        filters[0].dispatchEvent(new Event('input'));
       }
     }
 
@@ -156,74 +169,158 @@ async function closeModal(): Promise<void> {
   }
 }
 
-/** After driveWizard() lands on Step 2: advance to Step 4, set the output
- *  path, click Generate, and report what landed in the vault.
- *
- *  Waits on the step indicator between clicks and on the wizard actually
- *  closing after Generate (its success path), instead of 600/2500ms sleeps. */
-async function finishWizard(outputPath: string): Promise<string> {
-  return browser.executeObsidian(async ({ app }, a) => {
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** One short DOM/vault read. All waiting stays in the host process. */
+async function readWizardGeneration(outputPath: string): Promise<WizardGenerationSnapshot> {
+  return browser.executeObsidian(({ app }, a) => {
     const modal = document.querySelector(a.wizard);
-    if (!modal) return 'NO_MODAL';
-    const stepNumber = (): number => {
-      const text = modal.querySelector('.crosswalker-step-indicator')?.textContent ?? '';
-      return Number(/^Step (\d+)/.exec(text.trim())?.[1] ?? -1);
+    const stepText = modal?.querySelector('.crosswalker-step-indicator')?.textContent ?? '';
+    const step = Number(/^Step (\d+)/.exec(stepText.trim())?.[1] ?? -1);
+    const summary = (modal?.querySelector('.crosswalker-results-summary')?.textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const errorCount = Number(/Errors:\s*(\d+)/i.exec(summary)?.[1] ?? 0);
+    const conflictCount = Number(/(\d+)\s+notes?\s+(?:was|were)\s+left unchanged/i.exec(summary)?.[1] ?? 0);
+    const sectionItems = (headingText: string): string[] => {
+      if (!modal) return [];
+      const heading = Array.from(modal.querySelectorAll('h4'))
+        .find((el) => el.textContent?.trim() === headingText);
+      const list = heading?.nextElementSibling;
+      if (!list?.matches('.crosswalker-error-list')) return [];
+      return Array.from(list.querySelectorAll('.crosswalker-error-item'))
+        .map((el) => (el.textContent ?? '').trim())
+        .filter(Boolean);
     };
-    const advanceTo = async (target: number): Promise<boolean> => {
-      const next = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
-      if (!next) return false;
-      (next as HTMLButtonElement).click();
-      const deadline = Date.now() + 15_000;
-      while (stepNumber() < target && Date.now() < deadline) await sleep(100);
-      return stepNumber() >= target;
-    };
-
-    // Step 2 → 3 → 4, each confirmed by the wizard's own step indicator.
-    if (!(await advanceTo(3))) return 'NO_NEXT_ON_STEP2(at step ' + stepNumber() + ')';
-    if (!(await advanceTo(4))) return 'NO_NEXT_ON_STEP3(at step ' + stepNumber() + ')';
-
-    // Step 4: first text input is the output path
-    const pathInput = modal.querySelector('input[type=text]') as HTMLInputElement | null;
-    if (!pathInput) return 'NO_OUTPUT_PATH_INPUT';
-    pathInput.value = a.outputPath;
-    pathInput.dispatchEvent(new Event('input'));
-
-    const gen = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Generate'));
-    if (!gen) return 'NO_GENERATE_BUTTON';
-    (gen as HTMLButtonElement).click();
-
-    // CONDITION: generation finished. The wizard closes itself on success, so
-    // "no connected wizard modal" is the product's own completion signal.
-    const closedBy = Date.now() + 30_000;
-    while (document.querySelector(a.wizard) && Date.now() < closedBy) await sleep(200);
-
-    // Count what landed — recursively, since smart defaults may nest notes
-    // into hierarchy folders (e.g. the sample workbook's family column).
-    const collect = (): string[] => {
-      const names: string[] = [];
-      const walk = (f: unknown) => {
-        // @ts-expect-error - TFolder/TFile shape probing
-        for (const c of f?.children ?? []) {
-          if (c.children) walk(c);
-          else if (c.name?.endsWith('.md')) names.push(c.path.slice(a.outputPath.length + 1));
-        }
-      };
-      walk(app.vault.getAbstractFileByPath(a.outputPath));
-      return names.sort();
-    };
-    // CONDITION: the destination folder is present in the vault index with at
-    // least one note. Vault-index visibility lags the write by a tick.
-    const listedBy = Date.now() + 10_000;
-    let names = collect();
-    while (names.length === 0 && Date.now() < listedBy) {
-      await sleep(150);
-      names = collect();
+    const allOwnedItems = modal
+      ? Array.from(modal.querySelectorAll('.crosswalker-error-list .crosswalker-error-item'))
+          .map((el) => (el.textContent ?? '').trim())
+          .filter(Boolean)
+      : [];
+    const errors = sectionItems('Errors');
+    const conflicts = sectionItems('Notes left unchanged');
+    if (errorCount > 0 && errors.length === 0) errors.push(...allOwnedItems.slice(0, errorCount));
+    if (conflictCount > 0 && conflicts.length === 0) {
+      conflicts.push(...allOwnedItems.slice(errors.length, errors.length + conflictCount));
     }
-    return 'CREATED ' + names.length + ': ' + names.join(', ');
+
+    const createdFiles: string[] = [];
+    const walk = (folder: unknown) => {
+      // @ts-expect-error - TFolder/TFile shape probing
+      for (const child of folder?.children ?? []) {
+        if (child.children) walk(child);
+        else if (child.name?.endsWith('.md')) createdFiles.push(child.path.slice(a.outputPath.length + 1));
+      }
+    };
+    walk(app.vault.getAbstractFileByPath(a.outputPath));
+
+    const notices = Array.from(document.querySelectorAll('.notice'))
+      .map((el) => (el.textContent ?? '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+
+    return {
+      modalPresent: !!modal,
+      step,
+      summary,
+      errors,
+      conflicts,
+      errorCount,
+      conflictCount,
+      createdFiles: createdFiles.sort(),
+      notices,
+    };
   }, { outputPath, wizard: WIZARD });
 }
 
+async function clickWizardButton(label: 'Next' | 'Generate'): Promise<{ ok: boolean; detail?: string }> {
+  return browser.executeObsidian((_obs, a) => {
+    const modal = document.querySelector(a.wizard);
+    if (!modal) return { ok: false, detail: 'Owned wizard modal is not present.' };
+    const button = Array.from(modal.querySelectorAll('button'))
+      .find((candidate) => candidate.textContent?.includes(a.label));
+    if (!button) return { ok: false, detail: `${a.label} button is not present.` };
+    (button as HTMLButtonElement).click();
+    return { ok: true };
+  }, { label, wizard: WIZARD });
+}
+
+async function setWizardOutputPath(outputPath: string): Promise<{ ok: boolean; detail?: string }> {
+  return browser.executeObsidian((_obs, a) => {
+    const modal = document.querySelector(a.wizard);
+    if (!modal) return { ok: false, detail: 'Owned wizard modal is not present.' };
+    const input = modal.querySelector('input[type=text]') as HTMLInputElement | null;
+    if (!input) return { ok: false, detail: 'Output path input is not present.' };
+    input.value = a.outputPath;
+    input.dispatchEvent(new Event('input'));
+    return { ok: true };
+  }, { outputPath, wizard: WIZARD });
+}
+
+async function captureFilteredPreviewThemes(lightFile: string, darkFile: string): Promise<void> {
+  const copyPresent = await browser.executeObsidian((_obs, wizard) => {
+    const modal = document.querySelector(wizard);
+    return Array.from(modal?.querySelectorAll('p') ?? []).some(
+      (el) => el.textContent?.trim() === 'Preview uses unfiltered source samples. Your filter is applied during generation.',
+    );
+  }, WIZARD);
+  if (!copyPresent) throw new Error('Filtered-preview explanation was not present on Step 3.');
+
+  const previous = await browser.executeObsidian(() => ({
+    dark: document.body.classList.contains('theme-dark'),
+    light: document.body.classList.contains('theme-light'),
+  }));
+  try {
+    await browser.executeObsidian(() => {
+      document.body.classList.remove('theme-dark');
+      document.body.classList.add('theme-light');
+    });
+    await browser.pause(200);
+    await browser.saveScreenshot(lightFile);
+    await browser.executeObsidian(() => {
+      document.body.classList.remove('theme-light');
+      document.body.classList.add('theme-dark');
+    });
+    await browser.pause(200);
+    await browser.saveScreenshot(darkFile);
+  } finally {
+    await browser.executeObsidian((_obs, value: unknown) => {
+      const state = value as { dark: boolean; light: boolean };
+      document.body.classList.toggle('theme-dark', state.dark);
+      document.body.classList.toggle('theme-light', state.light);
+    }, previous);
+    await browser.pause(200);
+  }
+}
+
+/** After driveWizard() lands on Step 2, click each action once and let the host
+ * poll bounded, short reads for navigation, terminal state and output visibility. */
+async function finishWizard(
+  outputPath: string,
+  expectedFileCount: number,
+  previewScreenshots?: { light: string; dark: string },
+): Promise<WizardFinishOutcome> {
+  return finishWizardWithDriver({
+    read: () => readWizardGeneration(outputPath),
+    clickNext: () => clickWizardButton('Next'),
+    setOutputPath: setWizardOutputPath,
+    clickGenerate: () => clickWizardButton('Generate'),
+    sleep: (ms) => browser.pause(ms),
+    now: () => Date.now(),
+    ...(previewScreenshots
+      ? { onPreview: () => captureFilteredPreviewThemes(previewScreenshots.light, previewScreenshots.dark) }
+      : {}),
+  }, outputPath, expectedFileCount);
+}
+
+async function requireAbsentFolder(outputPath: string): Promise<void> {
+  const existing = await browser.executeObsidian(({ app }, pathToCheck) => {
+    const found = app.vault.getAbstractFileByPath(pathToCheck);
+    return found ? found.path : null;
+  }, outputPath);
+  if (existing !== null) {
+    throw new Error(`refusing to reuse pre-existing E2E output: ${existing}`);
+  }
+}
+
+/** Delete only the uniquely named folder this declaration proved absent first. */
 async function cleanupFolder(outputPath: string): Promise<void> {
   await browser.executeObsidian(async ({ app }, a) => {
     const folder = app.vault.getAbstractFileByPath(a.outputPath);
@@ -318,30 +415,117 @@ describe('Visual — import wizard XLSX + JSON paths', function () {
 
   it('XLSX full loop: parse → configure → preview → GENERATE notes', async () => {
     const target = 'E2E-Wizard-Test/From-XLSX';
-    const r = await driveWizard({ b64: makeWorkbookB64(), fileName: 'controls.xlsx', sheet: 'Controls' });
-    if (!r.startsWith('STEP')) throw new Error('XLSX drive failed: ' + r);
-    const g = await finishWizard(target);
-    console.log('[wizard] xlsx generate → ' + g);
-    await browser.saveScreenshot(path.join(OUT, 'wizard-xlsx-generated.png'));
-    await closeModal();
-    await cleanupFolder('E2E-Wizard-Test');
-    if (!g.startsWith('CREATED 3')) throw new Error('XLSX generation failed: ' + g);
+    await requireAbsentFolder(target);
+    const workbookB64 = makeWorkbookB64();
+    const expectedSourceHash = `sha256-${createHash('sha256').update(Buffer.from(workbookB64, 'base64')).digest('hex')}`;
+    try {
+      const r = await driveWizard({ b64: workbookB64, fileName: 'controls.xlsx', sheet: 'Controls' });
+      if (!r.startsWith('STEP')) throw new Error('XLSX drive failed: ' + r);
+      const g = await finishWizard(target, 3);
+      console.log('[wizard] xlsx generate → ' + JSON.stringify(g));
+      await browser.saveScreenshot(path.join(OUT, 'wizard-xlsx-generated.png'));
+      await closeModal();
+      if (g.kind !== 'success' || g.last.createdFiles.length !== 3) {
+        throw new Error('XLSX generation failed: ' + JSON.stringify(g));
+      }
+
+      const generated = await readFrontmatterMatching(target, '');
+      if (!generated.path || !generated.frontmatter) {
+        throw new Error(`XLSX provenance note not found under ${target}`);
+      }
+      const sourceRef = (generated.frontmatter._crosswalker as Record<string, unknown> | undefined)?.source_ref as Record<string, unknown> | undefined;
+      console.log('[wizard] xlsx evidence → ' + JSON.stringify({
+        terminal: g,
+        samplePath: generated.path,
+        frontmatter: generated.frontmatter,
+        expectedSourceHash,
+        actualSourceHash: sourceRef?.source_hash,
+      }));
+      if (sourceRef?.source_hash !== expectedSourceHash) {
+        throw new Error(`XLSX source hash mismatch for ${generated.path}: expected ${expectedSourceHash}, got ${String(sourceRef?.source_hash)}`);
+      }
+    } finally {
+      await cleanupFolder(target);
+    }
   });
 
   it('JSON full loop: parse → configure → preview → GENERATE notes', async () => {
     const target = 'E2E-Wizard-Test/From-JSON';
-    const r = await driveWizard({
-      text: STIX_JSON,
-      fileName: 'stix.json',
-      iterator: '$.objects[*]',
-      where: 'type=attack-pattern,revoked!=true',
-    });
-    if (!r.startsWith('STEP')) throw new Error('JSON drive failed: ' + r);
-    const g = await finishWizard(target);
-    console.log('[wizard] json generate → ' + g);
-    await browser.saveScreenshot(path.join(OUT, 'wizard-json-generated.png'));
-    await closeModal();
-    await cleanupFolder('E2E-Wizard-Test');
-    if (!g.startsWith('CREATED 1')) throw new Error('JSON generation failed: ' + g);
+    await requireAbsentFolder(target);
+    try {
+      const r = await driveWizard({
+        text: STIX_JSON,
+        fileName: 'stix.json',
+        iterator: '$.objects[*]',
+        where: 'type=attack-pattern,revoked!=true',
+      });
+      if (!r.startsWith('STEP')) throw new Error('JSON drive failed: ' + r);
+      const g = await finishWizard(target, 1, {
+        light: path.join(OUT, 'wizard-json-filter-preview-light.png'),
+        dark: path.join(OUT, 'wizard-json-filter-preview-dark.png'),
+      });
+      console.log('[wizard] json generate → ' + JSON.stringify(g));
+      await browser.saveScreenshot(path.join(OUT, 'wizard-json-generated.png'));
+      await closeModal();
+      if (g.kind !== 'success' || g.last.createdFiles.length !== 1) {
+        throw new Error('JSON generation failed: ' + JSON.stringify(g));
+      }
+
+      const generated = await readFrontmatterMatching(target, '');
+      if (!generated.path || !generated.frontmatter) {
+        throw new Error(`JSON provenance note not found under ${target}`);
+      }
+      const frontmatter = generated.frontmatter;
+      const unexpectedTopLevel = ['revoked', 'source_ref', 'target_ref'].filter((key) =>
+        Object.prototype.hasOwnProperty.call(frontmatter, key));
+      if (unexpectedTopLevel.length > 0) {
+        throw new Error(`JSON unexpectedly emitted omitted top-level source fields for ${generated.path}: ${unexpectedTopLevel.join(', ')}`);
+      }
+      const sourceRef = (frontmatter._crosswalker as Record<string, unknown> | undefined)?.source_ref as Record<string, unknown> | undefined;
+      if (!sourceRef) {
+        throw new Error(`JSON missing nested _crosswalker.source_ref provenance for ${generated.path}`);
+      }
+      const sourceHashPresent = Object.prototype.hasOwnProperty.call(sourceRef, 'source_hash');
+      console.log('[wizard] json evidence → ' + JSON.stringify({
+        terminal: g,
+        samplePath: generated.path,
+        frontmatter: generated.frontmatter,
+        sourceHashPresent,
+      }));
+      if (sourceHashPresent) {
+        throw new Error(`JSON unexpectedly emitted source_hash for ${generated.path}: ${String(sourceRef?.source_hash)}`);
+      }
+    } finally {
+      await cleanupFolder(target);
+    }
+  });
+
+  it('JSON unknown filter field: results name the field and create no notes', async () => {
+    const target = 'E2E-Wizard-Test/Unknown-Filter-Field';
+    const unknownField = 'unknown_filter_field';
+    await requireAbsentFolder(target);
+    try {
+      const r = await driveWizard({
+        text: STIX_JSON,
+        fileName: 'stix.json',
+        iterator: '$.objects[*]',
+        where: `${unknownField}=value`,
+      });
+      if (!r.startsWith('STEP')) throw new Error('Unknown-field JSON drive failed: ' + r);
+      const g = await finishWizard(target, 0);
+      console.log('[wizard] json unknown-field evidence → ' + JSON.stringify(g));
+      await browser.saveScreenshot(path.join(OUT, 'wizard-json-unknown-filter-field.png'));
+      await closeModal();
+
+      const errorText = g.last.errors.join('\n');
+      if (g.kind !== 'error' || !errorText.includes('unknown field') || !errorText.includes(unknownField)) {
+        throw new Error('Unknown-field filter did not surface an actionable results error: ' + JSON.stringify(g));
+      }
+      if (g.last.createdFiles.length !== 0) {
+        throw new Error('Unknown-field filter created notes: ' + JSON.stringify(g.last.createdFiles));
+      }
+    } finally {
+      await cleanupFolder(target);
+    }
   });
 });

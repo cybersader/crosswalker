@@ -33,11 +33,32 @@ import {
 	type RenderReport,
 	type SourceScope,
 } from '../render';
-import { legacyConfigToRecipe } from './legacy-recipe-shim';
+import { legacyConfigToRecipe, LEGACY_ONTOLOGY_SENTINEL } from './legacy-recipe-shim';
+// AM-28. `DeclaredCurieCharsetError` / `DeclaredCuriePrefixError` are thrown by
+// `declaredCurieLocalPart` and are deliberately NOT caught by name here: both row
+// loops already catch per row and push the message into `result.errors`, which is
+// the actionable refusal the amendment asks for. Naming them would add a second
+// place for the refusal wording to drift.
+import {
+	declaredCurieLocalPart,
+	declaredIdentity,
+	edgeIdentityLocalPart,
+	injectiveCurieLocalPart,
+	injectiveDeclaredIdLocalPart,
+	slugifyForCurie,
+} from './curie';
 import { mergeFrontmatter, computeDeclaredManagedKeys, computeManagedKeys } from './frontmatter-merge';
 import { buildIdentityIndex, type IdentityIndex } from './identity-index';
+// S12 (2026-09-04). The AM-45 mirror, so a recorded layout value and the
+// directory segment it produced are compared after the SAME four mutations the
+// path itself received. Comparing raw would call an honest hub misplaced.
+import { normalizedPathPieces } from '../render/vault-path';
+// S16: the ONE spelling of a folder a person typed. See `normalizeBasePath`.
+import { normalizeFolderSetting } from '../settings/folder-settings';
+// AM-33: the tri-state note read, for the hub value index's cache-cold fallback.
+import { readNoteFrontmatterState, type NoteFrontmatterRead } from '../export/vault-reader';
 import { buildProvenance } from './provenance';
-import { resolveImportSet, type ImportSetOption, type ImportSetReference } from './import-set';
+import { derivationOf, resolveImportSet, type ImportSetDerivation, type ImportSetOption, type ImportSetReference } from './import-set';
 import {
 	computeConceptCid,
 	computeRecipeHash,
@@ -57,11 +78,20 @@ import {
 	buildManagedChildrenSection,
 	mergeManagedChildrenSection,
 	ensureWaypointMarker,
+	// AM-73. The ONE shape test for "is this recorded curie this import's". Shared
+	// with the derivation so the two cannot disagree.
+	isCurieOfOntology,
 	type EnrichNote,
 	type HubNote,
+	type LayoutValue,
+	type OwnedHubAtFolder,
+	type OwnedHubsByFolder,
 } from './enrich';
-import { wrapManagedBody, scanRegions } from './managed-body';
-import { mergeExistingNote, readExistingNote, ExistingNoteReadError } from './existing-note';
+import { wrapManagedBody, scanRegions, findSpan, replaceRegion } from './managed-body';
+// AM-75. `splitNoteText` is THE one reader that knows where a note's frontmatter
+// ends. The held-host writer works on raw bytes and must agree with it exactly,
+// so it asks that reader rather than carrying a second copy of the fence rule.
+import { mergeExistingNote, readExistingNote, splitNoteText, ExistingNoteReadError } from './existing-note';
 import type { FacetMembership } from '../import/mapping/facets';
 import { normalizeMappingSetId, normalizePredicateModifierInput } from '../utils/mapping-provenance';
 
@@ -129,6 +159,13 @@ export interface GenerationOptions {
 
 	/** Source file name */
 	sourceFileName?: string;
+
+	/**
+	 * Already-translated source predicate for this run. A nonblank value replaces
+	 * the resolved recipe's source.where without mutating the caller's recipe;
+	 * blank leaves a canonical predicate untouched.
+	 */
+	sourceWhere?: string;
 
 	/** Progress callback */
 	onProgress?: (current: number, total: number, message: string) => void;
@@ -202,6 +239,16 @@ interface EnrichmentWriteOptions {
 	basePath: string;
 	sourceFileName?: string;
 	sourceVersion?: string;
+	/** Complete pre-parse source-byte digest associated with this ParsedData. */
+	sourceHash?: string;
+	/**
+	 * Carried in so the enrichment phase can honour `skip` on its own. A hub
+	 * relocation is a change to the vault, and `skip` means leave existing notes
+	 * alone; the row loops already gate their moves on this, and the enrichment
+	 * phase must not be the one place whose safety depends on the caller having
+	 * chosen a destination that never asks for a move.
+	 */
+	overwriteMode?: 'skip' | 'replace' | 'error';
 }
 
 // Current schema version for _crosswalker metadata
@@ -289,22 +336,73 @@ export function createFolderEnsurer(app: App): (path: string) => Promise<void> {
 // ============================================================================
 
 /**
+ * AM-49 (2026-09-04). THE IMPORT ROOT, NORMALIZED ONCE, AT THE ENGINE BOUNDARY.
+ *
+ * `options.basePath` is a raw user string: the wizard hands over the text of an
+ * input field, and a recorded destination is whatever was typed the first time.
+ * Every note path this engine writes goes through the host's `normalizePath`,
+ * which collapses separators and backslashes, strips edge separators, folds
+ * `U+00A0`/`U+202F` to an ordinary space, and normalizes to NFC. The root did
+ * not, and the root is what the enrichment pass compares those paths AGAINST.
+ *
+ * Failure mode prevented: an output folder pasted with a non-breaking space (or
+ * carrying a decomposed accent, a backslash, or an internal `//`) made the root
+ * a different string from the prefix of every note path. `rootIsTrackedAncestor`
+ * then went false, the root stopped being stripped, every layout value
+ * disagreed with its segment at index 0, AM-44 refused EVERY level hub in the
+ * import, and because a refused hub's curie never reaches `producedCuries` the
+ * orphan pass reported every hub the set owns as an orphan. The deviation
+ * blamed the recipe and the source row; the character was in the destination
+ * folder the user typed.
+ *
+ * The rule this exists to keep, in one sentence: a normalization applied to
+ * what you record must be applied to what you compare it against, and the
+ * boundary is ONE CALL SITE, not one sweep. So the value returned here is the
+ * one string every consumer sees: `fullPath` composition, `rootFolder:` at both
+ * enrichment call sites, ownership resolution, folder creation, and the
+ * orphan/refresh scans all read `options.basePath` and all now read this.
+ *
+ * Emptiness is preserved rather than normalized away: `normalizePath('')` is
+ * `'/'` on the host, which is truthy, and every `options.basePath ? ...` branch
+ * in this engine reads a falsy base as "write at the vault root". Both
+ * spellings of the root ('' and '/') therefore come back as ''.
+ */
+function normalizeBasePath(basePath: string): string {
+	// S16 (2026-09-04). ONE SPELLING, not a third copy of its body. This function
+	// reproduced `normalizeFolderSetting` line for line, on the host instead of the
+	// mirror, and a copy is a second answer waiting to drift from the first: the
+	// destination the wizard compares against the vault and the destination the
+	// engine writes to would then be two different strings for one folder. AM-58
+	// made the mirror host-free, so the parity risk is removed rather than pinned.
+	// The host's own `normalizePath` stays only where the engine hands a path to
+	// the vault, applied to an already-normalized string.
+	return normalizeFolderSetting(basePath);
+}
+
+/**
  * Generate notes from parsed data using the provided configuration.
  */
 export async function generateNotes(
 	app: App,
 	parsedData: ParsedData,
 	config: Partial<ImportRecipe>,
-	options: GenerationOptions,
+	rawOptions: GenerationOptions,
 	debug?: DebugLog
 ): Promise<GenerationResult> {
+	// AM-49. The boundary. Everything below reads `options`, so the normalized
+	// root is the only root this run has; there is no second spelling to diverge.
+	const options: GenerationOptions = { ...rawOptions, basePath: normalizeBasePath(rawOptions.basePath) };
 	const startTime = Date.now();
 	const result: GenerationResult = {
 		success: true,
 		created: [],
 		skipped: [],
 		errors: [],
-		duration: 0
+		duration: 0,
+		// AM-7. Starts FALSE, not absent. A run that throws before the orphan pass
+		// checked nothing, and a reader must not read that silence as `no orphans`.
+		// The orphan pass below sets it true only when it actually ran.
+		orphansChecked: false,
 	};
 
 	const importId = generateImportId();
@@ -326,33 +424,58 @@ export async function generateNotes(
 			throw new Error('No mapping configuration provided');
 		}
 
-		// Ownership is minted or selected once per run, before any note is written.
-		// Never derive this id from recipe/source/path: all are allowed to change on
-		// a legitimate refresh, while the import set must remain the same.
-		const importSet = await resolveImportSet(app, options.basePath, options.importSet);
-
-		// Ensure base folder exists
-		if (options.createFolders) {
-			await ensureFolderExists(app, options.basePath);
-		}
-
 		// v0.1.3: translate the legacy v0.1.0 config shape into a Ch 22 Recipe
 		// once before the per-row loop. The recipe is what render() consumes.
 		// The shape workbench passes a pre-built recipe (recipeOverride) so its
 		// full mechanism set survives; otherwise the legacy shim translates.
-		const recipe = options.recipeOverride ?? legacyConfigToRecipe(config as ImportRecipe);
+		// AM-1: the source file name reaches the shim so a nameless classic import
+		// stamps its file stem as the ontology instead of the `unknown` sentinel.
+		// Failure mode prevented: every nameless classic import sharing one
+		// placeholder identity, which makes two unrelated frameworks look like
+		// the same source.
+		//
+		// AM-6 moved this ABOVE ownership resolution: the ontology this source
+		// proposes is an input to resolving the set, because a set that already
+		// exists overrides the proposal with the ontology it is pinned to.
+		const resolvedRecipe = options.recipeOverride
+			?? legacyConfigToRecipe(config as ImportRecipe, { sourceFileName: options.sourceFileName });
+		// A wizard filter is a RUN override, not a second recipe entry path. Apply
+		// it only after the canonical-or-legacy recipe choice so recipeOverride still
+		// controls provenance ownership below. Copy both objects so joins and any
+		// source fields this engine does not interpret survive without mutating the
+		// caller's canonical recipe. Blank means no override at all.
+		const recipe = options.sourceWhere?.trim()
+			? {
+				...resolvedRecipe,
+				source: { ...resolvedRecipe.source, where: options.sourceWhere },
+			}
+			: resolvedRecipe;
 		// Compute recipe ownership once and reuse the exact value written to
 		// `_crosswalker.recipe.id`; orphan detection must never invent a different
 		// ownership key from the provenance stored on notes.
 		const provenanceRecipeId = options.recipeOverride
 			? recipe.recipe
 			: (options.configId ?? recipe.recipe);
+		// AM-6. What this run WOULD mint curies under if the set were new. A
+		// proposal, not the answer: see `ontologyId` below.
+		const proposedOntologyId = recipe.source?.ontology ?? (config.name ?? LEGACY_ONTOLOGY_SENTINEL);
+
+		// Ownership is minted or selected once per run, before any note is written.
+		// Never derive this id from recipe/source/path: all are allowed to change on
+		// a legitimate refresh, while the import set must remain the same.
+		const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId);
+
+		// Ensure base folder exists
+		if (options.createFolders) {
+			await ensureFolderExists(app, options.basePath);
+		}
+
 		// Snapshot this set's PRE-RUN membership. Metadata-cache updates are not
 		// guaranteed to land before generation completes, and orphan reporting asks
 		// what the set owned before this run, not what the cache happens to expose
 		// after writes. recipeId stays as the deprecated grace parameter; the
 		// import-set filter takes precedence, so unstamped legacy notes stay outside.
-		const ownedIdentityIndex = buildIdentityIndex(app, {
+		const ownedIdentityIndex = await buildIdentityIndex(app, {
 			importSetId: importSet.id,
 			recipeId: provenanceRecipeId,
 		});
@@ -364,7 +487,7 @@ export async function generateNotes(
 		const declaredManagedKeys = computeDeclaredManagedKeys(recipe.target.also_emit?.frontmatter);
 		// One pass over the vault's markdown list, reading Obsidian's existing metadata
 		// cache. Lets every row below find its note by identity instead of by address.
-		const identityIndex = buildIdentityIndex(app);
+		const identityIndex = await buildIdentityIndex(app);
 		if (identityIndex.collisions.length > 0) {
 			// Two notes claiming one concept is ambiguous. Choosing a winner silently is
 			// how a duplicate becomes permanent, so report and let the caller decide.
@@ -384,6 +507,10 @@ export async function generateNotes(
 		// (two source rows rendering to the same vault path).
 		const emittedPaths = new Set<string>();
 		const producedCuries = new Set<string>();
+		// AM-27. Which ROW produced each curie, so the duplicate refusal can name
+		// both claimants. `producedCuries` alone cannot: it also carries the hub
+		// identities enrichment implies, which have no row.
+		const curieOrigins = new Map<string, ProducedCurieOrigin>();
 		const sourceOrderStamper = new SourceOrderStamper();
 
 		// Pass 1.5 enrichment (v0.1.6.1): the wizard/workbench path shares the
@@ -396,9 +523,33 @@ export async function generateNotes(
 		// unaffected when the recipe carries no `source.ontology`, e.g. the
 		// workbench recipe today).
 		const enrichmentEnabled = !!recipe.target.enrichment;
-		const ontologyId = recipe.source?.ontology ?? (config.name ?? 'unknown');
-		const curiePrefix = slugifyForCurie(ontologyId);
+		// AM-6. The SET decides the ontology, not the run. A refresh that
+		// recomputed this from its own recipe could land on a different answer
+		// (a renamed config, a differently named export file), and every curie it
+		// then wrote would match none of the notes the set already owns: a second
+		// copy of the whole framework, with every original reported as an orphan.
+		// A set with no pin (legacy, or genuinely new) falls back to the proposal.
+		const ontologyId = importSet.ontology ?? proposedOntologyId;
+		// AM-13. The SET's scheme decides the identity space, not just the ontology.
+		// A set minted set-qualified writes qualified curies for its concepts and
+		// for every hub enrichment derives from this prefix, which is what lets a
+		// second release of the same framework exist beside the first.
+		const curiePrefix = curiePrefixFor(importSet, ontologyId);
+		// AM-34. The un-qualified ontology prefix behind it. A source states this
+		// one; the vault holds the resolved one; the set stamp records what turns
+		// one into the other.
+		const basePrefix = baseCuriePrefixFor(importSet, ontologyId);
 		const enrichRecords: EnrichRecord[] = [];
+		// AM-2. Rows this run KEPT rather than wrote (overwriteMode 'skip').
+		//
+		// Failure mode prevented: a skip refresh orphaning every hub the set owns.
+		// A skipped row is still a row this run vouches for, but the skip branch
+		// returns above the enrichment bookkeeping, so an unchanged set produced no
+		// enrichRecords at all, `applyEnrichment` never ran, no hub curie was ever
+		// marked produced, and orphan detection then reported every hub as gone.
+		// These records are used for BOOKKEEPING ONLY -- never written, never
+		// merged, never relocated -- so hub prose is untouched.
+		const keptRecords: EnrichRecord[] = [];
 		// parent_note: 'folder-note' needs the whole batch's shape up front —
 		// a streamed (AsyncIterable) source can't provide that (design §3 step 2
 		// v1 restriction). applyEnrichment falls back to sibling + a deviation.
@@ -417,8 +568,8 @@ export async function generateNotes(
 		// wizard/workbench path accepts a full recipe through `recipeOverride`,
 		// so a declared predicate reaches here too. Ignoring it on this path
 		// would be exactly the silent, shape-dependent degradation the whole
-		// loudness contract exists to prevent. A legacy config carries no source
-		// shaping, so this path is unchanged for every wizard import.
+		// loudness contract exists to prevent. A legacy config carries no canonical
+		// source shaping, but this run may add the wizard's sourceWhere override above.
 		let sourceStage: SourceStage;
 		try {
 			sourceStage = await prepareSourceStage(parsedData, recipe.source);
@@ -464,11 +615,13 @@ export async function generateNotes(
 						mapping,
 						options,
 						recipe,
-						ontologyId,
+						curiePrefix,
+						basePrefix,
 						renderReport,
 						recipeHash,
 						provenanceRecipeId,
 						importSet,
+						parsedData.sourceByteDigest,
 					);
 					if (renderReport.notes.length > 0) {
 						result.warnings ??= [];
@@ -486,6 +639,33 @@ export async function generateNotes(
 						return;
 					}
 
+					// AM-12. A write never crosses a set boundary. The vault-wide index is
+					// consulted for DETECTION only: a note elsewhere in the vault already
+					// holding this curie, under a different set, is reported by name and the
+					// row is dropped - not adopted, not moved, not restamped, and with no
+					// fall back to its address. A refused row naming its owner beats an
+					// annexed framework.
+					//
+					// Refused the moment the curie is known rather than at the write itself:
+					// a row this run declines to write must not be counted as produced, must
+					// not reserve its rendered path against a later row, and must not be
+					// recorded anywhere as a note that is going to exist.
+					const foreign = foreignSetClaim(ownedIdentityIndex, identityIndex, noteData.curie);
+					if (foreign) {
+						result.errors.push({ row: rowNum, message: crossSetCollisionMessage(noteData.curie, foreign) });
+						return;
+					}
+
+					// AM-27. Within-run injectivity. Sits beside the cross-set refusal
+					// because both are answers about identity alone: a row refused here
+					// must not reserve its rendered path against a later row, must not be
+					// counted as produced, and must not cost a render or a folder.
+					const firstClaim = curieOrigins.get(noteData.curie);
+					if (firstClaim) {
+						result.errors.push({ row: rowNum, message: duplicateCurieMessage(noteData.curie, firstClaim) });
+						return;
+					}
+
 					// Path collision detection — fail loud rather than silently
 					// overwriting one row's output with another's. (Runs in the sync
 					// prefix, so it's deterministic by row order under concurrency.)
@@ -496,6 +676,37 @@ export async function generateNotes(
 						});
 						return;
 					}
+
+					// AM-14. The ADDRESS is the last route into a note, so write resolution
+					// runs HERE, above every record this row would otherwise leave behind. A
+					// row refused at its address must not reserve its rendered path against a
+					// later row, must not be counted as produced, and must not be stamped with
+					// a source order, exactly as AM-12's identity refusal must not. Resolution
+					// is a pure set of lookups; only the point at which it runs moved.
+					//
+					// Deliberately BELOW the path-collision check: two rows rendering one
+					// address are that check's answer, and letting the second row race the
+					// first row's freshly written file into an address refusal would report a
+					// source problem as a vault problem.
+					const fullPath = normalizePath(noteData.path);
+					// AM-12: the OWNED index resolves. Every row whose identity is held
+					// outside this set was refused above, so a hit here is always a note this
+					// run owns. AM-14: the vault-wide index plus the set id are what the
+					// ADDRESS branches judge with, and they report rather than adopt.
+					const target = resolveWriteTarget(
+						app,
+						fullPath,
+						noteData.curie,
+						enrichmentEnabled,
+						ownedIdentityIndex,
+						identityIndex,
+						importSet.id,
+					);
+					if (target.refusal) {
+						reportAddressRefusal(result, debug, target.refusal, rowNum, noteData.curie);
+						return;
+					}
+
 					emittedPaths.add(noteData.path);
 
 					// P1 (2026-07-27): stamp source publication order onto concept
@@ -530,13 +741,19 @@ export async function generateNotes(
 
 					// This identity belongs to the current source set even when the note is
 					// skipped or merged rather than newly created.
-					producedCuries.add(noteData.curie);
+					// AM-27. Recorded only once the row is past every refusal above: a row
+					// this run declines to write has claimed nothing, so a later row with
+					// the same identity is the FIRST claimant, not a duplicate.
+					// AM-31: through the one claim function, so the produced set and the
+					// origin map cannot record different things.
+					claimProducedCurie(producedCuries, curieOrigins, noteData.curie, {
+						row: rowNum, path: noteData.path, kind: 'row',
+					});
 
-					// Check if file exists. Consults BOTH the sibling path AND (when
-					// enrichment is on) the folder-note-relocated path by curie — see
-					// resolveWriteTarget's docstring (re-import identity, design §4).
-					const fullPath = normalizePath(noteData.path);
-					const target = resolveWriteTarget(app, fullPath, noteData.curie, enrichmentEnabled, identityIndex);
+					// The write target was resolved above (AM-14), before this row reserved
+					// anything. Consults BOTH the sibling path AND (when enrichment is on) the
+					// folder-note-relocated path by curie — see resolveWriteTarget's docstring
+					// (re-import identity, design §4).
 					const existingFile = target.existingFile;
 					const writePath = target.writePath;
 
@@ -556,8 +773,35 @@ export async function generateNotes(
 
 					if (existingFile instanceof TFile) {
 						if (options.overwriteMode === 'skip') {
-							result.skipped.push(writePath);
-							debug?.info('generation', 'skipped-existing', `Skipped existing file ${writePath}`, { path: writePath });
+							// The path that EXISTS, never the one the move was going to use.
+							// Reporting the desired path names a file the run deliberately did
+							// not create, so "every reported path exists" stops holding and a
+							// user following the report lands on nothing.
+							const skippedPath = existingFile.path;
+							result.skipped.push(skippedPath);
+							debug?.info('generation', 'skipped-existing', `Skipped existing file ${skippedPath}`, { path: skippedPath });
+							// AM-2. Record what was kept so the post-stream bookkeeping pass
+							// can derive the hubs these rows imply. `path` is the note that
+							// ACTUALLY exists, not the desired one: a bookkeeping pass keyed
+							// on a path the run declined to create would derive hubs for a
+							// shape the vault is not in.
+							if (enrichmentEnabled) {
+								keptRecords.push({
+									path: skippedPath,
+									renderedPath: fullPath,
+									// AM-33: a kept row still describes the folders it implies.
+									layoutValues: noteData.layoutValues,
+									curie: noteData.curie,
+									frontmatter: { ...noteData.frontmatter },
+									facets: options.facetsForRow
+										? options.facetsForRow(row as Record<string, unknown>, rowNum)
+										: facetMembershipsFromTags(noteData.tags),
+									// Never read: this record is never written back. Kept empty
+									// rather than carrying a fresh render, which is exactly the
+									// content a skip promised not to write.
+									body: '',
+								});
+							}
 							return;
 						} else if (options.overwriteMode === 'error') {
 							result.errors.push({
@@ -628,6 +872,9 @@ export async function generateNotes(
 						enrichRecords.push({
 							path: writePath,
 							renderedPath: fullPath,
+							// AM-33: the folder values this row rendered, so hub identity is
+							// derived from facts rather than recovered from `dirname(path)`.
+							layoutValues: noteData.layoutValues,
 							curie: noteData.curie,
 							frontmatter: { ...noteData.frontmatter },
 							facets,
@@ -668,7 +915,56 @@ export async function generateNotes(
 		// generateFromRecipe runs. See applyEnrichment for the exact semantics
 		// (children lists + facet hub notes + edgeCount, re-import-safe merge).
 		let enrichmentComplete = true;
-		if (enrichmentEnabled && enrichRecords.length > 0 && !sourceStageFailure) {
+
+		// AM-52/AM-55. Read once per run, and only when the run kept something: this is
+		// the only state that consults it, and a run that moved everything asks the
+		// vault nothing extra.
+		const ownedHubs = enrichmentEnabled && keptRecords.length > 0 && !sourceStageFailure
+			? await readOwnedHubsByFolder(app, ownedIdentityIndex)
+			: undefined;
+		// AM-55. One deviation ledger per run.
+		const deviationsSeen = new Set<string>();
+		/**
+		 * AM-70 (2026-09-04). INDEX NOTES THIS RUN READ AND CANNOT JUDGE.
+		 *
+		 * A `kind: 'hub'` note of this import sitting in a folder no note of the
+		 * population reaches - a user tidied it into an archive folder - is read by
+		 * `readOwnedHubsByFolder` and accounted for by nothing: `keptFolders` is gated
+		 * on the population's own ancestor folders. It then landed in the orphan diff
+		 * below with `orphansChecked: true`, so the run told the user a note was no
+		 * longer in the source while holding the record that it had just read it.
+		 *
+		 * Neither produced nor kept nor orphan: named in a refusal and left alone.
+		 * `orphansChecked` stays true, because the population WAS checked - this note
+		 * was named, not judged.
+		 */
+		const observedUnjudgedCuries = new Set<string>();
+		// AM-60/S12. What could not be read, and what records a folder it does not
+		// sit in. Both mean the run's picture is incomplete, so it does not publish
+		// an orphan list derived from it.
+		enrichmentComplete = reportOwnedHubReadProblems(result, ownedHubs, debug) && enrichmentComplete;
+
+		// AM-60. ONE POPULATION, ONE PASS. The rows this run wrote and the rows it
+		// kept are one list, and the paths it may write are the first half of it. The
+		// two-pass shape - one pass accounting over both, one pass writing from half -
+		// is what rewrote a hub's Contents from a batch that had never seen the rows
+		// the list names.
+		//
+		// AM-64 (2026-09-04). THERE IS NO GATE. ACCOUNTING IS A READ; THE GATE
+		// GOVERNED WRITES AND WAS GOVERNING ACCOUNTING TOO.
+		//
+		// AM-61 put the gate back at `enrichRecords.length > 0` to stop an all-skip
+		// refresh restamping every index note. It stopped the restamp and it also
+		// stopped the one derivation that accounts for the hubs the kept rows imply,
+		// so the same refresh reported three notes sitting in the vault as no longer
+		// in the source - with `orphansChecked: true`, which is a clean report of a
+		// false fact and worse than the restamp it removed.
+		//
+		// The orphan question is a read over the whole population. So this runs
+		// whenever the run HAS a population, and every writer downstream asks the
+		// write set for itself (see `applyEnrichment`'s hub loops). A run with no
+		// population at all derives nothing.
+		if (enrichmentEnabled && enrichRecords.length + keptRecords.length > 0 && !sourceStageFailure) {
 			try {
 				await applyEnrichment(
 					app,
@@ -677,13 +973,22 @@ export async function generateNotes(
 						basePath: options.basePath,
 						sourceFileName: options.sourceFileName,
 						sourceVersion: options.frameworkVersion ?? recipe.source?.version,
+						sourceHash: parsedData.sourceByteDigest,
+						overwriteMode: options.overwriteMode,
 					},
 					curiePrefix,
-					enrichRecords,
+					[...enrichRecords, ...keptRecords],
+					new Set(enrichRecords.map((r) => r.path)),
 					result,
 					importSet,
 					producedCuries,
+					curieOrigins,
 					isStreamed,
+					{ owned: ownedIdentityIndex, vaultWide: identityIndex },
+					ownedHubs?.byFolder,
+					ownedHubs?.observed,
+					observedUnjudgedCuries,
+					deviationsSeen,
 					debug,
 				);
 			} catch (enrichErr) {
@@ -709,9 +1014,19 @@ export async function generateNotes(
 
 		const rowCountComplete =
 			parsedData.rowCount < 0 || completed + sourceStage.excludedCount === parsedData.rowCount;
-		if (result.success && result.errors.length === 0 && rowCountComplete && enrichmentComplete) {
+		// AM-7. Record WHETHER detection ran, not just what it found. Absent
+		// `orphans` means both `a complete run found none` and `nobody could
+		// check`, and a caller that cannot tell them apart tells the user their
+		// framework is intact when the run never looked.
+		result.orphansChecked = result.success && result.errors.length === 0 && rowCountComplete && enrichmentComplete;
+		if (result.orphansChecked) {
 			const orphans = ownedIdentityIndex.curies()
-				.filter((curie) => !producedCuries.has(curie))
+				// AM-70. Excluded BY NAME: an index note this pass READ, in a folder the
+				// population does not reach, is not evidence that anything left the
+				// source. Excluding it here rather than marking it produced keeps the two
+				// facts apart - the run vouches for what it wrote, and names what it read
+				// and could not describe.
+				.filter((curie) => !producedCuries.has(curie) && !observedUnjudgedCuries.has(curie))
 				.map((curie) => ({ curie, path: ownedIdentityIndex.get(curie)!.path }))
 				.sort((a, b) => a.curie.localeCompare(b.curie) || a.path.localeCompare(b.path));
 			if (orphans.length > 0) result.orphans = orphans;
@@ -772,6 +1087,329 @@ function recordConflict(
 }
 
 /**
+ * AM-19 (2026-08-31). Surface ONE address refusal at the altitude that fits it.
+ *
+ * Three of the four reasons are ownership verdicts about a note the engine could
+ * read: they are run errors, because the user has to decide something about the
+ * vault (refresh the other set, move the stranger's note, pick another folder).
+ * `unreadable` is not a verdict at all - it is a note the engine could not read -
+ * and it is the same outcome `mergeExistingNote` produced before AM-14 closed the
+ * address route: the file is left exactly as it stands and a per-note conflict
+ * says why. Reporting it as an ownership error is what made a damaged note the
+ * set genuinely owns read as "a note that is not Crosswalker's. Move or rename
+ * that note", which is a false cause carrying a destructive instruction.
+ *
+ * One function so the four write sites cannot disagree about which surface a
+ * given reason lands on.
+ */
+function reportAddressRefusal(
+	result: GenerationResult,
+	debug: DebugLog | undefined,
+	refusal: AddressRefusal,
+	row: number,
+	curie?: string,
+): void {
+	if (refusal.reason === 'unreadable') {
+		recordConflict(
+			result,
+			debug,
+			refusal.path,
+			curie,
+			'frontmatter-unreadable',
+			'Its properties block did not parse, so Crosswalker could not tell whether the note is one of its own. '
+			+ 'Fix that block, then import again.',
+		);
+		return;
+	}
+	result.errors.push({ row, message: crossSetAddressMessage(refusal) });
+}
+
+/**
+ * AM-13 (2026-08-30). The curie prefix one import set mints under.
+ *
+ * `endpoint-v1` is the ontology slug and nothing else, so every set minted
+ * before this existed keeps the exact identities it already wrote.
+ * `set-qualified-v1` appends the set id, which is what makes two releases of one
+ * framework - or two crosswalks over one pair - occupy DIFFERENT identity spaces
+ * instead of fighting over one. Applied at the prefix rather than at the leaf so
+ * concept notes, facet hubs and level hubs are all qualified by the same rule:
+ * enrichment builds hub curies from this prefix alone, so qualifying only the
+ * concept leaf would leave every hub colliding and AM-12 refusing them.
+ *
+ * Idempotent on purpose. A legacy set-qualified set carrying no ontology pin
+ * recovers its ontology from the prefix its own notes show, and that prefix is
+ * already qualified; re-appending the id there would rename every note the set
+ * owns, which is the exact failure AM-6 exists to prevent.
+ */
+export function curiePrefixFor(importSet: ImportSetReference, ontologyId: string): string {
+	const base = slugifyForCurie(ontologyId);
+	if (importSet.scheme !== 'set-qualified-v1') return base;
+	const suffix = `-${importSet.id}`;
+	return base.endsWith(suffix) ? base : `${base}${suffix}`;
+}
+
+/**
+ * AM-34 (2026-09-01). The BASE ontology prefix behind `curiePrefixFor` - the
+ * exact inverse of the set-qualification it applies.
+ *
+ * Set-qualification is a uniform re-prefixing recorded on every note it touches
+ * (`_crosswalker.import_set` carries the scheme and the id that produced it), so
+ * it is invertible: strip the id suffix and the identity the source declared is
+ * back, byte-for-byte.
+ *
+ * Failure mode prevented: Crosswalker's own export becoming un-importable. A CSV
+ * export writes `curie` as its first column; a second release of that framework
+ * auto-mints set-qualified and writes `nist-iset-<id>:`; checking a declared
+ * curie against THAT refused every row and told the user to rewrite their source
+ * using a set id that does not exist until the import runs. The source states
+ * `nist:AC-2` and always will; the qualification is the vault's business, not the
+ * source's, and it is applied after the check rather than demanded before it.
+ */
+export function baseCuriePrefixFor(importSet: ImportSetReference, ontologyId: string): string {
+	const base = slugifyForCurie(ontologyId);
+	if (importSet.scheme !== 'set-qualified-v1') return base;
+	const suffix = `-${importSet.id}`;
+	return base.endsWith(suffix) ? base.slice(0, base.length - suffix.length) : base;
+}
+
+/**
+ * AM-12 (2026-08-30). A note in the vault that already claims this identity and
+ * is NOT owned by the set this run writes, or null.
+ *
+ * R3 settled in August that reconciliation only touches notes carrying matching
+ * import-set provenance. The orphan pass has used the owned index since; the
+ * write path never did, and resolved every row through a vault-wide index. A new
+ * set whose curies collide with an existing set's - which `endpoint-v1` permits,
+ * because two releases of one framework mint the same curies - therefore took the
+ * other set's notes as `existingFile`, moved them, merged into them, and
+ * restamped them with the new set's id. This is the detection half of applying
+ * the ratified rule to the write path: the owned index resolves, the vault-wide
+ * index only reports.
+ */
+function foreignSetClaim(
+	owned: IdentityIndex | undefined,
+	vaultWide: IdentityIndex | undefined,
+	curie: string,
+): ForeignClaim | null {
+	if (!vaultWide) return null;
+	// Owned wins outright. A note this run owns is this run's to reconcile, and
+	// the vault-wide index holds it too.
+	if (owned?.get(curie)) return null;
+	const claimant = vaultWide.get(curie);
+	if (!claimant) return null;
+	// A null owner is a real and different case, not a missing string: a note
+	// written before import sets existed carries provenance but no ownership, so
+	// there is no set to send the user to. Naming a fabricated owner there would
+	// point them at something they cannot find.
+	return { path: claimant.path, setId: vaultWide.owner(curie) };
+}
+
+/** A note outside the set this run writes that already holds one of its identities. */
+interface ForeignClaim {
+	path: string;
+	setId: string | null;
+}
+
+/**
+ * The error a refused row reports. Names the identity, the owner, and the file,
+ * because "something is in the way" is not something a user can act on, and ends
+ * with the action that fits the case that actually occurred.
+ */
+function crossSetCollisionMessage(curie: string, claim: ForeignClaim): string {
+	return claim.setId
+		? `Cross-set identity collision: ${curie} is claimed by import set ${claim.setId} at ${claim.path}. `
+			+ 'Nothing was written for it. Refresh that set instead, or rename this source so it uses its own identities.'
+		: `Cross-set identity collision: ${curie} is claimed by ${claim.path}, a note from an earlier import that carries no import set. `
+			+ 'Nothing was written for it. Move or delete that note, or rename this source so it uses its own identities.';
+}
+
+/**
+ * AM-27 (2026-08-31). What one run has already claimed, so it cannot claim it twice.
+ *
+ * Failure mode prevented: one import writing two rows onto one identity. Two
+ * source rows whose identities collapse together (any derivation can do this -
+ * the legacy one collapses on characters, an injective one still collapses when
+ * the source itself repeats a code) either overwrite each other at one address,
+ * or land at two addresses and leave the vault holding one curie twice. The
+ * second is permanent: the identity index reports it as `Ambiguous identity` and
+ * every later import in that vault fails, from a cause the user cannot connect to
+ * the import that caused it.
+ *
+ * Deliberately identity-NEUTRAL, so it applies to legacy sets too. It changes no
+ * curie and re-identifies nothing; it only refuses to write the second claimant,
+ * by name, naming the first as well so the user can see which two rows disagree.
+ *
+ * AM-31 (2026-08-31). ONE RULE, ALL WRITERS. Until this amendment only the two
+ * row loops consulted the guard; every hub and facet writer added to
+ * `producedCuries` and checked nothing, so a hub identity equal to a row identity
+ * this run produced, or two hubs whose slugged values collapse, were written
+ * anyway. Hubs run after rows, so the row could not see the hub and the hub did
+ * not look. `row: 0` marks a claimant that is not a source row, and the message
+ * says so rather than pointing a user at a row number that does not exist.
+ */
+type ProducedCurieOrigin = { row: number; path: string; kind: 'row' | 'hub' };
+
+/**
+ * Claim one identity for this run, or say who claimed it first.
+ *
+ * The single place a produced curie is recorded, so `producedCuries` (which
+ * orphan detection reads) and `curieOrigins` (which the refusal reads) cannot
+ * drift apart - the split between them is exactly what left hubs unguarded.
+ */
+function claimProducedCurie(
+	producedCuries: Set<string>,
+	curieOrigins: Map<string, ProducedCurieOrigin>,
+	curie: string,
+	origin: ProducedCurieOrigin,
+): ProducedCurieOrigin | null {
+	const first = curieOrigins.get(curie);
+	if (first) return first;
+	producedCuries.add(curie);
+	curieOrigins.set(curie, origin);
+	return null;
+}
+
+/** Who already holds this identity in this run, phrased for whatever it was. */
+function firstClaimantOf(first: ProducedCurieOrigin): string {
+	return first.kind === 'hub'
+		? `a hub note this import produced (${first.path})`
+		: `row ${first.row} (${first.path})`;
+}
+
+function duplicateCurieMessage(curie: string, first: ProducedCurieOrigin): string {
+	return `Duplicate identity in this import: ${curie} was already produced by ${firstClaimantOf(first)}. `
+		+ 'Nothing was written for this row. Two rows resolve to one identity, so one of them would overwrite the other. '
+		+ 'Give them distinct values in the column your import uses for identity.';
+}
+
+/**
+ * AM-31. The same refusal for a hub, whose cause and cure are different: a user
+ * cannot fix a hub by editing an identity column, so the message names the
+ * grouping value instead.
+ */
+function duplicateHubCurieMessage(curie: string, hubPath: string, first: ProducedCurieOrigin): string {
+	return `Duplicate identity in this import: the note ${hubPath} would be written as ${curie}, `
+		+ `which was already produced by ${firstClaimantOf(first)}. Nothing was written for it. `
+		+ 'Two groups of notes resolve to one identity, so one would overwrite the other. '
+		+ 'Give them values that differ by more than punctuation or capitalisation.';
+}
+
+/**
+ * AM-14 (2026-08-30). Why a note sitting at a rendered address may not be adopted.
+ *
+ * Three cases, kept apart because they are three different things for a user to
+ * do something about:
+ *   `foreign-set`   another import set owns it. Refresh that set instead.
+ *   `not-crosswalker` a person's own note. Crosswalker never merges into one.
+ *   `unstamped`     provenance from an import predating import sets. Same answer
+ *                   the identity route already gives such a note: move or delete.
+ *
+ * AM-19 (2026-08-31) adds a fourth, which is the one that is NOT about ownership:
+ *   `unreadable`    the note was seen and nothing could be read off it. Who owns
+ *                   it is unknown, so nothing may be claimed about it and the
+ *                   only honest instruction is "fix this note, then import again".
+ */
+export type AddressRefusalReason = 'foreign-set' | 'not-crosswalker' | 'unstamped' | 'unreadable';
+
+export interface AddressRefusal {
+	reason: AddressRefusalReason;
+	path: string;
+	/** The owning set, for `foreign-set` only. Never fabricated for the others. */
+	setId: string | null;
+}
+
+/**
+ * AM-14. The last route into a note is its ADDRESS, and until now it was the one
+ * route with no ownership check: `resolveWriteTarget` consulted
+ * `getAbstractFileByPath` FIRST and adopted whatever it found, without ever
+ * reading the `_crosswalker.import_set` stamp off it.
+ *
+ * Failure mode prevented: two notes with different curies and one rendered
+ * address. AM-12 closed the identity route (same curie, other owner); this closes
+ * the case where the curies differ, the addresses collide, and the foreign note is
+ * merged into and restamped with this run's set. A framework annexed one note at a
+ * time is the single worst thing this product can do.
+ *
+ * Returns null when the address may be adopted: the note is stamped with the set
+ * this run writes (the ORDINARY same-set re-import, which must keep working), or
+ * this run produced the note itself and the index simply predates it, or there is
+ * no index to judge with (a caller that passes none keeps its old behaviour rather
+ * than refusing everything).
+ *
+ * AM-17 (2026-08-31): exported, because the engine is not the only writer of a
+ * Crosswalker artifact. A window that writes one asks the same question here
+ * rather than carrying a second copy of the answer. `ownedSetId` is `null` for a
+ * writer that owns no set at all: every note it finds at the address is then
+ * someone's but not its own, which is exactly the refusal it needs.
+ */
+export function addressRefusal(
+	vaultWide: IdentityIndex | undefined,
+	path: string,
+	ownedSetId: string | null,
+	producedThisRun?: ReadonlySet<string>,
+): AddressRefusal | null {
+	if (!vaultWide) return null;
+	// A note this run wrote minutes ago is this run's, and the index was built
+	// before it existed. Without this, a hub landing on a path an earlier row of
+	// the same run created would refuse itself as "not Crosswalker's".
+	if (producedThisRun?.has(path)) return null;
+	const stamp = vaultWide.provenanceAt(path);
+	// AM-19. Checked FIRST and answered on its own terms. Nothing below this line
+	// knows anything about a note whose properties would not parse, so every
+	// answer below would be an invention.
+	if (stamp === 'unreadable') return { reason: 'unreadable', path, setId: null };
+	if (!stamp) return { reason: 'not-crosswalker', path, setId: null };
+	if (stamp.importSetId === null) return { reason: 'unstamped', path, setId: null };
+	if (stamp.importSetId === ownedSetId) return null;
+	return { reason: 'foreign-set', path, setId: stamp.importSetId };
+}
+
+/**
+ * The error a row refused at its address reports. Names the file and the owner,
+ * and ends with the action that fits the case that actually occurred, because
+ * "something is in the way" is not something a user can act on.
+ */
+export function crossSetAddressMessage(refusal: AddressRefusal): string {
+	if (refusal.reason === 'unreadable') {
+		// AM-19. Names the ONE thing that is actually known, and asks for the one
+		// action that fixes it. It must never say the note is not Crosswalker's
+		// (nothing here established that) and must never invite move-or-delete
+		// (this may be the user's own imported note, damaged by a hand edit).
+		return `Crosswalker could not read the properties of ${refusal.path}, so it could not tell whether that note is one of its own. `
+			+ 'Nothing was written for it. Fix that note\'s properties block, then import again.';
+	}
+	if (refusal.reason === 'foreign-set') {
+		return `Cross-set address collision: ${refusal.path} is owned by import set ${refusal.setId}. `
+			+ 'Nothing was written for it. Refresh that set instead, or choose a different destination folder for this import.';
+	}
+	if (refusal.reason === 'unstamped') {
+		return `Address collision: ${refusal.path} is a note from an earlier import that carries no import set. `
+			+ 'Nothing was written for it. Move or delete that note, or choose a different destination folder for this import.';
+	}
+	return `Address collision: a note that is not Crosswalker's sits at ${refusal.path}. `
+		+ 'Nothing was written for it. Move or rename that note, or choose a different destination folder for this import.';
+}
+
+/**
+ * AM-12 for hubs. A hub resolves through its own curie OR through an
+ * address-derived legacy alias, so BOTH have to be checked: adopting a note via
+ * an alias claimed by another set crosses the same boundary as adopting it
+ * directly. Returns the first identity that is claimed elsewhere.
+ */
+function foreignHubClaim(
+	owned: IdentityIndex | undefined,
+	vaultWide: IdentityIndex | undefined,
+	curie: string | null,
+	legacyCuries: readonly string[] | undefined,
+): { curie: string; claim: ForeignClaim } | null {
+	for (const candidate of [...(curie ? [curie] : []), ...(legacyCuries ?? [])]) {
+		const claim = foreignSetClaim(owned, vaultWide, candidate);
+		if (claim) return { curie: candidate, claim };
+	}
+	return null;
+}
+
+/**
  * Resolve the actual write target for a row, accounting for a prior Pass 1.5
  * folder-note relocation (batch-enrichment design §4 — the "risky seam").
  * `render()` always computes the SIBLING-shaped path (Pass 1 knows nothing
@@ -789,16 +1427,32 @@ function recordConflict(
  * lookup per row when enrichment is on; Pass 1.5 (not this function) is what
  * actually DECIDES whether a concept should move — this only finds where it
  * currently sits so the row write lands there instead of an orphaned sibling.
+ *
+ * AM-14 (2026-08-30): every ADDRESS branch below now checks the stamp on the note
+ * it found and returns a `refusal` rather than adopting it, unless the stamp names
+ * the set this run writes. Identity, then address, then create fresh is the whole
+ * set of routes into a note; identity was closed by AM-12 and this closes the
+ * other. The caller must treat a `refusal` as a refused row: report it and write
+ * nothing.
  */
 function resolveWriteTarget(
 	app: App,
 	siblingPath: string,
 	curie: string,
 	enrichmentEnabled: boolean,
-	identityIndex?: IdentityIndex,
-): { existingFile: TFile | null; writePath: string; moveFrom?: string } {
+	ownedIndex?: IdentityIndex,
+	vaultWideIndex?: IdentityIndex,
+	ownedSetId?: string,
+): { existingFile: TFile | null; writePath: string; moveFrom?: string; refusal?: AddressRefusal } {
 	const direct = app.vault.getAbstractFileByPath(siblingPath);
-	if (direct instanceof TFile) return { existingFile: direct, writePath: siblingPath };
+	if (direct instanceof TFile) {
+		// AM-14. The owned-stamp case is the ordinary same-set re-import and is
+		// adopted exactly as before; anything else is refused rather than merged
+		// into, moved, or restamped.
+		const refusal = addressRefusal(vaultWideIndex, direct.path, ownedSetId ?? null);
+		if (refusal) return { existingFile: null, writePath: siblingPath, refusal };
+		return { existingFile: direct, writePath: siblingPath };
+	}
 
 	// Identity reconciliation (2026-08-21): the note is not at the address this
 	// recipe renders, but the vault may still hold this concept SOMEWHERE — under a
@@ -806,7 +1460,11 @@ function resolveWriteTarget(
 	// by curie is what turns "write a second note" into "move the one that exists".
 	// Checked before the folder-note guess below because it subsumes it: identity is
 	// a fact about the note, whereas a candidate path is only a guess.
-	const byIdentity = identityIndex?.get(curie) ?? null;
+	// AM-12: the OWNED index, never the vault-wide one. Resolving a write through
+	// every Crosswalker note in the vault is how a run annexed another set's notes.
+	// The caller has already refused any row whose identity is claimed outside this
+	// set, so a hit here is always a note this run owns.
+	const byIdentity = ownedIndex?.get(curie) ?? null;
 	if (byIdentity) {
 		if (enrichmentEnabled) {
 			// Enrichment relocates concepts to their folder-note shape on purpose, so a
@@ -825,6 +1483,12 @@ function resolveWriteTarget(
 			if (relocated instanceof TFile) {
 				const fm = app.metadataCache.getFileCache(relocated)?.frontmatter;
 				if (fm && fm.curie === curie) {
+					// AM-14. Also an address branch, and the one AM-12 cannot reach: a
+					// note carrying this curie but NO `_crosswalker` block is invisible to
+					// the vault-wide identity index, so the caller's identity refusal never
+					// saw it and this branch would adopt a note that is not Crosswalker's.
+					const refusal = addressRefusal(vaultWideIndex, relocated.path, ownedSetId ?? null);
+					if (refusal) return { existingFile: null, writePath: siblingPath, refusal };
 					return { existingFile: relocated, writePath: candidatePath };
 				}
 			}
@@ -849,16 +1513,60 @@ function buildNoteDataViaRender(
 	mapping: MappingConfig,
 	options: GenerationOptions,
 	recipe: ReturnType<typeof legacyConfigToRecipe>,
-	ontologyId: string,
+	/**
+	 * The ALREADY-RESOLVED curie prefix (`curiePrefixFor`), not the raw ontology.
+	 * AM-13: the prefix depends on the set's scheme as well as its ontology, and a
+	 * second derivation here would silently write unqualified concept curies while
+	 * enrichment wrote qualified hub curies for the same run.
+	 */
+	curiePrefix: string,
+	/**
+	 * AM-34. The set's BASE ontology prefix - the one a source's declared `curie`
+	 * is checked against. Handed down beside the resolved prefix rather than
+	 * re-derived here: a second derivation is a second place the two can disagree,
+	 * and the disagreement would be an identity written under a prefix nothing
+	 * else in the run uses.
+	 */
+	basePrefix: string,
 	report?: RenderReport,
 	recipeHash?: string,
 	provenanceRecipeId?: string,
 	importSet?: ImportSetReference,
-): { path: string; frontmatter: Record<string, any>; body: string; sourceRow: number; curie: string; tags: string[] } {
-	// 1. Build a CURIE for this row. Strategy: ontology + filename stem.
-	//    The filename is whatever the recipe's leaf file template resolves to.
+	sourceHash?: string,
+): { path: string; frontmatter: Record<string, any>; body: string; sourceRow: number; curie: string; tags: string[]; layoutValues: LayoutValue[] } {
+	// 1. Build a CURIE for this row, under the derivation THIS SET IS PINNED TO.
+	//
+	// AM-27. Why identity may not pass through a filename sanitizer: a filename
+	// sanitizer exists to make a string safe for a filesystem, and it does that by
+	// mapping many strings onto one (`AC 2`, `AC-2` and `AC/2` all become `AC-2`).
+	// An identity built that way is not an identity: two source rows that differ
+	// only in a collapsed character claim one CURIE, which is a permanent
+	// `Ambiguous identity` collision failing every later import in the vault, and -
+	// when they also share an address - one row silently overwriting the other.
+	//
+	// The legacy rule did exactly that, so it is kept byte-exact for the sets that
+	// already carry it rather than corrected underneath them: correcting it would
+	// change the curie of every note in every existing vault, and the next refresh
+	// would match none of them.
+	//
+	// `filenameStem` stays on the legacy rule under BOTH derivations: it is only a
+	// fallback for the note's H1 (step 5b), a display concern, and changing what a
+	// heading says is not what this amendment is about.
+	//
+	// AM-28. `curiePrefix` is handed down rather than re-derived: a declared
+	// `curie` is checked against the prefix this run will actually WRITE, and is
+	// then kept verbatim, so the value in the vault is the value the source
+	// stated. Stripping the declared prefix and substituting ours is the silent
+	// rewrite the amendment forbids.
 	const filenameStem = deriveFilenameStem(row, mapping, rowNum);
-	const curie = `${slugifyForCurie(ontologyId)}:${filenameStem}`;
+	// AM-34. The declared prefix is checked against the BASE ontology; the
+	// resolved (possibly set-qualified) prefix is what goes in front. One check,
+	// one uniform transform, both recorded on the set.
+	const curie = `${curiePrefix}:${
+		derivationOf(importSet) === 'declared-facts-v1'
+			? declaredFactsLocalPart(row, () => deriveRawFilenameStem(row, mapping, rowNum), basePrefix)
+			: filenameStem
+	}`;
 
 	// 2. render() expects a SourceScope object — the row IS the scope (column
 	//    names map to template variables).
@@ -884,9 +1592,13 @@ function buildNoteDataViaRender(
 		}
 		: sourceScope;
 
+	// AM-33. The folder levels' VALUES, collected as render produces them. Handed
+	// on to enrichment so hub identity never has to be recovered by parsing a
+	// path back apart.
+	const layoutValues: LayoutValue[] = [];
 	let address;
 	try {
-		address = render(recipe, { curie, scope: renderScope }, report);
+		address = render(recipe, { curie, scope: renderScope }, report, layoutValues);
 	} catch (err) {
 		if (err instanceof RenderError) {
 			throw new Error(`render() failed for row ${rowNum}: ${err.message}`);
@@ -923,10 +1635,12 @@ function buildNoteDataViaRender(
 	// Body-located link sections remain independent, preserving existing behavior.
 	const hasCanonicalBody = (recipe.target.also_emit?.body?.length ?? 0) > 0;
 	const legacy = buildNoteData(row, rowNum, mapping, options, '', [], !hasCanonicalBody);
+	const declaredManagedKeys = computeDeclaredManagedKeys(recipe.target.also_emit?.frontmatter);
 	for (const [k, v] of Object.entries(legacy.frontmatter)) {
 		// Skip _crosswalker — we'll write a fresh provenance block below.
-		// Skip keys already set by render's also_emit (managed wins).
-		if (k === '_crosswalker') continue;
+		// A recipe declaration owns its key even when render() omitted the value;
+		// the supplemental legacy projection must not reintroduce it as empty.
+		if (k === '_crosswalker' || declaredManagedKeys.has(k)) continue;
 		if (!(k in frontmatter)) frontmatter[k] = v;
 	}
 
@@ -964,6 +1678,7 @@ function buildNoteDataViaRender(
 		{
 			sourceFile: options.sourceFileName,
 			sourceVersion: options.frameworkVersion ?? recipe.source?.version,
+			sourceHash,
 			recipeId: provenanceRecipeId,
 			recipeHash,
 			importSet,
@@ -990,6 +1705,8 @@ function buildNoteDataViaRender(
 		// caller doesn't supply mapping-driven facet memberships).
 		curie,
 		tags: address.tags,
+		// AM-33: the folder levels' values, for the enrichment collector.
+		layoutValues,
 	};
 }
 
@@ -1111,8 +1828,32 @@ export function composeDocumentBody(titleText: string | null, body: string): str
 /**
  * Pulled from buildNoteData's filename logic — returns the stem (no .md) for
  * use in CURIE generation.
+ *
+ * AM-27. `filename-stem-v1` ONLY. Frozen: this must keep returning byte-for-byte
+ * what it returned before, because it is the recorded derivation of every set
+ * minted before the pin existed. `sanitizeFileName` at the end is the collapse
+ * the amendment names - it is kept here deliberately, and kept OUT of
+ * `deriveRawFilenameStem` below, which is what the injective rule sanitizes
+ * itself.
  */
 function deriveFilenameStem(
+	row: Record<string, any>,
+	mapping: MappingConfig,
+	rowNum: number,
+): string {
+	return sanitizeFileName(deriveRawFilenameStem(row, mapping, rowNum));
+}
+
+/**
+ * The filename stem BEFORE any sanitizer touches it.
+ *
+ * AM-27. Identity may not pass through a filename sanitizer, so the injective
+ * derivation needs the exact source value: the hash that disambiguates a
+ * collapsed value is taken over THIS string, not over the collapsed one. Taking
+ * it after sanitization would hash two already-merged values to one digest and
+ * disambiguate nothing.
+ */
+function deriveRawFilenameStem(
 	row: Record<string, any>,
 	mapping: MappingConfig,
 	rowNum: number,
@@ -1143,19 +1884,14 @@ function deriveFilenameStem(
 	if (filename.endsWith('.md')) {
 		filename = filename.slice(0, -3);
 	}
-	return sanitizeFileName(filename);
+	return filename;
 }
 
-/**
- * Slugify a string for use as a CURIE prefix (must match the schema's
- * `^[a-z][a-z0-9_-]*` pattern from spec/tier1.schema.json $defs/curie).
- */
-function slugifyForCurie(input: string): string {
-	const lower = String(input).toLowerCase();
-	const cleaned = lower.replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '');
-	// Ensure first char is a letter (schema requires)
-	return /^[a-z]/.test(cleaned) ? cleaned : `cw-${cleaned}`;
-}
+// AM-18. `slugifyForCurie` now lives in `./curie` so `import-set.ts` can share
+// it without importing the engine. Re-exported here because it has always been
+// part of this module's surface, and a second normalization is exactly the kind
+// of near-copy the amendment set exists to remove.
+export { slugifyForCurie } from './curie';
 
 // Plugin version constant — populated from manifest.json. esbuild bundles
 // the import via the JSON loader.
@@ -1896,9 +2632,14 @@ export async function generateFromRecipe(
 	app: App,
 	parsedData: ParsedData,
 	recipe: Recipe,
-	options: RecipeImportOptions,
+	rawOptions: RecipeImportOptions,
 	debug?: DebugLog,
 ): Promise<GenerationResult> {
+	// AM-49. The other engine boundary, same rule (see `normalizeBasePath`): the
+	// root is normalized once here and every consumer below reads `options`, so
+	// the string the notes are written under and the string they are compared
+	// against cannot be two different strings.
+	const options: RecipeImportOptions = { ...rawOptions, basePath: normalizeBasePath(rawOptions.basePath) };
 	const startTime = Date.now();
 	const result: GenerationResult = {
 		success: true,
@@ -1906,16 +2647,34 @@ export async function generateFromRecipe(
 		skipped: [],
 		errors: [],
 		duration: 0,
+		// AM-7. Starts FALSE, not absent. A run that throws before the orphan pass
+		// checked nothing, and a reader must not read that silence as `no orphans`.
+		// The orphan pass below sets it true only when it actually ran.
+		orphansChecked: false,
 	};
 
 	const strict = options.strictValidation ?? true;
 	const createFolders = options.createFolders ?? true;
-	const ontologyId = recipe.source?.ontology ?? recipe.recipe;
-	const curiePrefix = options.curiePrefix ?? slugifyForCurie(ontologyId);
+	// AM-6. What this run WOULD mint curies under if the set were new.
+	const proposedOntologyId = recipe.source?.ontology ?? recipe.recipe;
 	// Headless imports obey the same destination-discovery rules as the wizard.
 	// Callers can name a wiped/empty set explicitly or force a new mint.
-	const importSet = await resolveImportSet(app, options.basePath, options.importSet);
-	const ownedIdentityIndex = buildIdentityIndex(app, { importSetId: importSet.id });
+	const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId);
+	// AM-6. The set's pin wins over this run's proposal. A refresh whose curie
+	// prefix disagrees with the notes it owns writes a second copy of the whole
+	// import and orphans the first. An explicit `options.curiePrefix` still wins
+	// over both: that caller is naming the identity space on purpose.
+	const ontologyId = importSet.ontology ?? proposedOntologyId;
+	// AM-13. Scheme-aware, same rule as generateNotes. An explicit
+	// `options.curiePrefix` still wins over both: the SSSOM importer names its own
+	// identity space and already qualifies its LEAF by scheme, so it must not be
+	// qualified a second time at the prefix.
+	const curiePrefix = options.curiePrefix ?? curiePrefixFor(importSet, ontologyId);
+	// AM-34. The base ontology prefix a source's declared `curie` is checked
+	// against. An explicit `options.curiePrefix` names its own identity space, so
+	// there is no qualification to invert and the two are the same value.
+	const baseCuriePrefix = options.curiePrefix ?? baseCuriePrefixFor(importSet, ontologyId);
+	const ownedIdentityIndex = await buildIdentityIndex(app, { importSetId: importSet.id });
 
 	// _crosswalker.recipe.hash: computed ONCE per generation run — see
 	// src/generation/hash.ts's doc comments for the exact field-set definition.
@@ -1930,7 +2689,7 @@ export async function generateFromRecipe(
 	// Resolve existing notes by canonical identity before considering their current
 	// address. The index admits only notes with Crosswalker provenance, so a
 	// hand-written note elsewhere in the vault is never a relocation candidate.
-	const identityIndex = buildIdentityIndex(app);
+	const identityIndex = await buildIdentityIndex(app);
 	const ambiguousCuries = new Set(identityIndex.collisions.map((collision) => collision.curie));
 	for (const collision of identityIndex.collisions) {
 		result.errors.push({
@@ -1981,6 +2740,9 @@ export async function generateFromRecipe(
 
 	const emittedPaths = new Set<string>();
 	const producedCuries = new Set<string>();
+	// AM-27. Which row produced each curie, so the duplicate refusal can name both
+	// claimants. Same guard, same reason, as the wizard path above.
+	const curieOrigins = new Map<string, ProducedCurieOrigin>();
 	// Ch 43 re-attestation: review fingerprints of concepts produced by THIS run,
 	// so a recipe that emits a concept and an evidence link for it in one pass can
 	// stamp the link against the concept it just wrote.
@@ -1992,18 +2754,59 @@ export async function generateFromRecipe(
 	/**
 	 * The subject's current review fingerprint, or null when it cannot be had.
 	 *
-	 * Null is a real answer here — a junction row generated before its subject
-	 * concept exists, a subject in a different import set, an external subject.
-	 * There is deliberately NO second pass to fill these in later: a resolve pass
-	 * would stamp a fingerprint the IMPORTER computed against content no human
-	 * reviewed, which is fabricating an approval with extra steps.
+	 * DELIBERATELY VAULT-WIDE (AM-16). This is a READ, never a write: it resolves
+	 * the subject through `identityIndex`, not the owned one, because a crosswalk
+	 * legitimately spans sets - its subject is routinely a concept another import
+	 * set owns, and refusing to read that would leave every cross-framework
+	 * attestation unbaselined. AM-12's owned-index rule governs what a run may
+	 * WRITE; nothing here modifies the subject.
+	 *
+	 * Null is a real answer here - a junction row generated before its subject
+	 * concept exists, a subject that is not in this vault at all, a subject whose
+	 * note carries no review fingerprint. There is deliberately NO second pass to
+	 * fill these in later: a resolve pass would stamp a fingerprint the IMPORTER
+	 * computed against content no human reviewed, which is fabricating an approval
+	 * with extra steps.
+	 *
+	 * AM-39 (closing adversarial CONFIRMED 7). "Not indexed yet" is NOT one of
+	 * those real answers, and this line used to accept it as one - a metadata-cache
+	 * miss read as "this note carries no fingerprint". The asymmetry was provable
+	 * one line above: `identityIndex` finds a cache-cold note by READING IT off
+	 * disk, and then this asked the cache the same question and believed the
+	 * silence. The consequence is permanent and invisible: a link imported while
+	 * Obsidian was still indexing is written with no baseline, so no later upstream
+	 * edit can ever invalidate it, and it is indistinguishable from a link that
+	 * honestly had none. Cache lag is not absence (`project_cache_lag_is_not_absence`,
+	 * ninth appearance). `ok` is read, `none` is the real null, and `unreadable`
+	 * says so rather than passing for absence.
 	 */
-	const resolveSubjectReviewBaseline = (subjectCurie: string): ReviewBaseline | null => {
+	const resolveSubjectReviewBaseline = async (
+		subjectCurie: string,
+		rowNum: number,
+	): Promise<ReviewBaseline | null> => {
 		const fromThisRun = producedReviewBaselines.get(subjectCurie);
 		if (fromThisRun) return fromThisRun;
 		const file = identityIndex.get(subjectCurie);
 		if (!file) return null;
-		const provenance = app.metadataCache.getFileCache(file)?.frontmatter?._crosswalker;
+		// S8 (ruled 2026-09-02). ONE discriminator, shared with the hub-value index
+		// below: an entry that carries no properties is not the cache answering,
+		// so the note is read. This costs a disk read for a subject whose cache
+		// entry is momentarily empty, which is bounded to edge-subject baselines
+		// and is the price of never recording "no baseline" for a note that has
+		// one. Absence is not a fact (`project_cache_lag_is_not_absence`).
+		const read = await readFrontmatterForRun(app, file);
+		if (read.state === 'unreadable') {
+			result.warnings ??= [];
+			result.warnings.push({
+				row: rowNum,
+				message: `The properties of ${file.path} could not be read, so this approved link was written with `
+					+ 'no review baseline and Crosswalker cannot tell you later if that note changes. '
+					+ 'Fix that note\'s properties, then re-import.',
+			});
+			return null;
+		}
+		if (read.state !== 'ok') return null;
+		const provenance = read.frontmatter._crosswalker;
 		if (!provenance || typeof provenance !== 'object') return null;
 		const source = provenance as Record<string, unknown>;
 		const value = source.review_cid;
@@ -2018,6 +2821,12 @@ export async function generateFromRecipe(
 	// populated when the recipe declares target.enrichment.
 	const enrichmentEnabled = !!recipe.target.enrichment;
 	const enrichRecords: EnrichRecord[] = [];
+	// AM-2. Rows this run KEPT rather than wrote (overwriteMode 'skip'). The same
+	// hole generateNotes had: the skip branch returns above the enrichment
+	// collection, so a skip refresh of an unchanged set marked no hub produced and
+	// orphaned every hub the set owns. A fix that lands on one generation entry
+	// point only is how a removed behaviour comes back on the other.
+	const keptRecords: EnrichRecord[] = [];
 	// parent_note: 'folder-note' needs the whole batch's shape up front — a
 	// streamed (AsyncIterable) source can't provide that (design §3 step 2 v1
 	// restriction). applyEnrichment falls back to sibling + a deviation.
@@ -2070,13 +2879,40 @@ export async function generateFromRecipe(
 				: sourceScope;
 
 			// 1. Build CURIE for this row
+			// AM-27. The derivation is the SET's, not this version's. An override
+			// (the SSSOM importer) reads the same pin off the reference it is handed.
+			// AM-28. The prefix travels with the row: a declared `curie` is honoured
+			// verbatim only when it already carries the prefix this run writes, and is
+			// refused by name otherwise, never stripped and re-prefixed.
 			const localPart = options.curieLocalPart
 				? options.curieLocalPart(scope, rowNum, importSet)
-				: defaultCurieLocalPart(scope, rowNum);
+				// AM-34: checked against the base ontology, written under the resolved prefix.
+				: defaultCurieLocalPart(scope, rowNum, derivationOf(importSet), baseCuriePrefix);
 			const curie = `${curiePrefix}:${localPart}`;
 			// The index deliberately does not return an arbitrary winner for a
 			// collision. Refuse this row instead of making the duplicate permanent.
 			if (ambiguousCuries.has(curie)) return;
+
+			// AM-12. A write never crosses a set boundary. Same rule as generateNotes,
+			// refused at the same point: the vault-wide index only DETECTS, and a curie
+			// another set already holds stops the row here - not adopted, not moved, not
+			// restamped, with no fall back to its address. It sits beside the ambiguity
+			// refusal because both are answers about identity alone, so neither should
+			// cost a render, a folder, a produced curie, or a review baseline recorded
+			// for a note this run will never write.
+			const foreignClaim = foreignSetClaim(ownedIdentityIndex, identityIndex, curie);
+			if (foreignClaim) {
+				result.errors.push({ row: rowNum, message: crossSetCollisionMessage(curie, foreignClaim) });
+				return;
+			}
+
+			// AM-27. Within-run injectivity, beside the other two identity-only
+			// refusals and above every record this row would otherwise leave behind.
+			const firstClaim = curieOrigins.get(curie);
+			if (firstClaim) {
+				result.errors.push({ row: rowNum, message: duplicateCurieMessage(curie, firstClaim) });
+				return;
+			}
 
 			// 2. Render. Expose the already-derived local part as a reserved,
 			//    render-only variable so a recipe can keep its file address aligned
@@ -2084,9 +2920,13 @@ export async function generateFromRecipe(
 			//    source/identity scopes used for concept CID computation.
 			const renderScope = { ...scope, _crosswalker_curie_local_part: localPart };
 			const renderReport: RenderReport = { notes: [] };
+			// AM-33. The folder levels' values, collected as render produces them —
+			// same rule on both generation entry points, so hub identity cannot mean
+			// one thing through the wizard and another through a recipe.
+			const layoutValues: LayoutValue[] = [];
 			let address;
 			try {
-				address = render(recipe, { curie, scope: renderScope }, renderReport);
+				address = render(recipe, { curie, scope: renderScope }, renderReport, layoutValues);
 			} catch (err) {
 				if (err instanceof RenderError) {
 					result.errors.push({ row: rowNum, message: `render() failed: ${err.message}` });
@@ -2123,6 +2963,36 @@ export async function generateFromRecipe(
 				});
 				return;
 			}
+			// AM-14. The ADDRESS is the last route into a note, so write resolution
+			// runs HERE, above every record this row would otherwise leave behind: the
+			// reserved path, the produced curie, the review baseline. A row refused at
+			// its address is a row this run never vouched for, exactly as AM-12's
+			// identity refusal is. Resolution is a pure set of lookups; only the point
+			// at which it runs moved.
+			//
+			// Deliberately BELOW the path-collision check: two rows rendering one
+			// address are that check's answer, and letting the second row race the
+			// first row's freshly written file into an address refusal would report a
+			// source problem as a vault problem.
+			//
+			// AM-12: the OWNED index resolves. Every row whose identity is held outside
+			// this set was refused above, so a hit there is always a note this run owns.
+			// AM-14: the vault-wide index plus the set id are what the ADDRESS branches
+			// judge with, and they report rather than adopt.
+			const target = resolveWriteTarget(
+				app,
+				fullPath,
+				curie,
+				enrichmentEnabled,
+				ownedIdentityIndex,
+				identityIndex,
+				importSet.id,
+			);
+			if (target.refusal) {
+				reportAddressRefusal(result, debug, target.refusal, rowNum, curie);
+				return;
+			}
+
 			emittedPaths.add(fullPath);
 
 			// 5. Compose frontmatter
@@ -2148,7 +3018,7 @@ export async function generateFromRecipe(
 				const subjectCurie = typeof frontmatter.subject_curie === 'string'
 					? frontmatter.subject_curie
 					: null;
-				const subjectBaseline = subjectCurie ? resolveSubjectReviewBaseline(subjectCurie) : null;
+				const subjectBaseline = subjectCurie ? await resolveSubjectReviewBaseline(subjectCurie, rowNum) : null;
 				const reviewedAgainst = reviewedAgainstFor(
 					subjectCurie,
 					subjectBaseline?.reviewCid,
@@ -2166,6 +3036,7 @@ export async function generateFromRecipe(
 				{
 					sourceFile: options.sourceFileName,
 					sourceVersion: options.sourceVersion ?? recipe.source?.version,
+					sourceHash: parsedData.sourceByteDigest,
 					recipeId: recipe.recipe,
 					recipeHash,
 					importSet,
@@ -2194,7 +3065,11 @@ export async function generateFromRecipe(
 
 			// This identity belongs to the current source set even when overwrite mode
 			// skips or merges the note rather than creating a new file.
-			producedCuries.add(curie);
+			// AM-27. Only once the row is past every refusal above: a row this run
+			// declined to write has claimed nothing.
+			// AM-31: through the one claim function, so the produced set and the origin
+			// map cannot record different things.
+			claimProducedCurie(producedCuries, curieOrigins, curie, { row: rowNum, path: fullPath, kind: 'row' });
 			// Recorded only for a row that survived validation, so a junction row
 			// later in the same run can never be stamped against a concept this run
 			// refused to write.
@@ -2202,10 +3077,10 @@ export async function generateFromRecipe(
 				producedReviewBaselines.set(curie, { reviewCid, reviewGroups });
 			}
 
-			// 7. Existing-file handling + merge. Consults BOTH the sibling path AND
+			// 7. Existing-file handling + merge. The target was resolved above (AM-14),
+			//    before this row reserved anything. Consults BOTH the sibling path AND
 			//    (when enrichment is on) the folder-note-relocated path by curie —
 			//    see resolveWriteTarget's docstring (re-import identity, design §4).
-			const target = resolveWriteTarget(app, fullPath, curie, enrichmentEnabled, identityIndex);
 			const existingFile = target.existingFile;
 			const writePath = target.writePath;
 
@@ -2223,7 +3098,29 @@ export async function generateFromRecipe(
 
 			if (existingFile instanceof TFile) {
 				if (options.overwriteMode === 'skip') {
-					result.skipped.push(writePath);
+					// The path that EXISTS, never the desired one — see generateNotes.
+					result.skipped.push(existingFile.path);
+					// AM-2. Record what was kept so the post-stream bookkeeping pass can
+					// derive the hubs these rows imply. Keyed on the note that ACTUALLY
+					// exists, never the desired path: bookkeeping against a path the run
+					// declined to create describes a vault shape that is not there.
+					if (enrichmentEnabled) {
+						keptRecords.push({
+							path: existingFile.path,
+							renderedPath: fullPath,
+							// AM-33: a kept row still describes the folders it implies.
+							layoutValues,
+							curie,
+							frontmatter: { ...frontmatter },
+							facets: options.facetsForRow
+								? options.facetsForRow(row as Record<string, unknown>, rowNum)
+								: facetMembershipsFromTags(address.tags),
+							// Never read: this record is never written back. Empty rather
+							// than a fresh render, which is the content a skip promised not
+							// to write.
+							body: '',
+						});
+					}
 					return;
 				} else if (options.overwriteMode === 'error') {
 					result.errors.push({ row: rowNum, message: `File already exists: ${writePath}` });
@@ -2308,7 +3205,9 @@ export async function generateFromRecipe(
 				// `body` is the body AS ACTUALLY WRITTEN (merged when the note existed),
 				// never the fresh render — Pass 1.5 writes this back, so the unmerged
 				// render here would destroy the prose the row write just preserved.
-				enrichRecords.push({ path: writePath, renderedPath: fullPath, curie, frontmatter: { ...frontmatter }, facets, body });
+				// AM-33: `layoutValues` travels with the record so the hub pass derives
+				// identity from the values, not from `dirname(writePath)`.
+				enrichRecords.push({ path: writePath, renderedPath: fullPath, layoutValues, curie, frontmatter: { ...frontmatter }, facets, body });
 			}
 		} catch (rowError) {
 			const errorMessage = rowError instanceof Error ? rowError.message : String(rowError);
@@ -2360,18 +3259,53 @@ export async function generateFromRecipe(
 	// derivation), then writes children onto parents and materializes hub notes via
 	// the same managed-merge path so re-imports stay idempotent + user-safe.
 	let enrichmentComplete = true;
-	if (enrichmentEnabled && enrichRecords.length > 0 && !sourceStageFailure) {
+
+	// AM-52/AM-55. Read once per run, and only when the run kept something: this is
+	// the only state that consults it, and a run that moved everything asks the vault
+	// nothing extra.
+	const ownedHubs = enrichmentEnabled && keptRecords.length > 0 && !sourceStageFailure
+		? await readOwnedHubsByFolder(app, ownedIdentityIndex)
+		: undefined;
+	// AM-55. One deviation ledger per run.
+	const deviationsSeen = new Set<string>();
+	// AM-70. Index notes this run READ whose folder no note of the population
+	// reaches: named, not judged. See the wizard path's comment and
+	// `EnrichmentResult.levelHubs.observedUnjudgedCuries`.
+	const observedUnjudgedCuries = new Set<string>();
+	// AM-60/S12. What could not be read, and what records a folder it does not sit
+	// in. Both mean the run's picture is incomplete, so it does not publish an
+	// orphan list derived from it.
+	enrichmentComplete = reportOwnedHubReadProblems(result, ownedHubs, debug) && enrichmentComplete;
+
+	// AM-60. ONE POPULATION, ONE PASS. See the matching comment on the wizard path
+	// above, and `applyEnrichment`'s own header for the failure mode.
+	//
+	// AM-64. THERE IS NO GATE: accounting is a read over the whole population, and
+	// every writer asks the write set for itself. Same reasoning as the wizard path
+	// above, where the failure mode is written out in full.
+	if (enrichmentEnabled && enrichRecords.length + keptRecords.length > 0 && !sourceStageFailure) {
 		try {
 			await applyEnrichment(
 				app,
 				recipe,
-				{ ...options, sourceVersion: options.sourceVersion ?? recipe.source?.version },
+				{
+					...options,
+					sourceVersion: options.sourceVersion ?? recipe.source?.version,
+					sourceHash: parsedData.sourceByteDigest,
+				},
 				curiePrefix,
-				enrichRecords,
+				[...enrichRecords, ...keptRecords],
+				new Set(enrichRecords.map((r) => r.path)),
 				result,
 				importSet,
 				producedCuries,
+				curieOrigins,
 				isStreamed,
+				{ owned: ownedIdentityIndex, vaultWide: identityIndex },
+				ownedHubs?.byFolder,
+				ownedHubs?.observed,
+				observedUnjudgedCuries,
+				deviationsSeen,
 				debug,
 			);
 		} catch (enrichErr) {
@@ -2392,9 +3326,14 @@ export async function generateFromRecipe(
 	// no source shaping is declared, leaving this expression exactly as it was.
 	const rowCountComplete =
 		parsedData.rowCount < 0 || completed + sourceStage.excludedCount === parsedData.rowCount;
-	if (result.success && result.errors.length === 0 && rowCountComplete && enrichmentComplete) {
+	// AM-7. Record WHETHER detection ran. An uncomputed orphan count is not
+	// zero, and a surface that renders it as zero says the import is intact
+	// when nothing checked.
+	result.orphansChecked = result.success && result.errors.length === 0 && rowCountComplete && enrichmentComplete;
+	if (result.orphansChecked) {
 		const orphans = ownedIdentityIndex.curies()
-			.filter((curie) => !producedCuries.has(curie))
+			// AM-70. Excluded BY NAME, not by a claim. See the wizard path's comment.
+			.filter((curie) => !producedCuries.has(curie) && !observedUnjudgedCuries.has(curie))
 			.map((curie) => ({ curie, path: ownedIdentityIndex.get(curie)!.path }))
 			.sort((a, b) => a.curie.localeCompare(b.curie) || a.path.localeCompare(b.path));
 		if (orphans.length > 0) result.orphans = orphans;
@@ -2435,6 +3374,965 @@ export function facetMembershipsFromTags(tags: string[]): FacetMembership[] {
 }
 
 /**
+ * Where a hub note should be written, resolved by identity first and by address
+ * only as a last resort.
+ *
+ * A hub used to be found with `getAbstractFileByPath` alone. That is a guess
+ * about a note dressed up as a lookup: the moment an import's destination
+ * changes, the guess misses, a second hub is created for a concept the vault
+ * already holds, and the two files claim one curie forever — which surfaces as
+ * "Ambiguous identity", which in turn suppresses orphan reporting for the whole
+ * run. Concepts have gone through the identity index since 2026-08-21; hubs did
+ * not, and this closes that gap.
+ *
+ * `legacyCuries` is the second half of the same problem: hub identity itself used
+ * to be derived from the hub's full vault path (see `HubNote.legacyCuries`), so a
+ * moved destination did not merely relocate a hub, it RENAMED it. Accepting the
+ * old form as an alias is what keeps those hubs reconcilable instead of orphaned.
+ * A hub can carry user prose and user frontmatter, so recreating one at the new
+ * address and cleaning up the old is not available: it would destroy that content.
+ *
+ * AM-33 (2026-09-01). Three identity steps, values first and notes last, before
+ * the address is consulted at all:
+ *
+ *   1. the VALUE-derived identity, through the owned index;
+ *   2. the legacy PATH-derived forms — and these are computed from the CURRENT
+ *      render, so they can only ever match a hub that has not moved. That is
+ *      their whole and stated limitation: they reconcile a scheme upgrade at an
+ *      unchanged address and nothing else. A form recomputed from a path is
+ *      never trusted past this step;
+ *   3. owned hub notes whose RECORDED values equal these values, found by
+ *      reading the notes. This is the step that survives a moved destination, a
+ *      changed layout above the hub, and a later improvement to the derivation:
+ *      the note says what it is about, and a recorded fact does not move.
+ *
+ * Only then the address (AM-14), and only then a create.
+ */
+function resolveHubTarget(
+	app: App,
+	desiredPath: string,
+	curie: string | null,
+	legacyCuries: string[] | undefined,
+	ownedIndex?: IdentityIndex,
+	vaultWideIndex?: IdentityIndex,
+	ownedSetId?: string,
+	producedThisRun?: ReadonlySet<string>,
+	/** AM-33 step 3: this hub's layout values, and the owned hubs that record theirs. */
+	byValues?: { levelValues?: LayoutValue[]; index?: OwnedHubValueIndex },
+): { existingFile: TFile | null; writePath: string; moveFrom?: string; adoptedAlias?: string; refusal?: AddressRefusal } {
+	// AM-12: the OWNED index. A hub held by another set is refused by the caller
+	// before this runs, so anything found here belongs to the set being written.
+	const byIdentity = curie && ownedIndex ? ownedIndex.get(curie) : null;
+	if (byIdentity) {
+		return byIdentity.path === desiredPath
+			? { existingFile: byIdentity, writePath: desiredPath }
+			: { existingFile: byIdentity, writePath: desiredPath, moveFrom: byIdentity.path };
+	}
+
+	if (ownedIndex && legacyCuries) {
+		for (const alias of legacyCuries) {
+			const aliased = ownedIndex.get(alias);
+			if (!aliased) continue;
+			return aliased.path === desiredPath
+				? { existingFile: aliased, writePath: desiredPath, adoptedAlias: alias }
+				: { existingFile: aliased, writePath: desiredPath, moveFrom: aliased.path, adoptedAlias: alias };
+		}
+	}
+
+	// AM-33 step 3. The notes, read. Steps 1 and 2 both ask an INDEX about a value
+	// this run just computed; when the hub moved, or the layout above it changed,
+	// or the derivation improved, every computed form misses and the hub that
+	// plainly exists is found by nothing - which is how a second hub gets written
+	// and the first is orphaned carrying the user's prose. A hub records what it
+	// is about, and that record is matched here.
+	//
+	// The note's own recorded curie travels back as `adoptedAlias`, so the
+	// identity this run supersedes is claimed rather than reported as a note that
+	// vanished - the same treatment step 2's aliases already get.
+	if (byValues?.index && byValues.levelValues && byValues.levelValues.length > 0) {
+		const found = byValues.index.get(byValues.levelValues);
+		if (found) {
+			return found.file.path === desiredPath
+				? { existingFile: found.file, writePath: desiredPath, adoptedAlias: found.curie }
+				: { existingFile: found.file, writePath: desiredPath, moveFrom: found.file.path, adoptedAlias: found.curie };
+		}
+	}
+
+	// Address is consulted last, and since AM-12 the index it could not be seen in
+	// is the OWNED one, so this branch covers two cases: a note with no
+	// `_crosswalker` block of its own, and a note some other set owns that happens
+	// to sit at this address under a DIFFERENT identity. AM-12 refuses the first
+	// kind of boundary crossing (same identity, other owner) at the caller.
+	//
+	// AM-14 closes the second, which was the last unguarded route into a note: a
+	// hub whose rendered address happens to hold another set's note was merged
+	// into and restamped, no matter whose it was. The owned-stamp case is the
+	// ordinary same-set re-import and is adopted exactly as before.
+	const direct = app.vault.getAbstractFileByPath(desiredPath);
+	if (direct instanceof TFile) {
+		const refusal = addressRefusal(vaultWideIndex, direct.path, ownedSetId ?? null, producedThisRun);
+		if (refusal) return { existingFile: null, writePath: desiredPath, refusal };
+		return { existingFile: direct, writePath: desiredPath };
+	}
+	return { existingFile: null, writePath: desiredPath };
+}
+
+/**
+ * AM-33 (2026-09-01). Owned hub notes, looked up by the VALUES they record.
+ *
+ * The third and last identity step for a hub. Steps 1 and 2 ask an index about a
+ * form this run just computed from the current render; this one asks the notes
+ * what they say about themselves. A recorded fact survives a moved destination,
+ * a changed layout above the hub, and any later improvement to the derivation -
+ * none of which a recomputed form survives.
+ *
+ * Keyed on the VALUES alone, not on the level NAMES beside them: renaming a
+ * layout level (`family` -> `control_family`) is a change to how the source is
+ * described, not to which folder this hub is about, and re-minting every hub for
+ * it would orphan them all. The level names are recorded on the note anyway, for
+ * a reader and for diagnosis.
+ *
+ * Scoped to the notes the OWNED index already admitted, so it costs a
+ * frontmatter read per owned note rather than a second whole-vault pass, and so
+ * it cannot reach across a set boundary (AM-12).
+ */
+interface OwnedHubValueIndex {
+	get(values: LayoutValue[]): { file: TFile; curie: string } | null;
+	size: number;
+}
+
+/** Canonical key for a hub's value chain. Values only - see `OwnedHubValueIndex`. */
+function hubValuesKey(values: readonly string[]): string {
+	return JSON.stringify(values);
+}
+
+/**
+ * AM-39. The keys that RECORD what a hub is about, declared managed on every hub
+ * write whether or not this run computed them.
+ *
+ * Managed keys are otherwise derived from the fresh frontmatter, which means a
+ * key the run could not compute is absent, and an absent key is preserved as
+ * though the user had written it. For a record the product itself matches on,
+ * that is a stale assertion nothing can retract: `buildOwnedHubValueIndex` keeps
+ * offering the note as the hub for values it no longer covers, and a later run
+ * whose folder genuinely has those values adopts it, moves it, and restamps it.
+ * A record that cannot be cleared is not a record.
+ */
+const HUB_VALUE_RECORD_KEYS: readonly string[] = ['hub_levels', 'hub_values'];
+
+/**
+ * SUSPECTED 8, ruled 2026-09-02. THE ONE DISCRIMINATOR for "did the cache answer
+ * about this note?", used by every read in this file that has a disk fallback.
+ *
+ * There were two readings of that question here, added in the same pass. One
+ * asked whether a cache ENTRY existed (`!cached`) and treated an entry whose
+ * `frontmatter` was momentarily absent as a fact about the note; the other asked
+ * whether the FRONTMATTER was there (`!fm`) and re-read the file. The second is
+ * the safe one, and coexisting readings of the same question is how this project
+ * has accumulated nine recorded instances of absence read as fact.
+ *
+ * `readNoteFrontmatterState` IS that reading: it accepts a cache entry only when
+ * it actually carries properties, reads the file otherwise, and answers with the
+ * tri-state (`ok` / `none` / `unreadable`) so a caller can tell a note that has
+ * no properties from a note nothing could be read from. This wrapper exists to
+ * be the single seam: Part B's `readIndexed` accessor replaces its body, and
+ * these are its first callers.
+ */
+function readFrontmatterForRun(app: App, file: TFile): Promise<NoteFrontmatterRead> {
+	return readNoteFrontmatterState(app, file);
+}
+
+/** A frontmatter value that is a list of strings, or null. */
+function readStringArray(value: unknown): string[] | null {
+	if (!Array.isArray(value)) return null;
+	if (!value.every((v) => typeof v === 'string')) return null;
+	return value as string[];
+}
+
+async function buildOwnedHubValueIndex(app: App, owned: IdentityIndex | undefined): Promise<OwnedHubValueIndex> {
+	const byKey = new Map<string, { file: TFile; curie: string }>();
+	if (owned) {
+		for (const curie of owned.curies()) {
+			const file = owned.get(curie);
+			if (!file) continue;
+			// S8 (ruled 2026-09-02): the same discriminator the review-baseline read
+			// uses. Cache lag is not absence (`project_cache_lag_is_not_absence`): a
+			// note Obsidian has not reached yet, or whose entry carries no
+			// properties, is read rather than assumed to record nothing.
+			const read = await readFrontmatterForRun(app, file);
+			if (read.state !== 'ok') continue;
+			const fm = read.frontmatter;
+			if (fm.kind !== 'hub') continue;
+			const values = readStringArray(fm.hub_values);
+			if (!values || values.length === 0) continue;
+			const key = hubValuesKey(values);
+			// First claimant wins, matching the identity index's own collision rule,
+			// so the two cannot disagree about which note answers.
+			if (!byKey.has(key)) byKey.set(key, { file, curie });
+		}
+	}
+	return {
+		get: (values: LayoutValue[]) => byKey.get(hubValuesKey(values.map((v) => v.value))) ?? null,
+		size: byKey.size,
+	};
+}
+
+/**
+ * AM-52 (2026-09-04), reshaped by AM-55. WHAT THE VAULT HOLDS at each folder: the
+ * index note sitting in it, keyed by that folder.
+ *
+ * `enrich()` is pure and reads no vault, so the one fact it cannot obtain for
+ * itself is what the vault already says. This supplies it, for the single state
+ * AM-52/AM-54 add: a folder on the chain of a row this refresh KEPT at an address
+ * the layout no longer chooses (a source release that recategorises a row, imported
+ * with Skip existing). Such a folder is described by no chain of this run, so
+ * without what its index note already records its hub is refused, drops out of
+ * `producedCuries`, and the orphan pass reports the index note of a folder that
+ * still holds notes as vanished.
+ *
+ * AM-55, three changes, each of them a failure mode:
+ *
+ *   - KEYED BY PLACEMENT (`dirOf(hubPath)`), not by the `<folder>/<basename>.md`
+ *     address. A hub describes the folder it SITS IN - the S4 rule - and requiring
+ *     the address verbatim meant a hub `applyHubRelocation` had left at its old
+ *     name answered for nothing, so its folder was refused and its own note
+ *     reported as vanished.
+ *   - TWO HUBS IN ONE FOLDER IS A REFUSAL BY NAME, not a pick. First-claimant-wins
+ *     is right for an identity index, where the question is "which note answers to
+ *     this curie"; here the question is "what is this folder about", and picking
+ *     writes one note's identity over the other's meaning.
+ *   - UNREADABLE IS REPORTED, NOT DROPPED. A note the host could not read is not a
+ *     note that records nothing (`project_cache_lag_is_not_absence`, tenth recorded
+ *     instance and the last one on this path). Dropping it collapsed the two into a
+ *     false orphan on a note sitting in the vault; the caller suppresses orphan
+ *     reporting for the run instead. AM-68: reported as a fact about the NOTE.
+ *     This walk reads every owned note and the `kind: 'hub'` test is below the
+ *     unreadable branch, so an unreadable note here is not shown to be an index
+ *     note at all - the folder gets a qualifier, never a state.
+ *
+ * Fail-closed on a half-record: `hub_levels` and `hub_values` are written together
+ * and are read together. Such a note is still PRESENT (AM-55's second row) - it is
+ * left as it is and accounted for - it just carries no chain this run can act on.
+ */
+async function readOwnedHubsByFolder(
+	app: App,
+	owned: IdentityIndex | undefined,
+): Promise<{
+	byFolder: Map<string, OwnedHubAtFolder>;
+	unreadable: string[];
+	misplaced: string[];
+	/** AM-70. Every `kind: 'hub'` note this walk read, whatever folder it sat in. */
+	observed: { curie: string; path: string; folder: string; hasRecordedChain: boolean }[];
+}> {
+	const byFolder = new Map<string, OwnedHubAtFolder>();
+	const unreadable: string[] = [];
+	const misplaced: string[] = [];
+	const observed: { curie: string; path: string; folder: string; hasRecordedChain: boolean }[] = [];
+	// AM-68. The folders in which SOME note could not be read - a note-level fact,
+	// applied at the end as a qualifier rather than as the folder's own state.
+	const unreadableFolders = new Set<string>();
+	if (!owned) return { byFolder, unreadable, misplaced, observed };
+	for (const curie of owned.curies()) {
+		const file = owned.get(curie);
+		if (!file) continue;
+		const folder = getParentPath(file.path);
+		if (!folder) continue;
+		// S8 (ruled 2026-09-02): the same discriminator every read in this file uses.
+		// Cache lag is not absence.
+		const read = await readFrontmatterForRun(app, file);
+		if (read.state === 'unreadable') {
+			unreadable.push(file.path);
+			// AM-68 (2026-09-04). A FACT ABOUT A NOTE IS NOT A FACT ABOUT ITS FOLDER.
+			//
+			// This walk iterates every OWNED note, and the `kind: 'hub'` filter is eight
+			// lines below - it cannot be asked of a note nothing could be read from. So
+			// residual ruling 4's folder-level `unreadable` state was set by any
+			// cache-cold concept note, and the message it unlocked said the folder's
+			// INDEX NOTE could not be read: a claim about a note the run may never have
+			// seen, printed beside this function's own warning, which deliberately says
+			// "notes" for exactly this reason.
+			//
+			// The observation is kept where it was observed: the note is in
+			// `unreadable[]` (which drives that warning and suppresses orphan reporting
+			// for the run), and its folder is noted so row 3 can widen its sentence
+			// WITHOUT naming a note. The folder's state is still decided by its readable
+			// index note if it has one.
+			unreadableFolders.add(folder);
+			continue;
+		}
+		if (read.state !== 'ok') continue;
+		const fm = read.frontmatter;
+		if (fm.kind !== 'hub') continue;
+		const values = readStringArray(fm.hub_values);
+		const levels = readStringArray(fm.hub_levels);
+		const usable = values && values.length > 0 && levels && levels.length === values.length
+			? values.map((value, i) => ({ level: levels[i], value }))
+			: undefined;
+		// AM-70. Recorded before any refusal below, because this is the fact the
+		// accounting needs: an index note of this import that THIS RUN READ. Whether
+		// the population reaches its folder is not this walk's question.
+		//
+		// `hasRecordedChain` travels with it because it decides whether the run can
+		// SAY WHAT THE NOTE IS ABOUT. A hub carrying a usable chain answers that from
+		// its own record, so a population that no longer reaches its folder means its
+		// subject left the source - the orphan this feature exists to report. A hub
+		// carrying no usable chain in a folder nothing reaches is the one the run can
+		// say nothing about, and it is the one AM-70 names instead of judging.
+		observed.push({ curie, path: file.path, folder, hasRecordedChain: usable !== undefined });
+		// S12 (2026-09-04). THE NOTE'S OWN RECORD MUST DESCRIBE THE FOLDER IT SITS IN.
+		//
+		// Failure mode prevented: adoption. AM-55 keyed this map by placement and
+		// dropped the `<folder>/<basename>.md` address requirement, which is what
+		// stops a relocated hub answering for nothing - but nothing then checked the
+		// recorded chain against the folder the note was found in. A `kind: 'hub'`
+		// note a person drags into a sibling folder becomes THAT folder's recorded
+		// identity: `recordedValuesOf` returns the moved hub's chain, `identityOf`
+		// adopts its curie, its `hub_values` are written back, and on the next Replace
+		// the note is physically renamed into the new folder under a meaning it never
+		// had. The old address rule blocked this by accident; this blocks it on
+		// purpose. The engine never adopts.
+		//
+		// Compared on the rendered last segment, both sides through the same
+		// normalization the path itself received (AM-45's mirror), because a value and
+		// the directory it produced are the same string only after those mutations.
+		if (usable && !recordedChainDescribesFolder(usable, folder)) {
+			misplaced.push(file.path);
+			// S18 (2026-09-04). ONE VOICE PER FOLDER. This note is named in the S12
+			// warning below, and the folder it sits in is now marked withheld, so the
+			// enrichment pass does not ALSO announce that this import has no index note
+			// for that folder. It has one; this run declines to use it.
+			markIncomplete(byFolder, folder, 'withheld');
+			continue;
+		}
+		const existing = byFolder.get(folder);
+		// S18. A folder whose picture is already incomplete stays incomplete: a
+		// second, readable hub in the same folder does not restore what the first one
+		// made unanswerable.
+		//
+		// AM-68 (2026-09-04). `withheld` ALONE. The `unreadable` arm this also tested
+		// discarded a perfectly readable index note because some other note in the
+		// same folder was cache-cold - and then said the index note could not be read.
+		// A note the run CAN read is the folder's answer.
+		if (existing && existing.state === 'withheld') continue;
+		// `absent` is never set during the walk - it is the qualifier pass's state for
+		// a folder no readable index note was found in - so a second readable hub here
+		// can only be joining one this walk already recorded.
+		if (existing && (existing.state === 'one' || existing.state === 'many')) {
+			// AM-59. Paths AND curies, index for index, so the refusal can account for
+			// every note it names. Sorted by path so the message and the accounting are
+			// in the same deterministic order.
+			const pairs = existing.state === 'many'
+				? existing.paths.map((p, i) => ({ path: p, curie: existing.curies[i] }))
+				: [{ path: existing.path, curie: existing.curie }];
+			pairs.push({ path: file.path, curie });
+			pairs.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+			byFolder.set(folder, {
+				state: 'many',
+				paths: pairs.map((p) => p.path),
+				curies: pairs.map((p) => p.curie),
+			});
+			continue;
+		}
+		byFolder.set(folder, { state: 'one', path: file.path, curie, ...(usable ? { values: usable } : {}) });
+	}
+	// AM-68. The qualifier, applied AFTER every readable note has had its say, so a
+	// folder with a readable index note keeps that note's state and only gains the
+	// note-level observation. A folder whose only owned note was unreadable has no
+	// readable index note at all: that is AM-55's third row, qualified.
+	for (const folder of unreadableFolders) {
+		const existing = byFolder.get(folder);
+		byFolder.set(folder, existing
+			? { ...existing, hasUnreadableNote: true }
+			: { state: 'absent', hasUnreadableNote: true });
+	}
+	// Deterministic order for the messages that name them.
+	unreadable.sort();
+	misplaced.sort();
+	observed.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+	return { byFolder, unreadable, misplaced, observed };
+}
+
+/**
+ * S18 (2026-09-04). Mark a folder as holding an index note this run READ and
+ * declines to act on: S12's note, whose recorded chain describes a different
+ * folder. The caller's own warning names that note, so the enrichment pass says
+ * nothing more about the folder.
+ *
+ * Sticky and fail-closed: once a folder's picture is incomplete, a later readable
+ * hub in the same folder does not restore it, because the first note is still
+ * sitting there and the run still cannot say which one describes the folder.
+ *
+ * AM-68 (2026-09-04). ONE STATE, NOT TWO. Residual ruling 4 added an
+ * `unreadable` folder state here; a folder is never marked from a note the run
+ * could not show to be its index note, so the unreadable observation stays on the
+ * note (`unreadable[]`) and reaches the folder only as the `hasUnreadableNote`
+ * qualifier.
+ *
+ * Failure mode prevented: two voices about one folder, or none. Without any state
+ * the folder was simply absent from the map, so the enrichment pass took AM-55's
+ * third row and printed "This import has no index note for the folder ..." beside
+ * a warning naming a note in that very folder.
+ */
+function markIncomplete(
+	byFolder: Map<string, OwnedHubAtFolder>,
+	folder: string,
+	state: 'withheld',
+): void {
+	const existing = byFolder.get(folder);
+	if (existing && existing.state === 'withheld') return;
+	byFolder.set(folder, { state });
+}
+
+/**
+ * S12. Does this hub note's recorded chain describe the folder it was found in?
+ *
+ * The chain's LAST value is the folder the note claims to be about, and the
+ * folder's own last segment is what it actually is. Both go through
+ * `normalizedPathPieces`, which applies the four mutations a rendered segment
+ * receives on its way into a vault path, so a decomposed accent or a
+ * non-breaking space cannot make an honest hub look misplaced. A value that
+ * spans separators contributes several directories, and the LAST piece is the
+ * one that names this folder.
+ *
+ * A note with no usable chain records nothing to contradict, so it is not asked
+ * this question at all - it is AM-55's second row and is left exactly as it is.
+ */
+function recordedChainDescribesFolder(values: { level: string; value: string }[], folder: string): boolean {
+	const valuePieces = normalizedPathPieces(values[values.length - 1].value);
+	const folderPieces = normalizedPathPieces(basenameOf(folder));
+	if (valuePieces.length === 0 || folderPieces.length === 0) return false;
+	return valuePieces[valuePieces.length - 1] === folderPieces[folderPieces.length - 1];
+}
+
+/**
+ * AM-62 (2026-09-04). The provenance block for a hub whose folder this run HELD.
+ *
+ * Two forms of one thing, so the caller can decide with the first and write with
+ * the second:
+ *   - `preserved` — exactly what the note already carries. Compared against the
+ *     bytes on disk to answer "does this run have anything new to say".
+ *   - `stamped` — the same block with `produced_at` moved, used only when the
+ *     answer is yes.
+ *
+ * Failure mode prevented: a run that kept a folder rewriting the record of where
+ * that folder's index note came from. The fresh block carries this run's
+ * timestamp, this run's recipe hash, and whatever provenance fields the current
+ * version emits - including ones the existing note predates. Merged in
+ * wholesale, that is a run asserting authorship of a note it did not write.
+ *
+ * A note carrying no `_crosswalker` block at all (or an unreadable one) has
+ * nothing to preserve, so the fresh block is used for both: writing provenance
+ * onto a note that has none is a gain, not an overwrite.
+ */
+function heldHubProvenance(
+	existingFrontmatter: Record<string, unknown>,
+	fresh: unknown,
+): { preserved: unknown; stamped: unknown } {
+	const recorded = existingFrontmatter._crosswalker;
+	if (!recorded || typeof recorded !== 'object' || Array.isArray(recorded)) {
+		return { preserved: fresh, stamped: fresh };
+	}
+	const preserved = recorded as Record<string, unknown>;
+	const freshProducedAt = fresh && typeof fresh === 'object' && !Array.isArray(fresh)
+		? (fresh as Record<string, unknown>).produced_at
+		: undefined;
+	return {
+		preserved,
+		stamped: freshProducedAt === undefined
+			? preserved
+			: { ...preserved, produced_at: freshProducedAt },
+	};
+}
+
+/**
+ * AM-75 (2026-09-04). One top-level properties key and the raw lines that are
+ * written for it, newline excluded and otherwise exactly as they sit on disk.
+ */
+interface FrontmatterKeyBlock { key: string; lines: string[] }
+
+/**
+ * AM-75 (2026-09-04). Split a raw properties block into its top-level keys,
+ * keeping every line as it is written.
+ *
+ * Deliberately textual, and deliberately a copy rather than an import. The same
+ * rule already exists at `src/views/evidence-link-modal.ts:224` and is the
+ * precedent AM-75 cites; it lives in a VIEW, and generation must not depend on
+ * the UI layer (AM-58: a pure module stays pure, and the direction of that rule
+ * is that the writer never reaches up into the host's windows). The two are kept
+ * behaviourally identical on purpose: a key's block runs until the next line that
+ * starts a top-level key, so indented lines, block-sequence dashes, comments and
+ * blank lines belong to the key above them and travel with it.
+ *
+ * A trailing CR is part of the line's bytes here and is preserved: this splitter
+ * is fed text split on `\n` alone, so a CRLF note's lines carry their own CR and
+ * a merge cannot silently fold the file to LF.
+ */
+function frontmatterKeyBlocks(lines: readonly string[]): FrontmatterKeyBlock[] {
+	const out: FrontmatterKeyBlock[] = [];
+	let current: FrontmatterKeyBlock | null = null;
+	for (const line of lines) {
+		const bare = line.replace(/\r$/, '');
+		const startsTopLevel = bare !== ''
+			&& !/^[\s-]/.test(bare)
+			&& !bare.trimStart().startsWith('#')
+			&& bare.includes(':');
+		if (startsTopLevel) {
+			current = { key: bare.slice(0, bare.indexOf(':')).trim().replace(/^["']|["']$/g, ''), lines: [line] };
+			out.push(current);
+		} else if (current) {
+			current.lines.push(line);
+		} else {
+			// Anything before the first key (a leading comment, a blank line) is
+			// nobody's value and is kept under a key no writer can own.
+			current = { key: '', lines: [line] };
+			out.push(current);
+		}
+	}
+	return out;
+}
+
+/**
+ * AM-75 (2026-09-04). Rewrite named keys of a properties block by TEXT, leaving
+ * every other byte of the block exactly as it was.
+ *
+ * A key present on disk and named in `replacements` is replaced by the given
+ * lines. A key named in `replacements` and absent from disk is APPENDED at the
+ * end of the block. Every other line - quoting, comments, blank lines, key order,
+ * multi-line scalars, a value this product does not understand - is copied
+ * verbatim.
+ *
+ * Failure mode prevented: the whole reason this function exists. Rebuilding the
+ * block from a PARSED object and re-serialising it rewrites a user's own note:
+ * `formatYamlValue` quotes any digit-leading string (`created: 2024-01-05` ->
+ * `created: "2024-01-05"`), quotes on an apostrophe, drops comments and blank
+ * lines, and - because its double-quote branch escapes only `"` - leaves a raw
+ * newline inside a quoted scalar, so a multi-line property folds to a space on
+ * the next read. That last one is a changed VALUE, not changed formatting, and
+ * the note it changes is the user's concept note.
+ */
+function mergeFrontmatterKeyText(
+	existingText: string,
+	replacements: ReadonlyMap<string, string[]>,
+	eol: string,
+): string {
+	// Split on `\n` alone so a CRLF note's CR stays attached to its own line and
+	// is written back with it. Fresh lines take the note's own ending.
+	const lines = existingText.split('\n');
+	const suffix = eol === '\r\n' ? '\r' : '';
+	const withEnding = (fresh: string[]): string[] => fresh.map((l) => `${l}${suffix}`);
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const block of frontmatterKeyBlocks(lines)) {
+		const fresh = replacements.get(block.key);
+		if (fresh !== undefined && block.key !== '' && !seen.has(block.key)) {
+			seen.add(block.key);
+			out.push(...withEnding(fresh));
+			continue;
+		}
+		out.push(...block.lines);
+	}
+	for (const [key, fresh] of replacements) {
+		if (seen.has(key)) continue;
+		out.push(...withEnding(fresh));
+	}
+	// C2 (2026-09-04). `FRONTMATTER_RE` consumes the separator before the closing
+	// fence, so the captured text's FINAL line carries no `\r` even on a CRLF note
+	// while every interior line does. A fresh block that lands last would otherwise
+	// gain one and the caller's untouched `\r\n---` would follow it, writing
+	// `\r\r\n` before the fence. One post-pass on the final element only, so this
+	// function stays the identity when every replacement equals what it replaced
+	// and no interior line moves.
+	if (out.length > 0 && lines.length > 0) {
+		const last = out.length - 1;
+		if (!lines[lines.length - 1].endsWith('\r') && out[last].endsWith('\r')) {
+			out[last] = out[last].slice(0, -1);
+		}
+	}
+	return out.join('\n');
+}
+
+/** AM-75. Two managed lists are the same list when they name the same links in the same order. */
+function sameLinkList(a: unknown, b: unknown): boolean {
+	if (!Array.isArray(a) || !Array.isArray(b)) return false;
+	if (a.length !== b.length) return false;
+	return a.every((v, i) => v === b[i]);
+}
+
+/**
+ * AM-72 (2026-09-04). Maintain the managed regions of a HOST note this run KEPT.
+ *
+ * A hosted folder's index content lives inside an ordinary row's note (the
+ * sibling folder-note shape, which this module's own docs call the production
+ * shape). When that row is one the run held, the patch loop dropped it, so the
+ * managed `## Contents` region and the managed `children:` array permanently
+ * named N-1 of N children after a Skip-existing refresh added one row under it -
+ * with no deviation and no warning. AM-64 answered the identical question for a
+ * held folder's SYNTHETIC index note by writing it when its children list
+ * differs; the answer cannot depend on whether the folder's index note happens
+ * to be a row.
+ *
+ * Failure mode prevented: a stale list inside the one part of a note the user is
+ * told not to edit, because the next run owns it - and then the next run does not
+ * own it.
+ *
+ * Skip existing's promise is kept exactly: only the regions this run maintains
+ * are rebuilt, every other byte of the note survives, the recorded provenance is
+ * preserved rather than replaced (AM-62), and the note is written only on a real
+ * difference - so a refresh that changed nothing writes nothing. `produced_at`
+ * moves only on a write.
+ *
+ * Only a HOST is maintained here (`patch.hubChildren` present). A held row that
+ * is merely a `children_lists` parent is left exactly as it was: that is the
+ * pre-existing behaviour and AM-72 does not reach it.
+ *
+ * ---------------------------------------------------------------------------
+ * AM-75 (2026-09-04). WHOSE BYTES THIS WRITER IS HOLDING.
+ *
+ * The subject here is the USER'S OWN CONCEPT NOTE - `T1078.md` beside `T1078/` -
+ * annotated through Obsidian's property editor. Its bytes are the user's, its
+ * identity is the row's, and the only list this writer owns is the hosted
+ * children list. AM-72 extended AM-64's mechanism to this new subject without
+ * restating that, and the mechanism it inherited was designed against notes
+ * Crosswalker itself wrote:
+ *
+ *   - the candidate was re-serialised from the PARSED frontmatter through
+ *     `buildNoteContent`, so every property that is not a fixed point of
+ *     parse-then-format came back changed. `created: 2024-01-05` gained quotes,
+ *     an apostrophe gained quotes, YAML comments and blank lines disappeared,
+ *     CRLF folded to LF, and a multi-line property took the double-quote branch
+ *     whose escape covers only `"` - so its raw newline survived inside a quoted
+ *     scalar and folded to a space on the next read. A changed VALUE.
+ *   - the write trigger was WHOLE-NOTE byte inequality, so each of those
+ *     differences was itself the reason to write, and `produced_at` was restamped
+ *     on a Skip run that put nothing into the folder.
+ *
+ * The pre-amendment behaviour at the call site was a bare `continue` - no write
+ * at all - so this is the only write a kept host receives under Skip existing,
+ * and its failure direction rewrites a note the run promised to leave alone.
+ *
+ * So: the candidate is built from the note's raw properties bytes - the value
+ * `ExistingNote.frontmatterText` carries for exactly this purpose, re-derived
+ * here through the same one reader from the same bytes the write is compared
+ * against, so the two halves of the decision cannot come from two reads - by a
+ * TEXT-LEVEL merge
+ * (precedent `src/views/evidence-link-modal.ts:316`). Only the `children:` block
+ * and the `_crosswalker:` block are rewritten; the body changes only between the
+ * existing managed-region markers; the note's line ending is taken from its own
+ * bytes and kept. The trigger is the region difference AM-72 names - the hosted
+ * children list differs from the links in the managed region, or from the
+ * recorded `children:` - and only then does the byte comparison decide.
+ *
+ * AM-76 (2026-09-04). REBUILD MEANS WHAT EXISTS. A `children:` block on disk is
+ * rebuilt; a `## Contents` region on disk is rebuilt; a host with neither is not
+ * written at all and is voiced once. `mergeManagedChildrenSection`'s
+ * append-when-absent path is not reached from here, which is why this writer
+ * calls `replaceRegion` on a span it has already found rather than the merger.
+ */
+async function maintainHeldHostRegions(
+	app: App,
+	path: string,
+	patch: { children?: string[]; hubChildren?: string[] },
+	freshProvenance: unknown,
+	/**
+	 * AM-76. The folder this note hosts, as the pass that decided the hosting
+	 * recorded it. Never derived from the note's path here.
+	 */
+	hostedFolder: string | undefined,
+	result: GenerationResult,
+	deviationsSeen: Set<string>,
+	debug?: DebugLog,
+): Promise<void> {
+	if (!patch.hubChildren) return;
+	const file = app.vault.getAbstractFileByPath(normalizePath(path));
+	if (!(file instanceof TFile)) return;
+	let existingNote: { frontmatter: Record<string, unknown>; body: string; frontmatterText: string };
+	try {
+		existingNote = await readExistingNote(app, file);
+	} catch {
+		// Fail-closed and silent about the note itself: without the read there is no
+		// candidate to compare, and leaving a kept note exactly as it is the safe
+		// direction. The run's own unreadable-note warning already speaks for a note
+		// whose properties could not be read.
+		debug?.info('generation', 'held-host-unreadable', `Kept host ${path} left as it was (properties could not be read)`, { path });
+		return;
+	}
+	// The raw bytes, read once. Everything below is decided against these, and the
+	// note is rebuilt out of them rather than out of a parsed value.
+	let onDisk: string;
+	try {
+		onDisk = await app.vault.read(file);
+	} catch {
+		// Unreadable is not evidence of anything, least of all of a difference worth
+		// writing. A kept note stays as it is.
+		debug?.info('generation', 'held-host-unreadable', `Kept host ${path} left as it was (the file could not be read)`, { path });
+		return;
+	}
+	// AM-75. The note's own line ending, taken from its first line break. Fresh
+	// lines are written with it, so a CRLF note stays a CRLF note.
+	const firstBreak = /\r?\n/.exec(onDisk);
+	const eol = firstBreak && firstBreak[0] === '\r\n' ? '\r\n' : '\n';
+
+	const split = splitNoteText(onDisk);
+	const body = split.body;
+	const prefix = onDisk.slice(0, onDisk.length - body.length);
+	const fmStart = prefix.indexOf('\n') + 1;
+	const fmEnd = fmStart + split.frontmatterText.length;
+	const hasPropertiesBlock = prefix !== '' && prefix.slice(fmStart, fmEnd) === split.frontmatterText;
+	if (prefix !== '' && !hasPropertiesBlock) {
+		// The one reader and this writer disagree about where the block sits. That is
+		// not a state to guess through on someone else's note.
+		debug?.warn('generation', 'held-host-unlocatable-properties', `Kept host ${path} left as it was (its properties block could not be located byte-exactly)`, { path });
+		return;
+	}
+
+	// --- What exists (AM-76). Read from the BYTES, not from a parsed value. ---
+	const fmBlocks = hasPropertiesBlock ? frontmatterKeyBlocks(split.frontmatterText.split('\n')) : [];
+	const hasChildrenKey = fmBlocks.some((b) => b.key === 'children');
+	const hasProvenanceKey = fmBlocks.some((b) => b.key === '_crosswalker');
+	const scan = scanRegions(body);
+	if (!scan.ok) {
+		// C4 (2026-09-04). MALFORMED IS NOT ABSENT. A duplicated, nested or unclosed
+		// marker set is a verdict the scanner already reached; discarding it and
+		// falling into the arm below would tell the user this note "carries no
+		// managed Contents region", which is false, and would silently update the
+		// `children:` key of a note whose body this writer cannot locate. Report the
+		// scan's own code and detail the way the sibling hub writer does, and leave
+		// every byte alone.
+		recordConflict(result, debug, path, undefined, scan.code, scan.detail);
+		return;
+	}
+	const span = findSpan(scan.spans, 'children');
+
+	if (!hasChildrenKey && !span) {
+		// AM-76. Neither region is there. Nothing is rebuilt, nothing is appended, and
+		// the note is named once so the stale list is not a silence.
+		//
+		// C5 (2026-09-04). The folder is the hosting OBSERVATION or nothing. Falling
+		// back to the note's parent path was exactly the path inference this writer's
+		// own contract says it never makes, and it would put a folder name the run
+		// never decided inside a sentence that reads as a finding. Without the
+		// observation the sentence claims no folder.
+		const named = hostedFolder !== undefined
+			? `The note "${path}" hosts the folder "${hostedFolder}" but carries no managed Contents region; `
+				+ 'it was left as it was.'
+			: `The note "${path}" hosts a folder but carries no managed Contents region; `
+				+ 'it was left as it was.';
+		if (!deviationsSeen.has(named)) {
+			deviationsSeen.add(named);
+			result.warnings ??= [];
+			result.warnings.push({ row: 0, message: named });
+		}
+		debug?.info('generation', 'held-host-no-region', `Kept host ${path} carries no managed region; left as it was`, { path });
+		return;
+	}
+
+	// --- Has anything this writer owns actually changed? (AM-75's trigger.) ---
+	const freshRegion = buildManagedChildrenSection('Contents', patch.hubChildren)
+		.replace(/\n+$/, '')
+		.replace(/\n/g, eol);
+	// C1 (2026-09-04). The scanner's span ends AT the `\n` of the end-marker line,
+	// so on a CRLF note the captured text carries that line's own `\r` while
+	// `freshRegion` never does. Comparing the two raw made `regionChanged` true for
+	// every CRLF host on every run, including an all-skip refresh that changed
+	// nothing. Compare without the span's terminal CR, and carry that CR back on
+	// substitution so the untouched `\n` just past `outerEnd` stays paired. A span
+	// that ends at EOF with no newline captures no CR and is unaffected. The shared
+	// scanner's offset contract is not touched: this is the caller's business.
+	const spanText = span !== undefined ? body.slice(span.outerStart, span.outerEnd) : undefined;
+	const spanTerminalCr = spanText !== undefined && spanText.endsWith('\r') ? '\r' : '';
+	const regionChanged = spanText !== undefined && spanText.replace(/\r$/, '') !== freshRegion;
+	const childrenChanged = hasChildrenKey
+		&& patch.children !== undefined
+		&& !sameLinkList(patch.children, existingNote.frontmatter.children);
+	if (!regionChanged && !childrenChanged) {
+		debug?.info('generation', 'held-host-unchanged', `Kept host ${path} left exactly as it was`, { path });
+		return;
+	}
+
+	// --- Rebuild ONLY what changed hands, out of the bytes on disk. ---
+	const held = heldHubProvenance(existingNote.frontmatter, freshProvenance);
+	// AM-69/AM-80 (2026-09-04). THE FREEZE IS UNCONDITIONAL HERE, AND THAT IS NOT A
+	// SECOND FORM OF THE RULE. The facet and level writers freeze recorded
+	// provenance only when the folder has no write-set member; a kept host cannot
+	// have one. A row in the write set is rewritten whole by the row writer and
+	// never reaches this function, so `!hasWriteSetMember` is vacuously true at this
+	// site and stating it would only invite a reader to look for the branch that
+	// makes it false. What the `_crosswalker` block on a host describes is the ROW's
+	// rendered content, and Skip existing did not regenerate that; the only thing
+	// this run made is the region. `produced_at` therefore moves - and it is the
+	// only provenance field that moves - because the run is about to write.
+	const replacements = new Map<string, string[]>();
+	if (hasChildrenKey && patch.children !== undefined) {
+		replacements.set('children', formatYamlLine('children', patch.children, 0).split('\n'));
+	}
+	if (hasPropertiesBlock && held.stamped !== undefined) {
+		// Rewritten in place when the block is there; appended at the end of the
+		// properties when it is not, which is the one key this writer adds. A host
+		// that records no provenance gains one rather than having one overwritten -
+		// the reading the caller's own fresh-provenance block already states - and it
+		// happens only on a run that is writing the note anyway.
+		replacements.set('_crosswalker', formatYamlLine('_crosswalker', held.stamped, 0).split('\n'));
+	}
+	const mergedFrontmatter = hasPropertiesBlock
+		? mergeFrontmatterKeyText(split.frontmatterText, replacements, eol)
+		: split.frontmatterText;
+	const mergedBody = span !== undefined
+		? replaceRegion(body, scan.spans, 'children', freshRegion + spanTerminalCr)
+		: body;
+	const candidate = hasPropertiesBlock
+		? prefix.slice(0, fmStart) + mergedFrontmatter + prefix.slice(fmEnd) + mergedBody
+		: prefix + mergedBody;
+
+	// AM-75. Only NOW does the byte comparison decide. It is the last gate, never
+	// the trigger: whole-note inequality on a note whose properties are the user's
+	// is not evidence that this run has anything to say.
+	if (onDisk === candidate) {
+		debug?.info('generation', 'held-host-unchanged', `Kept host ${path} left exactly as it was`, { path });
+		return;
+	}
+	await app.vault.modify(file, candidate);
+	debug?.info('generation', 'held-host-regions-rebuilt', `Kept host ${path}: managed regions rebuilt`, {
+		path,
+		children: patch.hubChildren.length,
+		region: regionChanged,
+		childrenKey: childrenChanged,
+		provenanceExisted: hasProvenanceKey,
+	});
+}
+
+/** The last path segment of a vault-relative folder path. */
+function basenameOf(path: string): string {
+	const i = path.lastIndexOf('/');
+	return i === -1 ? path : path.slice(i + 1);
+}
+
+/**
+ * Physically apply a hub relocation decided by `resolveHubTarget`. Returns the
+ * path to write at: the destination when the move succeeded, and the note's
+ * CURRENT path when the destination is already occupied by something this batch
+ * did not produce. Refusing to move is always safe; clobbering is not.
+ */
+async function applyHubRelocation(
+	app: App,
+	target: { existingFile: TFile | null; writePath: string; moveFrom?: string },
+	curie: string | null,
+	result: GenerationResult,
+	overwriteMode: 'skip' | 'replace' | 'error' | undefined,
+	/**
+	 * AM-20 (2026-08-31). The addresses this run has already put a note at.
+	 *
+	 * Failure mode prevented: a hub this run RELOCATED being refused, by a later
+	 * hub resolving onto its new address, as a note that is not Crosswalker's.
+	 * The vault-wide index is a pre-run snapshot and knows the moved note only
+	 * under its OLD path, so `provenanceAt(newPath)` answers null and
+	 * `addressRefusal` reads that as `not-crosswalker`. A rename is a mutation
+	 * this run made, exactly like a create, so it is recorded exactly like one.
+	 * Reachable when `hub_note_folder` overlaps a layout folder: the facet-hub
+	 * loop relocates first, the level-hub loop resolves second.
+	 */
+	producedThisRun: Set<string>,
+	debug?: DebugLog,
+): Promise<string> {
+	if (!target.moveFrom || !target.existingFile) return target.writePath;
+	if (overwriteMode === 'skip') {
+		// Leave it exactly where it is, and do not create the folder it would have
+		// moved into: a destination that will receive nothing must not be built.
+		debug?.info('generation', 'hub-relocation-skipped', `Hub ${curie ?? target.existingFile.path} left at ${target.moveFrom} (skip mode)`, {
+			curie, from: target.moveFrom, to: target.writePath,
+		});
+		return target.existingFile.path;
+	}
+	if (app.vault.getAbstractFileByPath(target.writePath)) {
+		result.warnings ??= [];
+		result.warnings.push({
+			row: 0,
+			message: `Hub ${curie ?? target.existingFile.path}: left at ${target.moveFrom} because ${target.writePath} is already occupied.`,
+		});
+		return target.existingFile.path;
+	}
+	const parentPath = getParentPath(target.writePath);
+	if (parentPath) await ensureFolderExists(app, parentPath).catch(() => {});
+	await app.vault.rename(target.existingFile, target.writePath);
+	// AM-20. A hub this run relocated is a note this run produced.
+	producedThisRun.add(normalizePath(target.writePath));
+	result.moved ??= [];
+	result.moved.push({ curie: curie ?? '', from: target.moveFrom, to: target.writePath });
+	debug?.info('generation', 'hub-relocated', `Hub ${curie ?? ''} moved`, { from: target.moveFrom, to: target.writePath });
+	return target.writePath;
+}
+
+/**
+ * AM-60 (2026-09-04). ONE POPULATION, ONE PASS - so this function is what is LEFT
+ * of `markKeptHubsProduced`: the part that reports what could not be read.
+ *
+ * The two-pass shape is deleted. `markKeptHubsProduced` derived hubs from
+ * `[...enrichRecords, ...keptRecords]` and marked their curies; `applyEnrichment`
+ * derived them again from `enrichRecords` alone and wrote them. Every list computed
+ * from the second, smaller population was wrong for the folder it named: in the
+ * default mode (Skip existing) a refresh that adds one row rewrote every ancestor
+ * hub's managed Contents to name that one row and dropped every sibling the folder
+ * still holds. Two derivations of one thing are two answers waiting to disagree,
+ * and these did. `applyEnrichment` now takes the whole in-scope population plus the
+ * set of paths it may write, and there is no second derivation to keep in step.
+ *
+ * What remains here is the one thing that is not a derivation at all: a note the
+ * host could not read, and a note whose recorded identity describes a different
+ * folder (S12). Both mean the run's picture of the vault is incomplete, so orphan
+ * reporting is suppressed for the run rather than published from it.
+ * `project_cache_lag_is_not_absence`.
+ *
+ * Returns false when the picture is incomplete.
+ */
+function reportOwnedHubReadProblems(
+	result: GenerationResult,
+	ownedHubs: { unreadable: readonly string[]; misplaced: readonly string[] } | undefined,
+	debug?: DebugLog,
+): boolean {
+	if (!ownedHubs) return true;
+	let complete = true;
+	if (ownedHubs.unreadable.length > 0) {
+		const named = ownedHubs.unreadable.slice(0, 5).join(', ');
+		const rest = ownedHubs.unreadable.length > 5 ? `, and ${ownedHubs.unreadable.length - 5} more` : '';
+		result.warnings ??= [];
+		result.warnings.push({
+			row: 0,
+			// Named as "notes", not as "index notes": a note nothing could be read from
+			// cannot be shown to be an index note either, and a message that asserts
+			// what the run could not observe is the shape this arc exists to remove.
+			message: `Could not read ${ownedHubs.unreadable.length === 1 ? 'a note' : `${ownedHubs.unreadable.length} notes`} `
+				+ `in this collection, so notes no longer in the source were not reported: ${named}${rest}. Wait for `
+				+ 'Obsidian to finish indexing the vault, or fix the properties in those notes, then run the import again.',
+		});
+		debug?.warn('generation', 'kept-hub-unreadable', 'Owned notes could not be read during the enrichment pass', {
+			paths: ownedHubs.unreadable,
+		});
+		complete = false;
+	}
+	if (ownedHubs.misplaced.length > 0) {
+		// S12. Refused BY NAME. The folder does not inherit this note's identity, and
+		// because the note is then accounted for by nothing, orphan reporting is
+		// suppressed for the run rather than naming a note that is sitting in the
+		// vault. One message per note, capped, with the two actions that resolve it.
+		const named = ownedHubs.misplaced.slice(0, 5).map((p) => `"${p}"`).join(', ');
+		const rest = ownedHubs.misplaced.length > 5 ? `, and ${ownedHubs.misplaced.length - 5} more` : '';
+		result.warnings ??= [];
+		result.warnings.push({
+			row: 0,
+			message: ownedHubs.misplaced.length === 1
+				? `The index note ${named} records the identity of a different folder, so notes no longer in the source `
+					+ 'were not reported. Move it back to the folder it describes, or delete it and run the import again '
+					+ 'to have the folder\'s index note rebuilt.'
+				: `${ownedHubs.misplaced.length} index notes record the identity of a different folder than the one they `
+					+ `sit in, so notes no longer in the source were not reported: ${named}${rest}. Move them back to the `
+					+ 'folders they describe, or delete them and run the import again to have those index notes rebuilt.',
+		});
+		debug?.warn('generation', 'hub-folder-mismatch', 'Index notes record a different folder than they sit in', {
+			paths: ownedHubs.misplaced,
+		});
+		complete = false;
+	}
+	return complete;
+}/**
  * Pass 1.5 enrichment patch phase (post-stream). Derives parent→children +
  * facet hubs from the in-memory records, then writes `children` onto parents and
  * materializes facet hub notes — both via the managed-merge path so re-imports
@@ -2446,16 +4344,90 @@ export function facetMembershipsFromTags(tags: string[]): FacetMembership[] {
  * `EnrichmentWriteOptions`), so this one phase runs identically after either
  * write loop.
  */
+/**
+ * AM-60 (2026-09-04). ONE POPULATION, ONE PASS.
+ *
+ * `records` is the WHOLE in-scope population - the rows this run wrote and the
+ * rows it kept - and `writeSet` is the subset whose note bodies this pass may
+ * touch. Every derived thing (folders, chains, kept folders, refusals, hub
+ * identity, and every Contents list) is computed over the whole population;
+ * every write of a ROW's own note is confined to the write set.
+ *
+ * Failure mode prevented: a list the run maintains, rewritten from a batch that
+ * cannot see everything the list names. This function used to receive
+ * `enrichRecords` alone while a second pass received both, so in the default
+ * mode - Skip existing - adding one control to an existing framework rewrote the
+ * managed Contents of every ancestor hub to name that single new note and
+ * dropped every sibling the folder still holds. Twenty links vanished from the
+ * one region the user is told not to edit, with no warning, zero orphans and
+ * every counter green. AM-56 asked whether the fresh list was EMPTY; the
+ * question it did not ask is whether the fresh list was COMPLETE.
+ */
 async function applyEnrichment(
 	app: App,
 	recipe: Recipe,
 	options: EnrichmentWriteOptions,
 	curiePrefix: string,
+	/**
+	 * AM-60. The WHOLE in-scope population: the rows this run wrote and the rows it
+	 * kept, in that order. Every derivation below reads this list.
+	 */
 	records: EnrichRecord[],
+	/**
+	 * AM-60. The paths whose OWN note bodies this pass may write - the rows this run
+	 * actually produced. Skip existing means "leave this note's bytes alone", and it
+	 * still does: a kept row contributes to every list and receives no write.
+	 * Managed index notes are a separate decision (AM-55's table), because the run
+	 * maintains those regions and a kept row's folder still has to be described.
+	 *
+	 * AM-61. Handed to `enrich()` as well, not just used here. A batch widened for
+	 * reading is not widened for acting: every decision taken over the wider batch -
+	 * which folders this run DESCRIBES, which it HOLDS, and which notes it plans to
+	 * move - is told which half it may act on. Used here for the same reason at the
+	 * three sites that touch the vault (the rename, the step-1 patch, and the
+	 * address bypass below).
+	 */
+	writeSet: ReadonlySet<string>,
 	result: GenerationResult,
 	importSet: ImportSetReference,
 	producedCuries: Set<string>,
+	/**
+	 * AM-31. The run's claim ledger, shared with the row loops. A hub is a writer
+	 * like any other: it must not take an identity this run already produced, and
+	 * it must record the one it takes so nothing later can take it again.
+	 */
+	curieOrigins: Map<string, ProducedCurieOrigin>,
 	streamed: boolean,
+	/**
+	 * AM-12. Two indexes, two jobs: `owned` RESOLVES a hub to the note this set
+	 * already has, `vaultWide` only DETECTS one held by a different set. Passing a
+	 * single vault-wide index here is what let hub writes cross a set boundary.
+	 */
+	indexes: { owned?: IdentityIndex; vaultWide?: IdentityIndex } | undefined,
+	/**
+	 * AM-52/AM-55. What the vault holds at each folder, read once per run by the
+	 * caller. AM-60: there is now one pass, so this is consulted by the one
+	 * derivation rather than shared between two that could disagree.
+	 */
+	ownedHubsByFolder: OwnedHubsByFolder | undefined,
+	/**
+	 * AM-70. Every index note of this import the caller READ this run. Handed over
+	 * so the one derivation can say which of them no note of the population reaches.
+	 */
+	observedHubs: readonly { curie: string; path: string; folder: string; hasRecordedChain: boolean }[] | undefined,
+	/**
+	 * AM-70. Filled here, read by the caller's orphan diff: the curies of index
+	 * notes the run read and cannot judge. Never merged into `producedCuries` - this
+	 * run wrote nothing for them and cannot describe them, so it neither vouches for
+	 * them nor calls them vanished.
+	 */
+	observedUnjudgedCuries: Set<string>,
+	/**
+	 * AM-55. The run's deviation ledger. AM-60 leaves one pass, so this is now a
+	 * within-pass guarantee that one folder's refusal is reported once, rather than
+	 * a handshake between two passes that saw different populations.
+	 */
+	deviationsSeen: Set<string>,
 	debug?: DebugLog,
 ): Promise<void> {
 	const config = recipe.target.enrichment ?? {};
@@ -2463,6 +4435,14 @@ async function applyEnrichment(
 	// they carry recipe.hash but never concept_cid — see the two buildProvenance
 	// calls below. Computed once per applyEnrichment call (one per generation run).
 	const recipeHash = computeRecipeHash(recipe.target, recipe.source);
+	// AM-72. One fresh block per run for the held-host writer below. Only its
+	// `produced_at` is ever taken (`heldHubProvenance`), except on a host that
+	// records no provenance at all, where writing one is a gain and not an
+	// overwrite.
+	const freshProvenance = buildProvenance(
+		{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, importSet },
+		PLUGIN_VERSION,
+	);
 	const enrichment = enrich(
 		records.map((r) => ({
 			path: r.path,
@@ -2470,17 +4450,77 @@ async function applyEnrichment(
 			frontmatter: r.frontmatter,
 			facets: r.facets,
 			renderedPath: r.renderedPath,
+			// AM-33: the values this row's folder levels rendered, carried to the hub pass.
+			layoutValues: r.layoutValues,
 		})),
-		{ ontology: curiePrefix, config, streamed, rootFolder: options.basePath },
+		{
+			ontology: curiePrefix,
+			config,
+			streamed,
+			rootFolder: options.basePath,
+			ownedHubsByFolder,
+			// AM-61. The derivation is TOLD which half of the population it may act
+			// on. Without it a kept row described its own folder and outranked the
+			// identity the note on disk already carries, and `computeRelocations`
+			// planned moves this pass then refused - a plan the same run contradicts.
+			writeSet,
+			// AM-70. What the run READ, so the derivation that knows which folders the
+			// population reaches can name the notes it cannot judge.
+			observedHubs,
+		},
 	);
 	result.edgeCount = enrichment.edgeCount;
 
+	// AM-70. Read straight back out to the caller's orphan diff. Kept OUT of
+	// `producedCuries`: a claim records the origin of something this run wrote, and
+	// this run wrote nothing for these notes and cannot say what they are about.
+	for (const curie of enrichment.levelHubs.observedUnjudgedCuries) observedUnjudgedCuries.add(curie);
+
+	// AM-55. Through the run's one ledger, so one folder's refusal is reported once.
 	if (enrichment.deviations.length > 0) {
 		result.warnings ??= [];
-		for (const d of enrichment.deviations) result.warnings.push({ row: 0, message: d });
+		for (const d of enrichment.deviations) {
+			if (deviationsSeen.has(d)) continue;
+			deviationsSeen.add(d);
+			result.warnings.push({ row: 0, message: d });
+		}
 	}
 
+	// AM-55 rows 2 and 4. An index note this run LEFT EXACTLY AS IT IS still exists,
+	// so reporting it as no longer in the source is a claim the run has evidence
+	// against - it read the note this pass. Such a folder emits no hub note (there is
+	// no identity to write, or two identities to choose between), which is precisely
+	// why its curie has to be accounted for here rather than by a write.
+	//
+	// Added, not CLAIMED (AM-31): a claim records the origin of something this run
+	// wrote, and this run wrote nothing for these. Their folders are refused, so no
+	// hub note can arrive at the same identity later in this pass.
+	for (const curie of enrichment.levelHubs.keptExistingCuries) producedCuries.add(curie);
+
 	const recordsByPath = new Map(records.map((r) => [r.path, r]));
+
+	// AM-60. The write set, mutable only for a relocation this pass performs: the
+	// note moves, so the one address this pass may write moves with it.
+	const writePaths = new Set(writeSet);
+
+	// AM-14. Every address THIS run has already written or kept. Both identity
+	// indexes were built before the run started, so a note this run created is
+	// absent from them; without this a hub resolving onto an address an earlier
+	// row of the SAME run wrote would refuse itself as `not Crosswalker's`.
+	// Ownership is the stamp on the note, and that stamp names this set.
+	//
+	// S17 (2026-09-04). THE BYPASS IS THE WRITE SET, not the population. A kept
+	// note is an OCCUPANT of its address, not something this run produced there.
+	// With the population widened (AM-60) every kept path entered this set, so a
+	// synthetic level hub whose address happens to hold a kept row's note skipped
+	// the ownership check entirely and merged into that note under a hub identity -
+	// a write outside the write set, in the mode that promises not to touch it. The
+	// ordinary same-set re-import is unaffected: a note stamped with this set is
+	// admitted by `addressRefusal` on its own stamp, with no bypass needed.
+	const producedThisRun = new Set<string>([
+		...records.filter((r) => writeSet.has(r.path)).map((r) => normalizePath(r.path)),
+		...result.created.map((path) => normalizePath(path)),
+	]);
 
 	// 0. Parent-note relocations (batch-enrichment design §3 step 2) — physically
 	//    move each file BEFORE the children-list patch below, which writes to
@@ -2493,6 +4533,12 @@ async function applyEnrichment(
 	//    never appears in `enrichment.relocations` (enrich()'s idempotency
 	//    guard), so re-importing the same config twice is a no-op here.
 	for (const reloc of enrichment.relocations) {
+		// AM-60. A relocation is a WRITE - it renames a file - so it is confined to
+		// the write set like every other write. The population now includes the rows
+		// this run kept, and Skip existing means the note stays exactly where it is;
+		// moving one because the layout would now place it elsewhere is the opposite
+		// of what the mode promises, and it is not a move the user asked for.
+		if (!writePaths.has(reloc.from)) continue;
 		const record = recordsByPath.get(reloc.from);
 		const file = app.vault.getAbstractFileByPath(normalizePath(reloc.from));
 		if (!record || !(file instanceof TFile)) {
@@ -2517,6 +4563,10 @@ async function applyEnrichment(
 		const relocParentPath = getParentPath(toPath);
 		if (relocParentPath) await ensureFolderExists(app, relocParentPath).catch(() => {});
 		await app.vault.rename(file, toPath);
+		producedThisRun.add(toPath);
+		// AM-60. The note this pass may write is the same note at its new address.
+		writePaths.delete(reloc.from);
+		writePaths.add(toPath);
 
 		recordsByPath.delete(reloc.from);
 		record.path = toPath;
@@ -2545,6 +4595,30 @@ async function applyEnrichment(
 		patchByPath.set(path, { ...(patchByPath.get(path) ?? {}), hubChildren: children });
 	}
 	for (const [path, patch] of patchByPath) {
+		// AM-60. Derived over the whole population, WRITTEN only for the rows this
+		// run produced. A kept row's own note keeps its bytes - that is what Skip
+		// existing promises - while still counting toward every list computed above,
+		// which is the half that was missing. (This loop already refused to touch a
+		// note absent from its batch, via `recordsByPath`; the batch is now the whole
+		// population, so the write set is what carries that guarantee.)
+		//
+		// AM-72 (2026-09-04). EXCEPT THE MANAGED REGIONS OF A KEPT HOST. Skip
+		// existing's promise covers the user's own prose and properties, not the list
+		// this run tells the user not to edit by hand.
+		if (!writePaths.has(path)) {
+			await maintainHeldHostRegions(
+				app,
+				path,
+				patch,
+				freshProvenance,
+				// AM-76. The folder this note hosts, from the pass that decided it.
+				enrichment.levelHubs.hostedFolderByPath.get(path),
+				result,
+				deviationsSeen,
+				debug,
+			);
+			continue;
+		}
 		const record = recordsByPath.get(path);
 		if (!record) continue;
 		const file = app.vault.getAbstractFileByPath(normalizePath(path));
@@ -2562,7 +4636,15 @@ async function applyEnrichment(
 		};
 		let body = record.body;
 		if (patch.hubChildren) {
-			body = mergeManagedChildrenSection(body, buildManagedChildrenSection('Contents', patch.hubChildren));
+			// AM-56. `[]` is truthy, so this branch ran for a host with nothing to
+			// list and appended a visible `## Contents` / `*(nothing yet)*` block to a
+			// note that never carried one. An empty list rewrites a region, it never
+			// creates one.
+			body = mergeManagedChildrenSection(
+				body,
+				buildManagedChildrenSection('Contents', patch.hubChildren),
+				patch.hubChildren.length === 0,
+			);
 			if (config.waypoint_marker) body = ensureWaypointMarker(body);
 		}
 		await app.vault.modify(file, buildNoteContent(frontmatter, body));
@@ -2574,22 +4656,102 @@ async function applyEnrichment(
 		const fullPath = options.basePath ? normalizePath(`${options.basePath}/${hub.path}`) : normalizePath(hub.path);
 		const frontmatter: Record<string, any> = { ...hub.frontmatter };
 		frontmatter._crosswalker = buildProvenance(
-			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, recipeId: recipe.recipe, recipeHash, importSet },
+			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, importSet },
 			PLUGIN_VERSION,
 		);
 		// Hub ownership and produced membership are recorded together. Splitting
 		// these operations is what previously made successful hubs look orphaned.
 		const hubCurie = typeof frontmatter.curie === 'string' ? frontmatter.curie : null;
-		if (hubCurie) producedCuries.add(hubCurie);
+		// AM-12. Detection before ownership: a hub identity claimed by another set is
+		// reported and this hub is left entirely alone. Recording it as produced
+		// first would vouch for a note this run refused to write.
+		const foreignHub = foreignHubClaim(indexes?.owned, indexes?.vaultWide, hubCurie, hub.legacyCuries);
+		if (foreignHub) {
+			result.errors.push({ row: 0, message: crossSetCollisionMessage(foreignHub.curie, foreignHub.claim) });
+			continue;
+		}
+		// Identity first: a facet hub curie is already address-independent, but it
+		// was resolved by path alone, so a changed destination created a duplicate
+		// instead of finding the hub that exists.
+		//
+		// AM-14. Resolved BEFORE the hub is recorded as produced, for the same
+		// reason AM-12's detection is: a hub refused at its address is a hub this
+		// run never wrote, and marking it produced would both vouch for a note that
+		// does not exist and hide a real orphan behind it.
+		const target = resolveHubTarget(
+			app,
+			fullPath,
+			hubCurie,
+			hub.legacyCuries,
+			indexes?.owned,
+			indexes?.vaultWide,
+			importSet.id,
+			producedThisRun,
+		);
+		if (target.refusal) {
+			reportAddressRefusal(result, debug, target.refusal, 0, hubCurie ?? undefined);
+			continue;
+		}
+		// AM-31. The within-run duplicate guard, at a hub writer. A facet value and
+		// a row identity, or two facet values whose slug collapses (`Access Control`
+		// and `access-control`), can produce one curie; before this the second was
+		// written anyway, leaving the vault holding one identity twice - permanent,
+		// and fatal to every later import in that vault. Refused HERE, above every
+		// write and above the relocation, so a refused hub is one this run never
+		// touched.
+		if (hubCurie) {
+			const firstClaim = claimProducedCurie(producedCuries, curieOrigins, hubCurie, {
+				row: 0, path: fullPath, kind: 'hub',
+			});
+			if (firstClaim) {
+				result.errors.push({ row: 0, message: duplicateHubCurieMessage(hubCurie, fullPath, firstClaim) });
+				continue;
+			}
+		}
 		let body = hub.body;
 
-		const existing = app.vault.getAbstractFileByPath(fullPath);
+		const existing = target.existingFile;
+		// AM-64 (2026-09-04). THE FACET HUB'S PROVENANCE, AS RECORDED, read before the
+		// merge replaces it. Used only to answer "does this run have anything new to
+		// say about this note" - a candidate carrying THIS run's `produced_at` differs
+		// from the note on disk every single time, so a comparison against the fresh
+		// block could never answer anything. An unreadable note yields nothing to
+		// preserve, which falls through to the write: the behaviour this writer had
+		// before the amendment, and the safe direction.
+		//
+		// AM-69 (2026-09-04). READ ONLY FOR A RUN THAT WROTE NONE OF ITS MEMBERS. The
+		// freeze exists for the run that did not write the note; a run that did earns
+		// the fresh block. See the write below.
+		let recordedFacetProvenance: unknown;
+		if (!hub.hasWriteSetMember && existing instanceof TFile) {
+			try {
+				recordedFacetProvenance = (await readExistingNote(app, existing)).frontmatter._crosswalker;
+			} catch {
+				recordedFacetProvenance = undefined;
+			}
+		}
+		const writePath = await applyHubRelocation(app, target, hubCurie, result, options.overwriteMode, producedThisRun, debug);
 		if (existing instanceof TFile) {
 			// Re-import through the SAME shared merger the row writes use. `kind:
 			// 'facet-hub'` selects adopt-by-replay: `mergeHubBody` was already
 			// non-destructive, so an equality rule would REGRESS a working path and
 			// stop hubs updating. A facet hub therefore never conflicts on its body,
 			// only on unreadable properties or corrupt markers.
+			// AM-31. The superseded identity is claimed too, and by the same rule: if
+			// something else in this run already produced it, two writers disagree
+			// about one identity and neither may proceed silently.
+			if (target.adoptedAlias) {
+				const firstClaim = claimProducedCurie(producedCuries, curieOrigins, target.adoptedAlias, {
+					row: 0, path: existing.path, kind: 'hub',
+				});
+				if (firstClaim) {
+					result.errors.push({
+						row: 0,
+						message: duplicateHubCurieMessage(target.adoptedAlias, existing.path, firstClaim),
+					});
+					continue;
+				}
+			}
 			const outcome = await mergeExistingNote({
 				app,
 				file: existing,
@@ -2599,21 +4761,94 @@ async function applyEnrichment(
 				kind: 'facet-hub',
 			});
 			if (!outcome.ok) {
-				recordConflict(result, debug, fullPath, hubCurie ?? undefined, outcome.code, outcome.detail);
+				recordConflict(result, debug, writePath, hubCurie ?? undefined, outcome.code, outcome.detail);
 				continue;
 			}
 			Object.keys(frontmatter).forEach((k) => delete frontmatter[k]);
 			Object.assign(frontmatter, outcome.frontmatter);
 			body = outcome.body;
+			// AM-64 (2026-09-04). THE AM-62 RULE, AT THE SECOND HUB WRITER. An existing
+			// facet hub is written only when its managed region or its members list
+			// actually differs, and `produced_at` moves only on a write.
+			//
+			// Failure mode prevented: a run that wrote no note touching every facet hub
+			// in the vault. AM-62 closed this at the level-hub writer and left this one
+			// open, which the gate hid; with the gate gone (AM-64) an all-skip refresh
+			// reaches this loop, and without the rule it would restamp every facet hub -
+			// new mtime, new `produced_at`, provenance fields the notes never carried -
+			// on a pass that produced nothing.
+			//
+			// The comparison is against the bytes on disk, with the recorded provenance
+			// put back, so everything else in the candidate is what the merge just
+			// derived. A serialization difference therefore fails SAFE: the run writes,
+			// which is what this writer did before.
+			//
+			// AM-69 (2026-09-04). PROVENANCE BELONGS TO THE RUN THAT WROTE THE NOTE;
+			// THE FREEZE IS FOR THE RUN THAT DID NOT. Gated on `hasWriteSetMember`,
+			// mirroring the level writer's `if (hub.heldFolder)` below.
+			//
+			// Failure mode prevented: one import set holding two answers to "which
+			// recipe produced this", split by note kind. Pass 21 applied the freeze to
+			// EVERY facet write, so a Replace re-import with a revised recipe wrote the
+			// facet hub's new members list while recording the PREVIOUS recipe's hash,
+			// source file and plugin version - and, because the preservation was
+			// unconditional, no later run could ever restamp it. An `import_set`
+			// sub-field added after the note was first written could never land on a
+			// facet hub, and `agreedDerivation` refuses a partly-stamped set by name.
+			//
+			// A run that wrote one of this hub's members authored its current content
+			// and says so: the fresh block from the managed-key merge, as before pass
+			// 21. A run that wrote none of them keeps what the note records and moves
+			// `produced_at` only if something else actually differs.
+			if (!hub.hasWriteSetMember) {
+				const facetProvenance = heldHubProvenance({ _crosswalker: recordedFacetProvenance }, frontmatter._crosswalker);
+				frontmatter._crosswalker = facetProvenance.preserved;
+				const facetCandidate = buildNoteContent(frontmatter, body);
+				let facetOnDisk: string | null = null;
+				try {
+					facetOnDisk = await app.vault.read(existing);
+				} catch {
+					facetOnDisk = null;
+				}
+				if (facetOnDisk !== null && facetOnDisk === facetCandidate) {
+					debug?.info('generation', 'facet-hub-unchanged', `Facet hub ${hubCurie ?? writePath} left exactly as it was`, {
+						path: writePath,
+					});
+					continue;
+				}
+				frontmatter._crosswalker = facetProvenance.stamped;
+			}
 			await app.vault.modify(existing, buildNoteContent(frontmatter, body));
 		} else {
+			// AM-64. AN ABSENT FACET HUB IS CREATED ONLY FOR A RUN THAT WROTE ONE OF ITS
+			// MEMBERS. Its curie is already claimed above, so the hub is ACCOUNTED FOR
+			// and simply not written - the orphan pass will not call it vanished.
+			//
+			// Failure mode prevented: a run that wrote nothing inventing notes. Every
+			// member of this hub is a row the run held, so the facet note describes
+			// notes nobody touched; creating it also re-creates one the user deleted on
+			// purpose, on the pass that was supposed to leave the vault alone.
+			if (!hub.hasWriteSetMember) {
+				debug?.info('generation', 'facet-hub-not-created', `Facet hub ${hubCurie ?? writePath} accounted for, not created`, {
+					path: writePath,
+				});
+				continue;
+			}
 			body = wrapManagedBody(hub.body);
-			const parentPath = getParentPath(fullPath);
+			const parentPath = getParentPath(writePath);
 			if (parentPath) await ensureFolderExists(app, parentPath).catch(() => {});
-			await app.vault.create(fullPath, buildNoteContent(frontmatter, body));
-			result.created.push(fullPath);
+			await app.vault.create(writePath, buildNoteContent(frontmatter, body));
+			result.created.push(writePath);
+			producedThisRun.add(normalizePath(writePath));
 		}
 	}
+
+	// AM-33 step 3's index. Built once, and only when at least one level hub
+	// actually carries recorded values, so an import with no level hubs (or one
+	// whose hubs predate the values) pays nothing for it.
+	const hubValueIndex = enrichment.levelHubs.notes.some((h) => h.levelValues && h.levelValues.length > 0)
+		? await buildOwnedHubValueIndex(app, indexes?.owned)
+		: undefined;
 
 	// 3. Synthetic level-hub notes (level_hubs='notes', pure structural folders
 	//    with no hosting concept note — module doc step 4.5). `hub.path` here is
@@ -2624,16 +4859,123 @@ async function applyEnrichment(
 		const fullPath = normalizePath(hub.path);
 		const frontmatter: Record<string, any> = { ...hub.frontmatter };
 		frontmatter._crosswalker = buildProvenance(
-			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, recipeId: recipe.recipe, recipeHash, importSet },
+			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, importSet },
 			PLUGIN_VERSION,
 		);
 		// Hub ownership and produced membership are recorded together. Splitting
 		// these operations is what previously made successful hubs look orphaned.
 		const hubCurie = typeof frontmatter.curie === 'string' ? frontmatter.curie : null;
-		if (hubCurie) producedCuries.add(hubCurie);
+		// AM-12. Detection before ownership: a hub identity claimed by another set is
+		// reported and this hub is left entirely alone. Recording it as produced
+		// first would vouch for a note this run refused to write.
+		const foreignHub = foreignHubClaim(indexes?.owned, indexes?.vaultWide, hubCurie, hub.legacyCuries);
+		if (foreignHub) {
+			result.errors.push({ row: 0, message: crossSetCollisionMessage(foreignHub.curie, foreignHub.claim) });
+			continue;
+		}
+		// Identity first, with the address-derived legacy forms accepted as aliases.
+		// A level hub whose curie moved with its folder is the silent case: no
+		// collision, no error, just two files and a batch of new orphans. The alias
+		// is what lets the existing note keep its content and be restamped instead.
+		//
+		// AM-14. Resolved BEFORE the hub is recorded as produced, for the same
+		// reason AM-12's detection is: a hub refused at its address is a hub this
+		// run never wrote, and marking it produced would vouch for a note that does
+		// not exist.
+		const target = resolveHubTarget(
+			app,
+			fullPath,
+			hubCurie,
+			hub.legacyCuries,
+			indexes?.owned,
+			indexes?.vaultWide,
+			importSet.id,
+			producedThisRun,
+			// AM-33 step 3: the values this hub is about, and the owned hubs that
+			// record theirs. Consulted only after both computed forms miss.
+			{ levelValues: hub.levelValues, index: hubValueIndex },
+		);
+		if (target.refusal) {
+			reportAddressRefusal(result, debug, target.refusal, 0, hubCurie ?? undefined);
+			continue;
+		}
+		// AM-31. Same guard as the facet hubs above, at the other hub writer. One
+		// rule, all writers: a level hub that would take an identity this run
+		// already produced is refused by name rather than written into a collision.
+		if (hubCurie) {
+			const firstClaim = claimProducedCurie(producedCuries, curieOrigins, hubCurie, {
+				row: 0, path: fullPath, kind: 'hub',
+			});
+			if (firstClaim) {
+				result.errors.push({ row: 0, message: duplicateHubCurieMessage(hubCurie, fullPath, firstClaim) });
+				continue;
+			}
+		}
 		let body = hub.body;
 
-		const existing = app.vault.getAbstractFileByPath(fullPath);
+		const existing = target.existingFile;
+		// The adopted alias is recorded as produced so the identity this run
+		// deliberately superseded is not then reported as a note that vanished.
+		// AM-31: claimed, not merely added, so a second writer of that same
+		// superseded identity is refused rather than silently agreed with.
+		//
+		// AM-39. Claimed ABOVE the relocation, exactly as the curie claim above is.
+		// AM-31's invariant is "above every write and above the relocation", and
+		// this was the one claim below it. It was unreachable until AM-33 step 3,
+		// whose whole purpose is an alias on a note that has MOVED: a hub refused
+		// here after the move had already run was physically renamed to the new
+		// address and then abandoned by `continue` with nothing written into it, so
+		// a refusal left the vault rearranged. A refusal must leave the vault
+		// exactly as it found it.
+		if (existing instanceof TFile && target.adoptedAlias) {
+			const firstClaim = claimProducedCurie(producedCuries, curieOrigins, target.adoptedAlias, {
+				row: 0, path: existing.path, kind: 'hub',
+			});
+			if (firstClaim) {
+				result.errors.push({
+					row: 0,
+					message: duplicateHubCurieMessage(target.adoptedAlias, existing.path, firstClaim),
+				});
+				continue;
+			}
+		}
+		// AM-64 (2026-09-04). A HELD-ONLY FOLDER'S ABSENT INDEX NOTE IS NEVER CREATED.
+		//
+		// Its curie is already claimed above, so the folder is ACCOUNTED FOR and
+		// simply not written; the orphan pass will not call it vanished. Reached when
+		// the user deleted the index note of a folder this run wrote nothing into -
+		// AM-55's third row, refused by name in the deviation the derivation already
+		// emitted. Restoring it here would be the run undoing a deletion on a pass
+		// that was meant to leave the folder alone.
+		//
+		// AM-71 (2026-09-04). THE IMPORT ROOT IS EXEMPT. Its identity is the set's own
+		// reserved local part, so an absent root note is not a folder whose recorded
+		// meaning the run would be guessing at - there is nothing recorded. Refusing
+		// it left an import with no home note and, because `refusalFor` exempts the
+		// root, no message either: silence on a pre-fix flat vault or after the user
+		// deleted the home note. Created with fresh provenance, since there is nothing
+		// recorded to preserve; an EXISTING root on an all-skip run is untouched by
+		// the byte rule below.
+		if (hub.heldFolder && !hub.importRoot && !(existing instanceof TFile)) {
+			debug?.info('generation', 'held-hub-not-created', `Hub ${hubCurie ?? fullPath} accounted for, not created`, {
+				path: fullPath,
+			});
+			continue;
+		}
+		// AM-64. A held-only folder's index note is not MOVED either: a rename is a
+		// write, and this run has nothing new to say about the folder. The relocation
+		// exists for a hub whose address the run is actively re-deciding, which is a
+		// described folder's hub. Without this, an all-skip refresh could still rename
+		// an index note the user had renamed by hand.
+		//
+		// Ruling 2 (pass 21, ratified): A HELD-ONLY HUB IS NEVER RELOCATED, and a hub
+		// the user renamed by hand keeps the name they gave it on any run that writes
+		// nothing into its folder. Relocations are planned over the write set alone
+		// (AM-61), and a rename is a write - so this is that rule reaching the one
+		// writer that could still have performed one.
+		const writePath = hub.heldFolder && existing instanceof TFile
+			? existing.path
+			: await applyHubRelocation(app, target, hubCurie, result, options.overwriteMode, producedThisRun, debug);
 		if (existing instanceof TFile) {
 			// Re-import: regenerate the managed Contents section, preserve user
 			// frontmatter + any prose outside it (title, notes, etc.).
@@ -2648,22 +4990,32 @@ async function applyEnrichment(
 				existingNote = await readExistingNote(app, existing);
 			} catch (readErr) {
 				const detail = readErr instanceof ExistingNoteReadError ? readErr.detail : String(readErr);
-				recordConflict(result, debug, fullPath, hubCurie ?? undefined, 'frontmatter-unreadable', detail);
+				recordConflict(result, debug, writePath, hubCurie ?? undefined, 'frontmatter-unreadable', detail);
 				continue;
 			}
 			const scan = scanRegions(existingNote.body);
 			if (!scan.ok) {
-				recordConflict(result, debug, fullPath, hubCurie ?? undefined, scan.code, scan.detail);
+				recordConflict(result, debug, writePath, hubCurie ?? undefined, scan.code, scan.detail);
 				continue;
 			}
 			if (Object.keys(existingNote.frontmatter).length > 0) {
 				try {
-					const managedKeys = computeManagedKeys(frontmatter, userPreserve);
+					// AM-39. `hub_levels`/`hub_values` are ALWAYS managed on a hub, even
+					// in a run that computes none. Managed keys are otherwise the keys
+					// the fresh frontmatter happens to carry, so a run that could not
+					// compute values simply omitted them and the merge preserved the
+					// note's OLD values as if they were a user annotation. A stale
+					// record is worse than no record: the value index keeps offering
+					// that note as the hub for values it no longer covers, and step 3
+					// then moves it and restamps it into a folder that is about
+					// something else. Declaring them managed makes "no values this run"
+					// delete the claim instead of leaving it standing.
+					const managedKeys = computeManagedKeys(frontmatter, userPreserve, HUB_VALUE_RECORD_KEYS);
 					const merged = mergeFrontmatter(existingNote.frontmatter, frontmatter, managedKeys);
 					Object.keys(frontmatter).forEach((k) => delete frontmatter[k]);
 					Object.assign(frontmatter, merged);
 				} catch (mergeErr) {
-					recordConflict(result, debug, fullPath, hubCurie ?? undefined, 'frontmatter-merge-failed',
+					recordConflict(result, debug, writePath, hubCurie ?? undefined, 'frontmatter-merge-failed',
 						mergeErr instanceof Error ? mergeErr.message : String(mergeErr));
 					continue;
 				}
@@ -2674,15 +5026,176 @@ async function applyEnrichment(
 			// managed section from these fields, never by re-parsing `body`).
 			const facetGroup = hub.facetLinks ? [{ label: 'Facets', links: hub.facetLinks }] : [];
 			const freshSection = buildManagedChildrenSection('Contents', hub.childrenLinks ?? [], facetGroup);
-			body = mergeManagedChildrenSection(existingNote.body, freshSection);
+			// AM-56. An empty section never CREATES a managed region on a note that
+			// has none; it only rewrites one this run already maintains.
+			const freshIsEmpty = (hub.childrenLinks ?? []).length === 0
+				&& facetGroup.every((g) => g.links.length === 0);
+			body = mergeManagedChildrenSection(existingNote.body, freshSection, freshIsEmpty);
 			if (config.waypoint_marker) body = ensureWaypointMarker(body);
+			if (hub.heldFolder) {
+				// AM-62 (2026-09-04). A RUN THAT HAS NOTHING NEW TO SAY DOES NOT SAY IT
+				// AGAIN.
+				//
+				// This hub describes a folder the run HELD: no row it wrote reaches that
+				// folder, and the hub's identity and recorded values were read back off
+				// this very note. The only thing this run can legitimately change here is
+				// the children list. Everything the note already records about where it
+				// came from is kept as recorded - a run that wrote nothing for this
+				// folder has no standing to restamp when the note was produced, which
+				// plugin version produced it, or which recipe hash it came from, and
+				// adding a provenance field the note never carried is a change made to a
+				// note the user was told would be left alone.
+				//
+				// `produced_at` therefore moves only when the note is actually written,
+				// and the comparison is against the bytes on disk: a byte-identical write
+				// is not a write. Without this, every index note in an untouched part of
+				// a collection took a new modification time on a refresh that changed one
+				// row somewhere else.
+				const held = heldHubProvenance(existingNote.frontmatter, frontmatter._crosswalker);
+				frontmatter._crosswalker = held.preserved;
+				// AM-64 (2026-09-04). IDENTITY IS PRESERVED TOO, not only provenance.
+				//
+				// For a folder held with a recorded identity the two already agree - the
+				// derivation read the curie off this very note (AM-61). They part company
+				// at the IMPORT ROOT, whose identity is the set's own reserved local part
+				// and is therefore recomputed every run: on a vault whose root hub was
+				// written under the older address-derived form, an all-skip refresh
+				// rewrote that note purely to restamp its curie. A run that wrote nothing
+				// into a folder does not re-identify its index note; a Replace run, which
+				// writes rows into the folder, is not held and restamps as before.
+				//
+				// AM-73 (2026-09-04). THE SHAPE TEST, AND THE NAME WHEN IT FAILS. Residual
+				// ruling 5 names a recorded identity that is not this import's and never
+				// repairs it, but that naming lives in `refusalFor`, behind
+				// `keptFolders` - which excludes the import root by construction. So the
+				// root's recorded curie was the one recorded identity carried forward with
+				// no test and no message: a hand edit, or a prefix from before an ontology
+				// rename, was written back on every held run in silence.
+				//
+				// Carried either way (never repaired: the fact is what the note records,
+				// and re-deriving it is what AM-61 removed) and NAMED when it is not a
+				// curie of this import, through the one exported shape test so the engine
+				// and the derivation cannot disagree about which identities are this
+				// import's.
+				// AM-77 (2026-09-04). A FACT CARRIED AT ONE SITE IS CLAIMED AT THE SITE
+				// THAT ACCOUNTS FOR IT.
+				//
+				// AM-73 carried the recorded identity, shape-tested it and named it when
+				// the test failed, and stopped there. The identity was therefore written
+				// onto the note and absent from `producedCuries`: the root is excluded
+				// from `keptFolders` by construction, and its folder IS reached, so it is
+				// not in `observedUnjudgedCuries` either. It fell straight into the orphan
+				// diff - and a Skip run over a hand-edited home note showed the refusal
+				// and an orphan report about the same note on one screen, which is exactly
+				// what AM-70 rules out in its own text (AM-59's third site). The quieter
+				// half was worse to debug: a recorded curie that PASSES the shape test but
+				// simply differs was preserved in silence and reported as gone.
+				//
+				// The root is the one folder where the preserved and the claimed identity
+				// can diverge at all: `recordedHubCurieOf` (`enrich.ts:1480-1489`) hands
+				// every other held folder's recorded string to Pass B as the hub's curie,
+				// so there the writer already claims the string it preserves and the
+				// condition below is false. Claimed the way `target.adoptedAlias` is - a
+				// second identity this same note keeps - so a collision is a refusal by
+				// name rather than two notes silently agreeing on one identity.
+				const recordedCurie = existingNote.frontmatter.curie;
+				if (typeof recordedCurie === 'string' && recordedCurie !== '') {
+					frontmatter.curie = recordedCurie;
+					if (recordedCurie !== hubCurie) {
+						const firstClaim = claimProducedCurie(producedCuries, curieOrigins, recordedCurie, {
+							row: 0, path: existing.path, kind: 'hub',
+						});
+						// A NOTE CANNOT COLLIDE WITH ITSELF. On a vault whose home note was
+						// written under the older address-derived identity, the recorded
+						// curie IS `target.adoptedAlias`, which this same hub claimed a few
+						// lines above under this same note's path. Re-claiming it here is one
+						// note keeping one identity - accounted, not ambiguous - and refusing
+						// it would abandon the write and report an ambiguous-identity error on
+						// an ordinary legacy refresh (`tests/legacy-vault-refresh.test.ts`,
+						// "raises no ambiguous-identity error", measured red on this tree
+						// before the check below existed). Only a claim held by a DIFFERENT
+						// note is the two-claimants case AM-31 refuses.
+						//
+						// C3 (2026-09-04). The exemption is `existing.path` ALONE. A second
+						// disjunct on `fullPath` was unsound: `fullPath` is the hub's RENDERED
+						// address, and a held hub writes at `existing.path` precisely because
+						// the two can differ (a hand-renamed held hub keeps its name). The
+						// disjunct was therefore active only when `fullPath` could not denote
+						// this note, and claims are recorded at PLANNED addresses before any
+						// write, so it could silence a genuine second claimant. The measured
+						// legacy red is covered by the `existing.path` comparison on its own.
+						if (
+							firstClaim
+							&& normalizePath(firstClaim.path) !== normalizePath(existing.path)
+						) {
+							result.errors.push({
+								row: 0,
+								message: duplicateHubCurieMessage(recordedCurie, existing.path, firstClaim),
+							});
+							continue;
+						}
+					}
+					// Scoped to the root, which is what AM-73 rules and the only hub this
+					// branch can reach with a foreign recorded identity: for every other
+					// held folder `refusalFor` has already named it (residual ruling 5) and
+					// no `HubNote` is emitted at all, so this writer never sees it.
+					//
+					// AM-77. Two voices, never both, each said once per run. The identity is
+					// carried either way and never repaired - the fact is what the note
+					// records - but the run says which of the two it saw, because "not a
+					// curie of this import" and "this import's, but not this one" send the
+					// user to different places.
+					if (hub.importRoot && !isCurieOfOntology(recordedCurie, curiePrefix)) {
+						const named = `The home note's recorded identity "${recordedCurie}" is not a curie of this import; `
+							+ 'it was left as it was.';
+						if (!deviationsSeen.has(named)) {
+							deviationsSeen.add(named);
+							result.warnings ??= [];
+							result.warnings.push({ row: 0, message: named });
+						}
+						debug?.warn('generation', 'root-hub-foreign-curie', 'The home note records an identity this import did not mint', {
+							path: existing.path, recorded: recordedCurie,
+						});
+					} else if (hub.importRoot && hubCurie && recordedCurie !== hubCurie) {
+						const named = `The home note's recorded identity "${recordedCurie}" is not this import's `
+							+ `"${hubCurie}"; it was left as it was.`;
+						if (!deviationsSeen.has(named)) {
+							deviationsSeen.add(named);
+							result.warnings ??= [];
+							result.warnings.push({ row: 0, message: named });
+						}
+						debug?.warn('generation', 'root-hub-differing-curie', 'The home note records an identity of this import that is not this run', {
+							path: existing.path, recorded: recordedCurie, expected: hubCurie,
+						});
+					}
+				}
+				const candidate = buildNoteContent(frontmatter, body);
+				let onDisk: string | null = null;
+				try {
+					onDisk = await app.vault.read(existing);
+				} catch {
+					// Unreadable here is not evidence of "unchanged": fall through to the
+					// write, which is exactly what this pass did before AM-62.
+					onDisk = null;
+				}
+				if (onDisk !== null && onDisk === candidate) {
+					debug?.info('generation', 'hub-unchanged', `Hub ${hubCurie ?? writePath} left exactly as it was`, {
+						path: writePath,
+					});
+					continue;
+				}
+				// Something did change, so the note is written - and a note this run
+				// writes records when this run wrote it.
+				frontmatter._crosswalker = held.stamped;
+			}
 			await app.vault.modify(existing, buildNoteContent(frontmatter, body));
 		} else {
 			if (config.waypoint_marker) body = ensureWaypointMarker(body);
-			const parentPath = getParentPath(fullPath);
+			const parentPath = getParentPath(writePath);
 			if (parentPath) await ensureFolderExists(app, parentPath).catch(() => {});
-			await app.vault.create(fullPath, buildNoteContent(frontmatter, body));
-			result.created.push(fullPath);
+			await app.vault.create(writePath, buildNoteContent(frontmatter, body));
+			result.created.push(writePath);
+			producedThisRun.add(normalizePath(writePath));
 		}
 	}
 }
@@ -2720,10 +5233,30 @@ export function buildDefaultBody(
 }
 
 /**
- * Default per-row CURIE local part: row.curie's local part if present, else
- * row.id, else row.subject_id, else row-N.
+ * Default per-row CURIE local part, under the derivation the set is pinned to.
+ *
+ * AM-27. `filename-stem-v1` is frozen: row.curie's local part if present, else
+ * row.id / row.subject_id / row.control_id / row.code, else row-N, all of it
+ * through `sanitizeFileName`. That last step is the defect - it rewrites even a
+ * DECLARED curie, so a source that states `nist:AC-2(1)/a` gets a different
+ * identity written into the vault than the one it declared - but it is what every
+ * set minted before the pin already carries, and it is kept for exactly those.
  */
-function defaultCurieLocalPart(row: Record<string, unknown>, rowNum: number): string {
+function defaultCurieLocalPart(
+	row: Record<string, unknown>,
+	rowNum: number,
+	derivation: ImportSetDerivation,
+	/**
+	 * AM-28/AM-34. The set's BASE ontology prefix - the one a source may state.
+	 * A declared `curie` is checked against it rather than being stripped and
+	 * re-prefixed, so a value that passes is reproduced verbatim; the caller then
+	 * puts the set's resolved prefix in front, uniformly and invertibly.
+	 */
+	basePrefix: string,
+): string {
+	if (derivation === 'declared-facts-v1') {
+		return declaredFactsLocalPart(row, () => `row-${rowNum}`, basePrefix);
+	}
 	const candidate = row.curie ?? row.id ?? row.subject_id ?? row.control_id ?? row.code;
 	if (typeof candidate === 'string' && candidate.length > 0) {
 		// If it's already a full CURIE, take the local part
@@ -2732,4 +5265,51 @@ function defaultCurieLocalPart(row: Record<string, unknown>, rowNum: number): st
 		return sanitizeFileName(local);
 	}
 	return `row-${rowNum}`;
+}
+
+/**
+ * AM-27. `declared-facts-v1`: one rule, shared by both generation entry points.
+ *
+ * Declared facts first. The source's own identity columns are consulted before
+ * anything derived from an address, because an identity a source STATES is the
+ * only one that can be joined back to the source system; a stem read off a
+ * filename template is a fact about where the note went, not about what it is.
+ *
+ * Four behaviours, in order:
+ *   - a declared `curie` column is honoured VERBATIM, prefix included, or REFUSED
+ *     BY NAME (AM-28). Never sanitized and never re-prefixed: silently rewriting
+ *     a declared identity puts a value in the vault that the source never
+ *     asserted, and merges rows whose declared curies differ only in a rejected
+ *     character or in whose prefix they carry.
+ *   - a declared `id` is an identifier, not a declared CURIE, so it may be made
+ *     charset-safe - but injectively over the EXACT raw value (AM-28), so no two
+ *     of them collapse together.
+ *   - an EDGE-shaped row (AM-29: the run declares both a subject and an object)
+ *     is identified by its three endpoints together. `subject_id` used to sit in
+ *     the chain above, which gave every edge leaving one control that control's
+ *     identity - one identity for many edges. A relationship is never identified
+ *     by one of its ends. Concept-only identifiers (`control_id`, `code`) are
+ *     consulted only for a row that is not edge-shaped, for the same reason.
+ *   - `lastResort` supplies the caller's fallback (the filename stem for the
+ *     wizard path, `row-N` for the recipe path), also injectively.
+ */
+function declaredFactsLocalPart(
+	row: Record<string, unknown>,
+	lastResort: () => string,
+	/**
+	 * AM-34. The set's BASE ontology prefix - what a source is entitled to state.
+	 * The caller re-prefixes with the set's resolved (possibly set-qualified)
+	 * prefix, uniformly, and the set stamp records what it takes to invert that.
+	 */
+	basePrefix: string,
+): string {
+	const declared = declaredIdentity(row);
+	if (declared?.kind === 'edge') {
+		return edgeIdentityLocalPart(declared.subject, declared.predicate, declared.object);
+	}
+	if (declared) {
+		if (declared.column === 'curie') return declaredCurieLocalPart(declared.raw, basePrefix);
+		return injectiveDeclaredIdLocalPart(declared.raw);
+	}
+	return injectiveCurieLocalPart(lastResort());
 }

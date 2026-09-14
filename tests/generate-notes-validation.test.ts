@@ -74,12 +74,29 @@ const CONFIG: Partial<ImportRecipe> = {
 	},
 };
 
+/**
+ * AM-27 (2026-08-31): every option set here names a LEGACY import set.
+ *
+ * These tests rest on `T 1078` reaching Tier 1 validation with its space intact,
+ * and that is a property of the legacy derivation: the leaf filename stem, which
+ * `sanitizeFileName` leaves spaces in because a space is legal in a filename and
+ * illegal in a CURIE. A set minted today derives from declared facts and escapes
+ * the space injectively, so the row is valid and there is nothing to reject.
+ *
+ * Passing no set would MINT one (AM-9), which silently turned both invalid-row
+ * tests below into assertions about a valid row: the strict one failed loudly,
+ * the non-strict one went green for the wrong reason. Named explicitly so the
+ * premise is visible instead of inherited.
+ */
+const LEGACY_SET = { id: 'iset-legacy' } as const;
+
 function baseOptions(strictValidation?: boolean): GenerationOptions {
 	return {
 		basePath: 'Frameworks',
 		overwriteMode: 'replace',
 		createFolders: true,
 		recipeOverride: RECIPE,
+		importSet: LEGACY_SET,
 		...(strictValidation !== undefined ? { strictValidation } : {}),
 	};
 }
@@ -123,5 +140,19 @@ describe('generateNotes runs Tier 1 validation before writing (M1)', () => {
 		const result = await generateNotes(app, invalidRow(), CONFIG, baseOptions(false));
 		expect(result.errors).toEqual([]);
 		expect(files.has('Frameworks/T 1078.md')).toBe(true);
+	});
+
+	it('the premise is the LEGACY derivation: a new set makes the same row valid', async () => {
+		// Stated here so the two tests above cannot quietly become assertions about
+		// a valid row again. Under a minted set the space is escaped injectively, so
+		// there is no Tier 1 error to reject, and no collapse either: `T 1078` and
+		// `T-1078` stay two identities (AM-27).
+		const { app, files } = makeApp();
+		const options = { ...baseOptions(), importSet: 'new' as const };
+		const result = await generateNotes(app, invalidRow(), CONFIG, options);
+		expect(result.errors).toEqual([]);
+		expect(files.has('Frameworks/T 1078.md')).toBe(true);
+		const written = [...files.values()][0];
+		expect(written).toMatch(/curie: ["']?attack:T-1078\.\.[0-9a-f]{10}["']?/);
 	});
 });

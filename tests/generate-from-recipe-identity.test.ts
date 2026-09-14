@@ -124,7 +124,13 @@ describe('generateFromRecipe identity reconciliation', () => {
 		expect(crosswalkResult.errors).toEqual([]);
 		const crosswalkFm = yaml.load(/^---\n([\s\S]*?)\n---/.exec(crosswalkVault.files.get(NEW_PATH)!)![1]) as any;
 		expect(crosswalkFm.kind).toBe('crosswalk-edge');
-		expect(crosswalkFm._crosswalker.import_set).toEqual({ id: 'iset-abc123', scheme: 'endpoint-v1' });
+		// `destination` is recorded on every run so a refresh never has to infer
+		// where its own set lives (2026-08-29).
+		// AM-6 (2026-08-30): the set also carries the ontology its curies are
+		// minted under, pinned at mint beside the scheme.
+		expect(crosswalkFm._crosswalker.import_set).toEqual({
+			id: 'iset-abc123', scheme: 'endpoint-v1', destination: 'Mappings', ontology: 'xwalk',
+		});
 
 		const junctionRecipe: Recipe = {
 			recipe: 'junction-identity-test',
@@ -144,7 +150,12 @@ describe('generateFromRecipe identity reconciliation', () => {
 		const junction = junctionVault.files.get('Mappings/junction/edge-1.md')!;
 		const junctionFm = yaml.load(/^---\n([\s\S]*?)\n---/.exec(junction)![1]) as any;
 		expect(junctionFm.kind).toBe('junction-note');
-		expect(junctionFm._crosswalker.import_set).toEqual({ id: 'iset-abc123', scheme: 'endpoint-v1' });
+		// A SEPARATE empty vault, so `iset-abc123` is named but not yet present:
+		// nothing is pinned, and the run's own proposal (`cwk`) becomes the pin.
+		// The pin only overrides a proposal once the set has notes to be pinned by.
+		expect(junctionFm._crosswalker.import_set).toEqual({
+			id: 'iset-abc123', scheme: 'endpoint-v1', destination: 'Mappings', ontology: 'cwk',
+		});
 	});
 
 	it('moves a crosswalk note whose rendered address changed instead of duplicating it', async () => {

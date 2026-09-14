@@ -41,10 +41,46 @@ function joinValue(v: unknown): string {
 	return String(v);
 }
 
+/**
+ * AM-34 (2026-09-01). The BASE form of a note's curie — set-qualification undone.
+ *
+ * Set-qualification (`endpoint-v1` -> `set-qualified-v1`, AM-13) puts the import
+ * set's id inside the prefix so two releases of one framework occupy different
+ * identity spaces. It is a uniform re-prefixing, and every note it touched
+ * records the scheme and the id that produced it, so it inverts exactly.
+ *
+ * Export inverts it. Failure mode prevented: Crosswalker's own export becoming
+ * un-importable. The exported `curie` column is what a re-import reads as a
+ * declared identity, and a declared identity carrying a set id is (a) not
+ * something the source ever asserted and (b) meaningless in any other vault,
+ * where that set does not exist. Writing the base form back is what makes
+ * export -> import a round-trip identity rather than a refusal.
+ *
+ * Anything that does not match the recorded transform is returned untouched: a
+ * guess about someone else's identifier is worse than leaving it alone.
+ */
+export function baseFormCurie(curie: string, frontmatter: Record<string, unknown>): string {
+	const provenance = frontmatter._crosswalker;
+	if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) return curie;
+	const block = (provenance as Record<string, unknown>).import_set;
+	if (!block || typeof block !== 'object' || Array.isArray(block)) return curie;
+	const set = block as Record<string, unknown>;
+	if (set.scheme !== 'set-qualified-v1') return curie;
+	const id = typeof set.id === 'string' ? set.id.trim() : '';
+	if (id === '') return curie;
+	const colon = curie.indexOf(':');
+	if (colon <= 0) return curie;
+	const prefix = curie.slice(0, colon);
+	const suffix = `-${id}`;
+	if (!prefix.endsWith(suffix) || prefix.length === suffix.length) return curie;
+	return `${prefix.slice(0, prefix.length - suffix.length)}${curie.slice(colon)}`;
+}
+
 function cellValue(col: string, row: ConceptRow): string {
 	switch (col) {
 		case 'curie':
-			return row.curie;
+			// AM-34: the base form, so a re-import of this file is accepted verbatim.
+			return baseFormCurie(row.curie, row.frontmatter);
 		case 'title':
 			return row.title ?? '';
 		case 'parent':

@@ -1,4 +1,8 @@
-import { canonicalStringify, computeRecipeHash } from '../generation/hash';
+import {
+	canonicalStringify,
+	computeRecipeDocumentDigest,
+	computeRecipeHash,
+} from '../generation/hash';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import { validateRecipe } from '../validation/validator';
 import {
@@ -224,6 +228,7 @@ export function patchRecipeDocument(
 			based_on: {
 				recipe: original.recipe,
 				hash: computeRecipeHash(original.target, original.source),
+				recipe_document_digest: computeRecipeDocumentDigest(original),
 				spec_version: original.spec_version ?? CURRENT_RECIPE_SPEC,
 			},
 		};

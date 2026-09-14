@@ -199,6 +199,14 @@ export async function buildVaultDetailed(csvPath: string): Promise<BuiltVault> {
 		ontology: prefix,
 		config: recipe.target.enrichment ?? {},
 		rootFolder: id,
+		// AM-66 (2026-09-04). THE WRITE SET THIS HARNESS MEANS: every note it hands
+		// over. This harness builds a vault from scratch and writes every note in it,
+		// so nothing here is held. Stated rather than left to `enrich()` to infer,
+		// because AM-65 made the fact required: while it was optional, an omitted
+		// write set silently meant "everything is writable", which is true HERE and
+		// false for the kept-row fixtures - so the one default served one caller and
+		// broke the other, with nothing in the output naming the omission.
+		writeSet: new Set(enrichNotes.map((n) => n.path)),
 	});
 
 	const vault = new Map<string, string>();

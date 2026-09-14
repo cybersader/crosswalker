@@ -1,6 +1,6 @@
 ---
 title: "v0.1.5 — Tier 2 sqlite-wasm sidecar projector"
-description: "Bundle @sqlite.org/sqlite-wasm + sqlite-vec; project Tier 1 frontmatter into queryable SQL on vault load; lazy closure cache; recover-on-missing semantics."
+description: "Bundle @sqlite.org/sqlite-wasm; project Tier 1 frontmatter into queryable SQL on vault load; lazy closure cache; recover-on-missing semantics. sqlite-vec remains deferred."
 sidebar:
   order: 15
   label: "v0.1.5 · Tier 2 sidecar"
@@ -11,11 +11,21 @@ import { Aside } from '@astrojs/starlight/components';
 
 ## Goal
 
-Implement the [Tier 2](/crosswalker/concepts/terminology/) [sidecar projector](/crosswalker/concepts/embedded-vs-server-substrates/) — the deletable, recoverable SQLite projection of [Tier 1](/crosswalker/concepts/terminology/) frontmatter. Auto-projects on vault load; lazy closure cache for transitive [crosswalk](/crosswalker/concepts/terminology/) queries; if `.crosswalker.sqlite` is missing/corrupted/stale, reproject from canonical Tier 1 on next load. Per [Ch 24 substrate synthesis](/crosswalker/agent-context/zz-log/2026-05-04-tier-2-substrate-synthesis/) (sqlite-wasm + sqlite-vec; libSQL/Turso/Limbo rejected).
+Implement the [Tier 2](/crosswalker/concepts/terminology/) [sidecar projector](/crosswalker/concepts/embedded-vs-server-substrates/) — the deletable, recoverable SQLite projection of [Tier 1](/crosswalker/concepts/terminology/) frontmatter. Auto-projects on vault load; lazy closure cache for transitive [crosswalk](/crosswalker/concepts/terminology/) queries; if `.crosswalker.sqlite` is missing/corrupted/stale, reproject from canonical Tier 1 on next load. The current v0.1.5 delivery uses plain `@sqlite.org/sqlite-wasm`; the [Ch 24 substrate synthesis](/crosswalker/agent-context/zz-log/2026-05-04-tier-2-substrate-synthesis/) keeps sqlite-vec as a separately sequenced commitment while libSQL/Turso/Limbo remain rejected.
 
 ## Status
 
 ✅ **Done (2026-05-06).** All 6 phases complete; sqlite-vec deferred via WASM-A pivot with calendar-anchored 2026-11-06 revisit. Tier 2 sidecar projector + query API + closure cache + plugin integration all green; realistic-framework integration tests pass for NIST 800-53 / NIST CSF 2.0 / ISO 27001:2022 / MITRE ATT&CK with cross-framework closure queries. See [delivery log](/crosswalker/agent-context/zz-log/2026-05-06-v0-1-5-tier-2-sidecar-shipped/) for the full delivery summary + system-design integration diagram.
+
+**Status last verified:** 2026-09-05 — scoped to the shipped substrate and static integration at commit `30aee63b`: `package.json` contains `@sqlite.org/sqlite-wasm` and no sqlite-vec package; `src/tier2/sidecar.ts` identifies WASM-A and the deferred 2026-11-06 revisit; projector and three query helpers remain exported; and `src/main.ts` still wires layout-ready projection plus the clear-sidecar command. Historical test counts and real-Obsidian behavior were not rerun.
+
+<Aside type="note">
+The option-space, phased checklist, success criteria, and rollback sections below preserve the milestone's planning and decision history, including the attempted WASM-B path. They are not a current claim that sqlite-vec ships. For delivered state, use the Status above and the dated delivery log.
+</Aside>
+
+<Aside type="note" title="Packaging mechanism updated 2026-09-12">
+The wdio harness workaround described in the delivery log below (staging loose `sqlite3.wasm`/`sqlite3.mjs` files into the test vault before launch) has been replaced: the plugin now embeds the SQLite engine directly inside `main.js` at build time, verified byte-for-byte. Isolated real-Obsidian tests passed with the standard three distribution assets and no separate SQLite files. The test installation also contained harness/configuration files; release and BRAT installation remain untested. A related startup-readiness fix also replaced a fixed-event-count heuristic with predicate polling. Both were exercised in an isolated real-Obsidian runtime pass on 2026-09-13 (seeded vault 29/29 declarations, empty vault 1/1). Full detail: [inline SQLite distribution synthesis](/crosswalker/agent-context/zz-log/2026-09-12-inline-sqlite-distribution-synthesis/) and the dated `CHANGELOG.md` entry it links to. This does not change the Status or Status-last-verified line above; it is a scoped packaging/startup update on the unmerged `fix/d1-per-import-root` branch.
+</Aside>
 
 ## Dependencies
 

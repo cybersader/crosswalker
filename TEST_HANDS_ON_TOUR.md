@@ -182,6 +182,24 @@ bun tools/generate-fixtures.ts   --source "Frameworks/cprt_CSF_2_0_0_06-01-2026.
 - [ ] Import the bundled fixture → 11 junction notes under `_crosswalker/mappings/csf-to-iso27001/`
 - [ ] Spot-check one note: `predicate_id` direction sane (broadMatch → `is_narrower_than` — the 2026-06-12 direction fix)
 
+## 4.5 Export commands (v0.1.7 portability)
+
+*Measured 2026-09-06: lint and production build passed; 18 focused tests passed; the full unit suite passed 2,979 tests with 2 skipped; and both targeted isolated-vault real-Obsidian tests passed. The runtime walkthrough invoked the exact manifest-prefixed command, used the real picker for a nested folder and Obsidian's actual `/` root, verified deterministic typed output and byte preservation, cancelled replacement with Escape, and completed confirmed replacement. Root runtime evidence applies only to this typed command, not to the older CSV or crosswalk exports. All four captured screenshots were reviewed; screenshot 03 caught a notice mid-animation, and screenshot 04 confirmed its fully visible settled position.*
+
+*Scoped root-export closeout 2026-09-06: the original source-identical verification wave passed 27 focused tests, the full unit suite with 2,988 passed and 2 skipped, lint, and production build. Those checks were not rerun after the later test-only fixture simplification. The final targeted real-Obsidian run passed both export specs, all four command scenarios, and teardown. Both older commands selected the exact friendly `/ (vault root)` choice on Obsidian's actual `/` root, produced the corrected filenames and expected unique rows, and preserved source and hidden-style export bytes. This remains scoped export coverage, not a full-E2E or quarantine-clearance claim.*
+
+- [x] Command palette → **Crosswalker: Import and export: export folder as a typed mapping table** → the real folder picker opens
+- [x] Pick a nested folder containing canonical `kind: crosswalk-edge` notes → a sibling `<folder>.export.typed-mappings.tsv` appears; picking the vault root instead uses `vault.export.typed-mappings.tsv`
+- [x] Confirm the typed table has the expected ordered mapping columns and deterministic rows, while source-note bytes and the distinct `<folder>.export.tsv` crosswalk mapping file remain unchanged
+- [x] Run the command again → replacement confirmation opens; press **Escape** or close it and confirm the prior output bytes remain unchanged
+- [x] Run it a third time, choose **Replace file**, and confirm the unchanged source produces the same destination and bytes
+- [ ] Pick a folder with no exportable mappings (including one with skipped notes) → no file is created or replaced; skipped-note counts use correct singular/plural wording
+- [ ] Put a folder or other non-file item at the destination → the command refuses it and names the rename/choose-another-folder action
+- [x] Confirm `vault.export.csv` does not already exist through the vault adapter; run **Crosswalker: Import and export: export folder as CSV**, choose **/ (vault root)**, and verify the unique synthetic row lands in `vault.export.csv` while source bytes and any pre-existing hidden-style `.export.csv` / `.export.tsv` bytes remain unchanged
+- [x] Confirm `vault.export.tsv` does not already exist through the vault adapter; run **Crosswalker: Import and export: export folder as a crosswalk mapping file**, choose **/ (vault root)**, and verify the unique synthetic mapping lands in `vault.export.tsv` while source bytes and both hidden-style dotfiles remain unchanged
+
+**Sprint handoff:** this slice exposes the existing typed mapping serializer only. Persistent reusable-configuration storage/UI, the separate source/run binding, and full-source save → reopen → exact-replay proofs remain unresolved v0.1.7 work; do not read this command as closing those decisions or the milestone.
+
 ## 5. Query commands (v0.1.6 Phases 4.5–4.7 — manual smokes still pending)
 
 *These have pending "⏸ manual smoke" notes on the milestone page — your pass

@@ -11,7 +11,9 @@
  * note in `evidence-report.ts`.
  */
 
-import { App, FuzzySuggestModal, Notice, TFile, normalizePath } from 'obsidian';
+import { App, FuzzySuggestModal, Notice, TFile } from 'obsidian';
+// S15: the one composition of a configured folder plus a file name.
+import { joinInFolder } from './evidence-link';
 import {
 	conceptsWithoutValidEvidence,
 	diagnoseExcludedJunctions,
@@ -21,6 +23,7 @@ import {
 	listUnbaselinedValidJunctions,
 } from '../tier2/evidence-coverage';
 import { readProjectionStatus } from '../tier2/projector';
+import { readNoteFrontmatterState } from '../export/vault-reader';
 import { renderEvidenceReport } from './evidence-report';
 
 /** One ontology the index knows about, as offered in the chooser. */
@@ -58,10 +61,18 @@ export function listOntologiesForReport(db: any): OntologyChoice[] {
 	}));
 }
 
-/** Vault path for one ontology's report. Stable, so re-runs replace in place. */
+/**
+ * Vault path for one ontology's report. Stable, so re-runs replace in place.
+ *
+ * S15 (2026-09-04). Composed through the SAME `joinInFolder` the junction path
+ * uses. This used to compose `${folder}/...` and normalize with the host, which
+ * is a second composition rule for the same class of settings value: it and the
+ * junction path agreed only because both callers happened to pre-normalize
+ * through the accessors first.
+ */
 export function evidenceReportPath(folder: string, ontologyId: string): string {
 	const safe = ontologyId.replace(/[\\/:*?"<>|]/g, '-');
-	return normalizePath(`${folder}/Evidence coverage - ${safe}.md`);
+	return joinInFolder(folder, `Evidence coverage - ${safe}.md`);
 }
 
 /** Chooser shown only when the vault holds more than one ontology. */
@@ -134,13 +145,47 @@ export async function writeEvidenceReport(
 	});
 
 	const path = evidenceReportPath(deps.reportFolder, ontologyId);
-	const folder = path.slice(0, path.lastIndexOf('/'));
+	// S11 (2026-09-04). The separator is LOCATED before it is sliced at: the vault
+	// root is now a folder a person can choose, so this path can be
+	// `Evidence coverage - x.md` with no separator, and `slice(0, -1)` on that
+	// yields a truthy truncated file name that would be created as a folder.
+	const sep = path.lastIndexOf('/');
+	const folder = sep === -1 ? '' : path.slice(0, sep);
 	if (folder && !deps.app.vault.getAbstractFileByPath(folder)) {
 		await deps.app.vault.createFolder(folder);
 	}
 
 	const existing = deps.app.vault.getAbstractFileByPath(path);
 	if (existing instanceof TFile) {
+		// AM-17 sweep (2026-08-31). The report is regenerated wholesale, so this
+		// `modify` replaces the file's entire contents. `reportFolder` is a user
+		// setting and the filename is derived from an ontology id, so a note of the
+		// user's own can legitimately sit here - and it was being destroyed with no
+		// warning, the same failure the evidence-link window carried.
+		//
+		// A report has no curie, so the identity it is checked against is the marker
+		// it stamps on itself. Only a note that says it is a generated report may be
+		// overwritten by one.
+		//
+		// AM-26 (2026-08-31). Read in THREE states, not two. The two-state read
+		// answered null both for a stranger's plain note and for a report of ours
+		// whose YAML a user had damaged, and the caller then told the second one "a
+		// note that Crosswalker did not generate sits here. Move or rename that
+		// note." - AM-19's exact false cause plus its banned instruction, at a site
+		// added by the same pass that wrote AM-19. Absence of a fact is never a fact.
+		const read = await readNoteFrontmatterState(deps.app, existing);
+		if (read.state === 'unreadable') {
+			throw new Error(
+				`Crosswalker could not read the properties of ${path}, so it could not tell whether that note is a report it generated. `
+				+ "Nothing was written. Fix that note's properties block, then run the report again.",
+			);
+		}
+		if (read.state !== 'ok' || read.frontmatter.crosswalker_generated !== true) {
+			throw new Error(
+				`a note that Crosswalker did not generate already sits at ${path}. `
+				+ 'Nothing was written. Move or rename that note, or change the report folder in settings.',
+			);
+		}
 		await deps.app.vault.modify(existing, markdown);
 	} else {
 		await deps.app.vault.create(path, markdown);

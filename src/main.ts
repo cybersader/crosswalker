@@ -1,5 +1,6 @@
 import { Plugin, Notice, TFile, TFolder, MarkdownView, Platform, apiVersion, normalizePath, type WorkspaceLeaf } from 'obsidian';
 import { CrosswalkerSettings, DEFAULT_SETTINGS } from './settings/settings-data';
+import { outputRootPath, outputRootFile, evidenceJunctionFolder, evidenceReportFolder, tier2SidecarPath } from './settings/folder-settings';
 import {
 	isImportableExtension,
 	formatOntologyStatusLabel,
@@ -7,6 +8,7 @@ import {
 } from './ui/entry-points';
 import { CrosswalkerSettingTab } from './settings/settings-tab';
 import { ImportWizardModal } from './import/import-wizard';
+import { RECIPE_REGISTRY } from './import/recipe-registry';
 import { SssomImportModal } from './import/sssom-import-modal';
 import {
 	ExportFolderPickerModal,
@@ -14,6 +16,7 @@ import {
 	exportFolderAsCsv,
 	exportSiblingPath,
 	writeExportFile,
+	runFolderTypedTableExport,
 } from './export';
 import { ConfigBrowserModal } from './config/config-browser-modal';
 import { buildCrosswalkerPivotViewFactory } from './views/crosswalker-pivot-view';
@@ -40,8 +43,9 @@ import { generateNotes, generateFromRecipe } from './generation/generation-engin
 import { openSidecar, clearSidecar, type SidecarHandle } from './tier2/sidecar';
 import { runEvidenceReportCommand } from './views/evidence-report-command';
 import { runHousekeepingRebaselineCommand } from './views/rebaseline-housekeeping';
-import { EvidenceLinkModal, listControlCandidates } from './views/evidence-link-modal';
+import { EvidenceLinkModal } from './views/evidence-link-modal';
 import { projectFromTier1, type ProjectionResult } from './tier2/projector';
+import { projectionErrorDiagnostics, waitForTier2StartupReadiness } from './tier2/startup-readiness';
 import {
 	getConceptsByOntology,
 	crosswalkBetween,
@@ -79,6 +83,11 @@ export default class CrosswalkerPlugin extends Plugin {
 	settings: CrosswalkerSettings;
 	debug: DebugLog;
 	draftStore: DraftStore;
+	/**
+	 * Bundled import presets, exposed so the E2E harness can cross-check the
+	 * preset guide's rendered count against the registry it was built from.
+	 */
+	public readonly recipeRegistry = RECIPE_REGISTRY;
 
 	/**
 	 * Status bar "installed ontologies" indicator (discoverability entry
@@ -140,7 +149,11 @@ export default class CrosswalkerPlugin extends Plugin {
 	openTier2 = async (): Promise<SidecarHandle> => {
 		if (this.tier2Handle) return this.tier2Handle;
 		const handle = await openSidecar(this, this.app, {
-			sidecarPath: this.settings.tier2SidecarPath,
+			// S10 (2026-09-04). Through the accessor, so the path this opens the
+			// query index at is normalized by the SAME function every other
+			// path-shaped setting is, and cannot disagree with the path the clear
+			// command below hands to the pool.
+			sidecarPath: tier2SidecarPath(this.settings),
 		});
 		// Cache BEFORE any projection below, so the reprojection path cannot
 		// re-enter this function and open a second handle.
@@ -187,9 +200,11 @@ export default class CrosswalkerPlugin extends Plugin {
 	 * yield point, and checked before a new projection starts.
 	 */
 	private tier2TeardownInProgress = false;
+	/** Permanently set when this plugin instance begins unloading. */
+	private tier2Unloaded = false;
 
 	runProjection = async (): Promise<ProjectionResult> => {
-		if (this.tier2TeardownInProgress) {
+		if (this.tier2TeardownInProgress || this.tier2Unloaded) {
 			// A reset is deleting the database right now. Starting here would do
 			// up to a full yield-interval of work against a file that is about to
 			// disappear, so decline before opening anything.
@@ -201,6 +216,10 @@ export default class CrosswalkerPlugin extends Plugin {
 				durationMs: 0,
 			};
 		}
+		// One full pass owns the projection marks at a time. A second pass would
+		// initialize and prune through the first pass's marks, so overlapping callers
+		// share the already-running result instead of opening another pass.
+		if (this.tier2InFlightProjection) return this.tier2InFlightProjection;
 		const run = (async (): Promise<ProjectionResult> => {
 			const handle = await this.openTier2();
 			return projectFromTier1(this.app, handle.db, {
@@ -466,7 +485,10 @@ export default class CrosswalkerPlugin extends Plugin {
 				const traceId = this.debug.newTraceId();
 				await this.debug.withTrace(traceId, async () => {
 					const { BUNDLED_FIXTURES } = await import('./views/bundled-fixtures');
-					const { importSssom } = await import('./import/sssom-importer');
+					const { importSssom, SSSOM_CURIE_PREFIX } = await import('./import/sssom-importer');
+					// AM-18. The one implementation of "which new set", imported here
+					// rather than re-decided, so this command cannot be the fourth copy.
+					const { newSetSchemeFor } = await import('./generation/import-set');
 
 					// Pick a fixture via a small AskUserQuestion-style modal
 					const { Modal, ButtonComponent } = await import('obsidian');
@@ -500,6 +522,29 @@ export default class CrosswalkerPlugin extends Plugin {
 
 					if (!picked) return;
 					const fx = BUNDLED_FIXTURES.find((f) => f.id === picked)!;
+
+					// AM-24 (2026-08-31). The qualification rule now refuses to answer
+					// from a half-read vault, and a refusal must reach the person who
+					// asked. Resolved BEFORE the "Importing..." notice, and caught here:
+					// left inline in the options object below, the throw would escape the
+					// command callback as an unhandled rejection, and the only symptom
+					// would be a command that did nothing at all.
+					let importSet: 'new' | 'new-set-qualified';
+					try {
+						// AM-18 (2026-08-31). WHICH new set is a question this route used
+						// to skip: the bare literal `new` always mints endpoint-v1, so
+						// loading a fixture into a vault that already held that ontology
+						// pair produced a set whose curie space was already occupied, and
+						// AM-12 then correctly refused every single row ("0 junction
+						// notes, N errors"). Not damage, but exactly the routine collision
+						// AM-13 exists to eliminate. One shared rule answers it here as
+						// everywhere else.
+						importSet = await newSetSchemeFor(this.app, SSSOM_CURIE_PREFIX);
+					} catch (err) {
+						new Notice(err instanceof Error ? err.message : String(err), 10000);
+						return;
+					}
+
 					new Notice(`Importing ${fx.displayName}...`, 3000);
 
 					const result = await importSssom(
@@ -507,15 +552,41 @@ export default class CrosswalkerPlugin extends Plugin {
 						fx.tsv,
 						null, // no projection callback
 						null, // no closure callback
-						{},
+						{
+							// AM-9. This developer command has no ownership control on it
+							// at all, so it says the only safe thing there is to say: a new
+							// set. It used to pass nothing, and the engine read that as
+							// "refresh whichever crosswalk already sits in this mapping
+							// folder", which meant loading a bundled fixture could replace
+							// a real crosswalk a user had imported into the same pair.
+							//
+							// Resolved above, through the one shared qualification rule.
+							importSet,
+							// Nothing exists under a freshly minted set, so this only rules
+							// out rewriting a note the run does not own.
+							overwriteMode: 'skip',
+						},
 						this.debug,
 					);
-					const created = result.generation?.created ?? 0;
-					const errors = result.generation?.errors?.length ?? 0;
+					// AM-8 (via the pass-8 adversarial's secondary observations). There is
+					// no entry point exempt from saying WHY a row was refused: a bare
+					// count tells a reader that something went wrong and nothing about
+					// what to do. `created` is a list of paths, so its LENGTH is the
+					// count -- interpolating the array printed the paths where a number
+					// belonged.
+					const createdCount = result.generation?.created?.length ?? 0;
+					const errors = result.generation?.errors ?? [];
+					const conflicts = result.generation?.conflicts ?? [];
 					const skipReason = result.skipped ? ` (skipped: ${result.skipped})` : '';
+					const refused = errors.length > 0 ? `, ${errors.length} rows refused` : '';
+					const unchanged = conflicts.length > 0 ? `, ${conflicts.length} notes left unchanged` : '';
+					const detail = errors.length > 0
+						? `\n${errors.slice(0, 3).map((error) => error.message).join('\n')}`
+							+ (errors.length > 3 ? `\nAnd ${errors.length - 3} more.` : '')
+						: '';
 					new Notice(
-						`Imported "${fx.displayName}": ${created} junction notes${errors > 0 ? `, ${errors} errors` : ''}${skipReason}.`,
-						6000,
+						`Imported "${fx.displayName}": ${createdCount} junction notes${refused}${unchanged}${skipReason}.${detail}`,
+						errors.length > 0 ? 15000 : 6000,
 					);
 				});
 			},
@@ -718,14 +789,23 @@ export default class CrosswalkerPlugin extends Plugin {
 			name: 'Evidence: link evidence to a control',
 			callback: () => {
 				// Pre-select the control when run from an open control note.
+				//
+				// AM-46 (2026-09-02). The PATH is handed over, not a resolved
+				// candidate. This used to resolve it here against a cache-only read
+				// of the whole vault, so a control Obsidian had not indexed yet
+				// resolved to nothing and the window silently selected a DIFFERENT
+				// control (the first in its list) for the reviewer's evidence. The
+				// window resolves the path against its one fail-closed scan instead,
+				// and a note it cannot read is a refusal by name rather than a
+				// substitution. Cache lag is not absence.
 				const active = this.app.workspace.getActiveFile();
-				const initialControl = active
-					? listControlCandidates(this.app).find((c) => c.path === active.path)
-					: undefined;
 				new EvidenceLinkModal({
 					app: this.app,
-					folder: this.settings.evidenceJunctionFolder,
-					initialControl,
+					// AM-57 (2026-09-04). Through the accessor, so the folder composed into
+					// the junction's vault path is normalized once here rather than by each
+					// site that composes with it, and never not at all.
+					folder: evidenceJunctionFolder(this.settings),
+					initialControlPath: active?.path,
 				}).open();
 			},
 		});
@@ -742,7 +822,8 @@ export default class CrosswalkerPlugin extends Plugin {
 					app: this.app,
 					openTier2: this.openTier2,
 					refreshForReport: this.runProjection,
-					reportFolder: this.settings.evidenceReportFolder,
+					// AM-57. Same accessor discipline as the junction folder above.
+					reportFolder: evidenceReportFolder(this.settings),
 				});
 			},
 		});
@@ -795,7 +876,10 @@ export default class CrosswalkerPlugin extends Plugin {
 							throw new Error('the query index could not be closed, so it was not cleared. Reload Obsidian and try again.');
 						}
 					}
-					const result = await clearSidecar(this, this.settings.tier2SidecarPath);
+					// S10. The same accessor the open path reads. A clear that keys the
+					// pool differently from the open finds no files, deletes nothing, and
+					// reports the index as already empty.
+					const result = await clearSidecar(this, tier2SidecarPath(this.settings));
 					// clearSidecar throws when it cannot verify the file is gone, so
 					// reaching here means the reset actually happened. Each outcome
 					// gets its own wording: announcing a deletion that did not occur
@@ -948,6 +1032,22 @@ export default class CrosswalkerPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'export-folder-as-typed-mapping-table',
+			name: 'Import and export: export folder as a typed mapping table',
+			callback: () => {
+				new ExportFolderPickerModal(this.app, (folder) => {
+					void runFolderTypedTableExport({ app: this.app, folder })
+						.then((outcome) => {
+							new Notice(outcome.message, outcome.status === 'failed' ? 8000 : 6000);
+						})
+						.catch(() => {
+							new Notice('Could not finish the export; check the destination file before trying again.', 8000);
+						});
+				}).open();
+			},
+		});
+
+		this.addCommand({
 			id: 'export-folder-as-csv',
 			name: 'Import and export: export folder as CSV',
 			callback: () => {
@@ -1060,11 +1160,12 @@ export default class CrosswalkerPlugin extends Plugin {
 		this.registerCrosswalkerPivotView();
 
 		// v0.1.5 Phase 4: auto-trigger Tier 2 projection on vault load.
-		// `onLayoutReady` fires once when the Obsidian workspace is fully
-		// initialized; safer than running on plugin onload (which may run
-		// before metadataCache has finished indexing the vault). Lazy +
-		// silent — projection runs in background, errors logged to debug
-		// log without surfacing a Notice unless something genuinely fails.
+		// `onLayoutReady` means the workspace is initialized, not that every
+		// Markdown file has reached a projector-safe metadata-cache state. The
+		// startup path therefore applies its own bounded readiness barrier before
+		// opening the reporting database. Projection remains lazy and silent, with
+		// every event retained in the diagnostics ring even when file logging is
+		// disabled.
 		this.app.workspace.onLayoutReady(() => {
 			void this.autoProjectOnLayoutReady();
 			// v0.1.6 Phase 3: ship reference .base files on first run
@@ -1093,7 +1194,12 @@ export default class CrosswalkerPlugin extends Plugin {
 
 	/** Whether a vault event can change discovery beneath the configured output root. */
 	private pathAffectsInstalledFrameworks(path: string): boolean {
-		const outputRoot = normalizePath(this.settings.defaultOutputPath);
+		// AM-53. Through the one accessor, which maps the host's `'/'` for an empty
+		// root back to `''`. Read raw through `normalizePath` alone, this guard was
+		// dead for the supported "Vault root" state: `'/'` is truthy, so the emptiness
+		// branch never fired and the test below asked whether the changed path started
+		// with `'//'`, which is never true, so no vault event refreshed the count.
+		const outputRoot = outputRootPath(this.settings);
 		if (!outputRoot) return true;
 		const candidate = normalizePath(path);
 		return candidate === outputRoot || candidate.startsWith(`${outputRoot}/`);
@@ -1116,7 +1222,10 @@ export default class CrosswalkerPlugin extends Plugin {
 	private async refreshOntologyStatusBar(): Promise<void> {
 		if (!this.ontologyStatusBarEl) return;
 		const token = ++this.ontologyStatusRefreshToken;
-		const outputRoot = this.app.vault.getAbstractFileByPath(this.settings.defaultOutputPath);
+		// AM-53. The same reading the engine writes under. A trailing separator in the
+		// setting used to make this lookup answer null and the status bar report 0
+		// ontologies over a vault that had just imported one.
+		const outputRoot = outputRootFile(this.app, this.settings);
 		const node = await toMinimalNode(outputRoot, this.app);
 		if (token !== this.ontologyStatusRefreshToken || !this.ontologyStatusBarEl) return;
 		this.ontologyStatusBarEl.setText(formatOntologyStatusLabel(deriveInstalledOntologies(node).length));
@@ -1179,7 +1288,26 @@ export default class CrosswalkerPlugin extends Plugin {
 		await this.debug.withTrace(traceId, async () => {
 			try {
 				this.debug.info('tier2', 'auto-projection-start', 'Tier 2 auto-projection: starting');
+				const shouldCancel = () => !this.settings.enableTier2Projection
+					|| this.tier2TeardownInProgress
+					|| this.tier2Unloaded;
+				const readiness = await waitForTier2StartupReadiness(this.app, shouldCancel);
+				if (readiness.cancelled || shouldCancel()) {
+					this.debug.info('tier2', 'auto-projection-cancelled', 'Tier 2 auto-projection cancelled before database access', {
+						readiness,
+					});
+					return;
+				}
+				if (readiness.timedOut && readiness.pending > 0) {
+					this.debug.warn('tier2', 'auto-projection-readiness-timeout', 'Tier 2 startup readiness deadline reached; running the strict projector', {
+						pending: readiness.pending,
+						checks: readiness.checks,
+						elapsedMs: readiness.elapsedMs,
+						timedOut: true,
+					});
+				}
 				const result = await this.runProjection();
+				const errorDiagnostics = projectionErrorDiagnostics(result.errors);
 				this.debug.info('tier2', 'auto-projection-complete', 'Tier 2 auto-projection: complete', {
 					success: result.success,
 					// An aborted pass is a success that saw only part of the vault.
@@ -1188,11 +1316,15 @@ export default class CrosswalkerPlugin extends Plugin {
 					aborted: result.aborted === true,
 					counts: result.counts,
 					durationMs: result.durationMs,
+					readiness,
+					...errorDiagnostics,
 				});
-				if (!result.success && result.errors.length > 0) {
+				if (!result.aborted && !result.success && result.errors.length > 0) {
 					new Notice(
-						`Tier 2 projection finished with ${result.errors.length} errors. Check debug log.`,
-						6000,
+						`Reporting database refresh finished with ${result.errors.length} note errors. `
+						+ 'Your notes remain available. Run "Developer tools: copy troubleshooting details to clipboard" '
+						+ 'and include the result in a bug report.',
+						9000,
 					);
 				}
 			} catch (err) {
@@ -1202,9 +1334,10 @@ export default class CrosswalkerPlugin extends Plugin {
 				// so the user knows queries against Tier 2 may not return fresh
 				// results, but don't block the plugin lifecycle.
 				new Notice(
-					// eslint-disable-next-line obsidianmd/ui/sentence-case -- "Tier 1"/"Tier 2" are Crosswalker's architecture-tier terms
-					`Tier 2 projection failed (Tier 1 vault is unaffected; queries may be stale). See debug log.`,
-					6000,
+					'Crosswalker reporting database did not start. Your notes remain available. Reload Obsidian. '
+					+ 'If it fails again, run "Developer tools: copy troubleshooting details to clipboard" '
+					+ 'and include the result in a bug report.',
+					10000,
 				);
 			}
 		});
@@ -1229,6 +1362,10 @@ export default class CrosswalkerPlugin extends Plugin {
 	}
 
 	onunload() {
+		// Cancel startup waiters and ask any active projector to stop at its next
+		// cooperative yield before this instance closes its database handle.
+		this.tier2Unloaded = true;
+		this.tier2TeardownInProgress = true;
 		// Deliberately does NOT detachLeavesOfType(VIEW_TYPE_CROSSWALKER_WORKSPACE):
 		// the official plugin guidelines say "Don't detach leaves in onunload" —
 		// Obsidian reinitializes open leaves in place on plugin update/reload.

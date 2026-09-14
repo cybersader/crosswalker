@@ -51,9 +51,11 @@ function createPlugin(): TestPlugin {
 			vault: {
 				configDir: '.obsidian',
 				adapter: {
-					readBinary: jest.fn().mockResolvedValue(new ArrayBuffer(0)),
-					read: jest.fn().mockResolvedValue('// stand-in for sqlite3.mjs'),
-					getResourcePath: jest.fn((p: string) => `app://local/${p}`),
+					// Inert regression scaffolding. The inline loader must never reach the
+					// vault adapter for executable SQLite assets.
+					readBinary: jest.fn(() => { throw new Error('unexpected sqlite asset readBinary'); }),
+					read: jest.fn(() => { throw new Error('unexpected sqlite asset read'); }),
+					getResourcePath: jest.fn(() => { throw new Error('unexpected sqlite asset resource path'); }),
 				},
 			},
 		},

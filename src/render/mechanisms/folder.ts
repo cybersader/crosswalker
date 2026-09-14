@@ -5,8 +5,9 @@
  * not polyhierarchical. Right when each concept has exactly one canonical home.
  */
 
-import type { Address, SourceScope, RenderReport, VariadicConfig } from '../types';
+import type { Address, SourceScope, RenderReport, VariadicConfig, LayoutValue } from '../types';
 import { renderTemplate, RenderError } from '../template';
+import { normalizedPathPieces } from '../vault-path';
 
 interface FolderLayoutEntry {
 	level: string;
@@ -30,11 +31,38 @@ const VARIADIC_DEFAULTS = {
  * Append one folder segment to the primary path. Shared by the fixed-depth and
  * variadic folder paths so nesting behavior stays identical (variadic differs
  * only in *how many* segments it produces, never in how each one lands).
+ *
+ * AM-33: the segment is ALSO recorded as a `LayoutValue` when the caller asked
+ * for one, in the same order and at the same moment it lands. Recording here
+ * rather than at the call sites is what makes the two folder paths (fixed and
+ * variadic) incapable of disagreeing about what a level produced.
+ *
+ * AM-37: one value per DIRECTORY SEGMENT, not one per layout entry. A rendered
+ * folder segment can carry its own separator two ways this project's own
+ * recipes use: a literal in the template (`Frameworks/{catalog.name}`) and a
+ * source cell that contains one (`IT/OT`, `2024/Q1`). Either lands as two
+ * directories, so recording one value for it made the values count disagree
+ * with the segments count, and the consumer (hub identity) silently reverted to
+ * deriving identity from the path - the exact defect the values exist to
+ * remove.
+ *
+ * AM-45: the pieces are recorded IN THE FORM THE PATH TAKES. The engine hands
+ * the assembled path to Obsidian's `normalizePath` before it reaches the vault,
+ * and that folds separators, strips edges, folds non-breaking spaces and
+ * normalizes to NFC. A piece recorded before those mutations is a different
+ * string from the segment it describes, and the difference NFC makes leaves the
+ * segment COUNT intact - so an arity check cannot see it and the value form
+ * silently derives a different hub identity than the shipped path form did.
+ * Normalizing here, and dropping the pieces that collapse to nothing exactly as
+ * the path drops them, is what makes the k-th value byte-identical to the k-th
+ * segment rather than merely the same length.
  */
-function appendFolderSegment(address: Address, segment: string): void {
+function appendFolderSegment(address: Address, segment: string, level: string, values?: LayoutValue[]): void {
 	address.primary.path = address.primary.path
 		? `${address.primary.path}/${segment}`
 		: segment;
+	if (!values) return;
+	for (const piece of normalizedPathPieces(segment)) values.push({ level, value: piece });
 }
 
 export function applyFolder(
@@ -42,6 +70,7 @@ export function applyFolder(
 	entry: FolderLayoutEntry,
 	scope: SourceScope,
 	report?: RenderReport,
+	values?: LayoutValue[],
 ): void {
 	const segment = renderTemplate(entry.template, scope, report);
 	if (!segment) {
@@ -54,7 +83,7 @@ export function applyFolder(
 		return;
 	}
 
-	appendFolderSegment(address, segment);
+	appendFolderSegment(address, segment, entry.level, values);
 }
 
 /**
@@ -68,6 +97,7 @@ export function applyVariadicFolder(
 	entry: VariadicFolderLayoutEntry,
 	scope: SourceScope,
 	report?: RenderReport,
+	values?: LayoutValue[],
 ): void {
 	const cfg = entry.variadic;
 	const segmentMode = cfg.segment ?? VARIADIC_DEFAULTS.segment;
@@ -133,6 +163,6 @@ export function applyVariadicFolder(
 
 	// 6. Append each segment as a folder level (same path as fixed folders).
 	for (const segment of segments) {
-		appendFolderSegment(address, segment);
+		appendFolderSegment(address, segment, entry.level, values);
 	}
 }

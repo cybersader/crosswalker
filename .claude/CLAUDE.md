@@ -75,7 +75,7 @@ The canonical project KB is the docs site. For an agent new to the project:
 | Open research challenges | [agent-context/zz-challenges](https://cybersader.github.io/crosswalker/agent-context/zz-challenges/) |
 | Agent-tooling progressive-disclosure space | [agent-context/agent-tooling](https://cybersader.github.io/crosswalker/agent-context/agent-tooling/) |
 
-## v0.1 implementation status (as of 2026-07-21)
+## v0.1 implementation status (as of 2026-09-04)
 
 | Milestone | Status |
 |---|---|
@@ -86,7 +86,7 @@ The canonical project KB is the docs site. For an agent new to the project:
 | [v0.1.4.5](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-4-5-streaming-refactor/) — Streaming refactor | ✅ Done (2026-05-05) |
 | [v0.1.5](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/) — Tier 2 sqlite-wasm sidecar | ✅ Done (2026-05-06) |
 | [v0.1.6](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-6-bases-query-layer/) — Bases query layer + SSSOM + recipe UX | 🚧 Phases 1–7 ✅ through 2026-07-11; delivery detail in `CHANGELOG.md` |
-| **[v0.1.7](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) — Portability (exporters + ImportRecipe fidelity)** | 🚧 Exporter first slice ✅ 2026-07-12; canonical RecipeDocument/body/fidelity foundation ✅ 2026-07-21; recipe library + full-source proofs remain |
+| **[v0.1.7](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) — Portability (exporters + ImportRecipe fidelity)** | 🚧 Exporter first slice ✅ 2026-07-12; canonical RecipeDocument/body/fidelity foundation ✅ 2026-07-21; recipe library + full-source proofs remain. Separately, `fix/d1-per-import-root` is unmerged and does not change this milestone's status; see the 2026-09-04 entry in [CHANGELOG.md — Unreleased](../CHANGELOG.md) for delivery detail |
 | [v0.1.8](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/) — Audit trail T1 default | 📋 Planning |
 | [v0.1-RC](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-rc-bundle-and-ship/) — Ship | 📋 Planning |
 
@@ -280,6 +280,6 @@ See `docs/src/content/docs/development/setup.mdx` for the full `bun run` referen
 
 ---
 
-**Last Updated**: 2026-07-27 (Added § Documentation update reminders — freshness discipline: living-page `Status last verified` markers, sourced counts/enums, retired-commitment purge sweeps; operationalized as `pre-commit-reviewer` checks 12–16. v0.1.7 portability still in progress — canonical ImportRecipe fidelity uses `RecipeDocument`; body renders through pure `render()`; persistent recipe library/UI and full NIST proofs remain.)
+**Last Updated**: 2026-09-04 (Status table refreshed: v0.1.7 row now notes the separate, unmerged `fix/d1-per-import-root` branch work and its 2026-09-04 scoped acceptance measurement; header date bumped. Earlier note preserved: § Documentation update reminders — freshness discipline: living-page `Status last verified` markers, sourced counts/enums, retired-commitment purge sweeps; operationalized as `pre-commit-reviewer` checks 12–16. v0.1.7 portability still in progress — canonical ImportRecipe fidelity uses `RecipeDocument`; body renders through pure `render()`; persistent recipe library/UI and full NIST proofs remain.)
 **For**: Crosswalker Obsidian Plugin Development (v0.1 implementation phase)
 **Agent Role**: Architect & Delegation Orchestrator (specs, decisions, reviews — implementation delegated to subagents)

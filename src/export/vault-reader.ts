@@ -146,24 +146,68 @@ export function listMarkdownFilesUnder(app: App, rootPath: string): TFile[] {
 }
 
 /**
- * One note's frontmatter, or null if it can't be read/parsed. See the module
- * doc comment for the cache-then-fallback strategy (mirrors `producerKindOf`
- * in src/views/workspace-view.ts).
+ * AM-26 (2026-08-31). What a read of one note's properties actually found.
+ *
+ * Three answers, never two. `none` is a FACT about the file: it has no
+ * properties block, so it carries no title, no curie, and no marker, and a
+ * caller may say so. `unreadable` is the ABSENCE of a fact: the bytes would not
+ * read, or the block is there and will not parse, so nothing at all is known.
+ *
+ * Failure mode prevented: a caller telling a user "Crosswalker did not generate
+ * this note. Move or rename it." about a note Crosswalker did generate and a
+ * hand edit damaged. That is a false cause attached to a destructive
+ * instruction. Same rule as `identity-index.ts`'s `AddressStamp` and
+ * `generation-engine`'s `unreadable` refusal, and the same rule as
+ * `project_cache_lag_is_not_absence` one level up.
  */
-export async function readNoteFrontmatter(app: App, file: TFile): Promise<Record<string, unknown> | null> {
-	const cached = app.metadataCache?.getFileCache?.(file)?.frontmatter;
-	if (cached && Object.keys(cached).length > 0) return cached as unknown as Record<string, unknown>;
+export type NoteFrontmatterRead =
+	| { state: 'ok'; frontmatter: Record<string, unknown> }
+	| { state: 'none' }
+	| { state: 'unreadable' };
 
+/**
+ * One note's frontmatter, distinguishing "has none" from "could not be read".
+ * See the module doc comment for the cache-then-fallback strategy (mirrors
+ * `producerKindOf` in src/views/workspace-view.ts).
+ */
+export async function readNoteFrontmatterState(app: App, file: TFile): Promise<NoteFrontmatterRead> {
+	const cached = app.metadataCache?.getFileCache?.(file)?.frontmatter;
+	if (cached && Object.keys(cached).length > 0) {
+		return { state: 'ok', frontmatter: cached as unknown as Record<string, unknown> };
+	}
+
+	let content: string;
 	try {
 		const reader = app.vault.cachedRead ? app.vault.cachedRead.bind(app.vault) : app.vault.read.bind(app.vault);
-		const content = await reader(file);
-		const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
-		if (!match) return null;
-		const parsed = parseYaml(match[1]) as Record<string, unknown> | undefined;
-		return parsed ?? null;
+		content = await reader(file);
 	} catch {
-		return null;
+		return { state: 'unreadable' };
 	}
+	const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+	if (!match) return { state: 'none' };
+	try {
+		const parsed = parseYaml(match[1]) as unknown;
+		if (parsed === null || parsed === undefined) return { state: 'none' };
+		// A YAML document that is not a mapping is a properties block nothing can be
+		// read out of, which is a failure to read, not an absence of properties.
+		if (typeof parsed !== 'object' || Array.isArray(parsed)) return { state: 'unreadable' };
+		return { state: 'ok', frontmatter: parsed as Record<string, unknown> };
+	} catch {
+		return { state: 'unreadable' };
+	}
+}
+
+/**
+ * One note's frontmatter, or null if it can't be read/parsed.
+ *
+ * Two-state convenience over `readNoteFrontmatterState`, for callers whose next
+ * step is the same either way (they need values, and there are none). A caller
+ * that TELLS THE USER A CAUSE must use the tri-state read instead: null here
+ * cannot distinguish a stranger's plain note from a damaged note of our own.
+ */
+export async function readNoteFrontmatter(app: App, file: TFile): Promise<Record<string, unknown> | null> {
+	const read = await readNoteFrontmatterState(app, file);
+	return read.state === 'ok' ? read.frontmatter : null;
 }
 
 /** Discriminate a note's Tier 1 kind from its frontmatter (see module doc comment). */
