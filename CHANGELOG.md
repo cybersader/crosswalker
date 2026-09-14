@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Second prerelease preparation, 0.1.1 (2026-09-14)
+
+- Prepared version `0.1.1` as the second BRAT prerelease, carrying the launchpad, wizard header, preset guide, and Escape changes below on top of `0.1.0`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.1` entry. Publication is a separate step and is not claimed here.
+- Installation page now points at the published `0.1.0` and the `0.1.1` candidate and explains updating through BRAT. A BRAT installation itself remains untested by the maintainer.
+
 ### Import launchpad and wizard header guidance (2026-09-14)
 
 - Import wizard: the modal header no longer collides with Obsidian's close button, and the repeated "Import structured data" title is gone; the step indicator remains.

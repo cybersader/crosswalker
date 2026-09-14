@@ -1,7 +1,7 @@
 {
 	"id": "crosswalker",
 	"name": "Crosswalker",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"minAppVersion": "1.10.0",
 	"description": "Import structured ontologies (frameworks, taxonomies) into Obsidian with hierarchical folder structures, typed links, and metadata.",
 	"author": "cybersader",
