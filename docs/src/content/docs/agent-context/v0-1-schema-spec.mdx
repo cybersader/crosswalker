@@ -138,7 +138,7 @@ Tier 1 (the canonical Markdown representation) is governed by [`spec/tier1.schem
 
 #### Source-byte digest: what `source_hash` records
 
-`source_ref.source_hash` (a fingerprint of the bytes a record was produced from) answers exactly one question: **which source bytes made this note?** Its schema definition has not changed and is not new — a plain string, deliberately unpatterned, described as "Hash of the source file at import time. Format: 'sha256-{hex}'" (source: `spec/tier1.schema.json § $defs.provenance_block.properties.source_ref.properties.source_hash`). It has always been optional and permissive so that external producers writing valid Tier 1 keep validating; **no schema version, `$id` or pattern moved when the runtime producer described below was added.**
+`source_ref.source_hash` (a fingerprint of the bytes a record was produced from) answers exactly one question: **which source bytes made this note?** Its schema definition has not changed and is not new — a plain string, deliberately unpatterned, described as "Hash of the source file at import time. Format: `sha256-{hex}`" (source: `spec/tier1.schema.json § $defs.provenance_block.properties.source_ref.properties.source_hash`). It has always been optional and permissive so that external producers writing valid Tier 1 keep validating; **no schema version, `$id` or pattern moved when the runtime producer described below was added.**
 
 **What produces it today.** Two producers, one of them new:
 
