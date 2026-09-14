@@ -1,3 +1,4 @@
+import 'wdio-obsidian-service';
 import type { Options } from '@wdio/types';
 import path from 'path';
 import { killOrphanedTestProcesses } from './tests/e2e/helpers/process-hygiene';
@@ -34,6 +35,9 @@ const REPO_ROOT = path.resolve('.');
 const E2E_SEED_VAULT = path.resolve('./tests/e2e/seed-vault');
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Per worker process (one Obsidian session); see the `beforeSuite` hook below.
+let settingsPopoutDisabled = false;
 
 /** Build the plugin, retrying once if the esbuild-service deadlock flake
  *  signature ("goroutine ... deadlock" — a Go-runtime panic from esbuild's
@@ -122,6 +126,38 @@ export const config: Options.Testrunner = {
     // (b) build the plugin, with one retry on the esbuild deadlock flake.
     // The immutable seed needs no source-vault cleanup.
     await buildPluginWithRetry();
+  },
+
+  // Obsidian 1.13 added "Open settings in a window" and defaults the
+  // `settingsPopoutWindow` vault config to true, which moves the settings modal
+  // into a second Electron window the WebDriver session cannot see: the driver's
+  // window never contains `.modal.mod-settings`, so every screenshot shows a bare
+  // vault even though `openTabById()` succeeded against the detached tree. Force
+  // the in-window modal once per session, before any spec opens settings. The
+  // sandbox vault is a throwaway copy, so this is left set for the whole run.
+  //
+  // This must be `beforeSuite`, not `before`: WDIO runs every `before` hook
+  // concurrently, and wdio-obsidian-service's own `before` is what installs
+  // `browser.executeObsidian`, so a config-level `before` sees it undefined
+  // (observed 2026-09-14). `beforeSuite` runs once the service has finished
+  // preparing the app. It fires per `describe`, so the flag keeps it to one
+  // config write per session.
+  beforeSuite: async function () {
+    if (settingsPopoutDisabled) return;
+    settingsPopoutDisabled = true;
+    const popout = await browser.executeObsidian(({ app }) => {
+      const vault = app.vault as unknown as {
+        getConfig?: (key: string) => unknown;
+        setConfig?: (key: string, value: unknown) => void;
+      };
+      const previous = vault.getConfig?.('settingsPopoutWindow') ?? null;
+      vault.setConfig?.('settingsPopoutWindow', false);
+      // A popout already on screen would be refocused rather than re-homed.
+      // @ts-expect-error -- internal setting API
+      app.setting?.close?.();
+      return previous;
+    });
+    console.log('[harness:settings-popout] ' + JSON.stringify({ default: popout, now: false }));
   },
 
   afterTest: async function (_test: any, _context: any, { error }: any) {

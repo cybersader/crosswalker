@@ -174,7 +174,7 @@ describe('Legacy export commands at the real vault root', function () {
 
 	after(async () => {
 		await browser.execute(() => {
-			document.querySelectorAll<HTMLElement>('.modal-close-button').forEach((button) => button.click());
+			document.querySelectorAll<HTMLElement>('.modal-close-button, .modal-header-button').forEach((button) => button.click());
 		});
 		await browser.executeObsidian(async ({ app, obsidian }, fixture) => {
 			for (const dotfile of fixture.dotfiles) {

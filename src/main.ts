@@ -8,6 +8,7 @@ import {
 } from './ui/entry-points';
 import { CrosswalkerSettingTab } from './settings/settings-tab';
 import { ImportWizardModal } from './import/import-wizard';
+import { RECIPE_REGISTRY } from './import/recipe-registry';
 import { SssomImportModal } from './import/sssom-import-modal';
 import {
 	ExportFolderPickerModal,
@@ -82,6 +83,11 @@ export default class CrosswalkerPlugin extends Plugin {
 	settings: CrosswalkerSettings;
 	debug: DebugLog;
 	draftStore: DraftStore;
+	/**
+	 * Bundled import presets, exposed so the E2E harness can cross-check the
+	 * preset guide's rendered count against the registry it was built from.
+	 */
+	public readonly recipeRegistry = RECIPE_REGISTRY;
 
 	/**
 	 * Status bar "installed ontologies" indicator (discoverability entry

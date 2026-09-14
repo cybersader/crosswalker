@@ -88,7 +88,7 @@ describe('Crosswalker plugin — CI vertical smoke', function () {
 
 	after(async () => {
 		await browser.executeObsidian(() => {
-			document.querySelectorAll('.crosswalker-wizard-modal .modal-close-button').forEach((button) => {
+			document.querySelectorAll('.crosswalker-wizard-modal .modal-close-button, .crosswalker-wizard-modal .modal-header-button').forEach((button) => {
 				(button as HTMLElement).click();
 			});
 		});
@@ -117,7 +117,7 @@ describe('Crosswalker plugin — CI vertical smoke', function () {
 		expect(await modal.isDisplayed()).toBe(true);
 
 		await browser.executeObsidian(() => {
-			document.querySelectorAll('.modal-close-button').forEach((button) => {
+			document.querySelectorAll('.modal-close-button, .modal-header-button').forEach((button) => {
 				(button as HTMLElement).click();
 			});
 		});

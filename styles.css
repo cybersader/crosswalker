@@ -38,8 +38,16 @@
 	z-index: 1;
 }
 
-.crosswalker-wizard-header h2 {
-	margin: var(--cw-s3, 12px) 0 0 0;
+/* Obsidian's absolute-positioned close button (`.modal-close-button` before 1.13,
+   `.modal-header-button` from 1.13) shares the modal's top-right corner with our
+   Next button. Reserve that corner in the modal host only; the tab host has no
+   close button and must stay symmetric. */
+.crosswalker-wizard-modal .modal-header {
+	display: none;
+}
+
+.crosswalker-wizard-modal .crosswalker-wizard-header {
+	padding-right: 44px;
 }
 
 .crosswalker-nav-row {
@@ -105,6 +113,52 @@
 	overflow-y: auto;
 	margin-bottom: 1em;
 	padding-right: 0.25em; /* small inset so scrollbar doesn't clip content */
+}
+
+.crosswalker-preset-guide {
+	margin: var(--cw-s3, 12px) 0;
+}
+
+.crosswalker-preset-guide-summary {
+	cursor: pointer;
+	color: var(--text-accent);
+}
+
+.crosswalker-preset-guide-intro {
+	color: var(--text-muted);
+}
+
+.crosswalker-preset-guide-list {
+	max-height: 40vh;
+	overflow-y: auto;
+	margin: var(--cw-s2, 8px) 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.crosswalker-preset-guide-item {
+	padding: var(--cw-s2, 8px) 0;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.crosswalker-preset-guide-label,
+.crosswalker-preset-guide-desc,
+.crosswalker-preset-guide-note {
+	display: block;
+}
+
+.crosswalker-preset-guide-desc {
+	color: var(--text-muted);
+}
+
+.crosswalker-preset-guide-links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--cw-s3, 12px);
+}
+
+.crosswalker-preset-guide-note {
+	color: var(--text-muted);
 }
 
 .crosswalker-wizard-footer {

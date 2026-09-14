@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Import launchpad and wizard header guidance (2026-09-14)
+
+- Import wizard: the modal header no longer collides with Obsidian's close button, and the repeated "Import structured data" title is gone; the step indicator remains.
+- New "Browse built-in import presets" guide on the settings launchpad, the Crosswalker workspace, and Step 1 of the import wizard: each preset links to where to download the publisher's file and to the matching import instructions.
+- Import wizard: pressing Escape with no picker, menu, or popover open now closes the modal again. The wizard's own keyboard scope shadowed Obsidian's default Escape binding, so the key was silently swallowed.
+- Internal: E2E helpers recognize Obsidian 1.13's renamed modal close button, and the E2E harness disables Obsidian 1.13's "open settings in a window" default so settings specs can see the modal.
+
 ### First public prerelease preparation and compatibility floor (2026-09-13)
 
 - Prepared version `0.1.0` for its first public prerelease with the standard three plugin files: `main.js`, `manifest.json`, and `styles.css`. Publication is a separate step and is not claimed here.

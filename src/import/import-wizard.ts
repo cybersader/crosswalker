@@ -17,6 +17,7 @@ import { shorthandToSourceExpression } from '../source';
 import { findMatchingConfigs, ConfigMatch } from '../config/config-manager';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { VaultImportFilePicker } from '../ui/vault-file-picker';
+import { renderPresetGuide } from './import-preset-guide';
 import {
 	generateNotes,
 	buildConfigFromWizardState,
@@ -611,8 +612,6 @@ export class ImportFlow {
 		const navRight = navRow.createEl('div', { cls: 'crosswalker-nav-right' });
 		this.createPrimaryButton(navRight);
 
-		header.createEl('h2', { text: 'Import structured data' });
-
 		// AM-10. All four entries (Next from step 2, the recognized-recipe fast
 		// path, a draft resume onto step 3 or step 4) now AWAIT `prepareStep3`
 		// before they render, so this arm is a backstop for a future fifth entry
@@ -704,6 +703,8 @@ export class ImportFlow {
 			href: 'https://cybersader.github.io/crosswalker/reference/framework-data-sources/',
 		});
 		help.appendText(' lists where to get each framework, which sheet to use, and the import gotchas.');
+
+		renderPresetGuide(container);
 
 		// Primary: pick from the vault. Obsidian's explorer hides csv/xlsx/json
 		// unless "Detect all file extensions" is on, so the vault picker must
@@ -4228,18 +4229,25 @@ export class ImportWizardModal extends Modal {
 
 	constructor(app: App, plugin: CrosswalkerPlugin, opts?: { presetRecipeId?: string; prefillFile?: TFile }) {
 		super(app);
-		// Put workbench-specific shortcuts in a child scope. Child handlers run
-		// before Modal's inherited Escape-to-close binding, so an open evidence card
-		// or column chooser gets the first Escape without weakening normal modal close.
+		// Put workbench-specific shortcuts in a child scope. A child scope is consulted
+		// before its parent, so this wins over Modal's own Escape-to-close binding and
+		// an open evidence card or column chooser gets the first Escape. Registering on
+		// Modal's scope instead would let Modal's earlier binding close the modal first.
 		this.scope = new Scope(this.scope);
 		this.flow = new ImportFlow(app, plugin, {
 			containerEl: this.contentEl,
 			close: () => this.close(),
 			registerEscapeHandler: (handler) => {
-				// Registered after Modal's own Escape binding. Scope evaluates the
-				// newest matching handler first, so return false only when the
-				// workbench consumed Escape and the modal must remain open.
-				this.scope.register([], 'Escape', () => handler() ? false : undefined);
+				// `Scope.handleKey` stops at the first binding that matches a specific
+				// key, whatever it returns, and only falls through to the parent scope
+				// when nothing matched. So this handler owns both outcomes: closing the
+				// modal here is what Modal's own binding, which this child scope has
+				// always shadowed, would have done.
+				this.scope.register([], 'Escape', () => {
+					if (handler()) return false;
+					this.close();
+					return false;
+				});
 			},
 		});
 		if (opts?.presetRecipeId) this.flow.presetRecipeId = opts.presetRecipeId;

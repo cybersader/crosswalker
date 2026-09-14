@@ -11,6 +11,7 @@ import type { DebugLevel } from '../utils/debug';
 import { exportConfigToString, importConfig } from '../config/config-manager';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { ImportWizardModal } from '../import/import-wizard';
+import { renderPresetGuide } from '../import/import-preset-guide';
 import { SavedConfig } from '../types/config';
 import CrosswalkerPlugin from '../main';
 import {
@@ -347,6 +348,8 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 				new ImportWizardModal(this.app, this.plugin).open();
 			});
 		}
+
+		renderPresetGuide(bar);
 	}
 
 	private launchButton(

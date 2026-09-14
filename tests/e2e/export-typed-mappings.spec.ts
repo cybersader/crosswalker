@@ -113,7 +113,7 @@ describe('Typed mapping table export command', function () {
 
 	after(async () => {
 		await browser.execute(() => {
-			document.querySelectorAll<HTMLElement>('.modal-close-button').forEach((button) => button.click());
+			document.querySelectorAll<HTMLElement>('.modal-close-button, .modal-header-button').forEach((button) => button.click());
 		});
 		await removeFixture();
 	});

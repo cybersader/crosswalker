@@ -19,6 +19,7 @@ import CrosswalkerPlugin from '../main';
 import { outputRootFile } from '../settings/folder-settings';
 import { ImportFlow, type ImportFlowHost } from '../import/import-wizard';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
+import { renderPresetGuide } from '../import/import-preset-guide';
 import {
 	deriveInstalledOntologies,
 	findRecipeForOntologyIdentity,
@@ -193,6 +194,8 @@ export class CrosswalkerWorkspaceView extends ItemView {
 				this.startFlow();
 			});
 		}
+
+		renderPresetGuide(bar);
 	}
 
 	private launchButton(

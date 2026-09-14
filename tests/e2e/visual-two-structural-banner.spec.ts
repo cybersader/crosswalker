@@ -51,7 +51,7 @@ describe('Visual — two-structural preview-error banner (B2)', function () {
 
 	after(async () => {
 		await browser.executeObsidian(async ({ app }) => {
-			document.querySelector<HTMLElement>('.modal-close-button')?.click();
+			document.querySelector<HTMLElement>('.modal-close-button, .modal-header-button')?.click();
 			// @ts-expect-error — internal plugins API
 			const plugin = app.plugins.plugins['crosswalker'];
 			if (plugin) {
@@ -75,7 +75,7 @@ describe('Visual — two-structural preview-error banner (B2)', function () {
 				}
 				return null;
 			};
-			document.querySelector<HTMLElement>('.modal-close-button')?.click();
+			document.querySelector<HTMLElement>('.modal-close-button, .modal-header-button')?.click();
 			await sleep(300);
 
 			// @ts-expect-error — commands API is untyped

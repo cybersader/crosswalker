@@ -27,7 +27,7 @@ describe('Crosswalker plugin — import flow (v0.1.1)', function () {
       // Close any open modals
       const openModals = document.querySelectorAll('.modal-container');
       openModals.forEach((m) => {
-        const closeBtn = m.querySelector('.modal-close-button') as HTMLElement | null;
+        const closeBtn = m.querySelector('.modal-close-button, .modal-header-button') as HTMLElement | null;
         if (closeBtn) closeBtn.click();
       });
     });
