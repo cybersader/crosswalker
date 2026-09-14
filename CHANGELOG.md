@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Release workflow hardening (2026-09-14)
+
+`.github/workflows/release.yml` no longer decides anything inline. Every publication decision moved into `scripts/release-preflight.mjs`, a dependency-free Node script covered by `tests/release-preflight.test.ts` (12 cases), because none of the old YAML logic could be exercised without pushing to `main`.
+
+- **An already published version is skipped, not republished.** The job reads whether the remote tag and the GitHub release already exist, and exits successfully with a `::notice::` when either does. The previous workflow deleted the remote tag and recreated it on the new commit every time it ran, which would have silently moved the published `0.1.0` and `0.1.1` prerelease tags.
+- **Tags are only ever created.** `git tag -d` and the `:refs/tags/...` delete push are gone. A losing race on the tag push fails the job loudly instead of replacing published state.
+- **`0.x` versions publish as prereleases.** The release is created with `--prerelease --latest=false` when the major version is `0` or the version carries a suffix, and `--latest=true` otherwise. The previous workflow marked every release latest, including `0.x`.
+- **Release notes have no fallback.** Notes come from the first exact `## [x.y.z]` heading in `CHANGELOG.md`, stopping at the next `## ` heading or horizontal rule. A missing or empty section fails the job with a named cause and action, instead of publishing a body reading `Release x.y.z`. The `force_release` dispatch input does not bypass this; it only bypasses the cheap "version unchanged since the previous commit" early exit.
+- **Version consistency is checked before anything is published.** `package.json`, `manifest.json`, and `versions.json` must agree, and the built `manifest.json` must carry the version being tagged. Exactly three assets are asserted before upload and re-read from the published release afterward, together with the prerelease flag.
+- **The toolchain is pinned.** `oven-sh/setup-bun` uses `bun-version: 1.3.14` (the version `bun.lock` was resolved with) instead of `latest`, and installs run `--frozen-lockfile`. A `concurrency` group serializes release runs. The inline SQLite asset verification step is unchanged.
+- **Historical heading renamed.** The 2026-04-02 MVP entry at the bottom of this file was `## [0.1.0] - 2026-04-02`, which the old extractor would have matched when publishing the real `0.1.0`. It is now `## [0.1.0-mvp-scaffold] - 2026-04-02`.
+
+Operational consequence: merging the branch that carries the `0.1.1` bump will not republish `0.1.1`. The next version needs a `## [x.y.z]` heading in this file before its bump lands on `main`, or the release job fails with that instruction.
+
 ### Second prerelease preparation, 0.1.1 (2026-09-14)
 
 - Prepared version `0.1.1` as the second BRAT prerelease, carrying the launchpad, wizard header, preset guide, and Escape changes below on top of `0.1.0`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.1` entry. Publication is a separate step and is not claimed here.
@@ -41,7 +55,7 @@ Two related fixes to the Tier 2 query-database startup path. Full decision recor
   - A later, separate, narrower correction reordered one test assertion, added cancellation-at-deadline precedence coverage, and added the isolated old-helper proof above; that correction's own run is a focused, test-only pass — 3 suites, 36 tests passing — not an updated full-suite count, and did not itself re-run the full suite, lint, build, gates, or any browser harness.
 - **3. Real-Obsidian runtime acceptance, dated 2026-09-13 UTC, covering the combined bundle of both fixes above.** Two earlier seeded runtime attempts each passed 28 of 29 checks but failed automatic startup acceptance. The second captured missing-cache errors; the first did not retain the exact per-file exception. After the deadline-based correction, the final seeded and empty-vault runs passed all 30 checks. Two isolated WDIO runner commands executed against real Obsidian: a seeded-vault run (29 of 29 declarations passed) and a new empty-vault first run (1 of 1 passed), both exercising fully automatic startup with no manual trigger — 30 of 30 total. The seeded run's startup witness recorded `checks: 2, elapsedMs: 100.3` (the vault was not ready at layout-ready; one 100ms poll cleared it — the class of scenario the prior fixed-count model failed on). The empty-vault run recorded `checks: 1, elapsedMs: 0` (a warm immediate return). The empty vault's installed plugin folder contained the standard three shipped assets (`main.js`, `manifest.json`, `styles.css`) plus two development-harness files (`.hotreload`, `data.json`, present because this is a test/dev install rather than a release archive downloaded via BRAT) — no loose SQLite files were present or needed in this tested shape. Combined bundle for this runtime pass: `main.js` 4,301,740 bytes, SHA-256 `0af4dc3d2c721a654584cc968521caaa3a321eabcbcdfd1afddf383bbf8848b5`.
   - Explicit limitations, none of which this pass resolves: no real BRAT/release-artifact install was exercised; no mobile execution; OPFS-versus-in-memory persistence mode was not observed in either run; no comparable load-timing or performance measurement was taken; the 12-second waiting budget is a bound, not a proof of sufficiency for larger or slower vaults (these two runs needed 100ms and 0ms); an unrelated Mocha/screenshot-capture hang observed on an earlier attempt did not recur here but was neither explained nor patched by this work.
-- **4. `.github/workflows/release.yml` is changed by this delivery** — it gains an inline-asset verification step. Its trigger (push to `main` or manual `workflow_dispatch`, not a tag push), its existing tag delete-and-recreate behavior, and the absence of a `--prerelease` flag are all unchanged by this delivery and remain pre-publication safety gates that need explicit owner review before the next release runs, not a "reruns are safe" conclusion. See the embedded checklist in the synthesis log.
+- **4. `.github/workflows/release.yml` is changed by this delivery** — it gains an inline-asset verification step. Its trigger (push to `main` or manual `workflow_dispatch`, not a tag push), its existing tag delete-and-recreate behavior, and the absence of a `--prerelease` flag are all unchanged by this delivery and remain pre-publication safety gates that need explicit owner review before the next release runs, not a "reruns are safe" conclusion. See the embedded checklist in the synthesis log. Superseded 2026-09-14 by the release-workflow hardening entry above.
 
 **Scope.** Unmerged, unreleased work on `fix/d1-per-import-root`. Not a v0.1.7 completion claim, not a Tier 2 substrate change (still `@sqlite.org/sqlite-wasm`, still no `sqlite-vec`), and not a change to how native Obsidian Bases views or Crosswalker's own SQLite-backed reporting are surfaced.
 
@@ -1495,7 +1509,9 @@ Substrates and adjacent file-based tools evaluated and not adopted today, with f
 
 ---
 
-## [0.1.0] - 2026-04-02
+## [0.1.0-mvp-scaffold] - 2026-04-02
+
+*Historical scaffold entry. The public 0.1.0 prerelease is the 2026-09-13 tag; see the [Unreleased] release-preparation entries above. This heading is deliberately not `## [0.1.0]`, so the release workflow's notes extractor cannot match it.*
 
 Initial MVP release — the import wizard ships.
 

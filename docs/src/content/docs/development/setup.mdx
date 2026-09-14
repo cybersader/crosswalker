@@ -141,6 +141,16 @@ These all work standalone if you prefer not to use the orchestrator:
 
 See the [testing page](/crosswalker/development/testing/) for details on each test surface.
 
+## Releasing
+
+1. `bun run version` — bumps `manifest.json` + `versions.json` to the version already set in `package.json`.
+2. Add a `## [x.y.z]` heading to `CHANGELOG.md` with the notes for that version. The release workflow uses that section verbatim and fails if it is missing or empty; there is no fallback body.
+3. Merge to `main`. `.github/workflows/release.yml` builds, tags, and publishes the three plugin assets.
+4. `0.x` versions and any version with a suffix publish as prereleases, not as the latest release.
+5. A version whose tag or release already exists is skipped with a notice. The workflow never deletes, moves, or overwrites published state, so republishing means shipping a new version.
+
+`scripts/release-preflight.mjs` makes those decisions and is covered by `tests/release-preflight.test.ts`, so they can be checked without running Actions.
+
 ## Project structure
 
 ```

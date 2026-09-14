@@ -71,6 +71,11 @@ Exact byte counts, SHA-256 hashes, suite/test counts, and finding text are in [`
 
 - Verify `package.json` and `manifest.json` versions agree
 - Resolve the tag delete-and-recreate behavior and the missing `--prerelease` flag in `release.yml` — pre-existing gates, not something this delivery clears
+
+:::note[Update 2026-09-14]
+Both gates were resolved by a later release-workflow hardening pass, which is recorded under `[Unreleased]` in [`CHANGELOG.md`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md). The workflow no longer deletes or recreates tags, skips an already published version instead of republishing it, and publishes `0.x` versions with `--prerelease`. This log's own text above is left as written on 2026-09-12.
+:::
+
 - Confirm the tagged commit matches (or is source-identical to) the reviewed and runtime-tested commit
 - Confirm exactly three release assets (`main.js`, `manifest.json`, `styles.css`)
 - Run an actual BRAT install test only after a separately approved release — not authorized by this work
