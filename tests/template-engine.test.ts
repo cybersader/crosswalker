@@ -432,3 +432,89 @@ describe('capability 2 — sinks', () => {
 		expect(() => render(recipe, { curie: 'x:1', scope: { id: '1', parts: 'A.B.C' } })).toThrow('join(<sep>)');
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Capability 3 — delimiter-set part/prefix filters (spec §2.1, 2026-09-14)
+// ---------------------------------------------------------------------------
+
+describe('capability 3 — delimiter-set part/prefix filters', () => {
+	it('3.1 part(<delims>,<index>) indexes pieces split on ANY set character (A5)', () => {
+		expect(renderTemplate('{v|part(.-,1)}', { v: 'A.B.C-D' })).toBe('B');
+		expect(renderTemplate('{v|part(.-,2)}', { v: 'A.B.C-D' })).toBe('C');
+	});
+
+	it('3.2 prefix(<delims>,<index>) truncates the original, delimiters preserved (A5)', () => {
+		expect(renderTemplate('{v|prefix(.-,2)}', { v: 'A.B.C-D' })).toBe('A.B.C');
+		expect(renderTemplate('{v|prefix(.-,3)}', { v: 'A.B.C-D' })).toBe('A.B.C-D');
+	});
+
+	it('3.3 packed CRI id: every level of GV.OC-01.01 is reachable', () => {
+		const v = 'GV.OC-01.01';
+		expect(renderTemplate('{v|prefix(.-,0)}', { v })).toBe('GV');
+		expect(renderTemplate('{v|prefix(.-,1)}', { v })).toBe('GV.OC');
+		expect(renderTemplate('{v|prefix(.-,2)}', { v })).toBe('GV.OC-01');
+		expect(renderTemplate('{v|part(.-,3)}', { v })).toBe('01');
+	});
+
+	it('3.4 a single-character set equals split (D length 1 is legal, spec §2.1)', () => {
+		expect(renderTemplate('{v|part(.,1)}', { v: 'AA.01' })).toBe(renderTemplate('{v|split(.,1)}', { v: 'AA.01' }));
+		expect(renderTemplate('{v|part(.,1)}', { v: 'AA.01' })).toBe('01');
+	});
+
+	it('3.5 out-of-range index yields empty with the named note (A8)', () => {
+		const r = report();
+		expect(renderTemplate('{v|part(.-,9)}', { v: 'A.B.C-D' }, r)).toBe('');
+		expect(codes(r)).toContain('part-index-missing');
+		const p = report();
+		expect(renderTemplate('{v|prefix(.-,9)}', { v: 'A.B.C-D' }, p)).toBe('');
+		expect(codes(p)).toContain('prefix-index-missing');
+	});
+
+	it('3.6 no set character present: index 0 is the whole value, higher indexes note part-no-delimiter (A8)', () => {
+		expect(renderTemplate('{v|part(.-,0)}', { v: 'PLAIN' })).toBe('PLAIN');
+		const r = report();
+		expect(renderTemplate('{v|part(.-,1)}', { v: 'PLAIN' }, r)).toBe('');
+		expect(codes(r)).toContain('part-no-delimiter');
+	});
+
+	it('3.7 escapes: a comma or paren in the set is written \\\\, and \\\\)', () => {
+		expect(renderTemplate('{v|part(\\,\\),1)}', { v: 'a,b)c' })).toBe('b');
+		expect(renderTemplate('{v|prefix(\\,\\),1)}', { v: 'a,b)c' })).toBe('a,b');
+	});
+
+	it('3.8 part(<delims>) produces the trimmed non-empty piece list (A8)', () => {
+		expect(renderTemplateValue('{v|part(.-)}', { v: 'GV.OC-01' })).toEqual(['GV', 'OC', '01']);
+	});
+
+	it('3.9 per-item lifting: part/prefix map over a list like every filter (A8)', () => {
+		expect(renderTemplateValue('{v|split(;)|part(.-,0)}', { v: 'GV.OC-01;GV.OC-02' })).toEqual(['GV', 'GV']);
+		expect(renderTemplateValue('{v|split(;)|prefix(.-,1)}', { v: 'GV.OC-01;GV.OC-02' })).toEqual([
+			'GV.OC',
+			'GV.OC',
+		]);
+	});
+
+	it('3.10 empty pieces are dropped before indexing, and prefix keeps the original text (A5)', () => {
+		expect(renderTemplate('{v|part(.,1)}', { v: 'A..B' })).toBe('B');
+		// Truncation rule for repeated delimiters: prefix ends at the END of the
+		// indexed non-empty piece (the last character of `B` here), so every
+		// delimiter BEFORE the piece survives and a delimiter AFTER it does not.
+		// For `A..B` the second dot sits after the piece boundary and is dropped.
+		expect(renderTemplate('{v|prefix(.,1)}', { v: 'A..B' })).toBe('A..B');
+	});
+
+	it('3.11 values are trimmed before splitting', () => {
+		expect(renderTemplate('{v|part(.-,0)}', { v: '  GV  ' })).toBe('GV');
+		expect(renderTemplate('{v|prefix(.-,1)}', { v: ' GV.OC-01 ' })).toBe('GV.OC');
+	});
+
+	it('3.12 empty delimiter set is a RenderError, like split', () => {
+		expect(() => renderTemplateValue('{v|part()}', { v: 'A.B' })).toThrow(RenderError);
+		expect(() => renderTemplateValue('{v|part(,0)}', { v: 'A.B' })).toThrow(RenderError);
+		expect(() => renderTemplate('{v|prefix(,0)}', { v: 'A.B' })).toThrow(RenderError);
+	});
+
+	it('3.13 prefix without an index is an error; there is no list form', () => {
+		expect(() => renderTemplateValue('{v|prefix(.-)}', { v: 'A.B.C' })).toThrow(RenderError);
+	});
+});

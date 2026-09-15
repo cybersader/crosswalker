@@ -211,7 +211,7 @@ export function collectScalarLinkEmissions(mapping: ImportMapping): ScalarLinkEm
 }
 
 function scalarLinkTemplate(rule: LevelRule, destination: Extract<Destination, { primitive: 'link' }>): string {
-	return `[[${buildName(rule.source, rule.delimiter, rule.join, rule.filters)}]]`;
+	return `[[${buildName(rule.source, rule.delimiter, rule.join, rule.filters, rule.naming, rule.delimiters)}]]`;
 }
 
 export function toRecipeRegions(mapping: ImportMapping): RecipeRegions {
@@ -283,7 +283,7 @@ function emitLevel(
 	managedLinks: Record<string, ManagedLinkSpec>,
 	body: OrderedEmission<BodyProjectionSpec>[],
 ): void {
-	const name = buildName(rule.source, rule.delimiter, rule.join, rule.filters);
+	const name = buildName(rule.source, rule.delimiter, rule.join, rule.filters, rule.naming, rule.delimiters);
 	for (const dest of rule.destinations) {
 		switch (dest.primitive) {
 			case 'folder':
@@ -302,7 +302,14 @@ function emitLevel(
 				break;
 			case 'tag': {
 				const ns = dest.namespace ?? slug(firstColumn(rule.source));
-				const tagValue = buildName(rule.source, rule.delimiter, rule.join, appendFilter(rule.filters, 'tagsafe'));
+				const tagValue = buildName(
+					rule.source,
+					rule.delimiter,
+					rule.join,
+					appendFilter(rule.filters, 'tagsafe'),
+					rule.naming,
+					rule.delimiters,
+				);
 				pushOrdered(tags, `${ns}/${tagValue}`, dest.canonicalOrder);
 				break;
 			}
@@ -432,14 +439,28 @@ function orderedValues<T>(items: OrderedEmission<T>[]): T[] {
  * Pieces are concatenated with `join ?? delimiter ?? ''`. Trailing filters chain
  * inside each interpolation. This is the exact inverse of
  * `parseStructuralTemplate`.
+ *
+ * Delimiter SETS: when the level carries `delimiters`, or is named `'prefix'`,
+ * the part filter becomes `part(D,n)` / `prefix(D,n)` instead of `split(d,n)`.
+ * A level carrying only the legacy single `delimiter` is byte-identical to the
+ * pre-set behaviour, which is what keeps existing recipe hashes stable.
  */
 export function buildName(
 	source: LevelSource,
 	delimiter: string | undefined,
 	join: string | undefined,
 	filters: string[] | undefined,
+	naming?: LevelNaming,
+	delimiters?: string,
 ): string {
 	const sep = join ?? delimiter ?? '';
+	// `prefix` has no `split` spelling, so a prefix level always takes the set
+	// form and falls back to the single delimiter when no set was recorded.
+	const useSet = delimiters !== undefined || naming === 'prefix';
+	const filterName = naming === 'prefix' ? 'prefix' : 'part';
+	const setArg = useSet ? escapeFilterArg(delimiters ?? delimiter ?? '') : '';
+	const partFilter = (index: number): string =>
+		useSet ? `${filterName}(${setArg},${index})` : `split(${delimiter},${index})`;
 	const pieces: string[] = [];
 	for (const ref of toSourceRefs(source)) {
 		if (isConstantRef(ref)) {
@@ -449,18 +470,27 @@ export function buildName(
 			pieces.push(`{${withFilters(pathTextFor(ref.column, ref.literal), filters)}}`);
 		} else if (typeof ref.part === 'number') {
 			pieces.push(
-				`{${withFilters(`${pathTextFor(ref.column, ref.literal)}|split(${delimiter},${ref.part})`, filters)}}`,
+				`{${withFilters(`${pathTextFor(ref.column, ref.literal)}|${partFilter(ref.part)}`, filters)}}`,
 			);
 		} else {
 			const [i, j] = ref.part;
 			for (let k = i; k <= j; k++) {
 				pieces.push(
-					`{${withFilters(`${pathTextFor(ref.column, ref.literal)}|split(${delimiter},${k})`, filters)}}`,
+					`{${withFilters(`${pathTextFor(ref.column, ref.literal)}|${partFilter(k)}`, filters)}}`,
 				);
 			}
 		}
 	}
 	return pieces.join(sep);
+}
+
+/**
+ * Escape a delimiter set for the balanced-paren filter lexer. Only the five
+ * characters the lexer treats specially are touched, and `\\` goes first so an
+ * already-escaping backslash is not double-counted.
+ */
+function escapeFilterArg(arg: string): string {
+	return arg.replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/\)/g, '\\)').replace(/\|/g, '\\|');
 }
 
 /** Append a filter chain onto an interpolation body. */
@@ -634,11 +664,12 @@ function makeLevel(level: string, parsed: ParsedSource, destinations: Destinatio
 		level,
 		source: parsed.source,
 		destinations,
-		naming: inferNaming(parsed.source),
+		naming: parsed.naming ?? inferNaming(parsed.source),
 		missing: DEFAULT_MISSING,
 		materialize: false,
 	};
 	if (parsed.delimiter !== undefined) rule.delimiter = parsed.delimiter;
+	if (parsed.delimiters !== undefined) rule.delimiters = parsed.delimiters;
 	if (parsed.join !== undefined) rule.join = parsed.join;
 	if (parsed.filters.length > 0) rule.filters = parsed.filters;
 	return rule;
@@ -674,6 +705,14 @@ function variadicToTail(entry: LayoutEntry): TailRule {
 export interface ParsedSource {
 	source: LevelSource;
 	delimiter?: string;
+	/** Delimiter set, when the template used `part()` / `prefix()`. */
+	delimiters?: string;
+	/**
+	 * Naming the template stated outright. Only `prefix` is carried: a `part`
+	 * template is left to `inferNaming`, which correctly reads a merged range as
+	 * `joined` while a single part stays `part`.
+	 */
+	naming?: LevelNaming;
 	join?: string;
 	filters: string[];
 }
@@ -684,6 +723,10 @@ interface ParsedInterp {
 	literal?: boolean;
 	part?: number;
 	delimiter?: string;
+	/** Delimiter set recovered from a `part(D,n)` / `prefix(D,n)` filter. */
+	delimiters?: string;
+	/** Naming the template stated outright (only `part`/`prefix` filters do). */
+	naming?: 'part' | 'prefix';
 	filters: string[];
 }
 
@@ -726,6 +769,8 @@ export function parseStructuralTemplate(template: string): ParsedSource {
 		return {
 			source,
 			delimiter: p.delimiter,
+			...(p.delimiters !== undefined ? { delimiters: p.delimiters } : {}),
+			...(p.naming === 'prefix' ? { naming: 'prefix' as LevelNaming } : {}),
 			...(segments.length > 1 ? { join: '' } : {}),
 			filters: p.filters,
 		};
@@ -737,16 +782,23 @@ export function parseStructuralTemplate(template: string): ParsedSource {
 	const allIndexed = parsedInterps.every((p) => typeof p.part === 'number');
 	const delimiter = parsedInterps[0].delimiter;
 	const sameDelimiter = parsedInterps.every((p) => p.delimiter === delimiter);
+	// A delimiter SET merges into a range on exactly the same terms as a single
+	// delimiter: same column, same set, same filter name, consecutive indices.
+	const delimiters = parsedInterps[0].delimiters;
+	const sameDelimiters = parsedInterps.every((p) => p.delimiters === delimiters);
+	const naming = explicitNaming(parsedInterps);
 	const consecutive =
 		allIndexed &&
 		parsedInterps.every((p, i) => i === 0 || (p.part as number) === (parsedInterps[i - 1].part as number) + 1);
 
-	if (sameColumn && allIndexed && sameDelimiter && consecutive) {
+	if (sameColumn && allIndexed && sameDelimiter && sameDelimiters && consecutive) {
 		const first = parsedInterps[0].part as number;
 		const last = parsedInterps[parsedInterps.length - 1].part as number;
 		return {
 			source: partRefFor(parsedInterps[0], [first, last]),
 			delimiter,
+			...(delimiters !== undefined ? { delimiters } : {}),
+			...(naming !== undefined ? { naming } : {}),
 			join: sep,
 			filters: parsedInterps[0].filters,
 		};
@@ -765,7 +817,26 @@ export function parseStructuralTemplate(template: string): ParsedSource {
 		const parsed = parseInterp(segment.interp);
 		return partRefFor(parsed);
 	});
-	return { source, delimiter, join: '', filters: sharedFilters };
+	return {
+		source,
+		delimiter,
+		...(sameDelimiters && delimiters !== undefined ? { delimiters } : {}),
+		...(naming !== undefined ? { naming } : {}),
+		join: '',
+		filters: sharedFilters,
+	};
+}
+
+/**
+ * The naming a template stated outright, or undefined when it said nothing.
+ * Only `prefix` is reported: a `part` template is left to `inferNaming`, which
+ * reads a merged range as `joined` and a lone part as `part` — exactly what
+ * `buildName` re-emits.
+ */
+function explicitNaming(parsedInterps: ParsedInterp[]): LevelNaming | undefined {
+	const indexed = parsedInterps.filter((p) => p.naming !== undefined);
+	if (indexed.length === 0) return undefined;
+	return indexed.every((p) => p.naming === 'prefix') ? 'prefix' : undefined;
 }
 
 /**
@@ -800,10 +871,22 @@ function parseInterp(interp: Interpolation): ParsedInterp {
 	const { column, literal } = interpolationColumn(interp);
 	let part: number | undefined;
 	let delimiter: string | undefined;
+	let delimiters: string | undefined;
+	let naming: 'part' | 'prefix' | undefined;
 	const filters: string[] = [];
 	for (const call of interp.filters) {
+		// `call.arg` arrives already unescaped from the shared lexer, so the index
+		// is taken greedily off the decoded text: a set containing `,` reads back
+		// whole. The list form `part(D)` carries no index and stays an opaque
+		// filter, since it does not name a single level part.
+		const isSet = (call.name === 'part' || call.name === 'prefix') && call.arg !== undefined;
+		const setCall = isSet ? /^(.*),(\d+)$/.exec(call.arg as string) : null;
 		const sp = call.name === 'split' && call.arg !== undefined ? /^(.),(\d+)$/.exec(call.arg) : null;
-		if (sp) {
+		if (setCall) {
+			delimiters = setCall[1];
+			part = Number(setCall[2]);
+			naming = call.name === 'prefix' ? 'prefix' : 'part';
+		} else if (sp) {
 			delimiter = sp[1];
 			part = Number(sp[2]);
 		} else {
@@ -812,7 +895,7 @@ function parseInterp(interp: Interpolation): ParsedInterp {
 	}
 	// Non-literal columns keep the raw (untrimmed) path text so re-serialization
 	// is byte-exact against the pre-tokenizer behaviour.
-	return { column: literal ? column : interp.rawPath, literal, part, delimiter, filters };
+	return { column: literal ? column : interp.rawPath, literal, part, delimiter, delimiters, naming, filters };
 }
 
 /** Parse a tag template (`namespace/{col|tagsafe}`) → namespace + source (tagsafe stripped). */
@@ -854,7 +937,12 @@ function sourceSignature(parsed: ParsedSource): string {
 			? { constant: r.constant }
 			: { column: r.column, part: r.part ?? null, literal: r.literal ?? null },
 	);
-	return JSON.stringify({ refs, delimiter: parsed.delimiter ?? null, filters: parsed.filters });
+	return JSON.stringify({
+		refs,
+		delimiter: parsed.delimiter ?? null,
+		delimiters: parsed.delimiters ?? null,
+		filters: parsed.filters,
+	});
 }
 
 /** Deterministic level id for a standalone (metadata-only) source. */

@@ -128,7 +128,10 @@ export function isConstantRef(ref: SourceRef): ref is ConstantRef {
 /**
  * How a merged level's rendered name is produced (spec §3a½).
  *   - 'part'   — the single selected part, verbatim.
- *   - 'prefix' — cumulative prefix (used by the variadic tail's `segment: prefix`).
+ *   - 'prefix' — the original text truncated after the selected part, delimiters
+ *                kept (`GV.OC` from `GV.OC-01`). Used by the variadic tail's
+ *                `segment: prefix` AND by fixed levels, which serialize to the
+ *                `prefix(delimiters,index)` template filter.
  *   - 'joined' — the merged pieces concatenated with the level's `join` text.
  *   - { lookup } — a human label pulled from a sibling column (`GV — Govern`).
  *                  NOT round-trip safe yet (see module note).
@@ -242,6 +245,13 @@ export interface LevelRule {
 	 * note — carried here (not on PartRef) so PartRef stays `{ column, part? }`.
 	 */
 	delimiter?: string;
+	/**
+	 * Delimiter SET — a string of single characters, any one of which separates
+	 * parts. When present (or when `naming === 'prefix'`), the serializer emits
+	 * `part(D,n)` / `prefix(D,n)` instead of the legacy `split(d,n)`. A level
+	 * that carries only `delimiter` is untouched and still emits `split(d,n)`.
+	 */
+	delimiters?: string;
 	/** Text placed between merged pieces (range or multi-column). Defaults to the delimiter. */
 	join?: string;
 	/** Trailing filter chain applied to the rendered name (`fs-safe`, `tagsafe`, `trim`, `lower`). */

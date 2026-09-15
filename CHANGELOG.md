@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: `part` / `prefix` template filters that split on a set of separators (2026-09-15)
+
+- **Ids like `GV.OC-01.01` can now be split into levels across mixed separators.** Two new recipe template filters, `part(D,n)` and `prefix(D,n)`, treat every character in `D` as a separator: `part(.-,2)` on `GV.OC-01.01` yields `01`, `part(.-)` yields the full list, and `prefix(.-,2)` yields `GV.OC-01` (the original text truncated after the selected part, separators kept). Empty pieces are dropped, so `A..B` splits the same as `A.B`. The existing `split(d,n)` filter is unchanged. Source: `FILTERS` in `src/render/template.ts`; render notes `part-no-delimiter`, `part-index-missing`, `prefix-index-missing` in `src/render/types.ts`.
+- **Filter arguments can carry `,` `)` `|` and `\` when escaped with a backslash** (`part(\,;,0)` splits on comma or semicolon). Source: `unescapeFilterArg` in `src/render/template.ts`.
+- **Mapping model.** `LevelRule` gains an optional `delimiters` (separator set). A level carrying `delimiters`, or `naming: 'prefix'`, serializes to `part`/`prefix`; a level carrying only the legacy `delimiter` still emits `split(d,n)` byte for byte, so existing recipes and their digests are untouched. `naming: 'prefix'` is now meaningful on fixed levels, not only the variadic tail. Templates using the new filters parse back into the same `LevelRule` (round-trip covered in `tests/mapping.test.ts`). Source: `src/import/mapping/types.ts`, `src/import/mapping/serialize.ts`.
+- **Recipe schema SchemaVer 1.11.0** (additive). The `$defs/template` description in `spec/recipe.schema.json` documents both filters; the spec URI did not bump. Schema-spec page §4.12 added.
+- Detection of separator sets from source values and the workbench "split into levels" control are not in this entry; they follow separately.
+
 ### Fixed: shape cards that did nothing, and a column left with nowhere to land (2026-09-14)
 
 - **A shape card that cannot be turned on now says why.** Mapping a single id column produced a card set where ticking Folders, Tags, Properties, Links, or One file changed nothing at all and the card stayed Off. Those cards now read "Not available" and carry a short explanation under them: folders and the rest sit on levels above the note, this column has one level, and levels come from values that split on a separator, shown with an example built from the column's own first value.

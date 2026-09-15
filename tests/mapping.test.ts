@@ -615,6 +615,150 @@ describe('round-trip law: mapping → regions → mapping', () => {
 });
 
 // ===========================================================================
+// 3b. Delimiter-set levels — part() / prefix()
+// ===========================================================================
+
+describe('delimiter-set levels (part/prefix)', () => {
+	/** A CSF-shaped leaf level, reused so each case only states what it is about. */
+	const leaf = {
+		level: 'leaf',
+		source: { column: 'element_identifier' },
+		destinations: [{ primitive: 'name' as const }],
+		naming: 'part' as const,
+		missing: 'skip' as const,
+		materialize: false,
+	};
+
+	it('round-trips a multi-delimiter part level', () => {
+		assertRoundTrip({
+			mappings: [
+				{
+					levels: [
+						{ level: 'level-1', source: { column: 'element_identifier', part: 0 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+						{ level: 'level-2', source: { column: 'element_identifier', part: 1 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+						leaf,
+					],
+				},
+			],
+		});
+	});
+
+	it('round-trips a prefix level on a FIXED level (today silently dropped)', () => {
+		assertRoundTrip({
+			mappings: [
+				{
+					levels: [
+						{ level: 'level-1', source: { column: 'element_identifier', part: 0 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'prefix', missing: 'skip', materialize: false },
+						{ level: 'level-2', source: { column: 'element_identifier', part: 1 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'prefix', missing: 'skip', materialize: false },
+						leaf,
+					],
+				},
+			],
+		});
+	});
+
+	it('emits prefix() for the two CSF folder levels', () => {
+		const regions = toRecipeRegions({
+			mappings: [
+				{
+					levels: [
+						{ level: 'level-1', source: { column: 'element_identifier', part: 0 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'prefix', missing: 'skip', materialize: false },
+						{ level: 'level-2', source: { column: 'element_identifier', part: 1 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'prefix', missing: 'skip', materialize: false },
+					],
+				},
+			],
+		});
+		expect(regions.layout.map((e) => e.template)).toEqual([
+			'{element_identifier|prefix(.-,0)}',
+			'{element_identifier|prefix(.-,1)}',
+		]);
+	});
+
+	// A3 — the whole point of gating on `delimiters`: a legacy single-delimiter
+	// level must serialize to the same bytes it did before part()/prefix() existed,
+	// so no existing recipe's hash moves.
+	it('A3 — a single-delimiter part level still emits split(), byte-identical', () => {
+		const regions = toRecipeRegions({
+			mappings: [
+				{
+					levels: [
+						{ level: 'level-1', source: { column: 'id', part: 0 }, delimiter: '.', destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+						{ level: 'level-2', source: { column: 'id', part: [0, 1] }, delimiter: '.', join: '.', destinations: [{ primitive: 'folder' }], naming: 'joined', missing: 'skip', materialize: false },
+						{ level: 'leaf', source: { column: 'id' }, filters: ['fs-safe'], destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+					],
+				},
+			],
+		});
+		expect(regions.layout.map((e) => e.template)).toEqual([
+			'{id|split(.,0)}',
+			'{id|split(.,0)}.{id|split(.,1)}',
+			'{id|fs-safe}.md',
+		]);
+	});
+
+	it('escapes , and ) in the delimiter set and reads them back', () => {
+		const m: ImportMapping = {
+			mappings: [
+				{
+					levels: [
+						{ level: 'level-1', source: { column: 'id', part: 0 }, delimiters: ',)', destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+						{ level: 'leaf', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+					],
+				},
+			],
+		};
+		expect(toRecipeRegions(m).layout[0].template).toBe('{id|part(\\,\\),0)}');
+		expect(fromRegions(toRecipeRegions(m))).toEqual(m);
+	});
+
+	it('merges consecutive part() indices on one column into a range', () => {
+		const regions: RecipeRegions = {
+			layout: [
+				{ level: 'pfx', mechanism: 'folder', template: '{tid|part(.-,0)}.{tid|part(.-,1)}' },
+				{ level: 'leaf', mechanism: 'file', template: '{tid}.md' },
+			],
+		};
+		const level = fromRegions(regions).mappings[0].levels[0];
+		expect(level.source).toEqual({ column: 'tid', part: [0, 1] });
+		expect(level.delimiters).toBe('.-');
+		expect(level.join).toBe('.');
+		// A merged range is `joined`, exactly as the split() form already reads.
+		expect(level.naming).toBe('joined');
+		// …and re-serializes to the template it came from.
+		expect(toRecipeRegions(fromRegions(regions)).layout[0].template).toBe(regions.layout[0].template);
+	});
+
+	it('source signature separates levels that differ only by delimiter set', () => {
+		const shared: RecipeRegions = {
+			layout: [{ level: 'l1', mechanism: 'folder', template: '{id|part(.-,0)}' }],
+			also_emit: { frontmatter: { managed: { family: '{id|part(.-,0)}' } } },
+		};
+		const differing: RecipeRegions = {
+			layout: [{ level: 'l1', mechanism: 'folder', template: '{id|part(.-,0)}' }],
+			also_emit: { frontmatter: { managed: { family: '{id|part(.,0)}' } } },
+		};
+		// Same set → the property regroups onto the structural level.
+		expect(fromRegions(shared).mappings.length).toBe(1);
+		expect(fromRegions(shared).mappings[0].levels[0].destinations).toEqual([
+			{ primitive: 'folder' },
+			{ primitive: 'property', key: 'family' },
+		]);
+		// Different set → a separate standalone mapping, not a silent merge.
+		expect(fromRegions(differing).mappings.length).toBe(2);
+	});
+
+	it('a single-character set parsed from part() stays a set, so it round-trips exactly', () => {
+		const regions: RecipeRegions = {
+			layout: [{ level: 'l1', mechanism: 'folder', template: '{id|part(.,0)}' }],
+		};
+		const back = fromRegions(regions);
+		expect(back.mappings[0].levels[0].delimiters).toBe('.');
+		expect(back.mappings[0].levels[0].delimiter).toBeUndefined();
+		expect(toRecipeRegions(back).layout[0].template).toBe('{id|part(.,0)}');
+	});
+});
+
+// ===========================================================================
 // 4. Lossy-field pinning (known spec gaps)
 // ===========================================================================
 
