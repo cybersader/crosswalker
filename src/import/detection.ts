@@ -593,8 +593,10 @@ function detectPackedHierarchy(column: string, allValues: string[]): Detection |
 		// ordering (CSF `.` then `-`) matches today's recipe exactly.
 		const templates = deriveFixedSplitTemplates(column, sample);
 		const fixed = templates.length > 0 ? templates : uniform.map((u) => `{${column}|split(${u.delimiter},0)}`);
-		// Primary delimiter = the first fixed level's delimiter (first by rep position).
-		const primaryDelim = parseSplitDelimiter(fixed[0]) ?? uniform[0].delimiter;
+		// Primary delimiter = the first fixed level's delimiter (first by rep position);
+		// a set template `prefix(D,0)` contributes the first char of its set.
+		const primaryDelim =
+			parseSplitDelimiter(fixed[0]) ?? firstCharOf(parseSetDelimiters(fixed[0])) ?? uniform[0].delimiter;
 		const primaryStats = stats.find((s) => s.delimiter === primaryDelim) ?? uniform[0];
 		return {
 			kind: 'packed-hierarchy',
@@ -663,11 +665,16 @@ function analyzeDelimiter(values: string[], delimiter: string): DelimiterStats {
 }
 
 /**
- * Mirror of `deriveIdSplitTemplates` (generation-engine.ts) — kept as a private
- * copy so this module stays free of the Obsidian-importing engine. The two are
- * pinned equal by parity assertions in tests/detection.test.ts (the CSF/SCF/AC
- * fixtures assert this output deep-equals `deriveIdSplitTemplates(...)`). Do NOT
- * edit one without the other; the test will catch drift.
+ * Fixed-layout template inference for a packed id column.
+ *
+ * Single qualifying delimiter: a byte-identical mirror of
+ * `deriveIdSplitTemplates` (generation-engine.ts) — `split(d,0)` per level.
+ * Two or more: the spec §3 upgrade — a uniform depth over the delimiter SET
+ * proposes `prefix(D,i)` cumulative-prefix levels (the engine still emits
+ * `split()` per delimiter there, so the old parity assertions hold only for
+ * the single-delimiter case). Kept private so this module stays free of the
+ * Obsidian-importing engine; the single-delimiter output is pinned equal to
+ * `deriveIdSplitTemplates` by parity assertions in tests/detection.test.ts.
  */
 function deriveFixedSplitTemplates(column: string, values: string[]): string[] {
 	const samples = values.map((v) => String(v ?? '').trim()).filter(Boolean).slice(0, 200);
@@ -684,20 +691,74 @@ function deriveFixedSplitTemplates(column: string, values: string[]): string[] {
 	});
 	if (qualifying.length === 0) return [];
 
+	// Order delimiters by their first position in a representative (longest) value,
+	// for display only — the part/prefix filters are order-free over the set.
 	const rep = samples.reduce((a, b) => (b.length > a.length ? b : a), samples[0]);
 	const ordered = qualifying
 		.map((d) => ({ d, pos: rep.indexOf(d) }))
 		.filter((x) => x.pos >= 0)
 		.sort((a, b) => a.pos - b.pos)
 		.map((x) => x.d);
+	if (ordered.length === 0) return [];
+
+	// Two or more qualifying delimiters: propose cumulative-prefix levels over the
+	// SET (spec §3). Depth = piece count when every sample is tokenized on the set
+	// (empty pieces dropped, matching the render filter). Uniform depth → fixed
+	// `prefix(D,i)` levels with the untouched column as the leaf; ragged depth →
+	// fall back to the single-delimiter behaviour until `variadic.delimiters`
+	// exists (spec §8).
+	if (ordered.length >= 2) {
+		const set = ordered.join('');
+		const depths = samples.map((s) => splitOnSet(s, set).length);
+		const counts = new Map<number, number>();
+		for (const d of depths) counts.set(d, (counts.get(d) ?? 0) + 1);
+		let modalDepth = 0;
+		let modalCount = 0;
+		for (const [depth, count] of counts) {
+			if (count > modalCount) {
+				modalDepth = depth;
+				modalCount = count;
+			}
+		}
+		const modalShare = modalCount / samples.length;
+		if (modalShare >= UNIFORM_DEPTH_AGREEMENT) {
+			return Array.from({ length: modalDepth - 1 }, (_, i) => `{${column}|prefix(${set},${i})}`);
+		}
+		return ordered.map((d) => `{${column}|split(${d},0)}`);
+	}
 
 	return ordered.map((d) => `{${column}|split(${d},0)}`);
+}
+
+/** Tokenize on a delimiter set: split on any single char of the set, dropping empty pieces. */
+function splitOnSet(value: string, set: string): string[] {
+	return value.split(new RegExp(`[${escapeCharClass(set)}]`)).filter(Boolean);
+}
+
+/** Escape every character of `set` for use inside a regex character class. */
+function escapeCharClass(set: string): string {
+	return set.replace(/[-\\\]\^]/g, '\\$&');
 }
 
 /** Pull the delimiter `X` out of a `{col|split(X,0)}` template, or null. */
 function parseSplitDelimiter(template: string): string | null {
 	const m = /\|split\((.),0\)\}$/.exec(template);
 	return m ? m[1] : null;
+}
+
+/**
+ * Pull the delimiter set `D` out of a `{col|prefix(D,0)}` (or `part(D,0)`)
+ * template, or null. `D` is a raw string of single-character delimiters; any
+ * one of them separates parts.
+ */
+export function parseSetDelimiters(template: string): string | null {
+	const m = /\|(?:prefix|part)\(([^,()]+),0\)\}$/.exec(template);
+	return m ? m[1] : null;
+}
+
+/** First character of a set string, or undefined when empty. */
+function firstCharOf(set: string | null): string | undefined {
+	return set && set.length > 0 ? set[0] : undefined;
 }
 
 // ============================================================================

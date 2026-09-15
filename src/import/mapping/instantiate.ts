@@ -235,11 +235,12 @@ function instantiateStructural(
 				destinations: everyLevelDests.map((d) =>
 					mapDestination(d, { column: levelColumn, propertyKey: `level-${i + 1}` }),
 				),
-				naming: 'part',
+				naming: parsed.naming ?? 'part',
 				missing: DEFAULT_MISSING,
 				materialize: false,
 			};
 			if (parsed.delimiter !== undefined) rule.delimiter = parsed.delimiter;
+			if (parsed.delimiters !== undefined) rule.delimiters = parsed.delimiters;
 			if (parsed.filters.length > 0) rule.filters = parsed.filters;
 			levels.push(rule);
 		});

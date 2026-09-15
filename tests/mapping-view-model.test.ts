@@ -24,6 +24,7 @@ import {
 	removeDestination,
 	mergeRows,
 	splitRow,
+	splitIntoLevels,
 	isUnmodifiedPreset,
 	structuralEqual,
 	shapeCardHint,
@@ -362,6 +363,253 @@ describe('mergeRows / splitRow', () => {
 		const back = fromRegions(regions);
 		// Round-trips through the recipe layer (the merged row is representable).
 		expect(back.mappings[0].levels.length).toBe(merged.levels.length);
+	});
+});
+
+// ===========================================================================
+// 4b. Split one row into N levels (spec §4.3, acceptance A2/A4/A7/A9)
+// ===========================================================================
+
+/**
+ * One structural row on a packed column: what the "Split into levels" panel
+ * opens on (spec §4.1). It places folders AND names the note, so the leaf of a
+ * split has destinations worth keeping.
+ */
+function packedOneRowMapping(column = 'id'): StructureMapping {
+	return {
+		levels: [{
+			level: 'level-1',
+			source: { column },
+			destinations: [{ primitive: 'folder' }, { primitive: 'name' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		}],
+	};
+}
+
+/**
+ * The A2 panel settings: `GV.OC-01.01` on `.` and `-`, four levels deep. `naming`
+ * covers the NON-LEAF rows only, so it is `depth - 1` long (spec §4.3 step 1).
+ */
+const A2_OPTS = {
+	delimiters: '.-',
+	depth: 4,
+	naming: ['prefix', 'prefix', 'prefix'] as ('part' | 'prefix')[],
+	missing: 'skip' as const,
+};
+
+describe('splitIntoLevels', () => {
+	it('A2: one structural row becomes depth rows, folders on every non-leaf', () => {
+		const m = packedOneRowMapping();
+		const out = splitIntoLevels(m, 0, A2_OPTS);
+
+		expect(out.levels.length).toBe(4);
+		for (let i = 0; i < 3; i++) {
+			expect(out.levels[i].level).toBe(`level-${i + 1}`);
+			expect(out.levels[i].source).toEqual([{ column: 'id', part: i }]);
+			expect(out.levels[i].delimiters).toBe('.-');
+			expect(out.levels[i].naming).toBe('prefix');
+			expect(out.levels[i].missing).toBe('skip');
+			expect(out.levels[i].materialize).toBe(false);
+			expect(out.levels[i].destinations).toEqual([{ primitive: 'folder' }]);
+		}
+		// The leaf is the untouched column and keeps the split row's destinations.
+		expect(out.levels[3].level).toBe('level-4');
+		expect(out.levels[3].source).toEqual([{ column: 'id' }]);
+		expect(out.levels[3].delimiters).toBeUndefined();
+		expect(out.levels[3].naming).toBe('part');
+		expect(out.levels[3].destinations).toEqual([{ primitive: 'folder' }, { primitive: 'name' }]);
+
+		// Pure: the input is never mutated.
+		expect(m.levels.length).toBe(1);
+		expect(m.levels[0].delimiters).toBeUndefined();
+	});
+
+	it('A4: the leaf is the untouched column, so a row short a level keeps its full id', () => {
+		const leaf = splitIntoLevels(packedOneRowMapping(), 0, A2_OPTS).levels[3];
+		// Nothing about the leaf addresses a piece, so `missing: skip` on the folder
+		// levels can drop a level without ever emptying the note name.
+		expect(leaf.source).toEqual([{ column: 'id' }]);
+		expect(leaf.delimiters).toBeUndefined();
+		expect(leaf.missing).toBe('skip');
+	});
+
+	it('re-splitting from a folder row replaces the whole run, so applying twice is idempotent', () => {
+		const first = splitIntoLevels(packedOneRowMapping(), 0, A2_OPTS);
+		const second = splitIntoLevels(first, 1, { ...A2_OPTS, depth: 3, naming: ['prefix', 'prefix'] });
+
+		expect(second.levels.length).toBe(3);
+		expect(second.levels.map((l) => l.level)).toEqual(['level-1', 'level-2', 'level-3']);
+		expect(second.levels.map((l) => l.source)).toEqual([
+			[{ column: 'id', part: 0 }],
+			[{ column: 'id', part: 1 }],
+			[{ column: 'id' }],
+		]);
+		// The run's leaf destinations carry through the second apply unchanged.
+		expect(second.levels[2].destinations).toEqual([{ primitive: 'folder' }, { primitive: 'name' }]);
+	});
+
+	it('re-splitting from the run leaf finds the same run', () => {
+		const first = splitIntoLevels(packedOneRowMapping(), 0, A2_OPTS);
+		const second = splitIntoLevels(first, 3, { ...A2_OPTS, depth: 3, naming: ['prefix', 'prefix'] });
+
+		expect(second.levels.length).toBe(3);
+		expect(second.levels.map((l) => l.source)).toEqual([
+			[{ column: 'id', part: 0 }],
+			[{ column: 'id', part: 1 }],
+			[{ column: 'id' }],
+		]);
+		expect(second.levels[2].destinations).toEqual([{ primitive: 'folder' }, { primitive: 'name' }]);
+	});
+
+	it('rows from other sources before and after the run are untouched', () => {
+		const split = splitIntoLevels(packedOneRowMapping(), 0, A2_OPTS);
+		const leading: StructureMapping['levels'][number] = {
+			level: 'root',
+			source: { constant: 'Frameworks' },
+			destinations: [{ primitive: 'folder' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		};
+		const trailing: StructureMapping['levels'][number] = {
+			level: 'facet',
+			source: { column: 'family' },
+			destinations: [{ primitive: 'tag', namespace: 'family' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		};
+		const mixed: StructureMapping = { levels: [leading, ...split.levels, trailing] };
+
+		// Index 2 is the second piece of the run, so the run (indices 1..4, the three
+		// part rows plus their whole-column leaf) goes.
+		const out = splitIntoLevels(mixed, 2, { ...A2_OPTS, depth: 3, naming: ['prefix', 'prefix'] });
+		expect(out.levels.length).toBe(5);
+		expect(out.levels[0]).toEqual(leading);
+		expect(out.levels[4]).toEqual(trailing);
+		expect(out.levels.slice(1, 4).map((l) => l.source)).toEqual([
+			[{ column: 'id', part: 0 }],
+			[{ column: 'id', part: 1 }],
+			[{ column: 'id' }],
+		]);
+		// New ids never collide with the rows left in place.
+		expect(new Set(out.levels.map((l) => l.level)).size).toBe(5);
+	});
+
+	it('a non-structural split row produces non-leaf rows with no destinations', () => {
+		const m: StructureMapping = {
+			levels: [{
+				level: 'level-1',
+				source: { column: 'id' },
+				destinations: [{ primitive: 'name' }],
+				naming: 'part',
+				missing: 'skip',
+				materialize: false,
+			}],
+		};
+		const out = splitIntoLevels(m, 0, { ...A2_OPTS, depth: 3, naming: ['prefix', 'prefix'] });
+		expect(out.levels.length).toBe(3);
+		expect(out.levels[0].destinations).toEqual([]);
+		expect(out.levels[1].destinations).toEqual([]);
+		expect(out.levels[2].destinations).toEqual([{ primitive: 'name' }]);
+		expect(out.levels[2].source).toEqual([{ column: 'id' }]);
+	});
+
+	it('invalid input returns the same mapping object', () => {
+		const m = packedOneRowMapping();
+		expect(splitIntoLevels(m, -1, A2_OPTS)).toBe(m);
+		expect(splitIntoLevels(m, 99, A2_OPTS)).toBe(m);
+		expect(splitIntoLevels(m, 0, { ...A2_OPTS, depth: 1 })).toBe(m);
+		expect(splitIntoLevels(m, 0, { ...A2_OPTS, delimiters: '' })).toBe(m);
+
+		const constantOnly: StructureMapping = {
+			levels: [{
+				level: 'root',
+				source: { constant: 'Frameworks' },
+				destinations: [{ primitive: 'folder' }],
+				naming: 'part',
+				missing: 'skip',
+				materialize: false,
+			}],
+		};
+		expect(splitIntoLevels(constantOnly, 0, A2_OPTS)).toBe(constantOnly);
+	});
+
+	it('A9: merging two split rows keeps the delimiter set and joins on its first character', () => {
+		const out = splitIntoLevels(packedOneRowMapping(), 0, A2_OPTS);
+		const merged = mergeRows(out, 1);
+
+		expect(merged.levels.length).toBe(3);
+		const row = merged.levels[1];
+		expect(row.naming).toBe('joined');
+		expect(row.delimiters).toBe('.-');
+		expect(row.join).toBe('.');
+		expect(row.source).toEqual({ column: 'id', part: [1, 2] });
+		// No single delimiter was invented for the merged row.
+		expect(row.delimiter).toBeUndefined();
+	});
+
+	it('an existing single-delimiter merge is unchanged by the set fallback', () => {
+		// Legacy shape: `delimiter`, no `delimiters`. The join must still come from
+		// the single delimiter, and no set may appear out of nowhere.
+		const legacy = (level: string, part: number): StructureMapping['levels'][number] => ({
+			level,
+			source: { column: 'id', part },
+			delimiter: '.',
+			destinations: [{ primitive: 'folder' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		});
+		const merged = mergeRows({ levels: [legacy('level-1', 0), legacy('level-2', 1)] }, 0);
+		expect(merged.levels[0].delimiters).toBeUndefined();
+		expect(merged.levels[0].delimiter).toBe('.');
+		expect(merged.levels[0].join).toBe('.');
+	});
+
+	it('A7: split levels survive serialize → parse', () => {
+		// One structural destination per row, which is what the recipe layout can
+		// represent one-to-one (fromRegions builds a LevelRule per layout entry).
+		const m: StructureMapping = {
+			levels: [
+				{
+					level: 'folders',
+					source: { column: 'id' },
+					destinations: [{ primitive: 'folder' }],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				},
+				{
+					level: 'leaf',
+					source: { column: 'id' },
+					destinations: [{ primitive: 'name' }],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				},
+			],
+		};
+		const out = splitIntoLevels(m, 0, { ...A2_OPTS, depth: 3, naming: ['prefix', 'prefix'] });
+		expect(out.levels.length).toBe(4);
+
+		const back = fromRegions(toRecipeRegions({ mappings: [out] })).mappings[0];
+		expect(back.levels.length).toBe(out.levels.length);
+		expect(back.levels.map((l) => l.level)).toEqual(out.levels.map((l) => l.level));
+		expect(back.levels.map((l) => l.delimiters)).toEqual(['.-', '.-', undefined, undefined]);
+		expect(back.levels.map((l) => l.naming)).toEqual(['prefix', 'prefix', 'part', 'part']);
+		expect(back.levels.map((l) => l.destinations)).toEqual(out.levels.map((l) => l.destinations));
+		// The ONE documented normalization: `parseStructuralTemplate` returns a bare
+		// PartRef for a single-interpolation template, so a one-element source array
+		// comes back unwrapped. Nothing else about the level changes.
+		expect(back.levels.map((l) => l.source)).toEqual([
+			{ column: 'id', part: 0 },
+			{ column: 'id', part: 1 },
+			{ column: 'id' },
+			{ column: 'id' },
+		]);
 	});
 });
 

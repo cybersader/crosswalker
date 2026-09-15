@@ -10,7 +10,8 @@
  * Two kinds of operation live here:
  *   - WRITES that a coarse view performs on the model: toggling a shape card
  *     (`toggleDestinationAcrossMapping`), merging/splitting matrix rows
- *     (`mergeRows` / `splitRow`), adding/removing a single destination.
+ *     (`mergeRows` / `splitRow`), exploding one packed row into a level per piece
+ *     (`splitIntoLevels`), adding/removing a single destination.
  *   - READS the views render from the model: the per-mapping shape-card summary
  *     (`deriveShapeCards`, which reports a genuinely mixed row set as `'mixed'`,
  *     never as a wrong binary), and the preset-drift check that flips the preset
@@ -32,6 +33,7 @@ import type {
 	LevelSource,
 	SourceRef,
 	PartRef,
+	MissingPolicy,
 } from './types';
 import { destinationRank, toSourceRefs, isConstantRef, DEFAULT_MISSING } from './types';
 import { normalizeFolderSetting } from '../../settings/folder-settings';
@@ -338,7 +340,15 @@ export function mergeRows(m: StructureMapping, index: number): StructureMapping 
 	};
 	const delimiter = a.delimiter ?? b.delimiter;
 	if (delimiter !== undefined) merged.delimiter = delimiter;
-	const join = a.join ?? a.delimiter ?? b.delimiter;
+	// A delimiter SET survives the merge the same way a single delimiter does, so
+	// re-serializing the merged range still emits `part(D,k)` per piece. When
+	// neither row carried a single delimiter there is nothing to join the pieces
+	// with, so the first character of the set stands in: it is the one separator
+	// we know occurs in the source, and it keeps `GV.OC-01.01` pieces 3+4 reading
+	// as `01.01` rather than `0101`.
+	const delimiters = a.delimiters ?? b.delimiters;
+	if (delimiters !== undefined) merged.delimiters = delimiters;
+	const join = a.join ?? a.delimiter ?? b.delimiter ?? firstDelimiterOf(delimiters);
 	if (join !== undefined) merged.join = join;
 	const filters = a.filters ?? b.filters;
 	if (filters !== undefined) merged.filters = filters;
@@ -376,6 +386,169 @@ export function splitRow(m: StructureMapping, index: number): StructureMapping {
 
 	const levels = [...m.levels.slice(0, index), ...newLevels, ...m.levels.slice(index + 1)];
 	return m.tail ? { levels, tail: m.tail } : { levels };
+}
+
+// ============================================================================
+// Split one row into N levels (the "Split into levels" apply — spec §4.3)
+// ============================================================================
+
+/** What the "Split into levels" panel commits (spec §4.3 input). */
+export interface SplitIntoLevelsOptions {
+	/**
+	 * The delimiter SET: a string of single characters, any one of which
+	 * separates two parts of the packed value (`.-` for `GV.OC-01.01`).
+	 */
+	delimiters: string;
+	/** How many levels the value carries. Two or more; anything less is not a split. */
+	depth: number;
+	/**
+	 * Naming for the NON-LEAF rows, outermost first, so `depth - 1` entries. The
+	 * leaf has no naming choice (it is the untouched column), and any extra entry
+	 * is ignored. A short array falls back to `prefix`, the cumulative name users
+	 * already see on disk.
+	 */
+	naming: ('part' | 'prefix')[];
+	/** Missing-value policy stamped on every produced level. */
+	missing: MissingPolicy;
+}
+
+/**
+ * Replace one matrix row with `depth` rows, one per piece of a packed value
+ * tokenized on a delimiter SET (spec §4.3). This is the apply half of the
+ * "Split into levels" panel; the panel owns the preview, this owns the model.
+ *
+ * Shape, not case (the essence rule): a packed id is a scalar tokenized on a
+ * SET of delimiters with pieces addressed by index, so every NON-LEAF row is
+ * `{ column, part: i }` + `delimiters`, and the serializer turns that into
+ * `part(D,i)` / `prefix(D,i)`. The single-delimiter path is untouched.
+ *
+ * The leaf is the UNTOUCHED column, not the last piece: the leaf IS the id
+ * (spec §4.1), so a ragged row that is short a level still renders its whole id
+ * rather than an empty name. That is also exactly what detection + `instantiate`
+ * emit, so the workbench apply and the detection path agree on the same input.
+ *
+ * Idempotent: re-splitting a row that an earlier split produced replaces the
+ * WHOLE run (the contiguous same-column part rows plus the whole-column leaf
+ * that follows them), never just the one row, so a user who applies depth 4 and
+ * then depth 3 ends with three rows and not seven. Splitting from the leaf row
+ * finds the same run.
+ *
+ * Returns `m` itself (not a copy) when there is nothing to do: an out-of-range
+ * index, a depth below 2, an empty delimiter set, or a row whose source names no
+ * column (a pure constant row has nothing to tokenize).
+ */
+export function splitIntoLevels(
+	m: StructureMapping,
+	levelIndex: number,
+	opts: SplitIntoLevelsOptions,
+): StructureMapping {
+	if (levelIndex < 0 || levelIndex >= m.levels.length) return m;
+	if (!Number.isInteger(opts.depth) || opts.depth < 2) return m;
+	if (!opts.delimiters) return m;
+	const column = firstPartColumn(m.levels[levelIndex].source);
+	if (column === undefined) return m;
+
+	const [start, end] = splitRunBounds(m.levels, levelIndex, column);
+	const run = m.levels.slice(start, end + 1);
+	// The run's LAST row is its leaf: it is the row that carried the note name (or
+	// whatever else the user put there), and those destinations are what the new
+	// leaf inherits. Every other destination in the run was folder scaffolding
+	// this split is rebuilding.
+	const leafDestinations = run[run.length - 1].destinations;
+	// "Structural" here is the folder question only: does this run place folders?
+	// Read across the whole run, because re-splitting from the run's leaf row
+	// (which carries `name`, not `folder`) must not silently drop the folders the
+	// earlier split created.
+	const structural = run.some((rule) => rule.destinations.some((d) => d.primitive === 'folder'));
+	const untouched = [...m.levels.slice(0, start), ...m.levels.slice(end + 1)];
+	const ids = freeLevelIds(opts.depth, new Set(untouched.map((rule) => rule.level)));
+
+	const produced: LevelRule[] = [];
+	for (let i = 0; i < opts.depth - 1; i++) {
+		produced.push({
+			level: ids[i],
+			source: [{ column, part: i }],
+			delimiters: opts.delimiters,
+			destinations: structural ? [{ primitive: 'folder' }] : [],
+			naming: opts.naming[i] ?? 'prefix',
+			missing: opts.missing,
+			materialize: false,
+		});
+	}
+	produced.push({
+		level: ids[opts.depth - 1],
+		source: [{ column }],
+		destinations: sortDestinations(leafDestinations.map((d) => ({ ...d }))),
+		naming: 'part',
+		missing: opts.missing,
+		materialize: false,
+	});
+
+	const levels = [...m.levels.slice(0, start), ...produced, ...m.levels.slice(end + 1)];
+	return m.tail ? { levels, tail: m.tail } : { levels };
+}
+
+/**
+ * The bounds of the contiguous run this split replaces (spec §4.3 step 3): the
+ * maximal contiguous sequence of same-column part rows an earlier split
+ * produced, PLUS the single whole-column row of that same column immediately
+ * after it, which is the run's leaf. Splitting from any row of the run, the leaf
+ * included, finds the whole run; any other row is replaced alone. Rows from
+ * other sources before or after the run are untouched.
+ */
+function splitRunBounds(levels: LevelRule[], index: number, column: string): [number, number] {
+	const isPart = (i: number): boolean => i >= 0 && i < levels.length && isSplitProduct(levels[i], column);
+	const isWhole = (i: number): boolean => i >= 0 && i < levels.length && isWholeColumnRow(levels[i], column);
+
+	let start = index;
+	let end = index;
+	if (isPart(index)) {
+		while (isPart(start - 1)) start--;
+		while (isPart(end + 1)) end++;
+		// The whole-column row after the part rows is this run's leaf.
+		if (isWhole(end + 1)) end++;
+	} else if (isWhole(index)) {
+		// Splitting from the leaf: the part rows in front of it belong to the same
+		// run, so re-splitting from here rebuilds the run rather than appending to it.
+		while (isPart(start - 1)) start--;
+	}
+	return [start, end];
+}
+
+/** True when this row looks like one piece of an earlier delimiter-set split. */
+function isSplitProduct(rule: LevelRule, column: string): boolean {
+	if (rule.delimiters === undefined) return false;
+	const refs = toSourceRefs(rule.source);
+	if (refs.length !== 1) return false;
+	const only = refs[0];
+	return !isConstantRef(only) && only.column === column && typeof only.part === 'number';
+}
+
+/**
+ * True when this row is the untouched column itself (the leaf shape). Carries no
+ * `delimiters` requirement: a leaf minted by detection never had one, and one
+ * left over from an older mapping does not change what the row addresses.
+ */
+function isWholeColumnRow(rule: LevelRule, column: string): boolean {
+	const refs = toSourceRefs(rule.source);
+	if (refs.length !== 1) return false;
+	const only = refs[0];
+	return !isConstantRef(only) && only.column === column && only.part === undefined;
+}
+
+/**
+ * `count` level ids of the form `level-N`, none of which collides with a row the
+ * split leaves in place. `mergeRows` and `splitRow` do not renumber the mapping,
+ * so neither does this; the offset scan is what keeps two rows from sharing an
+ * id (layout entries are level-scoped, so a duplicate id is a real defect).
+ */
+function freeLevelIds(count: number, taken: Set<string>): string[] {
+	// One taken id can block up to `count` consecutive offsets, so the scan runs
+	// until a free window appears; `taken` is finite, so it always does.
+	for (let offset = 0; ; offset++) {
+		const ids = Array.from({ length: count }, (_, i) => `level-${i + 1 + offset}`);
+		if (ids.every((id) => !taken.has(id))) return ids;
+	}
 }
 
 // ============================================================================
@@ -485,6 +658,22 @@ function sortDestinations(destinations: Destination[]): Destination[] {
 // ============================================================================
 // Small helpers
 // ============================================================================
+
+/**
+ * The first real COLUMN a source names, skipping literals. Undefined when the
+ * source is nothing but constants, which is a row with nothing to tokenize.
+ */
+function firstPartColumn(source: LevelSource): string | undefined {
+	for (const ref of toSourceRefs(source)) {
+		if (!isConstantRef(ref)) return ref.column;
+	}
+	return undefined;
+}
+
+/** The delimiter a set stands in with when no single delimiter was recorded. */
+function firstDelimiterOf(delimiters: string | undefined): string | undefined {
+	return delimiters !== undefined && delimiters.length > 0 ? delimiters[0] : undefined;
+}
 
 /** First column (or literal) referenced by a source. */
 function firstColumn(source: LevelSource): string {

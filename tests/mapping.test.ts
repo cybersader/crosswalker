@@ -116,7 +116,7 @@ describe('instantiation — packed hierarchy (real detections)', () => {
 		expect(leaf!.source).toEqual({ column: 'technique_id' });
 	});
 
-	it('uniform CSF → fixed folder levels + a leaf, in order', () => {
+	it('uniform CSF → fixed folder levels + a leaf, in order (spec §3 set naming carried)', () => {
 		const detections = detect(rowsFrom('element_identifier', csf));
 		const mapping = instantiate(BROWSABLE_FRAMEWORK, detections);
 
@@ -125,11 +125,61 @@ describe('instantiation — packed hierarchy (real detections)', () => {
 		expect(levels.length).toBe(3);
 		expect(levels[0].destinations).toEqual([{ primitive: 'folder' }]);
 		expect(levels[0].source).toEqual({ column: 'element_identifier', part: 0 });
-		expect(levels[0].delimiter).toBe('.');
+		// The prefix(D,i) template reads back as a set level: naming 'prefix' and
+		// the whole delimiter set, no legacy single delimiter.
+		expect(levels[0].naming).toBe('prefix');
+		expect(levels[0].delimiters).toBe('.-');
+		expect(levels[0].delimiter).toBeUndefined();
 		expect(levels[1].destinations).toEqual([{ primitive: 'folder' }]);
-		expect(levels[1].delimiter).toBe('-');
+		expect(levels[1].naming).toBe('prefix');
+		expect(levels[1].delimiters).toBe('.-');
 		expect(levels[2].destinations).toEqual([{ primitive: 'name' }]);
 		expect(mapping.mappings[0].tail).toBeUndefined();
+	});
+
+	it('a prefix(.-,0) fixed-folders proposal instantiates with naming prefix + the set', () => {
+		const mapping = instantiate(BROWSABLE_FRAMEWORK, [
+			{
+				kind: 'packed-hierarchy',
+				column: 'element_identifier',
+				delimiter: '.',
+				coverage: 1,
+				depthHistogram: { 2: 6 },
+				classification: 'uniform',
+				sampleValues: ['GV.OC-01'],
+				proposal: {
+					mechanism: 'fixed-folders',
+					templates: ['{element_identifier|prefix(.-,0)}'],
+				},
+			},
+		]);
+		const level = mapping.mappings[0].levels[0];
+		expect(level.naming).toBe('prefix');
+		expect(level.delimiters).toBe('.-');
+		expect(level.delimiter).toBeUndefined();
+		expect(level.source).toEqual({ column: 'element_identifier', part: 0 });
+	});
+
+	it('a split(.,0) proposal still instantiates to a legacy single-delimiter part level', () => {
+		const mapping = instantiate(BROWSABLE_FRAMEWORK, [
+			{
+				kind: 'packed-hierarchy',
+				column: 'scf_id',
+				delimiter: '-',
+				coverage: 1,
+				depthHistogram: { 2: 6 },
+				classification: 'uniform',
+				sampleValues: ['GOV-01'],
+				proposal: {
+					mechanism: 'fixed-folders',
+					templates: ['{scf_id|split(.,0)}'],
+				},
+			},
+		]);
+		const level = mapping.mappings[0].levels[0];
+		expect(level.naming).toBe('part');
+		expect(level.delimiter).toBe('.');
+		expect(level).not.toHaveProperty('delimiters');
 	});
 
 	it('deep-everything puts folder + nested tag on every structural level', () => {
