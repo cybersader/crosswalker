@@ -769,7 +769,7 @@ Zero matches leaves the alias **absent** rather than empty in both modes, so the
 
 ### §4.12 Delimiter-set template filters `part` / `prefix` (added 2026-09-15 — SchemaVer 1.11.0; additive)
 
-`$defs/template` only; no structural key changes (source: `spec/recipe.schema.json` `$comment` history line). Three filter forms join the FILTERS list, all splitting on **any single character** of a delimiter set instead of one fixed delimiter:
+`$defs/template` only; no structural key changes (source: `spec/recipe.schema.json` `$comment` history line). Three filter forms join the FILTERS list (source: `src/render/template.ts` `FILTERS`), all splitting on **any single character** of a delimiter set instead of one fixed delimiter:
 
 | Filter | Result | `GV.OC-01.01` with set `.-` |
 |---|---|---|
@@ -778,6 +778,8 @@ Zero matches leaves the alias **absent** rather than empty in both modes, so the
 | `prefix(delimiters,index)` | the **original** value truncated right after the indexed piece, original delimiters kept | index 2 → `GV.OC-01` |
 
 Why a set: mixed-delimiter identifiers (CSF 2.0 `GV.OC-01.01`, CRI Profile ids) carry a hierarchy in one column with more than one separator, and `split(d,n)` can only see one of them. `prefix` is what a cumulative folder path needs: each level's name is the id truncated at that level, delimiters intact, so `GV`, `GV.OC`, `GV.OC-01` nest without a join rule.
+
+Where they are legal: anywhere a template scalar with `split(X,0)` is legal today, which in practice means the structural templates on folder and naming surfaces (layout `folder`/`file`/`tag`/`heading`/`link` templates and `LevelRule`-derived names). They are `$defs/template` filters, so they are not confined to one mechanism; they are simply not list-projection filters like `join` (source: `src/render/template.ts` `FILTERS` and `src/import/mapping/serialize.ts` `buildName`, which emits them for level names). The delimiter set itself comes from the mapping model's `LevelRule.delimiters` (source: `src/import/mapping/types.ts`; the earlier note in this section cites it).
 
 Lexing follows the SchemaVer 1.7.0 rules: the delimiter set is one filter argument, so a set containing `,` `)` `|` or `\` is written `\,` `\)` `\|` `\\`. The index is taken greedily off the decoded argument, so `part(\,;,0)` is a set of `,` and `;` with index 0.
 

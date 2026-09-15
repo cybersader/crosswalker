@@ -23,6 +23,12 @@ The 0.1 design phase concluded 2026-05-04 and implementation began the same day.
 - **Recipe schema SchemaVer 1.11.0** (additive). The `$defs/template` description in `spec/recipe.schema.json` documents both filters; the spec URI did not bump. Schema-spec page §4.12 added.
 - Detection of separator sets from source values and the workbench "split into levels" control are not in this entry; they follow separately.
 
+### Added: workbench "Split into levels" panel (2026-09-15)
+
+- **One packed id column can now be split into one level per piece, by hand.** A "Split into levels" panel in the shape workbench replaces a row mapped to a packed id (e.g. `GV.OC-01.01`) with one level per piece over a set of delimiters: `.`, `-`, `_`, `/`, `:`, or one custom character. A depth preview shows how many levels each sampled value produces before anything is applied, each level's name is cumulative prefix (`GV`, `GV.OC`) or single part (`GV`, `OC`), and each level carries a missing-value policy. Re-splitting a run replaces that run rather than appending to it. Source: `src/import/workbench.ts` (panel) driving `splitIntoLevels` in `src/import/mapping/view-model.ts`.
+- **Detection proposes the same shape automatically.** When a column's ids mix two or more delimiters (CRI-style `GV.OC-01`), detection proposes cumulative-prefix levels for the set, so the panel opens pre-filled with what detection found. Detail in the detection entry above.
+- **Underlying filters.** The panel emits `part(D,n)` / `prefix(D,n)` templates (SchemaVer 1.11.0); detail in the filters entry above.
+
 ### Fixed: shape cards that did nothing, and a column left with nowhere to land (2026-09-14)
 
 - **A shape card that cannot be turned on now says why.** Mapping a single id column produced a card set where ticking Folders, Tags, Properties, Links, or One file changed nothing at all and the card stayed Off. Those cards now read "Not available" and carry a short explanation under them: folders and the rest sit on levels above the note, this column has one level, and levels come from values that split on a separator, shown with an example built from the column's own first value.

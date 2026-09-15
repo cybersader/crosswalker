@@ -2162,6 +2162,42 @@
 	padding: 1px 6px; cursor: pointer; color: var(--text-muted);
 }
 .crosswalker-wb-gestures button:hover { border-color: var(--interactive-accent); color: var(--text-normal); }
+
+/* Inline delimiter-set editor under one matrix row. */
+.crosswalker-wb-split-panel > td {
+	background: var(--background-secondary);
+	border-left: 3px solid var(--interactive-accent);
+	padding: var(--cw-s3);
+}
+.crosswalker-wb-split-title { display: block; margin-bottom: var(--cw-s2); font-size: var(--cw-fs-body); }
+.crosswalker-wb-split-delimiters,
+.crosswalker-wb-split-actions,
+.crosswalker-wb-split-missing,
+.crosswalker-wb-split-number,
+.crosswalker-wb-split-other {
+	display: flex; align-items: center; gap: var(--cw-s2); flex-wrap: wrap;
+}
+.crosswalker-wb-split-label { min-width: 64px; color: var(--text-muted); font-weight: 600; }
+.crosswalker-wb-split-panel .crosswalker-wb-chip { cursor: pointer; margin: 0; }
+.crosswalker-wb-split-panel .crosswalker-wb-chip.is-on {
+	border-color: var(--interactive-accent); color: var(--text-accent); background: var(--background-primary);
+}
+.crosswalker-wb-split-other input { width: 3em; }
+.crosswalker-wb-split-message { min-height: 1.4em; color: var(--text-warning); margin: var(--cw-s1) 0; }
+.crosswalker-wb-split-depth { display: flex; align-items: flex-start; gap: var(--cw-s2); margin: var(--cw-s2) 0; }
+.crosswalker-wb-split-histogram { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--cw-s1); min-width: 180px; }
+.crosswalker-wb-split-bar-row { display: grid; grid-template-columns: minmax(88px, auto) 1fr; align-items: center; gap: var(--cw-s2); }
+.crosswalker-wb-split-bar-track { height: 7px; overflow: hidden; border-radius: var(--cw-radius-pill); background: var(--background-modifier-border); }
+.crosswalker-wb-split-bar { height: 100%; border-radius: inherit; background: var(--interactive-accent); }
+.crosswalker-wb-split-caption { color: var(--text-muted); line-height: 1.4; }
+.crosswalker-wb-split-levels { width: 100%; border-collapse: collapse; margin: var(--cw-s2) 0; }
+.crosswalker-wb-split-levels th,
+.crosswalker-wb-split-levels td { padding: var(--cw-s1) var(--cw-s2); border-bottom: 1px solid var(--background-modifier-border); text-align: left; }
+.crosswalker-wb-split-missing { justify-content: space-between; margin-top: var(--cw-s2); }
+.crosswalker-wb-split-actions { margin-top: var(--cw-s3); }
+.crosswalker-wb-shape-hint.is-split-hint { display: flex; flex-direction: column; align-items: flex-start; gap: var(--cw-s1); }
+.crosswalker-wb-shape-hint.is-split-hint button { color: var(--text-accent); cursor: pointer; }
+
 .crosswalker-wb-tail-note { font-size: var(--cw-fs-small); color: var(--text-accent); }
 .crosswalker-wb-chip-dest { position: relative; }
 /* The remove-x inside a destination chip — an icon button, quiet until hover. */

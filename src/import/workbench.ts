@@ -25,7 +25,8 @@ import { setIcon } from 'obsidian';
 import type { ParsedData, ColumnInfo } from '../types/config';
 import { isEagerRows } from '../types/config';
 import type { Detection } from './detection';
-import { detectStructure, defaultDestinationForColumn } from './detection';
+import { PACKED_DELIMITERS, detectStructure, defaultDestinationForColumn } from './detection';
+import { splitOnDelimiterSet, parseSetDelimiters } from './detection';
 import type { DebugLog } from '../utils/debug';
 import {
 	render,
@@ -74,6 +75,7 @@ import {
 	removeDestination,
 	mergeRows,
 	splitRow,
+	splitIntoLevels,
 	isUnmodifiedPreset,
 	deriveProvenance,
 	destKey,
@@ -146,7 +148,26 @@ const SHAPE_CARD_COPY: Record<ShapeCardId, { icon: string; afford: string; whisp
 };
 
 const PREVIEW_ROW_LIMIT = 20;
+/** Matches detection.ts's hierarchy analysis ceiling without widening its API. */
+const SPLIT_PANEL_SAMPLE_LIMIT = 500;
 let workbenchInstanceCounter = 0;
+
+interface SplitDepthBar {
+	depth: number;
+	count: number;
+	percent: number;
+}
+
+interface SplitPanelPreview {
+	column: string;
+	delimiters: string;
+	samples: string[];
+	streamed: boolean;
+	histogram: SplitDepthBar[];
+	modalDepth: number;
+	deepestSample: string | null;
+	caption: string | null;
+}
 
 /** Semantic focus target that survives the workbench's full DOM rebuilds. */
 type WorkbenchFocusTarget =
@@ -281,6 +302,12 @@ export class MappingWorkbench {
 	private addMenu: { mi: number; li: number } | null = null;
 	private addMenuPrimitive: DestinationPrimitive | null = null;
 	private addMenuParams: Record<string, string> = {};
+	/**
+	 * The open "Split into levels" panel (spec 2026-09-14 §4): the matrix row
+	 * (mi, li) it is attached to, or null when closed. One panel at a time per
+	 * workbench; re-render closes it unless the same row is still open.
+	 */
+	private splitPanel: { mi: number; li: number } | null = null;
 	private selectedNoteRow = 0;
 	/** Source visibility is transient to this workbench instance, never persisted. */
 	private sourceCollapsed = false;
@@ -644,7 +671,9 @@ export class MappingWorkbench {
 	 * Escape will tear down the whole wizard instead of just that surface.
 	 */
 	closeTransientUi(): boolean {
-		if (this.mappingChooserOpen) {
+		if (this.splitPanel) {
+			this.splitPanel = null;
+		} else if (this.mappingChooserOpen) {
 			this.mappingChooserOpen = false;
 			this.mappingChooserQuery = '';
 			this.pendingFocus = { kind: 'chooser-trigger' };
@@ -1250,6 +1279,7 @@ export class MappingWorkbench {
 			const blocked = this.blockedCard && this.blockedCard.mi === mi && this.blockedCard.primitive === primitive
 				? this.blockedCard.message
 				: null;
+			const splitHint = id === 'folder' ? this.folderSplitHint(mi) : null;
 			const stateLabel = hint
 				? 'Not available'
 				: state === 'on' ? 'On' : state === 'mixed' ? 'Some levels' : 'Off';
@@ -1288,6 +1318,12 @@ export class MappingWorkbench {
 				shape.createDiv({ cls: 'crosswalker-wb-shape-hint', text: hint, attr: { id: noteId } });
 			} else if (blocked) {
 				shape.createDiv({ cls: 'crosswalker-wb-shape-hint is-blocked', text: blocked });
+			}
+			if (splitHint) {
+				const splitLine = shape.createDiv({ cls: 'crosswalker-wb-shape-hint is-split-hint' });
+				splitLine.createSpan({ text: splitHint.text });
+				const splitButton = splitLine.createEl('button', { text: 'Split into levels' });
+				splitButton.addEventListener('click', () => this.openFolderSplitPanel(mi));
 			}
 		}
 	}
@@ -1666,6 +1702,19 @@ export class MappingWorkbench {
 		if (this.isSplittable(rule.source)) {
 			const splitBtn = gestures.createEl('button', { text: 'Split', attr: { title: 'Split this merged level back apart' } });
 			splitBtn.addEventListener('click', () => this.updateMapping(mi, splitRow(m, li)));
+		} else if (this.splitPanelColumn(rule)) {
+			const levelsBtn = gestures.createEl('button', {
+				text: 'Split into levels',
+				attr: { title: 'Split this value into one level per piece' },
+			});
+			levelsBtn.addEventListener('click', () => {
+				if (this.splitPanel?.mi === mi && this.splitPanel.li === li) {
+					this.splitPanel = null;
+					this.scheduleRerender();
+				} else {
+					this.openSplitPanel(mi, li);
+				}
+			});
 		}
 
 		// Sample cell.
@@ -1706,6 +1755,392 @@ export class MappingWorkbench {
 			const next: LevelRule = { ...rule, missing: missSel.value as MissingPolicy };
 			this.updateMapping(mi, this.replaceLevel(m, li, next));
 		});
+
+		if (this.splitPanel?.mi === mi && this.splitPanel.li === li) {
+			this.renderSplitPanel(tbody, m, mi, rule, li);
+		}
+	}
+
+	/** A row that can be split names exactly one real column and is not a joined range. */
+	private splitPanelColumn(rule: LevelRule): string | null {
+		const refs = toSourceRefs(rule.source);
+		if (refs.length !== 1 || isConstantRef(refs[0]) || Array.isArray(refs[0].part)) return null;
+		return refs[0].column;
+	}
+
+	/** Open the one inline panel and make its matrix visible. */
+	private openSplitPanel(mi: number, li: number): void {
+		const mapping = this.mapping.mappings[mi];
+		if (!mapping || !mapping.levels[li] || !this.splitPanelColumn(mapping.levels[li])) return;
+		this.splitPanel = { mi, li };
+		this.expanded.add(mi);
+		this.matrixOpen.add(mi);
+		this.scheduleRerender();
+	}
+
+	/** Values used by the histogram. Streaming sources use their bounded column samples. */
+	private splitPanelSamples(column: string): { values: string[]; streamed: boolean } {
+		const rows = this.opts.parsedData.rows;
+		if (isEagerRows(rows)) {
+			return {
+				values: rows
+					.slice(0, SPLIT_PANEL_SAMPLE_LIMIT)
+					.map((row) => String(row[column] ?? '').trim())
+					.filter(Boolean),
+				streamed: false,
+			};
+		}
+		const info = this.opts.columnInfos.find((candidate) => candidate.name === column);
+		return {
+			values: (info?.sampleValues ?? []).map((value) => String(value ?? '').trim()).filter(Boolean),
+			streamed: true,
+		};
+	}
+
+	/** Preserve first occurrence order while removing duplicate delimiter characters. */
+	private normalizeDelimiterSet(value: string): string {
+		return Array.from(new Set(Array.from(value))).join('');
+	}
+
+	/** Read the delimiter from a legacy single-split proposal without exporting detection internals. */
+	private parseSingleSplitDelimiter(template: string): string | null {
+		const match = /\|split\((.),0\)\}$/.exec(template);
+		return match ? match[1] : null;
+	}
+
+	/** Initial delimiters: edited row, existing run, detection proposal, then observed samples. */
+	private initialSplitDelimiters(
+		m: StructureMapping,
+		rule: LevelRule,
+		column: string,
+		samples: string[],
+	): string {
+		if (rule.delimiters) return this.normalizeDelimiterSet(rule.delimiters);
+		const existing = m.levels.find((candidate) => this.splitPanelColumn(candidate) === column && candidate.delimiters);
+		if (existing?.delimiters) return this.normalizeDelimiterSet(existing.delimiters);
+
+		const detection = this.structuralDetectionForColumn(column);
+		if (detection?.kind === 'packed-hierarchy') {
+			if (detection.proposal.mechanism === 'fixed-folders') {
+				const template = detection.proposal.templates[0];
+				const detected = template
+					? parseSetDelimiters(template) ?? this.parseSingleSplitDelimiter(template)
+					: null;
+				if (detected) return this.normalizeDelimiterSet(detected);
+			}
+			if (detection.delimiter) return detection.delimiter;
+		}
+
+		const observed = PACKED_DELIMITERS.filter((delimiter) => samples.some((value) => value.includes(delimiter))).join('');
+		return observed || PACKED_DELIMITERS[0];
+	}
+
+	/** Pure preview data used by both the panel renderer and focused unit tests. */
+	private splitPanelPreview(mi: number, li: number, requestedDelimiters?: string): SplitPanelPreview | null {
+		const m = this.mapping.mappings[mi];
+		const rule = m?.levels[li];
+		if (!m || !rule) return null;
+		const column = this.splitPanelColumn(rule);
+		if (!column) return null;
+		const sampleState = this.splitPanelSamples(column);
+		const delimiters = this.normalizeDelimiterSet(
+			requestedDelimiters ?? this.initialSplitDelimiters(m, rule, column, sampleState.values),
+		);
+		if (!delimiters) return null;
+
+		const counts = new Map<number, number>();
+		let deepestSample: string | null = null;
+		let deepestDepth = -1;
+		for (const value of sampleState.values) {
+			const depth = splitOnDelimiterSet(value, delimiters).length;
+			counts.set(depth, (counts.get(depth) ?? 0) + 1);
+			if (depth > deepestDepth) {
+				deepestDepth = depth;
+				deepestSample = value;
+			}
+		}
+		const histogram = [...counts.entries()]
+			.filter(([, count]) => count > 0)
+			.sort(([a], [b]) => a - b)
+			.map(([depth, count]) => ({
+				depth,
+				count,
+				percent: Math.round((count / sampleState.values.length) * 100),
+			}));
+		let modalDepth = 0;
+		let modalCount = -1;
+		for (const bar of histogram) {
+			// The deeper level wins an exact tie. A fully ragged 1/2/3/4 sample must
+			// propose four levels so `missing: skip` can preserve every observed piece.
+			if (bar.count > modalCount || (bar.count === modalCount && bar.depth > modalDepth)) {
+				modalDepth = bar.depth;
+				modalCount = bar.count;
+			}
+		}
+		if (modalDepth < 2) {
+			const detection = this.structuralDetectionForColumn(column);
+			const detectedDepth = detection?.kind === 'packed-hierarchy'
+				&& detection.proposal.mechanism === 'fixed-folders'
+				? detection.proposal.templates.length + 1
+				: 0;
+			const existingDepth = m.levels.filter((candidate) => this.splitPanelColumn(candidate) === column).length;
+			modalDepth = Math.max(2, detectedDepth, existingDepth);
+		}
+		return {
+			column,
+			delimiters,
+			samples: sampleState.values,
+			streamed: sampleState.streamed,
+			histogram,
+			modalDepth,
+			deepestSample,
+			caption: sampleState.streamed && sampleState.values.length > 0
+				? `Depth is estimated from ${sampleState.values.length} sample values. Streamed sources are not fully scanned.`
+				: null,
+		};
+	}
+
+	/** Folder-card disclosure for a detected or already configured delimiter split. */
+	private folderSplitHint(mi: number): { text: string; li: number } | null {
+		const m = this.mapping.mappings[mi];
+		if (!m) return null;
+		const firstColumn = m.levels.map((rule) => this.splitPanelColumn(rule)).find((column): column is string => column !== null);
+		if (!firstColumn) return null;
+		const detection = this.structuralDetectionForColumn(firstColumn);
+		const configured = m.levels.some((rule) => this.splitPanelColumn(rule) === firstColumn && Boolean(rule.delimiters));
+		if (detection?.kind !== 'packed-hierarchy' && !configured) return null;
+		const li = m.levels.findIndex((rule) => this.splitPanelColumn(rule) === firstColumn);
+		if (li < 0) return null;
+		const preview = this.splitPanelPreview(mi, li);
+		if (!preview) return null;
+		return {
+			text: `Splits into ${preview.modalDepth} levels on ${Array.from(preview.delimiters).join(' and ')}`,
+			li,
+		};
+	}
+
+	/** Folder-card button path: resolve the current target row, then open its panel. */
+	private openFolderSplitPanel(mi: number): void {
+		const hint = this.folderSplitHint(mi);
+		if (hint) this.openSplitPanel(mi, hint.li);
+	}
+
+	/** The leaf whose destinations splitIntoLevels will preserve for this column run. */
+	private splitLeafRule(m: StructureMapping, column: string, start: number): LevelRule {
+		for (let i = start; i < m.levels.length; i++) {
+			const candidate = m.levels[i];
+			const refs = toSourceRefs(candidate.source);
+			if (refs.length !== 1 || isConstantRef(refs[0]) || refs[0].column !== column) break;
+			if (refs[0].part === undefined) return candidate;
+		}
+		return m.levels[start];
+	}
+
+	/** Apply path kept narrow so tests drive the same write the button uses. */
+	private applySplitPanel(
+		mi: number,
+		li: number,
+		delimiters: string,
+		depth: number,
+		naming: ('part' | 'prefix')[],
+		missing: 'skip' | 'error',
+	): void {
+		const m = this.mapping.mappings[mi];
+		if (!m || !m.levels[li]) return;
+		const normalized = this.normalizeDelimiterSet(delimiters);
+		if (!normalized || !Number.isInteger(depth) || depth < 2) return;
+		this.splitPanel = null;
+		this.updateMapping(mi, splitIntoLevels(m, li, { delimiters: normalized, depth, naming, missing }));
+	}
+
+	/** Render the inline editor immediately after its matrix row. */
+	private renderSplitPanel(
+		tbody: HTMLElement,
+		m: StructureMapping,
+		mi: number,
+		rule: LevelRule,
+		li: number,
+	): void {
+		const initial = this.splitPanelPreview(mi, li);
+		if (!initial) {
+			this.splitPanel = null;
+			return;
+		}
+		const panelRow = tbody.createEl('tr', { cls: 'crosswalker-wb-split-panel' });
+		const cell = panelRow.createEl('td', { attr: { colspan: '5' } });
+		cell.createEl('b', { cls: 'crosswalker-wb-split-title', text: `Split "${initial.column}" into levels` });
+
+		let delimiters = initial.delimiters;
+		let modalDepth = initial.modalDepth;
+		let manualDepth = initial.modalDepth;
+		let missing: 'skip' | 'error' = 'skip';
+		const naming: ('part' | 'prefix')[] = Array.from({ length: 7 }, () => 'prefix');
+		const structural = m.levels.some((candidate) => candidate.destinations.some((destination) => destination.primitive === 'folder'));
+		const leafRule = this.splitLeafRule(m, initial.column, li);
+
+		const delimiterRow = cell.createDiv({ cls: 'crosswalker-wb-split-delimiters' });
+		delimiterRow.createSpan({ cls: 'crosswalker-wb-split-label', text: 'Delimiters' });
+		const chipButtons = new Map<string, HTMLButtonElement>();
+		for (const delimiter of PACKED_DELIMITERS) {
+			const button = delimiterRow.createEl('button', {
+				cls: 'crosswalker-wb-chip' + (delimiters.includes(delimiter) ? ' is-on' : ''),
+				text: delimiter,
+				attr: { type: 'button', 'aria-pressed': delimiters.includes(delimiter) ? 'true' : 'false' },
+			});
+			chipButtons.set(delimiter, button);
+		}
+		const otherLabel = delimiterRow.createEl('label', { cls: 'crosswalker-wb-split-other' });
+		otherLabel.createSpan({ text: 'Other' });
+		const customInitial = Array.from(delimiters).find((delimiter) => !PACKED_DELIMITERS.includes(delimiter as typeof PACKED_DELIMITERS[number])) ?? '';
+		const otherInput = otherLabel.createEl('input', { type: 'text', value: customInitial });
+		otherInput.maxLength = 1;
+		const message = cell.createDiv({ cls: 'crosswalker-wb-split-message', attr: { 'aria-live': 'polite' } });
+		const details = cell.createDiv({ cls: 'crosswalker-wb-split-details' });
+
+		const currentStandardSet = (): string => PACKED_DELIMITERS
+			.filter((delimiter) => chipButtons.get(delimiter)?.classList.contains('is-on'))
+			.join('');
+		const setMessage = (text = ''): void => message.setText(text);
+		const renderDetails = (): void => {
+			const preview = this.splitPanelPreview(mi, li, delimiters);
+			if (!preview) return;
+			if (preview.samples.length > 0) modalDepth = preview.modalDepth;
+			else modalDepth = manualDepth;
+			details.replaceChildren();
+
+			const depthSection = details.createDiv({ cls: 'crosswalker-wb-split-depth' });
+			depthSection.createSpan({ cls: 'crosswalker-wb-split-label', text: 'Depth' });
+			if (preview.samples.length > 0) {
+				const histogram = depthSection.createDiv({ cls: 'crosswalker-wb-split-histogram' });
+				for (const bar of preview.histogram) {
+					const row = histogram.createDiv({ cls: 'crosswalker-wb-split-bar-row' });
+					row.createSpan({ text: `${bar.depth} levels  ${bar.percent}%` });
+					const track = row.createDiv({ cls: 'crosswalker-wb-split-bar-track' });
+					const fill = track.createDiv({ cls: 'crosswalker-wb-split-bar' });
+					fill.style.width = `${bar.percent}%`;
+				}
+				if (preview.caption) depthSection.createDiv({ cls: 'crosswalker-wb-split-caption', text: preview.caption });
+			} else {
+				const numberLabel = depthSection.createEl('label', { cls: 'crosswalker-wb-split-number' });
+				numberLabel.createSpan({ text: 'Number of levels' });
+				const numberInput = numberLabel.createEl('input', {
+					type: 'number',
+					value: String(manualDepth),
+					attr: { min: '2', max: '8' },
+				});
+				numberInput.addEventListener('change', () => {
+					manualDepth = Math.min(8, Math.max(2, Number(numberInput.value) || 2));
+					renderDetails();
+				});
+			}
+
+			details.createDiv({ cls: 'crosswalker-wb-split-label crosswalker-wb-split-levels-label', text: 'Levels' });
+			const levelsTable = details.createEl('table', { cls: 'crosswalker-wb-split-levels' });
+			const head = levelsTable.createEl('thead').createEl('tr');
+			for (const heading of ['#', 'Sample', 'Named as', 'Lands as']) head.createEl('th', { text: heading });
+			const body = levelsTable.createEl('tbody');
+			for (let index = 0; index < modalDepth; index++) {
+				const levelRow = body.createEl('tr');
+				levelRow.createEl('td', { text: String(index + 1) });
+				let sample = 'No sample';
+				if (preview.deepestSample) {
+					if (index === modalDepth - 1) {
+						sample = preview.deepestSample;
+					} else {
+						const sampleRule: LevelRule = {
+							level: 'preview',
+							source: [{ column: preview.column, part: index }],
+							delimiters,
+							naming: naming[index] ?? 'prefix',
+							destinations: [{ primitive: 'folder' }],
+							missing: 'skip',
+							materialize: false,
+						};
+						sample = this.sampleForLevelOnRow(sampleRule, { [preview.column]: preview.deepestSample });
+					}
+				}
+				levelRow.createEl('td', { cls: 'mono', text: sample });
+				const namedCell = levelRow.createEl('td');
+				if (index === modalDepth - 1) {
+					namedCell.createSpan({ text: 'Full value' });
+				} else {
+					const namingSelect = namedCell.createEl('select', { cls: 'dropdown' });
+					namingSelect.createEl('option', { text: 'Cumulative prefix', attr: { value: 'prefix' } });
+					namingSelect.createEl('option', { text: 'The part', attr: { value: 'part' } });
+					namingSelect.value = naming[index] ?? 'prefix';
+					namingSelect.addEventListener('change', () => {
+						naming[index] = namingSelect.value as 'part' | 'prefix';
+						renderDetails();
+					});
+				}
+				const lands = index === modalDepth - 1
+					? structural ? 'Note name' : this.destinationLabels(leafRule.destinations)
+					: structural ? 'Folder' : '(none)';
+				levelRow.createEl('td', { text: lands });
+			}
+
+			const missingLabel = details.createEl('label', { cls: 'crosswalker-wb-split-missing' });
+			missingLabel.createSpan({ text: `Rows shorter than ${modalDepth} levels` });
+			const missingSelect = missingLabel.createEl('select', { cls: 'dropdown' });
+			missingSelect.createEl('option', { text: 'Skip the missing level', attr: { value: 'skip' } });
+			missingSelect.createEl('option', { text: 'Report as an error', attr: { value: 'error' } });
+			missingSelect.value = missing;
+			missingSelect.addEventListener('change', () => { missing = missingSelect.value as 'skip' | 'error'; });
+		};
+
+		for (const [delimiter, button] of chipButtons) {
+			button.addEventListener('click', () => {
+				const on = button.classList.contains('is-on');
+				if (on && delimiters.length === 1) {
+					setMessage('Keep at least one delimiter on.');
+					return;
+				}
+				button.classList.toggle('is-on', !on);
+				button.setAttr('aria-pressed', on ? 'false' : 'true');
+				delimiters = this.normalizeDelimiterSet(currentStandardSet() + otherInput.value);
+				setMessage();
+				renderDetails();
+			});
+		}
+		otherInput.addEventListener('input', () => {
+			const nextOther = Array.from(otherInput.value)[0] ?? '';
+			otherInput.value = nextOther;
+			const next = this.normalizeDelimiterSet(currentStandardSet() + nextOther);
+			if (!next) {
+				otherInput.value = Array.from(delimiters).find((delimiter) => !PACKED_DELIMITERS.includes(delimiter as typeof PACKED_DELIMITERS[number])) ?? '';
+				setMessage('Keep at least one delimiter on.');
+				return;
+			}
+			delimiters = next;
+			setMessage();
+			renderDetails();
+		});
+
+		renderDetails();
+		const actions = cell.createDiv({ cls: 'crosswalker-wb-split-actions' });
+		const apply = actions.createEl('button', { cls: 'mod-cta', text: 'Apply' });
+		apply.addEventListener('click', () => this.applySplitPanel(
+			mi,
+			li,
+			delimiters,
+			modalDepth,
+			naming.slice(0, modalDepth - 1),
+			missing,
+		));
+		const cancel = actions.createEl('button', { text: 'Cancel' });
+		cancel.addEventListener('click', () => {
+			this.splitPanel = null;
+			this.scheduleRerender();
+		});
+	}
+
+	/** Plain destination names for a non-structural leaf preview. */
+	private destinationLabels(destinations: Destination[]): string {
+		if (destinations.length === 0) return '(none)';
+		return destinations.map((destination) => {
+			const label = this.destChipLabel(destination);
+			return label.charAt(0).toUpperCase() + label.slice(1);
+		}).join(', ');
 	}
 
 	private renderTailRow(tbody: HTMLElement, m: StructureMapping, mi: number, tail: TailRule): void {
@@ -2382,7 +2817,11 @@ export class MappingWorkbench {
 
 	private sampleForLevel(rule: LevelRule): string {
 		const sample = this.firstRow();
-		if (!sample) return '-';
+		return sample ? this.sampleForLevelOnRow(rule, sample) : '-';
+	}
+
+	/** Render one matrix sample through the exact serializer + renderer path. */
+	private sampleForLevelOnRow(rule: LevelRule, sample: Record<string, unknown>): string {
 		try {
 			const regions = toRecipeRegions({ mappings: [{ levels: [rule] }] });
 			const recipe: Recipe = { recipe: 'wb-cell', target: regions as Recipe['target'] };

@@ -730,9 +730,19 @@ function deriveFixedSplitTemplates(column: string, values: string[]): string[] {
 	return ordered.map((d) => `{${column}|split(${d},0)}`);
 }
 
+/**
+ * Tokenize a value on a delimiter SET: split on any single character of `set`
+ * and drop empty pieces (identical semantics to the `part` template filter, so
+ * a preview built on this helper matches what generation renders). Exported for
+ * the workbench "Split into levels" panel; `splitOnSet` below delegates here.
+ */
+export function splitOnDelimiterSet(value: string, set: string): string[] {
+	return value.split(new RegExp(`[${escapeCharClass(set)}]`)).filter(Boolean);
+}
+
 /** Tokenize on a delimiter set: split on any single char of the set, dropping empty pieces. */
 function splitOnSet(value: string, set: string): string[] {
-	return value.split(new RegExp(`[${escapeCharClass(set)}]`)).filter(Boolean);
+	return splitOnDelimiterSet(value, set);
 }
 
 /** Escape every character of `set` for use inside a regex character class. */
