@@ -20,6 +20,13 @@ The 0.1 design phase concluded 2026-05-04 and implementation began the same day.
 - **What is kept.** The file, the sheet and header row you chose, and the column decisions you have already made all stay. Decisions naming a column the new reading does not have are dropped where they always were, the same way a resumed draft handles them. Going back by itself still keeps a good reading of the file; only changing one of the settings that decides how the file is read starts it over.
 - **Clearer wording.** The header row help text now reads "0-based row index of the column headers. Raise it to skip banner rows above them."
 
+### Fixed: adding a mapping by hand now keeps the column's levels (2026-09-14)
+
+- **Picking an id column from "Add mapping from a column" no longer flattens it.** Choosing a column whose values split into levels, such as `GV.OC-01` and `GV.OC-01.01`, built a mapping with a single level, the note itself, so the Folder card on that card read "Not available" with nothing to turn on. The mapping now starts with the same levels Crosswalker already detected for that column: the folder levels plus the note. Found on a real CRI Profile v2.2 workbook.
+- **Adding a second such column is still safe.** When another column is already shaping the vault, the hand-added column arrives with the same levels but nothing routed anywhere: the note keeps a frontmatter property, and the levels above it are left for you to turn on. Only one column shapes the vault at a time, which is unchanged.
+- **The chooser says so before you click.** A column that splits into levels now shows "Splits into levels on" with its separator, and a column that is the deepest of a set of level columns shows how many columns that set has.
+- **Columns with no levels are unchanged.** A plain column still arrives as one level, the note name when nothing else is placing notes yet and a frontmatter property otherwise.
+
 ### Release workflow hardening (2026-09-14)
 
 `.github/workflows/release.yml` no longer decides anything inline. Every publication decision moved into `scripts/release-preflight.mjs`, a dependency-free Node script covered by `tests/release-preflight.test.ts` (12 cases), because none of the old YAML logic could be exercised without pushing to `main`.

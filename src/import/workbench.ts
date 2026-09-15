@@ -1134,6 +1134,14 @@ export class MappingWorkbench {
 				metadata.createSpan({ text: `Type: ${info.detectedType}` });
 				metadata.createSpan({ text: `${info.uniqueCount.toLocaleString()} unique` });
 				metadata.createSpan({ text: info.hasEmptyValues ? 'Contains empty values' : 'No empty values' });
+				// Tell the user, before they click, that this column brings its own
+				// levels (folders) rather than a single flat value.
+				const structural = this.structuralDetectionForColumn(info.name);
+				if (structural?.kind === 'packed-hierarchy') {
+					metadata.createSpan({ text: `Splits into levels on "${structural.delimiter}"` });
+				} else if (structural?.kind === 'level-column-chain') {
+					metadata.createSpan({ text: `Chain of ${structural.columns.length} columns` });
+				}
 				const sampleValues = info.sampleValues
 					.filter((value) => value !== null && value !== undefined && String(value).length > 0)
 					.map((value) => String(value));
@@ -2039,6 +2047,27 @@ export class MappingWorkbench {
 	}
 
 	/**
+	 * The column's OWN structural detection (packed hierarchy or the last link of
+	 * a level-column chain), or undefined when it has none.
+	 *
+	 * Searches every detection, including dismissed ones: picking a column out of
+	 * the chooser by hand is an explicit "use this column" statement that outranks
+	 * an earlier dismiss of the evidence card.
+	 *
+	 * A chain only matches on its LAST column, because that column is the one that
+	 * names the leaf note (`instantiate.ts`'s `lastColumn`). Matching a middle
+	 * column would silently drag every other column of the chain into a mapping the
+	 * user only asked one column for.
+	 */
+	private structuralDetectionForColumn(column: string): Detection | undefined {
+		return this.detections.find((d) => {
+			if (d.kind === 'packed-hierarchy') return d.column === column;
+			if (d.kind === 'level-column-chain') return d.columns[d.columns.length - 1] === column;
+			return false;
+		});
+	}
+
+	/**
 	 * Add a mapping by hand from the "Add mapping from a column" chooser
 	 * (B6). A recipe supports exactly one structural mapping (folder/name/
 	 * heading) — `serialize.ts`'s `assertSingleStructural` throws the moment a
@@ -2047,23 +2076,61 @@ export class MappingWorkbench {
 	 * NO structural mapping exists yet; otherwise the natural "route this
 	 * column" action is a frontmatter property, same as the demoted "all
 	 * columns" table's own default.
+	 *
+	 * D (2026-09-14): that single-structural rationale is intact, but the seed was
+	 * ALWAYS one leaf-only level, which threw away what detection already knows
+	 * about the column. Hand-picking a packed id column (`GV.OC-01.01`) produced a
+	 * one-row mapping whose every row is the leaf, so the Folders card had zero
+	 * eligible rows and rendered dead ("Not available", see `view-model.ts`'s
+	 * `eligibleRows`/`shapeCardHint`). When the column carries its own structural
+	 * detection the seed now comes from `instantiate()` instead, so the hand-added
+	 * card holds the same levels detection would have produced:
+	 *   - no structural mapping yet → the full instantiated card (folder levels +
+	 *     a `name` leaf), exactly as if detection had elected it. Any `enrichment`
+	 *     that `instantiate()` returns is discarded; `mapping.enrichment` belongs
+	 *     to the session, not to one hand-added column.
+	 *   - a structural mapping already exists → the SAME levels, stripped of every
+	 *     destination (non-leaf levels get none, the leaf gets a frontmatter
+	 *     property), so the single-structural guard still holds and the user can
+	 *     tick the levels they want on afterwards. A ragged detection's variadic
+	 *     tail is dropped in this branch: `toRecipeRegions` emits a tail as a
+	 *     variadic folder layout entry regardless of its destinations, which is a
+	 *     second structural region by another name.
+	 * A column with no structural detection keeps the original leaf-only seed.
 	 */
 	private addManualMapping(column: string): void {
 		const structuralExists = this.hasStructuralMapping();
-		const next: StructureMapping = {
-			levels: [
-				{
-					level: column,
-					source: { column },
-					destinations: [
-						structuralExists ? { primitive: 'property', key: this.keyOf(column) } : { primitive: 'name' },
-					],
-					naming: 'part',
-					missing: 'skip',
-					materialize: false,
-				},
-			],
-		};
+		const detection = this.structuralDetectionForColumn(column);
+		const seeded = detection ? instantiate(this.currentPreset(), [detection]).mappings[0] : undefined;
+		let next: StructureMapping;
+		if (seeded && !structuralExists) {
+			next = seeded;
+		} else if (seeded) {
+			const lastIndex = seeded.levels.length - 1;
+			next = {
+				levels: seeded.levels.map((level, i) => ({
+					...level,
+					destinations: i === lastIndex
+						? [{ primitive: 'property', key: this.keyOf(column) } as Destination]
+						: [],
+				})),
+			};
+		} else {
+			next = {
+				levels: [
+					{
+						level: column,
+						source: { column },
+						destinations: [
+							structuralExists ? { primitive: 'property', key: this.keyOf(column) } : { primitive: 'name' },
+						],
+						naming: 'part',
+						missing: 'skip',
+						materialize: false,
+					},
+				],
+			};
+		}
 		this.mapping = { ...this.mapping, mappings: [...this.mapping.mappings, next] };
 		this.manualMappings.push(next);
 		this.expanded.add(this.mapping.mappings.length - 1);
