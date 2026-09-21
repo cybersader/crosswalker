@@ -954,7 +954,13 @@ export class ImportFlow {
 					.addDropdown((dd) => {
 						for (const name of this.availableSheets) dd.addOption(name, name);
 						dd.setValue(this.selectedSheet ?? this.availableSheets[0]);
-						dd.onChange((v) => { this.selectSheet(v); });
+						dd.onChange((v) => {
+							const wasOverridden = this.sheetSuggestion?.overridden ?? null;
+							this.selectSheet(v);
+							// Same rule as the header-row control: re-render only when the
+							// suggestion line's wording has to change.
+							if (this.sheetSuggestion && this.sheetSuggestion.overridden !== wasOverridden) this.renderStep();
+						});
 					});
 				new Setting(container)
 					.setName('Header row')
@@ -963,7 +969,14 @@ export class ImportFlow {
 						t.setValue(String(this.xlsxHeaderRow));
 						t.inputEl.type = 'number';
 						t.inputEl.min = '0';
-						t.onChange((v) => { this.setHeaderRow(v); });
+						t.onChange((v) => {
+							const wasOverridden = this.sheetSuggestion?.overridden ?? null;
+							this.setHeaderRow(v);
+							// The suggestion line under this control changes wording when the
+							// override state flips. Re-render only on that flip so typing a
+							// digit does not rebuild Step 1 and steal focus from the input.
+							if (this.sheetSuggestion && this.sheetSuggestion.overridden !== wasOverridden) this.renderStep();
+						});
 					});
 				if (this.sheetSuggestion) {
 					const suggestion = this.sheetSuggestion;
