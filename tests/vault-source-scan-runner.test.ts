@@ -228,6 +228,31 @@ describe('vault source scan runner', () => {
 		expect(report.foreignSets).toEqual([{ setId: 'external-set', root: 'External/Set', noteCount: 3 }]);
 	});
 
+	it('carries the recognized workbook header row into a scan-created draft', () => {
+		const registryEntry = entry('cri-profile-v2-2-flat');
+		const row: ScanRow = {
+			path: 'Sources/synthetic.xlsx',
+			name: 'synthetic.xlsx',
+			candidate: {
+				path: 'Sources/synthetic.xlsx',
+				entryId: registryEntry.id,
+				label: registryEntry.label,
+				table: 'Profile',
+				headerRow: 2,
+				score: 100,
+				confident: true,
+			},
+			state: { kind: 'not-imported' },
+			digest: 'sha256-synthetic',
+			note: null,
+		};
+
+		const draft = draftFromScanRow(row, registryEntry, { defaultOutputPath: 'Ontologies' });
+
+		expect(draft.selectedSheet).toBe('Profile');
+		expect(draft.xlsxHeaderRow).toBe(2);
+	});
+
 	it('builds the neutral snapshot key set the wizard hydrates without a preset or workbench mapping', () => {
 		const registryEntry = entry('nist-csf-2-cprt');
 		const row: ScanRow = {
@@ -251,7 +276,7 @@ describe('vault source scan runner', () => {
 			'appliedConfigId', 'columnConfigsDict', 'columnInfos', 'config', 'createdAt',
 			'curatedDestination', 'destinationEdited', 'frameworkId', 'id', 'name',
 			'outputPath', 'overwriteMode', 'recognizedFastPath', 'schemaVersion',
-			'selectedSheet', 'sourceFile', 'sourceType', 'updatedAt', 'currentStep',
+			'selectedSheet', 'sourceFile', 'sourceType', 'updatedAt', 'currentStep', 'xlsxHeaderRow',
 		].sort());
 		expect(draft).not.toHaveProperty('presetRecipeId');
 		expect(draft).not.toHaveProperty('workbenchMapping');

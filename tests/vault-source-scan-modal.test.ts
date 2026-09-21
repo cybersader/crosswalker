@@ -33,6 +33,7 @@ interface PrivateModal {
 	scanTask: Promise<void> | null;
 	importSelected(): Promise<void>;
 	createDrafts(): Promise<void>;
+	openInWizard(row: ScanRow): Promise<void>;
 }
 
 function priv(modal: VaultSourceScanModal): PrivateModal {
@@ -134,9 +135,11 @@ function makeModal(scanReport: ScanReport) {
 			revealLeaf: jest.fn(),
 		},
 	} as any;
+	const startImportWithFile = jest.fn();
 	const plugin = {
 		settings: { defaultOutputPath: 'Ontologies' },
 		draftStore: { save },
+		activateWorkspaceView: jest.fn(async () => ({ view: { startImportWithFile } })),
 	} as any;
 	mockedScan.mockResolvedValue(scanReport);
 	const modal = new VaultSourceScanModal(app, plugin);
@@ -145,7 +148,7 @@ function makeModal(scanReport: ScanReport) {
 	(modal as unknown as { contentEl: HTMLElement }).contentEl = content;
 	(modal as unknown as { modalEl: HTMLElement }).modalEl = modalEl;
 	modal.onOpen();
-	return { modal, content, save };
+	return { modal, content, save, startImportWithFile };
 }
 
 beforeAll(installDomHelpers);
@@ -228,6 +231,19 @@ describe('vault source scan modal', () => {
 			expect(draft).not.toHaveProperty('workbenchMapping');
 			expect(draft).not.toHaveProperty('workbenchRecipe');
 		}
+	});
+
+	it('passes the recognized workbook binding when opening a row in the wizard', async () => {
+		const workbookRow = row('b.xlsx', 'cri-profile-v2-2-flat');
+		const { modal, startImportWithFile } = makeModal(report([workbookRow]));
+		await priv(modal).scanTask;
+
+		await priv(modal).openInWizard(workbookRow);
+
+		expect(startImportWithFile).toHaveBeenCalledWith(
+			expect.objectContaining({ path: 'b.xlsx' }),
+			{ sheet: 'Profile', headerRow: 1, iterator: null },
+		);
 	});
 
 	it('renders required copy in sentence case without em dashes', async () => {

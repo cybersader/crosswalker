@@ -1,6 +1,6 @@
 import { Modal, Notice, TFile, TFolder, normalizePath, type App } from 'obsidian';
 import type CrosswalkerPlugin from '../main';
-import { ImportWizardModal } from './import-wizard';
+import { ImportWizardModal, type PrefillBinding } from './import-wizard';
 import { RECIPE_REGISTRY, type RecipeRegistryEntry } from './recipe-registry';
 import { runRecognizedImport } from './run-recognized-import';
 import {
@@ -18,7 +18,7 @@ interface RowControls {
 }
 
 interface WorkspaceLeafLike {
-	view?: { startImportWithFile?: (file: TFile) => void };
+	view?: { startImportWithFile?: (file: TFile, prefillBinding?: PrefillBinding) => void };
 }
 
 interface WorkspaceActivator {
@@ -249,20 +249,26 @@ export class VaultSourceScanModal extends Modal {
 			return;
 		}
 		this.close();
+		const isJson = row.name.toLowerCase().endsWith('.json');
+		const binding: PrefillBinding = {
+			sheet: row.candidate.table || null,
+			headerRow: row.candidate.headerRow,
+			iterator: isJson ? row.candidate.table || null : null,
+		};
 		const activate = (this.plugin as unknown as WorkspaceActivator).activateWorkspaceView;
 		if (typeof activate === 'function') {
 			try {
 				const leaf = await activate.call(this.plugin);
 				const start = leaf.view?.startImportWithFile;
 				if (typeof start === 'function') {
-					start.call(leaf.view, file);
+					start.call(leaf.view, file, binding);
 					return;
 				}
 			} catch {
 				// The modal fallback below remains a complete import entry point.
 			}
 		}
-		new ImportWizardModal(this.app, this.plugin, { prefillFile: file }).open();
+		new ImportWizardModal(this.app, this.plugin, { prefillFile: file, prefillBinding: binding }).open();
 	}
 
 	private renderForeignSets(report: ScanReport): void {

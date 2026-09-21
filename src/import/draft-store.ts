@@ -43,6 +43,11 @@ export interface WizardDraft {
 	sourceFile: { name: string; vaultPath: string | null } | null;
 	sourceType: 'csv' | 'xlsx' | 'json' | null;
 	selectedSheet: string | null;
+	/**
+	 * 0-based header row for workbook sources. Absent on drafts written before
+	 * 2026-09-21 hydrates as 0, which is the behavior those drafts had.
+	 */
+	xlsxHeaderRow?: number;
 
 	// Column analysis (expensive to recompute; persisted)
 	columnInfos: ColumnInfo[];

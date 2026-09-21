@@ -1495,6 +1495,16 @@
 .crosswalker-file-card-how {
 	margin: 8px 0 0;
 }
+.crosswalker-sheet-suggestion {
+	margin: -4px 0 12px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+.crosswalker-sheet-suggestion button {
+	margin-left: 4px;
+	padding: 2px 6px;
+	font-size: inherit;
+}
 .crosswalker-json-pick {
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 8px;

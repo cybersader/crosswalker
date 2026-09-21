@@ -93,6 +93,7 @@ export function draftFromScanRow(
 		sourceFile: { name: row.name, vaultPath: row.path },
 		sourceType: sourceTypeFor(row.path),
 		selectedSheet: sourceTypeFor(row.path) === 'xlsx' ? row.candidate.table : null,
+		xlsxHeaderRow: sourceTypeFor(row.path) === 'xlsx' ? row.candidate.headerRow : 0,
 		columnInfos: [],
 		columnConfigsDict: {},
 		config: {},

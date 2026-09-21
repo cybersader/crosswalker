@@ -17,7 +17,7 @@
 import { App, ItemView, WorkspaceLeaf, TAbstractFile, TFile, TFolder, setIcon, parseYaml } from 'obsidian';
 import CrosswalkerPlugin from '../main';
 import { outputRootFile } from '../settings/folder-settings';
-import { ImportFlow, type ImportFlowHost } from '../import/import-wizard';
+import { ImportFlow, type ImportFlowHost, type PrefillBinding } from '../import/import-wizard';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { renderPresetGuide } from '../import/import-preset-guide';
 import { VaultSourceScanModal } from '../import/vault-source-scan-modal';
@@ -288,7 +288,7 @@ export class CrosswalkerWorkspaceView extends ItemView {
 	 * `prefillFile` (the file-explorer context-menu entry point) seeds the flow
 	 * with a vault file already selected, skipping straight to Step 2.
 	 */
-	private startFlow(opts?: { presetRecipeId?: string; prefillFile?: TFile }): void {
+	private startFlow(opts?: { presetRecipeId?: string; prefillFile?: TFile; prefillBinding?: PrefillBinding }): void {
 		// Invalidate any still-pending home-screen installed-list render (its
 		// `root` is about to be repurposed for the flow below) — see the
 		// `renderToken` guard in `renderInstalledOntologies`.
@@ -314,6 +314,7 @@ export class CrosswalkerWorkspaceView extends ItemView {
 		const flow = new ImportFlow(this.app, this.plugin, host);
 		if (opts?.presetRecipeId) flow.presetRecipeId = opts.presetRecipeId;
 		if (opts?.prefillFile) flow.pendingPrefill = opts.prefillFile;
+		if (opts?.prefillBinding) flow.pendingPrefillBinding = opts.prefillBinding;
 		this.activeFlow = flow;
 		flow.onOpen();
 	}
@@ -324,7 +325,7 @@ export class CrosswalkerWorkspaceView extends ItemView {
 	 * already selected. `main.ts` prefers this over the modal whenever the
 	 * workspace view leaf is available.
 	 */
-	startImportWithFile(file: TFile): void {
-		this.startFlow({ prefillFile: file });
+	startImportWithFile(file: TFile, prefillBinding?: PrefillBinding): void {
+		this.startFlow({ prefillFile: file, prefillBinding });
 	}
 }

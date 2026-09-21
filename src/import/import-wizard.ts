@@ -2,7 +2,7 @@ import { App, Modal, Scope, Setting, Notice, normalizePath, setIcon, TFile, TFol
 import CrosswalkerPlugin from '../main';
 import { ParsedData, ImportRecipe, ColumnInfo, SavedConfig, HierarchyMapping, isEagerRows } from '../types/config';
 import { parseCSVFile, analyzeColumns, shouldUseStreaming, ParseProgress } from './parsers/csv-parser';
-import { parseXLSXFile, listXLSXSheets } from './parsers/xlsx-parser';
+import { parseXLSXFile, listXLSXSheets, peekXLSXBytes } from './parsers/xlsx-parser';
 import { parseJSONFile, suggestIterators, JsonStructure } from './parsers/json-parser';
 import {
 	render,
@@ -52,6 +52,7 @@ import {
 	type RecipeRegistryEntry,
 } from './recipe-registry';
 import { discoverImportSets, newSetSchemeFrom, settleVaultIndex, type DiscoveredImportSet, type ImportSetOption } from '../generation/import-set';
+import { suggestWorkbookBinding, type WorkbookSuggestion } from './workbook-suggestion';
 
 /**
  * Curated per-import root for a recognized recipe (spec §7m), or `null` when the
@@ -145,6 +146,12 @@ export function honestEnrichment(entry: RecipeRegistryEntry): Enrichment | undef
  * host resets the view back to its launchpad (spec §7n — the flow moves
  * into the workspace tab; the modal remains a thin back-compat wrapper).
  */
+export interface PrefillBinding {
+	sheet: string | null;
+	headerRow: number;
+	iterator: string | null;
+}
+
 export interface ImportFlowHost {
 	/** The element the flow renders into. Read once at construction; the
 	 *  flow owns clearing/rebuilding its own children on every re-render. */
@@ -196,6 +203,7 @@ export class ImportFlow {
 	 *  point, "Import into vault with Crosswalker"). Consumed once in `onOpen`:
 	 *  re-parsed automatically and the flow jumps straight to Step 2. */
 	pendingPrefill: TFile | null = null;
+	pendingPrefillBinding: PrefillBinding | null = null;
 
 	// Wizard state
 	sourceFile: File | null = null;
@@ -203,6 +211,7 @@ export class ImportFlow {
 	selectedSheet: string | null = null;
 	availableSheets: string[] = [];
 	xlsxHeaderRow: number = 0;
+	sheetSuggestion: (WorkbookSuggestion & { overridden: boolean }) | null = null;
 	jsonIterator: string = '';
 	jsonWhere: string = '';
 	/** Detected structure of a selected JSON file (drives the record picker). */
@@ -374,19 +383,28 @@ export class ImportFlow {
 		// Step 1 can render them as an always-visible section. No stacked
 		// modal — drafts surface inline, with an empty state when none exist.
 		void this.loadAvailableDrafts().then(async () => {
-			// File-explorer context menu entry point ("Import into vault with
-			// Crosswalker"): a file was already picked, so skip Step 1 entirely —
-			// re-parse it from the vault and land straight on Step 2.
-			if (this.pendingPrefill) {
-				const file = this.pendingPrefill;
-				this.pendingPrefill = null;
-				const name = file.name.toLowerCase();
-				this.sourceType = name.endsWith('.csv') ? 'csv' : name.endsWith('.json') ? 'json' : 'xlsx';
-				const ok = await this.reparseFromVault(file.path, file.name);
-				if (ok) this.currentStep = 2;
-			}
+			await this.consumePendingPrefill();
 			this.renderStep();
 		});
+	}
+
+	private async consumePendingPrefill(): Promise<void> {
+		if (!this.pendingPrefill) return;
+		const file = this.pendingPrefill;
+		const binding = this.pendingPrefillBinding;
+		this.pendingPrefill = null;
+		this.pendingPrefillBinding = null;
+		const name = file.name.toLowerCase();
+		this.sourceType = name.endsWith('.csv') ? 'csv' : name.endsWith('.json') ? 'json' : 'xlsx';
+		if (binding) {
+			this.selectedSheet = binding.sheet ?? this.selectedSheet;
+			this.xlsxHeaderRow = binding.headerRow;
+			this.jsonIterator = binding.iterator ?? '';
+		}
+		const ok = await this.reparseFromVault(file.path, file.name);
+		// The file-explorer context menu keeps its established Step-2 shortcut.
+		// A scan binding is an offer that must remain visible and editable in Step 1.
+		if (ok && binding === null) this.currentStep = 2;
 	}
 
 	private async loadAvailableDrafts(): Promise<void> {
@@ -433,6 +451,8 @@ export class ImportFlow {
 		this.parsedData = null;
 		this.sourceType = draft.sourceType;
 		this.selectedSheet = draft.selectedSheet;
+		this.xlsxHeaderRow = draft.xlsxHeaderRow ?? 0;
+		this.sheetSuggestion = null;
 		this.columnInfos = draft.columnInfos ?? [];
 		this.columnConfigs = dictToColumnConfigs(draft.columnConfigsDict ?? {});
 		this.config = draft.config ?? {};
@@ -513,6 +533,29 @@ export class ImportFlow {
 		});
 	}
 
+	private applySheetSuggestion(suggestion: WorkbookSuggestion): void {
+		this.selectedSheet = suggestion.sheetName;
+		this.xlsxHeaderRow = suggestion.headerRow;
+		this.sheetSuggestion = { ...suggestion, overridden: false };
+	}
+
+	private updateSheetSuggestionOverride(): void {
+		if (!this.sheetSuggestion) return;
+		this.sheetSuggestion.overridden = this.selectedSheet !== this.sheetSuggestion.sheetName
+			|| this.xlsxHeaderRow !== this.sheetSuggestion.headerRow;
+	}
+
+	private chooseWorkbookDefaults(bytes: Uint8Array, fileName: string): void {
+		const suggestion = suggestWorkbookBinding(peekXLSXBytes(bytes), fileName, RECIPE_REGISTRY);
+		if (suggestion) {
+			this.applySheetSuggestion(suggestion);
+			return;
+		}
+		this.selectedSheet = this.availableSheets[0] ?? null;
+		this.xlsxHeaderRow = 0;
+		this.sheetSuggestion = null;
+	}
+
 	/**
 	 * Re-read a source file from the vault and run it back through the normal
 	 * parse path (spec §7i). Reconstructs a `File` from the vault content so the
@@ -527,6 +570,18 @@ export class ImportFlow {
 			if (this.sourceType === 'xlsx') {
 				const buf = await this.app.vault.readBinary(tfile);
 				file = new File([buf], name);
+				this.availableSheets = await listXLSXSheets(file);
+				if (this.selectedSheet === null) {
+					try {
+						this.chooseWorkbookDefaults(new Uint8Array(buf), name);
+					} catch (error) {
+						this.selectedSheet = this.availableSheets[0] ?? null;
+						this.xlsxHeaderRow = 0;
+						this.sheetSuggestion = null;
+						const cause = error instanceof Error ? error.message : String(error);
+						new Notice(`Could not read the workbook to suggest a sheet: ${cause}. Pick the sheet and header row by hand.`);
+					}
+				}
 			} else {
 				const text = await this.app.vault.read(tfile);
 				file = new File([text], name);
@@ -656,12 +711,7 @@ export class ImportFlow {
 	// Step 1: Select Source File
 	// =========================================================================
 
-	/**
-	 * Select an in-vault file as the import source (the vault picker path —
-	 * same journey as the file-menu prefill: reset, re-parse from the vault,
-	 * land on step 2).
-	 */
-	private async selectVaultFile(file: TFile): Promise<void> {
+	private resetForNewSource(): void {
 		this.appliedConfig = null;
 		this.configMatches = [];
 		this.configWarnings = [];
@@ -674,9 +724,22 @@ export class ImportFlow {
 		this.parsedData = null;
 		this.availableSheets = [];
 		this.selectedSheet = null;
+		this.xlsxHeaderRow = 0;
+		this.sheetSuggestion = null;
 		this.columnConfigs = new Map();
 		this.suggestedColumns = new Set();
 		this.smartDefaultsApplied = false;
+		this.jsonStructure = null;
+		this.jsonIterator = '';
+	}
+
+	/**
+	 * Select an in-vault file as the import source (the vault picker path —
+	 * same journey as the file-menu prefill: reset, re-parse from the vault,
+	 * land on step 2).
+	 */
+	private async selectVaultFile(file: TFile): Promise<void> {
+		this.resetForNewSource();
 		const name = file.name.toLowerCase();
 		this.sourceType = name.endsWith('.csv') ? 'csv' : name.endsWith('.json') ? 'json' : 'xlsx';
 		const ok = await this.reparseFromVault(file.path, file.name);
@@ -697,7 +760,7 @@ export class ImportFlow {
 	 * from a real CRI Profile v2.2 import.
 	 *
 	 * What is NOT cleared, deliberately: `sourceFile`, `availableSheets`,
-	 * `selectedSheet`, `xlsxHeaderRow`, `jsonIterator` (the inputs themselves),
+	 * `selectedSheet`, `xlsxHeaderRow`, `sheetSuggestion`, `jsonIterator` (the inputs themselves),
 	 * `presetRecipeId`, `appliedConfig`, and the user's `columnConfigs`. Configs
 	 * that name a column the new parse does not have are already dropped by both
 	 * consumers: Step 2 seeds and renders one row per `columnInfos` entry, and
@@ -732,16 +795,24 @@ export class ImportFlow {
 
 	/** Step-1 sheet choice. Assignment plus invalidation, never one without the other. */
 	selectSheet(sheet: string): void {
-		if (sheet === this.selectedSheet) return;
+		if (sheet === this.selectedSheet) {
+			this.updateSheetSuggestionOverride();
+			return;
+		}
 		this.selectedSheet = sheet;
+		this.updateSheetSuggestionOverride();
 		this.invalidateParse();
 	}
 
 	/** Step-1 header-row choice (0-based). Non-numeric input reads as row 0. */
 	setHeaderRow(raw: string | number): void {
 		const next = Math.max(0, (typeof raw === 'number' ? raw : parseInt(raw, 10)) || 0);
-		if (next === this.xlsxHeaderRow) return;
+		if (next === this.xlsxHeaderRow) {
+			this.updateSheetSuggestionOverride();
+			return;
+		}
 		this.xlsxHeaderRow = next;
+		this.updateSheetSuggestionOverride();
 		this.invalidateParse();
 	}
 
@@ -818,40 +889,32 @@ export class ImportFlow {
 			if (target.files && target.files.length > 0) {
 				this.sourceFile = target.files[0];
 				this.detectFileType();
-				// Reset config state when new file selected
-				this.appliedConfig = null;
-				this.configMatches = [];
-				this.configWarnings = [];
-				this.recognizedMatch = null;
-				this.recognizedDismissed = false;
-				this.recognizedFastPath = false;
-				this.recognizedEdited = false;
-				this.curatedDestination = null;
-				this.workbench = null;
-				this.parsedData = null;
-				this.availableSheets = [];
-				this.selectedSheet = null;
-				this.columnConfigs = new Map();
-				this.suggestedColumns = new Set();
-				this.smartDefaultsApplied = false;
+				this.resetForNewSource();
 				if (this.sourceType === 'xlsx') {
 					try {
 						this.availableSheets = await listXLSXSheets(this.sourceFile);
 						this.selectedSheet = this.availableSheets[0] ?? null;
-					} catch (err) {
-						new Notice(`Could not read workbook sheets: ${err instanceof Error ? err.message : String(err)}`);
+						try {
+							const bytes = new Uint8Array(await this.sourceFile.arrayBuffer());
+							this.chooseWorkbookDefaults(bytes, this.sourceFile.name);
+						} catch (error) {
+							const cause = error instanceof Error ? error.message : String(error);
+							new Notice(`Could not read the workbook to suggest a sheet: ${cause}. Pick the sheet and header row by hand.`);
+						}
+					} catch (error) {
+						const cause = error instanceof Error ? error.message : String(error);
+						new Notice(`Could not read workbook sheets: ${cause}. Choose another workbook or fix the file and try again.`);
 					}
 				}
-				this.jsonStructure = null;
-				this.jsonIterator = '';
 				if (this.sourceType === 'json') {
 					try {
 						this.jsonStructure = suggestIterators(await this.sourceFile.text());
 						// Magical default: pre-select the biggest record list found.
 						const best = this.jsonStructure.candidates[0];
 						if (best) this.jsonIterator = best.iterator;
-					} catch (err) {
-						new Notice(`Could not inspect JSON structure: ${err instanceof Error ? err.message : String(err)}`);
+					} catch (error) {
+						const cause = error instanceof Error ? error.message : String(error);
+						new Notice(`Could not inspect JSON structure: ${cause}. Pick the record list by hand.`);
 					}
 				}
 				this.renderStep(); // Re-render to show file info
@@ -902,6 +965,23 @@ export class ImportFlow {
 						t.inputEl.min = '0';
 						t.onChange((v) => { this.setHeaderRow(v); });
 					});
+				if (this.sheetSuggestion) {
+					const suggestion = this.sheetSuggestion;
+					const line = container.createEl('div', { cls: 'crosswalker-sheet-suggestion' });
+					if (!suggestion.overridden) {
+						line.setText(suggestion.confident
+							? `Suggested from ${suggestion.label}: sheet '${suggestion.sheetName}', header row ${suggestion.headerRow}. Change either if this is not the file you expect.`
+							: `Possible match ${suggestion.label}: sheet '${suggestion.sheetName}', header row ${suggestion.headerRow}. Change either if this is not the file you expect.`);
+					} else {
+						line.appendText(`Using your choice: sheet '${this.selectedSheet ?? ''}', header row ${this.xlsxHeaderRow}. `);
+						const useSuggestion = line.createEl('button', { text: 'Use suggestion' });
+						useSuggestion.addEventListener('click', () => {
+							this.selectSheet(suggestion.sheetName);
+							this.setHeaderRow(suggestion.headerRow);
+							this.renderStep();
+						});
+					}
+				}
 			}
 
 			// JSON: click-to-pick record list (no path syntax required) + an
@@ -2862,6 +2942,7 @@ export class ImportFlow {
 			sourceFile: this.sourceFile ? { name: this.sourceFile.name, vaultPath: this.findVaultPathForSource() } : null,
 			sourceType: this.sourceType,
 			selectedSheet: this.selectedSheet,
+			xlsxHeaderRow: this.xlsxHeaderRow,
 			columnInfos: this.columnInfos,
 			columnConfigsDict: columnConfigsToDict(this.columnConfigs),
 			config: this.config,
@@ -4305,7 +4386,7 @@ export class ImportFlow {
 export class ImportWizardModal extends Modal {
 	private flow: ImportFlow;
 
-	constructor(app: App, plugin: CrosswalkerPlugin, opts?: { presetRecipeId?: string; prefillFile?: TFile }) {
+	constructor(app: App, plugin: CrosswalkerPlugin, opts?: { presetRecipeId?: string; prefillFile?: TFile; prefillBinding?: PrefillBinding }) {
 		super(app);
 		// Put workbench-specific shortcuts in a child scope. A child scope is consulted
 		// before its parent, so this wins over Modal's own Escape-to-close binding and
@@ -4330,6 +4411,7 @@ export class ImportWizardModal extends Modal {
 		});
 		if (opts?.presetRecipeId) this.flow.presetRecipeId = opts.presetRecipeId;
 		if (opts?.prefillFile) this.flow.pendingPrefill = opts.prefillFile;
+		if (opts?.prefillBinding) this.flow.pendingPrefillBinding = opts.prefillBinding;
 	}
 
 	onOpen() {
