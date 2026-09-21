@@ -29,6 +29,7 @@
  */
 
 import type { VariadicConfig } from '../../render/types';
+import type { CrosswalkColumnEntry } from '../../types/generated/recipe';
 import type {
 	ImportMapping,
 	StructureMapping,
@@ -101,6 +102,7 @@ export interface AlsoEmit {
 export interface RecipeRegions {
 	layout: LayoutEntry[];
 	also_emit?: AlsoEmit;
+	crosswalks?: CrosswalkColumnEntry[];
 	/** Batch enrichment (Pass 1.5). Serializes to recipe target.enrichment. */
 	enrichment?: Enrichment;
 }
@@ -222,6 +224,7 @@ export function toRecipeRegions(mapping: ImportMapping): RecipeRegions {
 	const managed: Record<string, string> = {};
 	const managedLinks: Record<string, ManagedLinkSpec> = {};
 	const body: OrderedEmission<BodyProjectionSpec>[] = [];
+	const crosswalks: CrosswalkColumnEntry[] = [];
 
 	// Precedence (2026-07-11, the Connections placement-chooser repro):
 	// `mapping.enrichment.parent_note` is the knob the workbench UI writes
@@ -244,7 +247,7 @@ export function toRecipeRegions(mapping: ImportMapping): RecipeRegions {
 	for (const structure of mapping.mappings) {
 		const structLayout: LayoutEntry[] = [];
 		for (const rule of structure.levels) {
-			emitLevel(rule, structLayout, tags, aliases, managed, managedLinks, body);
+			emitLevel(rule, structLayout, tags, aliases, managed, managedLinks, body, crosswalks);
 		}
 		if (structure.tail) {
 			// render() walks layout in order, so the variadic tail (parent
@@ -264,6 +267,7 @@ export function toRecipeRegions(mapping: ImportMapping): RecipeRegions {
 
 	const also_emit = buildAlsoEmit(tags, aliases, managed, managedLinks, body, mapping.userPreserve);
 	const regions: RecipeRegions = also_emit ? { layout, also_emit } : { layout };
+	if (crosswalks.length > 0) regions.crosswalks = crosswalks;
 	// Enrichment-level wins when set (see the precedence note above); the tail's
 	// placement only fills in when the enrichment block leaves it unspecified.
 	const parentNote = mapping.enrichment?.parent_note ?? tailPlacement;
@@ -282,6 +286,7 @@ function emitLevel(
 	managed: Record<string, string>,
 	managedLinks: Record<string, ManagedLinkSpec>,
 	body: OrderedEmission<BodyProjectionSpec>[],
+	crosswalks: CrosswalkColumnEntry[],
 ): void {
 	const name = buildName(rule.source, rule.delimiter, rule.join, rule.filters, rule.naming, rule.delimiters);
 	for (const dest of rule.destinations) {
@@ -328,6 +333,20 @@ function emitLevel(
 					managed[dest.key] = scalarLinkTemplate(rule, dest);
 				}
 				break;
+			case 'crosswalk': {
+				if (!dest.toOntology) break;
+				const column = singleSourceColumn(rule.source);
+				if (!column) break;
+				crosswalks.push({
+					column,
+					to_ontology: dest.toOntology,
+					...(dest.predicate && dest.predicate !== 'is_approximate_to' ? { predicate: dest.predicate } : {}),
+					...(dest.split && dest.split.length > 0 ? { split: [...dest.split] } : {}),
+					...(dest.qualifier ? { qualifier: dest.qualifier } : {}),
+					...(dest.mappingSetId ? { mapping_set_id: dest.mappingSetId } : {}),
+				});
+				break;
+			}
 			case 'alias':
 				pushOrdered(aliases, name, dest.canonicalOrder);
 				break;
@@ -635,6 +654,17 @@ export function fromRegions(regions: RecipeRegions, options: FromRegionsOptions 
 				});
 			}
 		}
+	}
+
+	for (const entry of regions.crosswalks ?? []) {
+		attach(parseStructuralTemplate(`{${entry.column}}`), {
+			primitive: 'crosswalk',
+			toOntology: entry.to_ontology,
+			predicate: entry.predicate ?? 'is_approximate_to',
+			...(entry.split && entry.split.length > 0 ? { split: [...entry.split] } : {}),
+			...(entry.qualifier ? { qualifier: entry.qualifier } : {}),
+			...(entry.mapping_set_id ? { mappingSetId: entry.mapping_set_id } : {}),
+		});
 	}
 
 	// Canonicalize destination order on every level.
@@ -948,6 +978,13 @@ function sourceSignature(parsed: ParsedSource): string {
 /** Deterministic level id for a standalone (metadata-only) source. */
 function synthLevelId(parsed: ParsedSource): string {
 	return firstColumn(parsed.source);
+}
+
+/** The one real whole-column source required by a crosswalk column role. */
+function singleSourceColumn(source: LevelSource): string | null {
+	const refs = toSourceRefs(source);
+	if (refs.length !== 1 || isConstantRef(refs[0]) || refs[0].part !== undefined) return null;
+	return refs[0].column;
 }
 
 /** First column (or literal) referenced by a source — the level's identity key. */

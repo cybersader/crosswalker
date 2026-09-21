@@ -54,11 +54,13 @@ import type {
 	LevelNaming,
 	MissingPolicy,
 	Enrichment,
+	CrosswalkPredicate,
 } from './mapping/types';
-import { toSourceRefs, isConstantRef } from './mapping/types';
+import { CROSSWALK_PREDICATES, toSourceRefs, isConstantRef } from './mapping/types';
 import { deriveFacetMemberships } from './mapping/facets';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import { isTier1CuriePrefix } from '../validation/validator';
+import { entriesByOntology, RECIPE_REGISTRY } from './recipe-registry';
 import {
 	createFreshRecipeDocument,
 	loadRecipeDocument,
@@ -73,6 +75,7 @@ import {
 	toggleDestinationAcrossMapping,
 	addDestination,
 	removeDestination,
+	setCrosswalkTarget,
 	mergeRows,
 	splitRow,
 	splitIntoLevels,
@@ -109,7 +112,7 @@ function wbIcon(parent: HTMLElement, name: string, extraCls = ''): HTMLElement {
  *  Exported so callers can persist a snapshot of it (draft resume, M8). */
 export type ColumnDest = 'property' | 'tag' | 'body' | 'title' | 'alias' | 'link' | 'skip';
 
-/** The subset of primitives the two-stage ⊕ menu offers, grouped by role (spec §3d). */
+/** The destinations the two-stage ⊕ menu offers, grouped by role (spec §3d). */
 const ADD_MENU_GROUPS: { group: string; items: { primitive: DestinationPrimitive; label: string }[] }[] = [
 	{
 		group: 'Structure',
@@ -125,6 +128,7 @@ const ADD_MENU_GROUPS: { group: string; items: { primitive: DestinationPrimitive
 			{ primitive: 'property', label: 'Property' },
 			{ primitive: 'tag', label: 'Tag' },
 			{ primitive: 'link', label: 'Link' },
+			{ primitive: 'crosswalk', label: 'Crosswalk to another framework' },
 		],
 	},
 	{
@@ -137,7 +141,7 @@ const ADD_MENU_GROUPS: { group: string; items: { primitive: DestinationPrimitive
 	},
 ];
 
-/** Affordance + whisper copy for the six shape cards (mockup M2, sentence case). */
+/** Affordance + whisper copy for the seven shape cards (mockup M2, sentence case). */
 const SHAPE_CARD_COPY: Record<ShapeCardId, { icon: string; afford: string; whisper: string }> = {
 	folder: { icon: 'folder', afford: 'Browse down into it in the file explorer.', whisper: 'pre-coordinated hierarchy' },
 	name: { icon: 'file', afford: 'Keep it flat. The id reads at a glance.', whisper: 'packed notation' },
@@ -145,6 +149,19 @@ const SHAPE_CARD_COPY: Record<ShapeCardId, { icon: string; afford: string; whisp
 	heading: { icon: 'file-text', afford: 'Read top to bottom, one portable outline.', whisper: 'document order' },
 	link: { icon: 'link', afford: 'Hop the graph. A note can sit under many parents.', whisper: 'polyhierarchy' },
 	property: { icon: 'table', afford: 'Group, sort, and filter by level in Bases.', whisper: 'faceted metadata' },
+	crosswalk: {
+		icon: 'arrow-right-left',
+		afford: 'Link this framework to another one. Each reference becomes a queryable edge note, not a wikilink.',
+		whisper: 'cross-ontology mapping',
+	},
+};
+
+const CROSSWALK_PREDICATE_LABELS: Record<CrosswalkPredicate, string> = {
+	is_approximate_to: 'Approximately the same as',
+	is_equivalent_to: 'The same as',
+	is_broader_than: 'Broader than',
+	is_narrower_than: 'Narrower than',
+	intersects_with: 'Overlaps with',
 };
 
 const PREVIEW_ROW_LIMIT = 20;
@@ -547,6 +564,7 @@ export class MappingWorkbench {
 			|| Object.keys(managedLinks).length
 			|| userPreserve.length;
 		const regions: RecipeRegions = hasAlsoEmit ? { layout, also_emit: alsoEmit } : { layout };
+		if (base.crosswalks) regions.crosswalks = base.crosswalks;
 		// §7o root cause: toRecipeRegions(this.mapping) computes `base.enrichment`
 		// (Pass 1.5 batch enrichment — children lists, facet hubs, edge stats), but
 		// this method was rebuilding a fresh regions literal that dropped it, so
@@ -1266,11 +1284,38 @@ export class MappingWorkbench {
 		if (this.matrixOpen.has(mi)) this.renderMatrix(card, m, mi);
 	}
 
+	private crosswalkDestination(
+		m: StructureMapping,
+	): { levelIndex: number; destination: Extract<Destination, { primitive: 'crosswalk' }> } | null {
+		for (const [levelIndex, level] of m.levels.entries()) {
+			const destination = level.destinations.find(
+				(candidate): candidate is Extract<Destination, { primitive: 'crosswalk' }> => candidate.primitive === 'crosswalk',
+			);
+			if (destination) return { levelIndex, destination };
+		}
+		return null;
+	}
+
+	private crosswalkDetectionForMapping(
+		m: StructureMapping,
+	): Extract<Detection, { kind: 'crosswalk-column' }> | null {
+		const source = m.levels[0]?.source;
+		if (!source) return null;
+		const column = this.firstColumn(source);
+		return this.detections.find(
+			(detection): detection is Extract<Detection, { kind: 'crosswalk-column' }> =>
+				detection.kind === 'crosswalk-column' && detection.column === column,
+		) ?? null;
+	}
+
 	private renderShapeCards(card: HTMLElement, m: StructureMapping, mi: number): void {
 		const states = deriveShapeCards(m);
 		const sampleValue = this.firstSampleValue(m);
+		const crosswalkDetection = this.crosswalkDetectionForMapping(m);
+		const crosswalkTarget = this.crosswalkDestination(m);
 		const grid = card.createDiv({ cls: 'crosswalker-wb-shapes' });
 		for (const { id, label, primitive } of SHAPE_CARDS) {
+			if (id === 'crosswalk' && !crosswalkDetection && !crosswalkTarget) continue;
 			const state = states[id];
 			const copy = SHAPE_CARD_COPY[id];
 			// A card no row of this mapping can carry used to render as a plain
@@ -1280,13 +1325,17 @@ export class MappingWorkbench {
 				? this.blockedCard.message
 				: null;
 			const splitHint = id === 'folder' ? this.folderSplitHint(mi) : null;
+			const needsOntology = id === 'crosswalk'
+				&& crosswalkTarget !== null
+				&& crosswalkTarget.destination.toOntology === null;
 			const stateLabel = hint
 				? 'Not available'
 				: state === 'on' ? 'On' : state === 'mixed' ? 'Some levels' : 'Off';
 			const shape = grid.createDiv({
 				cls: 'crosswalker-wb-shape'
 					+ (state === 'on' ? ' is-on' : state === 'mixed' ? ' is-mixed' : '')
-					+ (hint ? ' is-unavailable' : ''),
+					+ (hint ? ' is-unavailable' : '')
+					+ (needsOntology ? ' is-needs-ontology' : ''),
 			});
 			const noteId = `${this.sourceRegionId}-shape-${mi}-${id}`;
 			const control = shape.createEl('label', { cls: 'crosswalker-wb-shape-control' });
@@ -1314,7 +1363,16 @@ export class MappingWorkbench {
 			details.createEl('summary', { text: 'What this does' });
 			details.createDiv({ cls: 'crosswalker-wb-shape-afford', text: copy.afford });
 			details.createDiv({ cls: 'crosswalker-wb-whisper', text: copy.whisper });
-			if (hint) {
+			if (id === 'crosswalk' && crosswalkTarget) {
+				this.renderCrosswalkControls(shape, m, mi, crosswalkTarget, crosswalkDetection);
+			}
+			if (needsOntology) {
+				shape.createDiv({
+					cls: 'crosswalker-wb-shape-hint',
+					text: 'Which framework do these ids belong to?',
+					attr: { id: noteId },
+				});
+			} else if (hint) {
 				shape.createDiv({ cls: 'crosswalker-wb-shape-hint', text: hint, attr: { id: noteId } });
 			} else if (blocked) {
 				shape.createDiv({ cls: 'crosswalker-wb-shape-hint is-blocked', text: blocked });
@@ -1325,6 +1383,90 @@ export class MappingWorkbench {
 				const splitButton = splitLine.createEl('button', { text: 'Split into levels' });
 				splitButton.addEventListener('click', () => this.openFolderSplitPanel(mi));
 			}
+		}
+	}
+
+	private renderCrosswalkControls(
+		shape: HTMLElement,
+		m: StructureMapping,
+		mi: number,
+		target: { levelIndex: number; destination: Extract<Destination, { primitive: 'crosswalk' }> },
+		detection: Extract<Detection, { kind: 'crosswalk-column' }> | null,
+	): void {
+		const controls = shape.createDiv({ cls: 'crosswalker-wb-crosswalk-controls' });
+		const registry = entriesByOntology(RECIPE_REGISTRY);
+		const frameworkRow = controls.createEl('label');
+		frameworkRow.createSpan({ text: 'Framework' });
+		const framework = frameworkRow.createEl('select', { cls: 'dropdown' });
+		const placeholder = framework.createEl('option', {
+			text: 'Which framework do these ids belong to?',
+			attr: { value: '' },
+		});
+		placeholder.disabled = true;
+		for (const [ontology, entries] of registry) {
+			framework.createEl('option', {
+				text: `${entries[0].label} (${ontology})`,
+				attr: { value: ontology },
+			});
+		}
+		framework.createEl('option', { text: 'Other', attr: { value: '__other__' } });
+		const knownOntology = target.destination.toOntology && registry.has(target.destination.toOntology);
+		framework.value = knownOntology
+			? target.destination.toOntology!
+			: target.destination.toOntology
+				? '__other__'
+				: '';
+
+		const customRow = controls.createEl('label');
+		customRow.createSpan({ text: 'Framework id' });
+		const custom = customRow.createEl('input', {
+			type: 'text',
+			value: knownOntology ? '' : target.destination.toOntology ?? '',
+		});
+		customRow.style.display = framework.value === '__other__' ? '' : 'none';
+
+		framework.addEventListener('change', () => {
+			if (framework.value === '__other__') {
+				customRow.style.display = '';
+				custom.focus();
+				return;
+			}
+			customRow.style.display = 'none';
+			this.updateMapping(mi, setCrosswalkTarget(m, target.levelIndex, {
+				toOntology: framework.value || null,
+			}));
+		});
+		custom.addEventListener('change', () => {
+			this.updateMapping(mi, setCrosswalkTarget(m, target.levelIndex, {
+				toOntology: this.slug(custom.value) || null,
+			}));
+		});
+
+		const predicateRow = controls.createEl('label');
+		predicateRow.createSpan({ text: 'Predicate' });
+		const predicate = predicateRow.createEl('select', { cls: 'dropdown' });
+		for (const value of CROSSWALK_PREDICATES) {
+			predicate.createEl('option', {
+				text: CROSSWALK_PREDICATE_LABELS[value],
+				attr: { value },
+			});
+		}
+		predicate.value = target.destination.predicate ?? 'is_approximate_to';
+		predicate.addEventListener('change', () => {
+			this.updateMapping(mi, setCrosswalkTarget(m, target.levelIndex, {
+				predicate: predicate.value as CrosswalkPredicate,
+			}));
+		});
+
+		if (detection) {
+			const ontology = target.destination.toOntology;
+			const registryLabel = ontology ? registry.get(ontology)?.[0]?.label : null;
+			const destinationLabel = registryLabel ?? ontology ?? 'another framework';
+			let hint = `${detection.column} holds ${detection.avgValuesPerCell.toFixed(1)} references per row to ${destinationLabel}`;
+			if (detection.qualifierSample) {
+				hint += ` Notes like ${detection.qualifierSample} are kept as the mapping justification.`;
+			}
+			controls.createDiv({ cls: 'crosswalker-wb-crosswalk-summary', text: hint });
 		}
 	}
 
@@ -1373,6 +1515,11 @@ export class MappingWorkbench {
 					row.createSpan({ cls: 'crosswalker-wb-mini-key' });
 					row.createSpan({ cls: 'crosswalker-wb-mini-value' });
 				}
+				break;
+			case 'crosswalk':
+				illustration.createSpan({ cls: 'crosswalker-wb-mini-crosswalk-box' });
+				illustration.createSpan({ cls: 'crosswalker-wb-mini-crosswalk-arrow', text: '→' });
+				illustration.createSpan({ cls: 'crosswalker-wb-mini-crosswalk-box is-target' });
 				break;
 		}
 	}
@@ -2180,7 +2327,7 @@ export class MappingWorkbench {
 		}
 	}
 
-	/** The two-stage ⊕ menu: pick a primitive, then a small param popover (spec §3d). */
+	/** The two-stage ⊕ menu: pick a destination, then a small parameter popover (spec §3d). */
 	private renderAddMenu(cell: HTMLElement, m: StructureMapping, mi: number, li: number): void {
 		const menu = cell.createDiv({ cls: 'crosswalker-wb-addmenu' });
 		if (!this.addMenuPrimitive) {
@@ -2199,7 +2346,7 @@ export class MappingWorkbench {
 			return;
 		}
 
-		// Stage 2 — parameter popover for the chosen primitive.
+		// Stage 2 — parameter popover for the chosen destination.
 		const primitive = this.addMenuPrimitive;
 		menu.createDiv({ cls: 'crosswalker-wb-addmenu-title', text: `Add ${primitive}` });
 		for (const field of this.paramFields(primitive)) {
@@ -2592,6 +2739,7 @@ export class MappingWorkbench {
 		switch (primitive) {
 			case 'property': return { key: this.keyOf(col) };
 			case 'link': return { key: 'parent', direction: 'parent-on-child' };
+			case 'crosswalk': return { toOntology: '', predicate: 'is_approximate_to' };
 			case 'tag': return { namespace: this.slug(col) };
 			case 'heading': return { depth: '2' };
 			case 'body': return { position: 'section' };
@@ -2605,6 +2753,14 @@ export class MappingWorkbench {
 			case 'link': return [
 				{ key: 'key', label: 'Frontmatter key' },
 				{ key: 'direction', label: 'Direction', options: [['parent-on-child', 'Parent on child'], ['children-on-parent', 'Children on parent'], ['both', 'Both']] },
+			];
+			case 'crosswalk': return [
+				{ key: 'toOntology', label: 'Framework id' },
+				{
+					key: 'predicate',
+					label: 'Predicate',
+					options: CROSSWALK_PREDICATES.map((value) => [value, CROSSWALK_PREDICATE_LABELS[value]]),
+				},
 			];
 			case 'tag': return [{ key: 'namespace', label: 'Tag namespace' }];
 			case 'heading': return [{ key: 'depth', label: 'Heading depth', options: [['1', '1'], ['2', '2'], ['3', '3'], ['4', '4'], ['5', '5'], ['6', '6']] }];
@@ -2624,6 +2780,14 @@ export class MappingWorkbench {
 				const dir = params.direction === 'children-on-parent' || params.direction === 'both' ? params.direction : 'parent-on-child';
 				return { primitive: 'link', key: params.key || 'parent', direction: dir };
 			}
+			case 'crosswalk':
+				return {
+					primitive: 'crosswalk',
+					toOntology: params.toOntology ? this.slug(params.toOntology) : null,
+					predicate: CROSSWALK_PREDICATES.includes(params.predicate as CrosswalkPredicate)
+						? params.predicate as CrosswalkPredicate
+						: 'is_approximate_to',
+				};
 			case 'tag': return params.namespace ? { primitive: 'tag', namespace: params.namespace } : { primitive: 'tag' };
 			case 'heading': return { primitive: 'heading', hostRule: 'root', depth: Number(params.depth) || 2 };
 			case 'body': return { primitive: 'body', position: (params.position as 'section' | 'append' | 'table-row') || 'section' };
@@ -2783,6 +2947,7 @@ export class MappingWorkbench {
 			case 'property': return 'table';
 			case 'tag': return 'tag';
 			case 'link': return 'link';
+			case 'crosswalk': return 'arrow-right-left';
 			case 'alias': return 'quote';
 			case 'body': return 'pilcrow';
 		}
@@ -2798,6 +2963,7 @@ export class MappingWorkbench {
 			case 'property': return d.key;
 			case 'tag': return d.namespace ?? 'tag';
 			case 'link': return d.key;
+			case 'crosswalk': return d.toOntology ? `crosswalk to ${d.toOntology}` : 'crosswalk (framework not set)';
 			case 'alias': return 'alias';
 			case 'body': return 'body';
 		}

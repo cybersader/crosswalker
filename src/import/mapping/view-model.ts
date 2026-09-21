@@ -30,6 +30,8 @@ import type {
 	TailRule,
 	Destination,
 	DestinationPrimitive,
+	CrosswalkDest,
+	CrosswalkPredicate,
 	LevelSource,
 	SourceRef,
 	PartRef,
@@ -42,10 +44,10 @@ import { normalizeFolderSetting } from '../../settings/folder-settings';
 // Shape cards (the coarse, per-mapping summary view — M2)
 // ============================================================================
 
-/** The six shape-card ids, in mockup (M2) display order. */
-export type ShapeCardId = 'folder' | 'name' | 'tag' | 'heading' | 'link' | 'property';
+/** Shape-card ids in workbench display order. */
+export type ShapeCardId = 'folder' | 'name' | 'tag' | 'heading' | 'link' | 'property' | 'crosswalk';
 
-/** Display order + labels for the six cards (sentence case, no em dashes). */
+/** Display order + labels for the cards (sentence case, no em dashes). */
 export const SHAPE_CARDS: { id: ShapeCardId; label: string; primitive: DestinationPrimitive }[] = [
 	{ id: 'folder', label: 'Folders', primitive: 'folder' },
 	{ id: 'name', label: 'File names', primitive: 'name' },
@@ -53,11 +55,12 @@ export const SHAPE_CARDS: { id: ShapeCardId; label: string; primitive: Destinati
 	{ id: 'heading', label: 'One file', primitive: 'heading' },
 	{ id: 'link', label: 'Links', primitive: 'link' },
 	{ id: 'property', label: 'Properties', primitive: 'property' },
+	{ id: 'crosswalk', label: 'Crosswalks', primitive: 'crosswalk' },
 ];
 
 /**
  * A card's state across a mapping's rows:
- *   - `on`    — the primitive is present on every row that could carry it.
+ *   - `on`    — the destination kind is present on every row that could carry it.
  *   - `off`   — present on none (or no row can carry it).
  *   - `mixed` — present on some rows but not all. This is the honest tri-state
  *               (spec §7a): a single toggle cannot represent a divergent row set,
@@ -68,6 +71,7 @@ export type ShapeCardState = 'on' | 'off' | 'mixed';
 /** A matrix row is either a level rule or the variadic tail. */
 interface Row {
 	kind: 'level' | 'tail';
+	source: LevelSource;
 	destinations: Destination[];
 	isLeaf: boolean;
 }
@@ -76,26 +80,27 @@ interface Row {
 function rowsOf(m: StructureMapping): Row[] {
 	const rows: Row[] = m.levels.map((l) => ({
 		kind: 'level' as const,
+		source: l.source,
 		destinations: l.destinations,
 		isLeaf: l.destinations.some((d) => d.primitive === 'name'),
 	}));
 	if (m.tail) {
-		rows.push({ kind: 'tail', destinations: m.tail.destinations, isLeaf: false });
+		rows.push({ kind: 'tail', source: m.tail.source, destinations: m.tail.destinations, isLeaf: false });
 	}
 	return rows;
 }
 
 /**
- * The rows a given primitive is eligible to land on:
+ * The rows a given destination kind is eligible to land on:
  *   - `name` lives on the leaf (the note itself), so its card is computed over
  *     leaf rows only and is therefore never mixed.
- *   - every other primitive lives on the structural (non-leaf) rows + the tail.
+ *   - every other destination kind lives on the structural (non-leaf) rows + the tail.
  *
  * Either set can be EMPTY, and an empty set is not an error — it means no row of
- * this mapping can carry that primitive, so the card has nothing to write to:
+ * this mapping can carry that destination kind, so the card has nothing to write to:
  *   - a single-level mapping instantiated leaf-only (`instantiate.leafLevel`, and
  *     the first manual mapping added by hand) is ALL leaf, so every non-name
- *     primitive has zero eligible rows;
+ *     destination kind has zero eligible rows;
  *   - a facet / property-only mapping carries no `name` destination anywhere, so
  *     `name` has zero eligible rows.
  * Callers must not silently swallow that case: `shapeCardHint` explains it to the
@@ -104,11 +109,12 @@ function rowsOf(m: StructureMapping): Row[] {
  * no explanation).
  */
 function eligibleRows(rows: Row[], primitive: DestinationPrimitive): Row[] {
+	if (primitive === 'crosswalk') return rows;
 	if (primitive === 'name') return rows.filter((r) => r.isLeaf);
 	return rows.filter((r) => !r.isLeaf);
 }
 
-/** Derive the on/off/mixed state of all six cards for one mapping. */
+/** Derive the on/off/mixed state of all seven cards for one mapping. */
 export function deriveShapeCards(m: StructureMapping): Record<ShapeCardId, ShapeCardState> {
 	const rows = rowsOf(m);
 	const out = {} as Record<ShapeCardId, ShapeCardState>;
@@ -134,7 +140,7 @@ const LEVEL_SEPARATOR = /[._\-/:]/;
 /** Worked example used when the mapped column offers no usable sample value. */
 const GENERIC_SPLIT_EXAMPLE = 'GV.OC-01';
 
-/** The primitives that decide where a note lands in the vault. */
+/** The destination kinds that decide where a note lands in the vault. */
 const PLACING_PRIMITIVES = new Set<DestinationPrimitive>(['folder', 'name', 'heading']);
 
 /** Shown when a toggle would leave the import with nowhere to put its notes. */
@@ -161,6 +167,11 @@ export function shapeCardHint(
 	options: ShapeCardHintOptions = {},
 ): string | null {
 	const rows = rowsOf(m);
+	if (primitive === 'crosswalk') {
+		return rows.some((row) => isSingleColumnSource(row.source))
+			? null
+			: 'Crosswalks need a level that reads one column. This mapping has none.';
+	}
 	if (eligibleRows(rows, primitive).length > 0) return null;
 	if (primitive === 'name') {
 		return 'No level here is the note itself, so there is no name to set. Open Arrange levels and add File name to the level that should become the note.';
@@ -226,12 +237,12 @@ export function blockedPlacingToggle(
 // ============================================================================
 
 /**
- * Add or remove a primitive across every eligible row of a mapping (the card
- * toggle). Returns a NEW mapping; the input is never mutated.
+ * Add or remove one destination kind across every eligible row of a mapping
+ * (the card toggle). Returns a NEW mapping; the input is never mutated.
  *
- * `on: true`  — adds the primitive (with sensible default params) to each
+ * `on: true`  — adds the destination (with sensible default params) to each
  *               eligible row that lacks it, then canonicalizes destination order.
- * `on: false` — removes the primitive from every eligible row.
+ * `on: false` — removes the destination from every eligible row.
  *
  * This is the single coupling point that keeps the card view and the matrix view
  * coherent: both are just this write against the same model.
@@ -242,22 +253,23 @@ export function toggleDestinationAcrossMapping(
 	on: boolean,
 ): StructureMapping {
 	const leafPrimitive = primitive === 'name';
+	const allRows = primitive === 'crosswalk';
 	const touchLevel = (rule: LevelRule): LevelRule => {
 		const isLeaf = rule.destinations.some((d) => d.primitive === 'name');
-		const eligible = leafPrimitive ? isLeaf : !isLeaf;
+		const eligible = allRows || (leafPrimitive ? isLeaf : !isLeaf);
 		if (!eligible) return rule;
 		return withPrimitive(rule, primitive, on);
 	};
 
 	const levels = m.levels.map(touchLevel);
 	let tail = m.tail;
-	if (tail && !leafPrimitive) {
+	if (tail && (allRows || !leafPrimitive)) {
 		tail = withPrimitiveTail(tail, primitive, on);
 	}
 	return tail ? { levels, tail } : { levels };
 }
 
-/** Add/remove a primitive on one level rule (immutable). */
+/** Add/remove a destination kind on one level rule (immutable). */
 function withPrimitive(rule: LevelRule, primitive: DestinationPrimitive, on: boolean): LevelRule {
 	const has = rule.destinations.some((d) => d.primitive === primitive);
 	if (on === has) return rule;
@@ -267,7 +279,7 @@ function withPrimitive(rule: LevelRule, primitive: DestinationPrimitive, on: boo
 	return { ...rule, destinations };
 }
 
-/** Add/remove a primitive on the tail rule (immutable). */
+/** Add/remove a destination kind on the tail rule (immutable). */
 function withPrimitiveTail(tail: TailRule, primitive: DestinationPrimitive, on: boolean): TailRule {
 	const has = tail.destinations.some((d) => d.primitive === primitive);
 	if (on === has) return tail;
@@ -283,20 +295,41 @@ function withPrimitiveTail(tail: TailRule, primitive: DestinationPrimitive, on: 
 
 /**
  * Add a fully-specified destination to one level of a mapping (the two-stage ⊕
- * menu commits here). Idempotent on `(primitive, key)` identity. Returns a new
+ * menu commits here). Idempotent on destination-kind and key identity. Returns a new
  * mapping.
  */
-export function addDestination(m: StructureMapping, levelIndex: number, dest: Destination): StructureMapping {
+export interface AddDestinationParams {
+	toOntology?: string;
+	predicate?: CrosswalkPredicate;
+}
+
+export function addDestination(
+	m: StructureMapping,
+	levelIndex: number,
+	destination: Destination | DestinationPrimitive,
+	params: AddDestinationParams = {},
+): StructureMapping {
 	if (levelIndex < 0 || levelIndex >= m.levels.length) return m;
-	const levels = m.levels.map((rule, i) => {
-		if (i !== levelIndex) return rule;
-		if (rule.destinations.some((d) => sameDestination(d, dest))) return rule;
-		return { ...rule, destinations: sortDestinations([...rule.destinations, dest]) };
+	const rule = m.levels[levelIndex];
+	let dest = typeof destination === 'string'
+		? defaultDestination(destination, rule.source, rule.level)
+		: destination;
+	if (dest.primitive === 'crosswalk') {
+		dest = {
+			...dest,
+			toOntology: params.toOntology ?? dest.toOntology ?? null,
+			predicate: params.predicate ?? dest.predicate ?? 'is_approximate_to',
+		};
+	}
+	const levels = m.levels.map((candidate, i) => {
+		if (i !== levelIndex) return candidate;
+		if (candidate.destinations.some((d) => sameDestination(d, dest))) return candidate;
+		return { ...candidate, destinations: sortDestinations([...candidate.destinations, dest]) };
 	});
 	return m.tail ? { levels, tail: m.tail } : { levels };
 }
 
-/** Remove a destination (by primitive + optional key) from one level. New mapping. */
+/** Remove a destination (by kind + optional key) from one level. New mapping. */
 export function removeDestination(
 	m: StructureMapping,
 	levelIndex: number,
@@ -310,6 +343,26 @@ export function removeDestination(
 			...rule,
 			destinations: rule.destinations.filter((d) => !(d.primitive === primitive && destKey(d) === key)),
 		};
+	});
+	return m.tail ? { levels, tail: m.tail } : { levels };
+}
+
+/** Update one level's crosswalk target without mutating the mapping. */
+export function setCrosswalkTarget(
+	m: StructureMapping,
+	levelIndex: number,
+	patch: Partial<Pick<CrosswalkDest, 'toOntology' | 'predicate'>>,
+): StructureMapping {
+	if (levelIndex < 0 || levelIndex >= m.levels.length) return m;
+	const levels = m.levels.map((rule, index) => {
+		if (index !== levelIndex) return rule;
+		let changed = false;
+		const destinations = rule.destinations.map((destination) => {
+			if (destination.primitive !== 'crosswalk') return destination;
+			changed = true;
+			return { ...destination, ...patch };
+		});
+		return changed ? { ...rule, destinations } : rule;
 	});
 	return m.tail ? { levels, tail: m.tail } : { levels };
 }
@@ -587,6 +640,12 @@ function mergeSources(a: LevelRule, b: LevelRule): LevelSource {
 	return refs;
 }
 
+/** Whether a level reads one real whole source column. */
+function isSingleColumnSource(source: LevelSource): boolean {
+	const refs = toSourceRefs(source);
+	return refs.length === 1 && !isConstantRef(refs[0]) && refs[0].part === undefined;
+}
+
 /** Explode a source into its constituent single-ref sources (for split). */
 function splitSource(source: LevelSource): LevelSource[] {
 	const refs = toSourceRefs(source);
@@ -605,7 +664,7 @@ function splitSource(source: LevelSource): LevelSource[] {
 // Destination helpers
 // ============================================================================
 
-/** A sensible default destination for a primitive toggled on over a source. */
+/** A sensible default destination toggled on over a source. */
 function defaultDestination(primitive: DestinationPrimitive, source: LevelSource, levelId: string): Destination {
 	const column = firstColumn(source);
 	switch (primitive) {
@@ -623,6 +682,8 @@ function defaultDestination(primitive: DestinationPrimitive, source: LevelSource
 			return { primitive: 'heading', hostRule: 'root', depth: 2 };
 		case 'link':
 			return { primitive: 'link', key: 'parent', direction: 'parent-on-child' };
+		case 'crosswalk':
+			return { primitive: 'crosswalk', toOntology: null, predicate: 'is_approximate_to' };
 		case 'property':
 			return { primitive: 'property', key: propertyKey(column, levelId) };
 		case 'body':
@@ -636,12 +697,12 @@ export function destKey(d: Destination): string | undefined {
 	return undefined;
 }
 
-/** Two destinations collide when they share a primitive and (for keyed ones) a key. */
+/** Two destinations collide when they share a kind and (for keyed ones) a key. */
 function sameDestination(a: Destination, b: Destination): boolean {
 	return a.primitive === b.primitive && destKey(a) === destKey(b);
 }
 
-/** Union two destination lists, de-duplicating on (primitive, key). */
+/** Union two destination lists, de-duplicating on destination kind and key. */
 function unionDestinations(a: Destination[], b: Destination[]): Destination[] {
 	const out = [...a];
 	for (const d of b) {

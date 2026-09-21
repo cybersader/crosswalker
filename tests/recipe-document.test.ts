@@ -4,6 +4,7 @@ import richFixture from './fixtures/portable-import-recipe-rich.json';
 import crosswalkRecipe from '../recipes/import/crosswalk-edge.json';
 import {
 	canonicalToMapping,
+	diagnoseCanonicalRecipe,
 	diagnoseEditableMapping,
 	loadRecipeDocument,
 	patchRecipeDocument,
@@ -13,6 +14,7 @@ import {
 import type { CrosswalkerImportRecipe } from '../src/types/generated/recipe';
 import type { ImportMapping } from '../src/import/mapping/types';
 import { MappingWorkbench } from '../src/import/workbench';
+import { RECIPE_REGISTRY, recipeMapping } from '../src/import/recipe-registry';
 import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import type { DebugLog } from '../src/utils/debug';
 import type { ParsedData, ImportRecipe } from '../src/types/config';
@@ -60,6 +62,29 @@ describe('RecipeDocument canonical preservation boundary', () => {
 		expect(patched.recipe.recipe).toBe(rich.recipe);
 		expect(recipesSemanticallyEqual(patched.recipe, rich)).toBe(true);
 		expect(serializeCanonicalRecipe(patched.recipe)).toBe(serializeCanonicalRecipe(rich));
+	});
+
+	it('recognized recipe mapping carries canonical crosswalks into the editable destination', () => {
+		const recipe = {
+			recipe: 'synthetic-recognized-crosswalk',
+			source: { ontology: 'synthetic-source', levels: ['concept'] },
+			target: {
+				layout: [{ level: 'concept', mechanism: 'file', template: '{id}.md' }],
+				crosswalks: [{ column: 'id', to_ontology: 'target-framework' }],
+			},
+		} as CrosswalkerImportRecipe;
+		const mapping = recipeMapping({ ...RECIPE_REGISTRY[0], recipe });
+		expect(mapping.mappings[0].levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: 'target-framework',
+			predicate: 'is_approximate_to',
+		});
+		expect(diagnoseCanonicalRecipe(recipe)).toContainEqual({
+			code: 'crosswalks-pending-engine',
+			severity: 'warning',
+			path: 'target.crosswalks',
+			message: 'Crosswalk columns are recorded in the recipe; edge notes are written once the engine pass lands.',
+		});
 	});
 
 	it('a no-op patch without ancestry does not mint an id, ancestry, or digest', () => {
@@ -284,6 +309,13 @@ describe('RecipeDocument canonical preservation boundary', () => {
 						{ primitive: 'link', key: 'parent', direction: 'both', predicate: 'skos:broader' },
 						{ primitive: 'property', key: 'labels', list: true },
 					],
+				}, {
+					level: 'crosswalk',
+					source: [{ column: 'left' }, { column: 'right' }],
+					naming: 'joined',
+					missing: 'skip',
+					materialize: false,
+					destinations: [{ primitive: 'crosswalk', toOntology: null }],
 				}],
 			}],
 			filters: [{ column: 'status', op: 'equals', value: 'active' }],
@@ -299,6 +331,8 @@ describe('RecipeDocument canonical preservation boundary', () => {
 			'body-transform-not-portable',
 			'link-semantics-not-portable',
 			'property-list-not-portable',
+			'crosswalk-source-not-a-column',
+			'crosswalk-ontology-missing',
 		]));
 
 		const patched = patchRecipeDocument(loadRich(), { mapping });

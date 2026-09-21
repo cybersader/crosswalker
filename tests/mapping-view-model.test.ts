@@ -21,6 +21,7 @@ import {
 	deriveShapeCards,
 	toggleDestinationAcrossMapping,
 	addDestination,
+	setCrosswalkTarget,
 	removeDestination,
 	mergeRows,
 	splitRow,
@@ -94,6 +95,89 @@ function propertyOnlyMapping(column = 'owner'): StructureMapping {
 // ===========================================================================
 // 1. Shape-card summary derivation
 // ===========================================================================
+
+describe('crosswalk destination controls', () => {
+	function x1Rows(): Record<string, unknown>[] {
+		return Array.from({ length: 8 }, (_, index) => ({
+			'Profile Id': `GV.OC-${String(index + 1).padStart(2, '0')}.01`,
+			'NIST CSF v2 Mapping': 'GV.OC-01.01 (Synthetic note)\nGV.OC-02.01',
+		}));
+	}
+
+	function x5Rows(): Record<string, unknown>[] {
+		return Array.from({ length: 6 }, (_, index) => ({
+			id: `SRC${String(index + 1).padStart(3, '0')}`,
+			'Maps to ISO 27001': 'A.5.1, A.5.2',
+		}));
+	}
+
+	it('instantiates X1 and X5 crosswalk offers under every preset', () => {
+		const x1 = instantiate(BROWSABLE_FRAMEWORK, detect(x1Rows())).mappings.find((mapping) =>
+			mapping.levels.some((level) => level.destinations.some((destination) => destination.primitive === 'crosswalk')),
+		);
+		const x5 = instantiate(DEEP_EVERYTHING, detect(x5Rows())).mappings.find((mapping) =>
+			mapping.levels.some((level) => level.destinations.some((destination) => destination.primitive === 'crosswalk')),
+		);
+		expect(x1?.levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: 'nist-csf-2',
+			predicate: 'is_approximate_to',
+		});
+		expect(x5?.levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: null,
+			predicate: 'is_approximate_to',
+		});
+	});
+
+	it('derives, toggles, and configures a crosswalk destination immutably', () => {
+		const original = propertyOnlyMapping('Maps to framework');
+		const added = addDestination(original, 0, 'crosswalk');
+		expect(deriveShapeCards(added).crosswalk).toBe('on');
+		expect(deriveShapeCards(csfMapping()).crosswalk).toBe('off');
+		expect(added.levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: null,
+			predicate: 'is_approximate_to',
+		});
+
+		const configured = setCrosswalkTarget(added, 0, {
+			toOntology: 'iso-27001',
+			predicate: 'is_equivalent_to',
+		});
+		expect(configured).not.toBe(added);
+		expect(configured.levels[0]).not.toBe(added.levels[0]);
+		expect(configured.levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: 'iso-27001',
+			predicate: 'is_equivalent_to',
+		});
+		expect(added.levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: null,
+			predicate: 'is_approximate_to',
+		});
+		expect(toggleDestinationAcrossMapping(configured, 'crosswalk', false).levels[0].destinations)
+			.not.toContainEqual(expect.objectContaining({ primitive: 'crosswalk' }));
+	});
+
+	it('explains when no level reads one real column', () => {
+		expect(shapeCardHint(propertyOnlyMapping(), 'crosswalk')).toBeNull();
+		const noColumn: StructureMapping = {
+			levels: [{
+				level: 'combined',
+				source: [{ column: 'left' }, { column: 'right' }],
+				destinations: [{ primitive: 'property', key: 'combined' }],
+				naming: 'joined',
+				missing: 'skip',
+				materialize: false,
+			}],
+		};
+		expect(shapeCardHint(noColumn, 'crosswalk')).toBe(
+			'Crosswalks need a level that reads one column. This mapping has none.',
+		);
+	});
+});
 
 describe('deriveShapeCards', () => {
 	it('browsable CSF → folders on, file names on, everything else off', () => {

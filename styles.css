@@ -2125,6 +2125,10 @@
 .crosswalker-wb-mini-connector { height: 1px; flex: 1 1 auto; max-width: 30px; background: var(--text-muted); }
 .crosswalker-wb-mini-connector.is-b { transform: rotate(-12deg); }
 .crosswalker-wb-shape-illustration.is-property { display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+.crosswalker-wb-shape-illustration.is-crosswalk { display: flex; align-items: center; justify-content: center; gap: var(--cw-s2); }
+.crosswalker-wb-mini-crosswalk-box { width: 32px; height: 24px; border: 2px solid var(--text-accent); border-radius: var(--cw-radius-sm); background: var(--background-primary); }
+.crosswalker-wb-mini-crosswalk-box.is-target { border-color: var(--text-muted); }
+.crosswalker-wb-mini-crosswalk-arrow { color: var(--text-accent); font-weight: 700; }
 .crosswalker-wb-mini-property { display: grid; grid-template-columns: 35% 1fr; gap: 5px; }
 .crosswalker-wb-mini-key, .crosswalker-wb-mini-value { height: 6px; border-radius: 1px; background: var(--background-modifier-border); }
 .crosswalker-wb-mini-value { background: var(--interactive-accent); opacity: 0.45; }
@@ -2145,6 +2149,10 @@
 	padding-top: var(--cw-s2);
 }
 .crosswalker-wb-shape-hint.is-blocked { color: var(--text-warning); }
+.crosswalker-wb-shape.is-needs-ontology .crosswalker-wb-shape-hint { color: var(--text-warning); }
+.crosswalker-wb-crosswalk-controls { display: flex; flex-direction: column; gap: var(--cw-s2); }
+.crosswalker-wb-crosswalk-controls label { display: flex; flex-direction: column; gap: var(--cw-s1); font-size: var(--cw-fs-small); }
+.crosswalker-wb-crosswalk-summary { font-size: var(--cw-fs-small); color: var(--text-muted); line-height: 1.45; }
 
 .crosswalker-wb-combined { margin: var(--cw-s3) 0; }
 .crosswalker-wb-combined-label { font-size: var(--cw-fs-small); color: var(--text-muted); margin-bottom: var(--cw-s1); }

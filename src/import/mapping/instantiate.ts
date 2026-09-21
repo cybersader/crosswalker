@@ -12,9 +12,10 @@
  *
  * Detection taxonomy coverage (detection.ts is the source of truth; do not edit
  * it here): packed-hierarchy and level-column-chain → structural mappings; facet
- * → tag mapping; parent-column and multi-value-link → link mappings. The
- * remaining kinds (title-candidate, row-type-discriminator, edge-file,
- * body-candidate) carry no clean recipe-region projection yet and are skipped
+ * → tag mapping; parent-column and multi-value-link → link mappings; a detected
+ * crosswalk column → a crosswalk destination. The remaining kinds
+ * (title-candidate, row-type-discriminator, edge-file, body-candidate) carry no
+ * clean recipe-region projection yet and are skipped
  * (they surface in the UI as flags / route elsewhere) — the defaults law still
  * guarantees a non-empty matrix.
  *
@@ -182,12 +183,13 @@ export function instantiate(preset: Preset, detections: Detection[]): ImportMapp
 				if (m) mappings.push(m);
 				break;
 			}
+			case 'crosswalk-column':
+				mappings.push(instantiateCrosswalk(detection));
+				break;
 			case 'title-candidate':
 			case 'row-type-discriminator':
 			case 'edge-file':
 			case 'body-candidate':
-			case 'crosswalk-column':
-				// wave 2c adds the crosswalk destination
 				// No clean recipe-region projection yet — skipped (defaults law covers emptiness).
 				break;
 		}
@@ -298,6 +300,29 @@ function instantiateFacet(preset: Preset, column: string): StructureMapping | nu
 				level: column,
 				source: { column },
 				destinations: dests.map((d) => mapDestination(d, { column })),
+				naming: 'part',
+				missing: DEFAULT_MISSING,
+				materialize: false,
+			},
+		],
+	};
+}
+
+function instantiateCrosswalk(
+	detection: Extract<Detection, { kind: 'crosswalk-column' }>,
+): StructureMapping {
+	return {
+		levels: [
+			{
+				level: detection.column,
+				source: { column: detection.column },
+				destinations: [
+					{
+						primitive: 'crosswalk',
+						toOntology: detection.targetOntology,
+						predicate: 'is_approximate_to',
+					},
+				],
 				naming: 'part',
 				missing: DEFAULT_MISSING,
 				materialize: false,

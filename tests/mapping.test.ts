@@ -544,6 +544,99 @@ describe('round-trip law: mapping → regions → mapping', () => {
 		});
 	});
 
+	it('X3 crosswalk destination uses the compact default and round-trips', () => {
+		const mapping: ImportMapping = {
+			mappings: [{
+				levels: [{
+					level: 'NIST CSF v2 Mapping',
+					source: { column: 'NIST CSF v2 Mapping' },
+					destinations: [{
+						primitive: 'crosswalk',
+						toOntology: 'nist-csf-2',
+						predicate: 'is_approximate_to',
+					}],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				}],
+			}],
+		};
+		const regions = toRecipeRegions(mapping);
+		expect(regions.crosswalks).toEqual([{ column: 'NIST CSF v2 Mapping', to_ontology: 'nist-csf-2' }]);
+		expect(fromRegions(regions)).toEqual(mapping);
+	});
+
+	it('X3 crosswalk destination round-trips every optional field', () => {
+		assertRoundTrip({
+			mappings: [{
+				levels: [{
+					level: 'Maps to framework',
+					source: { column: 'Maps to framework' },
+					destinations: [{
+						primitive: 'crosswalk',
+						toOntology: 'target-framework',
+						predicate: 'is_broader_than',
+						split: [',', '\n'],
+						qualifier: 'strip',
+						mappingSetId: 'synthetic-map-set',
+					}],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				}],
+			}],
+		});
+	});
+
+	it('skips an unnamed crosswalk destination and leaves existing recipes unchanged', () => {
+		const unnamed: ImportMapping = {
+			mappings: [{
+				levels: [{
+					level: 'Maps to framework',
+					source: { column: 'Maps to framework' },
+					destinations: [{ primitive: 'crosswalk', toOntology: null, predicate: 'is_approximate_to' }],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				}],
+			}],
+		};
+		expect(toRecipeRegions(unnamed)).toEqual({ layout: [] });
+		const existing = toRecipeRegions({
+			mappings: [{
+				levels: [{
+					level: 'leaf',
+					source: { column: 'id' },
+					destinations: [{ primitive: 'name' }],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				}],
+			}],
+		});
+		expect(existing).toEqual({ layout: [{ level: 'leaf', mechanism: 'file', template: '{id}.md' }] });
+		expect(existing).not.toHaveProperty('crosswalks');
+	});
+
+	it('attaches a canonical crosswalk entry to an existing whole-column level', () => {
+		const mapping: ImportMapping = {
+			mappings: [{
+				levels: [{
+					level: 'leaf',
+					source: { column: 'id' },
+					destinations: [
+						{ primitive: 'name' },
+						{ primitive: 'crosswalk', toOntology: 'target-framework', predicate: 'is_approximate_to' },
+					],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				}],
+			}],
+		};
+		expect(fromRegions(toRecipeRegions(mapping))).toEqual(mapping);
+	});
+
 	// Pass 1.5 — the batch enrichment block round-trips through target.enrichment.
 	it('enrichment block round-trips (children_lists + facet_notes + parent_note)', () => {
 		assertRoundTrip({

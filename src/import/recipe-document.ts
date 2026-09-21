@@ -11,7 +11,7 @@ import {
 	type RecipeRegions,
 } from './mapping/serialize';
 import type { ImportMapping } from './mapping/types';
-import { DEFAULT_MISSING } from './mapping/types';
+import { DEFAULT_MISSING, isConstantRef, toSourceRefs } from './mapping/types';
 import { interpolationColumn, parseTemplateSegments } from '../render/template';
 
 export const CURRENT_RECIPE_SPEC = 'https://crosswalker.dev/spec/recipe.schema.json' as const;
@@ -338,6 +338,14 @@ export function diagnoseCanonicalRecipe(recipe: CrosswalkerImportRecipe): Recipe
 			message: 'Recipe must contain a file or heading leaf output.',
 		});
 	}
+	if (recipe.target.crosswalks && recipe.target.crosswalks.length > 0) {
+		diagnostics.push({
+			code: 'crosswalks-pending-engine',
+			severity: 'warning',
+			path: 'target.crosswalks',
+			message: 'Crosswalk columns are recorded in the recipe; edge notes are written once the engine pass lands.',
+		});
+	}
 	if (recipe.target.graph_edges && recipe.target.graph_edges.length > 0) {
 		diagnostics.push({
 			code: 'graph-edges-deferred',
@@ -423,6 +431,24 @@ export function diagnoseEditableMapping(mapping: ImportMapping): RecipeDocumentD
 							'This link predicate or direction cannot be represented losslessly in a portable import recipe.',
 						));
 					}
+				} else if (destination.primitive === 'crosswalk') {
+					const refs = toSourceRefs(level.source);
+					const oneColumn = refs.length === 1 && !isConstantRef(refs[0]) && refs[0].part === undefined;
+					if (!oneColumn) {
+						diagnostics.push(blocking(
+							'crosswalk-source-not-a-column',
+							destPath,
+							'Crosswalk columns must read one whole source column. Choose a single column for this level or turn the Crosswalks card off.',
+						));
+					}
+					if (!destination.toOntology) {
+						const column = oneColumn && !isConstantRef(refs[0]) ? refs[0].column : level.level;
+						diagnostics.push(blocking(
+							'crosswalk-ontology-missing',
+							destPath,
+							`Column "${column}" is marked as a crosswalk but no framework is named. Pick the framework on the Crosswalks card, or turn the card off.`,
+						));
+					}
 				} else if (destination.primitive === 'property' && destination.list) {
 					diagnostics.push(blocking(
 						'property-list-not-portable',
@@ -490,6 +516,9 @@ function patchOwnedRegions(
 		patched.target.also_emit = deepClone(regions.also_emit) as CrosswalkerImportRecipe['target']['also_emit'];
 	}
 	else delete patched.target.also_emit;
+	if (regions.crosswalks && regions.crosswalks.length > 0) {
+		patched.target.crosswalks = deepClone(regions.crosswalks) as CrosswalkerImportRecipe['target']['crosswalks'];
+	} else delete patched.target.crosswalks;
 	if (regions.enrichment) patched.target.enrichment = deepClone(regions.enrichment);
 	else delete patched.target.enrichment;
 }

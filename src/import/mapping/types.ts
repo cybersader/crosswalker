@@ -10,7 +10,7 @@
  * The distilled engine (spec §3a½): every translation is one pipeline —
  *   split the source into ordered levels
  *     → regroup them (merge adjacent, drop some, leave the rest packed)
- *     → assign each group to Obsidian primitives
+ *     → assign each group to editable output destinations
  *     → set policies (ragged, placement, depth).
  * `LevelRule` is one group; its `destinations` are the assignment; `TailRule` is
  * the "however many levels remain" group (variadic).
@@ -122,7 +122,7 @@ export function isConstantRef(ref: SourceRef): ref is ConstantRef {
 }
 
 // ============================================================================
-// Destinations — the six Obsidian structuring primitives + content carriers
+// Destinations — vault outputs, content carriers, and crosswalk column roles
 // ============================================================================
 
 /**
@@ -144,9 +144,19 @@ export type LinkDirection = 'parent-on-child' | 'children-on-parent' | 'both';
 /** Where a body destination writes into the host note. */
 export type BodyPosition = 'section' | 'append' | 'table-row';
 
+export const CROSSWALK_PREDICATES = [
+	'is_equivalent_to',
+	'is_broader_than',
+	'is_narrower_than',
+	'is_approximate_to',
+	'intersects_with',
+] as const;
+
+export type CrosswalkPredicate = (typeof CROSSWALK_PREDICATES)[number];
+
 /**
- * A destination is one Obsidian primitive a level lands in, plus that
- * primitive's parameters (spec §7c — the full ⊕ menu). A single level may carry
+ * A destination is one output role a level carries, plus that role's parameters
+ * (spec §7c — the full ⊕ menu). A single level may carry
  * several destinations at once (folder AND property AND tag), which is why
  * `LevelRule.destinations` is plural.
  */
@@ -196,6 +206,21 @@ export type Destination =
 			/** Delimiters preserved from a canonical managed_links declaration. */
 			split?: string[];
 	  }
+	/**
+	 * A crosswalk column role: the cells hold identifiers from another framework.
+	 * Serializes to one target.crosswalks[] entry; the engine writes crosswalk-edge
+	 * notes in their own import set and nothing into the concept note. Distinct from
+	 * `link`, which is an intra-ontology reference written as a wikilink.
+	 */
+	| {
+			primitive: 'crosswalk';
+			/** CURIE prefix of the target framework. Null until the user names it. */
+			toOntology: string | null;
+			predicate?: CrosswalkPredicate;
+			split?: string[];
+			qualifier?: 'keep-as-justification' | 'strip';
+			mappingSetId?: string;
+	  }
 	/** A plain queryable frontmatter field. */
 	| {
 			primitive: 'property';
@@ -220,7 +245,10 @@ export type Destination =
 			canonicalOrder?: number;
 	  };
 
-/** Discriminant union of every destination primitive. */
+/** A configured crosswalk destination in the editable mapping. */
+export type CrosswalkDest = Extract<Destination, { primitive: 'crosswalk' }>;
+
+/** Discriminant union of every destination kind. */
 export type DestinationPrimitive = Destination['primitive'];
 
 /** Per-level missing-value policy (spec §3a½). Not serializable yet. */
@@ -256,7 +284,7 @@ export interface LevelRule {
 	join?: string;
 	/** Trailing filter chain applied to the rendered name (`fs-safe`, `tagsafe`, `trim`, `lower`). */
 	filters?: string[];
-	/** One or more primitives this level lands in (plural — spec §3a½). */
+	/** One or more output roles this level carries (plural — spec §3a½). */
 	destinations: Destination[];
 	/** How the rendered name is composed. */
 	naming: LevelNaming;
@@ -387,11 +415,12 @@ export const DESTINATION_ORDER: DestinationPrimitive[] = [
 	'property',
 	'tag',
 	'link',
+	'crosswalk',
 	'alias',
 	'body',
 ];
 
-/** Rank a destination primitive for canonical ordering. */
+/** Rank a destination kind for canonical ordering. */
 export function destinationRank(p: DestinationPrimitive): number {
 	const i = DESTINATION_ORDER.indexOf(p);
 	return i === -1 ? DESTINATION_ORDER.length : i;
