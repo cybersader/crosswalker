@@ -1,0 +1,112 @@
+---
+title: "Deeper reification, and control over it during import: synthesis"
+description: "Eight commits on 2026-09-21 make more of a source export reifiable (a 'maps to another framework' column becomes queryable edge notes) and give the import wizard the controls to decide, column by column, what becomes real. Includes the vault scan that finds framework exports already in a vault, the worksheet suggestion, SchemaVer 1.12.0, and the bounded architect review that fixed one identity-space error before code was written. Unmerged branch work; no real-Obsidian run yet."
+tags: [decision, import, reification, crosswalk, detection, wizard, schema, ux]
+date: 2026-09-21
+sidebar:
+  label: "09-21 · Deeper reification and import control"
+  order: -20260921
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="How to read this">
+Section 1 is the whole story in one breath. Sections 5 and 6 are the decisions and the review that shaped them. Delivery detail lives in [`CHANGELOG.md`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md) under `[Unreleased]`, not here.
+</Aside>
+
+## 1. Thirty seconds
+
+Crosswalker's product statement is [reification](/crosswalker/concepts/terminology/#reification) (plain: turning structure that is only implied in a source into real vault objects) plus lifecycle management. Until today the wizard could reify a hierarchy, tags, frontmatter, and body, but a column that says "this control maps to CSF GV.OC-01" was either dropped or, worse, written as a link to the wrong note. The CRI Profile recipe documented that as a known gap for months.
+
+Today's work closes it and states the framing the owner asked for: **deeper reification, and a good user experience for controlling that reification during the import process.** Both halves in one sentence, always. The vault scan is the way in; the wizard is where a team decides, column by column, what becomes a folder, a tag, a link, or an edge note.
+
+What shipped, on the unmerged branch `fix/d1-per-import-root`, gated but not yet run in real Obsidian:
+
+- A **crosswalk column role**. Detection recognizes a column holding identifiers from another framework and names the framework when it can. The workbench shows a **Crosswalks** card where the user picks the framework and the predicate. The engine writes crosswalk-edge notes in their own import set and nothing into the concept note. The recipe records the choice as `target.crosswalks[]` (SchemaVer 1.12.0), so any producer can declare it.
+- **Find sources in this vault**: a scan that lists framework export files already in the vault, says whether each is new, unchanged, or changed since import (by byte digest against provenance, never by folder), and opens the one you pick in the wizard.
+- **Worksheet and header-row suggestion** when a recognized workbook is chosen. Suggestion, never selection.
+
+## 2. A concrete example
+
+A financial-services team imports the CRI Profile workbook. One column, `NIST CSF v2 Mapping`, holds values like `GV.OC-01 (CRI Modified)`. Those values are byte-identical to CRI's own subcategory ids, so a naive importer would link each CRI note to another CRI note and manufacture a false edge inside one framework.
+
+Now: detection sees ids in that column, sees the header names CSF, and offers the crosswalk role even though the ids match the source's own. The Crosswalks card pre-selects NIST CSF 2.0 and "approximately the same as". Generate writes the 472 concept notes with no mapping property, then writes one edge note per CSF reference under `_crosswalker/mappings/cri-profile-to-nist-csf-2/`, each carrying the qualifier text `(CRI Modified)` verbatim as its justification. Tier 2 can answer "which CSF subcategories does this CRI statement map to" without a wikilink ever having pointed at the wrong framework.
+
+## 3. Why this matters
+
+The CRI mapping columns were the clearest case in the corpus where the right answer was "do not write a wikilink", and the only way to honor it was a hand-written crosswalk recipe nobody had written. A GRC team should not need to know that. They should see the column, see what Crosswalker thinks it is, and confirm or correct it. That is the control half of the framing, and it is why "detection" alone is the wrong headline for this work.
+
+## 4. Evidence (verdict only)
+
+| Gate | Result |
+|---|---|
+| Unit suite after the last commit | 3300 passed, 2 skipped (source: `bun run test`, 2026-09-21) |
+| Lint, build, codegen `--check` | pass on every commit |
+| Six static checks | pass on every commit |
+| Recipe hash pins (`tests/fixtures/recipe-hash-golden.json`) | exactly one moved, the CRI recipe, because it now declares a crosswalk (which changes what exists) |
+| Real-Obsidian run | **none**. The CRI e2e spec gained edge-count and ownership assertions that are authored, not run. Screenshots of the three new surfaces need a WDIO grant |
+
+## 5. Decision
+
+### 5.1 The essence: one latent structure, one vault structure
+
+A source export is a tree of tables. Every column carries one latent structure; reification maps each to one vault structure. The full table is in the spec (`.workspace/2026-09-21-vault-source-detection-and-deep-reification-spec.md` §1, local). Two gaps existed: a cross-ontology reference in a column (closed today) and a nested record list inside a record (modeled, not built; its own spec first). Everything else in the series is orchestration over shipped parts. The rule applied throughout: add a capability, not a case.
+
+### 5.2 Locks
+
+| Aspect | v0.1 lock | Why |
+|---|---|---|
+| Where a crosswalk column's edges live | Their own import set, under the `sssom` identity prefix, in the SSSOM pair folder | One identity space for every crosswalk edge whether it came from an SSSOM file or a column. The draft spec said `xwalk`; the architect review caught that it would fork the identity space and break the collision checks and closure pairing |
+| Recipe key | `target.crosswalks[]`, a new key, not a flag on `graph_edges` | `graph_edges` is concept-note frontmatter for intra-ontology relations; a crosswalk column must write nothing into the concept note. Different output shape, different key. The `graph_edge.via` description now says so |
+| Qualifier text (`(CRI Modified)`) | Kept verbatim as `mapping_justification`, or stripped; never parsed for meaning | One source is not enough to define a vocabulary. A later pass can map qualifiers when a second source shows the pattern |
+| Unnamed framework | Blocks Generate with a plain sentence | Writing edges to an unknown target ontology is a wrong answer, not a partial one |
+| "Sources already in the vault" | Source files only (CSV, XLSX, JSON), plus notes already stamped by another Tier 1 producer | Recognizing an ontology inside hand-written notes is inference from content and path, the bug class this project has retired three times |
+| Already imported? | Byte digest of the file against `source_ref.source_hash` in provenance, never a folder match | Identity, never path. CSV and JSON now stamp the digest XLSX always did, or two of three formats could not be reconciled |
+| Scan and suggestion | Offer only. Nothing auto-imports, auto-refreshes, or preselects a set; the recognized recipe is offered through the wizard's normal path | Refresh is chosen, never guessed |
+| Header row in drafts | Recorded (`xlsxHeaderRow`, additive) | Owner decision, option 1: the draft records what the scan found rather than hoping the wizard rediscovers it |
+| Vocabulary | "crosswalk destination" or "crosswalk column role" in every doc and string; never "primitive" or "mechanism" | Commitment 2 is a closed five-mechanism grammar; this is a Tier 1 shape rendered through `render()`, not a sixth mechanism |
+
+### 5.3 Deferred, explicitly
+
+| Item | Why deferred |
+|---|---|
+| Nested record lists (`catalog.groups[].controls[].parts[]`) as nested notes | Modeled in spec §5 only. Default for its own spec: a workbench surface over `source.levels` / `source.joins`, so every output note stays one row through `render()`; a new destination would read as a sixth mechanism |
+| `source.detect` hints (sheet, header row, filename) | Shipped in the 1.12.0 bump so there is one schema step; nothing reads them yet. The suggestion uses column scoring only |
+| TSV in the vault scan | The importable-extension list does not admit TSV today; the spec names it. Small follow-up |
+| The wizard's own Step 4 calling the headless runner | The byte-identical proof needs a real-Obsidian run. The runner is built to the same call shape the e2e specs use |
+| Refreshing crosswalk edges in place | Every run mints a new edge set; the old one is visible in ownership review, exactly like a second SSSOM import |
+| `Financial Services Mapping References` in CRI | Targets are regulatory documents, not an imported ontology (now CRI known gap 3) |
+
+### 5.4 Owner decision surfaced, not taken
+
+The bundled `recipes/import/crosswalk-edge.json` declares `source.ontology: "xwalk"` while the wired SSSOM importer and the new edge pass mint `sssom`. The test vault holds 7,608 legacy `xwalk:` edge notes, none stamped with an import set, and zero stamped sets under either prefix. Whether the legacy recipe and notes migrate to `sssom`, stay as an unstamped legacy space, or get a one-time stamping pass is a decision for a dated log entry, with the count above as its starting evidence.
+
+## 6. The bounded architect review
+
+The spec was frozen after a read-only Fable 5.1 review capped at 500 words and five questions, approved per launch by the owner. It returned "freeze with named edits" and found one real design error in the draft (the `xwalk` prefix, above) plus three precision fixes: a citation that pointed at an estimator comment rather than an enforced invariant; the `graph_edges` disambiguation; and the vocabulary rule that keeps the crosswalk from reading as a sixth mechanism. All four were applied before any code was written.
+
+Lesson kept: on this project the bounded review is worth its grant when the question is about identity spaces, artifact authority, or where a key belongs in the schema. It is not worth it for spec-exact implementation, which Sol 5.6 workers did for all eight commits. The owner's rule from today, recorded in memory: UX quality, structuring, feel, and hard problems go to a Fable 5.1 worker through per-launch approval; routine bounded work goes to Sol.
+
+## 7. What this does not do
+
+- It does not run in real Obsidian yet. No screenshot exists of the scan modal, the suggestion line, or the Crosswalks card. The three surfaces shipped against exact briefs and unit tests; a UX pass is the next thing to ask for.
+- It does not merge or release anything. Sixteen commits sit on `fix/d1-per-import-root` ahead of origin.
+- It does not touch areas 2 (crosswalking as a workflow) or 3 (connecting vault content). The owner's direction stands: importing first.
+- It does not add a sixth layout mechanism, a new artifact noun, or a marketplace. Crosswalk entries are data inside Recipe; scan results are a transient view.
+- It does not parse qualifier meaning, resolve object CURIEs, or verify that the target framework is imported. Unresolved objects are valid edges.
+
+## 8. Next
+
+1. A **UX pass** over the three new surfaces (Fable 5.1 worker, per-launch approval, screenshots first via a WDIO grant): does the Crosswalks card read as a decision, does the scan modal's state column say the right thing, does the suggestion line stay quiet enough.
+2. The **nested records spec** (source depth), starting from `source.levels` and `source.joins` as the default shape.
+3. The **`xwalk` decision** (§5.4).
+4. The **TSV** and **Step 4 runner** follow-ups when a real-Obsidian run is granted.
+
+## Related
+
+- Framing: [ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) (the one-sentence statement), [terminology: reification](/crosswalker/concepts/terminology/#reification)
+- Contract: [v0.1 schema spec §4.13 and §4.14](/crosswalker/agent-context/v0-1-schema-spec/), [§6 crosswalk vocabulary](/crosswalker/agent-context/v0-1-schema-spec/#6-crosswalk-assertion-vocabulary-and-sssom-provenance)
+- Prior decisions this builds on: [import set = ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/), [re-import is identity reconciliation](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/) (the identity-never-path rule the scan's reconciliation applies), [XLSX source-byte provenance](/crosswalker/agent-context/zz-log/2026-09-07-xlsx-source-snapshot-synthesis/), [portable recipe fidelity](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/), [artifact roles and authority](/crosswalker/agent-context/zz-log/2026-07-21-artifact-roles-and-authority-synthesis/)
+- Commitments: [six v0.1 architectural commitments](/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/) (commitments 1, 2, and 5 are load-bearing here)
+- User-facing: [quick start](/crosswalker/getting-started/quick-start/), [import wizard](/crosswalker/features/import-wizard/)
+- Delivery detail: [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present)
