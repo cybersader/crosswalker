@@ -186,6 +186,8 @@ export function instantiate(preset: Preset, detections: Detection[]): ImportMapp
 			case 'row-type-discriminator':
 			case 'edge-file':
 			case 'body-candidate':
+			case 'crosswalk-column':
+				// wave 2c adds the crosswalk destination
 				// No clean recipe-region projection yet — skipped (defaults law covers emptiness).
 				break;
 		}

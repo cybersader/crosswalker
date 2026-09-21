@@ -154,6 +154,18 @@ export interface RecipeRegistryEntry {
 	description: string;
 	/** Source ontology id (`nist-csf-2`, `cis-v8`, …). */
 	ontology: string;
+	/**
+	 * Case-insensitive header substrings that name this ontology in another
+	 * source. Recognition data only; moves into recipe JSON with the
+	 * 2026-09-14 spec's deliverable C.
+	 */
+	ontologyAliases: string[];
+	/**
+	 * Anchored RegExp source matching one identifier from this ontology, or null.
+	 * Recognition data only; moves into recipe JSON with the 2026-09-14 spec's
+	 * deliverable C.
+	 */
+	idPattern: string | null;
 	/** Declared source level names. */
 	levels: string[];
 	/** Tier 1 shape this recipe's leaf entry produces — lets the UI route crosswalk/junction sources distinctly. */
@@ -220,6 +232,48 @@ function templateColumns(template: string): string[] {
 /** Normalize a column name for tolerant comparison (mirrors config-manager fingerprinting). */
 export function normalizeColumn(name: string): string {
 	return name.toLowerCase().trim().replace(/[^a-z0-9]/g, '_');
+}
+
+/** Find the first registry ontology named by a case-insensitive header substring. */
+export function ontologyForHeader(
+	header: string,
+	registry: RecipeRegistryEntry[],
+): { ontology: string; entryId: string } | null {
+	const normalizedHeader = header.toLowerCase();
+	for (const entry of registry) {
+		if (entry.ontologyAliases.some((alias) => containsHeaderAlias(normalizedHeader, alias.toLowerCase()))) {
+			return { ontology: entry.ontology, entryId: entry.id };
+		}
+	}
+	return null;
+}
+
+/** Require alphanumeric boundaries so short aliases such as CRI do not match "description". */
+function containsHeaderAlias(header: string, alias: string): boolean {
+	let from = 0;
+	while (from <= header.length - alias.length) {
+		const index = header.indexOf(alias, from);
+		if (index === -1) return false;
+		const before = index === 0 ? '' : header[index - 1];
+		const afterIndex = index + alias.length;
+		const after = afterIndex >= header.length ? '' : header[afterIndex];
+		if ((before === '' || !/[a-z0-9]/.test(before)) && (after === '' || !/[a-z0-9]/.test(after))) {
+			return true;
+		}
+		from = index + 1;
+	}
+	return false;
+}
+
+/** Group registry entries by ontology while preserving declaration order. */
+export function entriesByOntology(registry: RecipeRegistryEntry[]): Map<string, RecipeRegistryEntry[]> {
+	const grouped = new Map<string, RecipeRegistryEntry[]>();
+	for (const entry of registry) {
+		const entries = grouped.get(entry.ontology) ?? [];
+		entries.push(entry);
+		grouped.set(entry.ontology, entries);
+	}
+	return grouped;
 }
 
 /** All signature + required columns of a raw recipe. */
@@ -290,12 +344,21 @@ const NO_ENRICHMENT: RecipeEnrichmentHint = {
  */
 const DEFAULTS: Record<
 	string,
-	{ label: string; description: string; suggestedFolder: string; recommendedEnrichment: RecipeEnrichmentHint }
+	{
+		label: string;
+		description: string;
+		suggestedFolder: string;
+		recommendedEnrichment: RecipeEnrichmentHint;
+		ontologyAliases?: string[];
+		idPattern?: string | null;
+	}
 > = {
 	'nist-csf-2-cprt-hierarchical': {
 		label: 'NIST CSF 2.0 (CPRT export, nested)',
 		description: 'Functions and categories become folders; subcategories become notes.',
 		suggestedFolder: 'Frameworks/NIST CSF 2.0',
+		ontologyAliases: ['NIST CSF', 'CSF v2', 'CSF 2.0', 'CSF 2', 'Cybersecurity Framework'],
+		idPattern: '^[A-Z]{2}\\.[A-Z]{2}-\\d{2}(\\.\\d{2})?$',
 		recommendedEnrichment: {
 			childrenLists: false,
 			facetNotes: 'notes',
@@ -308,6 +371,8 @@ const DEFAULTS: Record<
 		label: 'NIST CSF 2.0 (CPRT export)',
 		description: 'Each CSF element becomes a note with its id, level, and description.',
 		suggestedFolder: 'Frameworks/NIST CSF 2.0',
+		ontologyAliases: ['NIST CSF', 'CSF v2', 'CSF 2.0', 'CSF 2', 'Cybersecurity Framework'],
+		idPattern: '^[A-Z]{2}\\.[A-Z]{2}-\\d{2}(\\.\\d{2})?$',
 		recommendedEnrichment: {
 			childrenLists: false,
 			facetNotes: 'notes',
@@ -320,12 +385,16 @@ const DEFAULTS: Record<
 		label: 'NIST CSF 2.0 (subcategories)',
 		description: 'Each subcategory becomes a note.',
 		suggestedFolder: 'Frameworks/NIST CSF 2.0',
+		ontologyAliases: ['NIST CSF', 'CSF v2', 'CSF 2.0', 'CSF 2', 'Cybersecurity Framework'],
+		idPattern: '^[A-Z]{2}\\.[A-Z]{2}-\\d{2}(\\.\\d{2})?$',
 		recommendedEnrichment: NO_ENRICHMENT,
 	},
 	'mitre-attack-technique-flat': {
 		label: 'MITRE ATT&CK techniques',
 		description: 'Each technique becomes a note keyed by its technique id.',
 		suggestedFolder: 'Frameworks/MITRE ATT&CK',
+		ontologyAliases: ['ATT&CK', 'MITRE', 'ATTACK'],
+		idPattern: '^T\\d{4}(\\.\\d{3})?$',
 		recommendedEnrichment: {
 			childrenLists: false,
 			facetNotes: 'notes',
@@ -338,12 +407,16 @@ const DEFAULTS: Record<
 		label: 'CIS Controls v8 (controls)',
 		description: 'Each CIS control becomes a note with its title and description.',
 		suggestedFolder: 'Frameworks/CIS Controls v8',
+		ontologyAliases: ['CIS Controls', 'CIS v8', 'CIS CSC', 'CIS'],
+		idPattern: '^\\d{1,2}(\\.\\d{1,2})?$',
 		recommendedEnrichment: NO_ENRICHMENT,
 	},
 	'cis-controls-v8-flat': {
 		label: 'CIS Controls v8 (safeguards)',
 		description: 'Each safeguard becomes a note with its control and implementation groups.',
 		suggestedFolder: 'Frameworks/CIS Controls v8',
+		ontologyAliases: ['CIS Controls', 'CIS v8', 'CIS CSC', 'CIS'],
+		idPattern: '^\\d{1,2}(\\.\\d{1,2})?$',
 		recommendedEnrichment: {
 			childrenLists: false,
 			facetNotes: 'notes',
@@ -356,6 +429,8 @@ const DEFAULTS: Record<
 		label: 'Secure Controls Framework (2026)',
 		description: 'Each SCF control becomes a note with its domain and description.',
 		suggestedFolder: 'Frameworks/Secure Controls Framework',
+		ontologyAliases: ['SCF', 'Secure Controls Framework'],
+		idPattern: '^[A-Z]{3}-\\d{2}(\\.\\d)?$',
 		recommendedEnrichment: {
 			childrenLists: false,
 			facetNotes: 'notes',
@@ -368,6 +443,8 @@ const DEFAULTS: Record<
 		label: 'NIST 800-53 Rev 5',
 		description: 'Each control becomes a note keyed by its identifier.',
 		suggestedFolder: 'Frameworks/NIST 800-53',
+		ontologyAliases: ['800-53', 'SP 800-53', 'NIST 800-53'],
+		idPattern: '^[A-Z]{2}-\\d{1,2}(\\(\\d{1,2}\\))?$',
 		recommendedEnrichment: {
 			childrenLists: false,
 			facetNotes: 'notes',
@@ -380,6 +457,8 @@ const DEFAULTS: Record<
 		label: 'CRI Profile v2.2',
 		description: 'Each CRI Profile statement becomes a note.',
 		suggestedFolder: 'Frameworks/CRI Profile',
+		ontologyAliases: ['CRI Profile', 'CRI'],
+		idPattern: '^[A-Z]{2}\\.[A-Z]{2}-\\d{2}\\.\\d{2}$',
 		recommendedEnrichment: {
 			childrenLists: false,
 			facetNotes: 'notes',
@@ -532,6 +611,8 @@ function toEntry(raw: unknown): RecipeRegistryEntry {
 		label: meta.label,
 		description: meta.description,
 		ontology: r.source?.ontology ?? 'unknown',
+		ontologyAliases: meta.ontologyAliases ?? [],
+		idPattern: meta.idPattern ?? null,
 		levels: r.source?.levels ?? [],
 		routingKind: deriveRoutingKind(r),
 		suggestedFolder: meta.suggestedFolder,

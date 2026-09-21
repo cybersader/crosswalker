@@ -2660,6 +2660,7 @@ export class MappingWorkbench {
 			case 'multi-value-link': return 'link';
 			case 'title-candidate': return 'type';
 			case 'body-candidate': return 'pilcrow';
+			case 'crosswalk-column': return 'arrow-right-left';
 			case 'edge-file': return 'arrow-left-right';
 			case 'row-type-discriminator': return 'list';
 		}
@@ -2675,6 +2676,7 @@ export class MappingWorkbench {
 			case 'multi-value-link': return 'link';
 			case 'title-candidate': return 'title';
 			case 'body-candidate': return 'text';
+			case 'crosswalk-column': return 'crosswalk';
 			case 'edge-file': return 'edge';
 			case 'row-type-discriminator': return 'mixed';
 		}
@@ -2689,6 +2691,7 @@ export class MappingWorkbench {
 			case 'multi-value-link': return 'Multi-value link';
 			case 'title-candidate': return 'Title candidate';
 			case 'body-candidate': return 'Body candidate';
+			case 'crosswalk-column': return `Crosswalk to ${d.targetOntology ?? 'another framework'}`;
 			case 'edge-file': return 'Edge-shaped file';
 			case 'row-type-discriminator': return 'Row-type discriminator';
 		}
@@ -2703,6 +2706,7 @@ export class MappingWorkbench {
 			case 'multi-value-link': return 'Multiple references per cell';
 			case 'title-candidate': return 'Title candidate';
 			case 'body-candidate': return 'Body text candidate';
+			case 'crosswalk-column': return 'References to another framework';
 			case 'edge-file': return 'Relationship-shaped source';
 			case 'row-type-discriminator': return 'Mixed row levels';
 		}
@@ -2717,6 +2721,7 @@ export class MappingWorkbench {
 			case 'multi-value-link': return `Cells list several identifiers found in ${d.idColumn}.`;
 			case 'title-candidate': return 'Values are distinct enough to name individual rows.';
 			case 'body-candidate': return 'Values are long, distinct prose suitable for note content.';
+			case 'crosswalk-column': return d.targetOntology ? `Cells hold identifiers from ${d.targetOntology}, not from this source.` : 'Cells hold identifiers that are not from this source.';
 			case 'edge-file': return 'The source has subject and object identifiers, so its rows describe relationships.';
 			case 'row-type-discriminator': return 'Repeated row types correlate with different sets of populated columns.';
 		}
@@ -2734,6 +2739,7 @@ export class MappingWorkbench {
 			case 'facet-candidate': return `${d.cardinality} distinct label values in the sampled rows.`;
 			case 'parent-column': return `${Math.round(d.matchRate * 100)}% of values match an identifier in ${d.idColumn}.`;
 			case 'multi-value-link': return `${Math.round(d.matchRate * 100)}% of split values match an identifier, averaging ${d.avgValuesPerCell.toFixed(1)} per cell.`;
+			case 'crosswalk-column': return `${Math.round(d.idShapeRate * 100)}% of split values look like identifiers; ${Math.round(d.selfMatchRate * 100)}% also appear in ${d.idColumn}, averaging ${d.avgValuesPerCell} per cell.` + (d.qualifierSample ? ` Qualifiers like ${d.qualifierSample} are kept as the mapping justification.` : '');
 			case 'title-candidate': return `${Math.round(d.distinctness * 100)}% distinct among non-empty sampled values.`;
 			case 'body-candidate': return `${Math.round(d.distinctness * 100)}% distinct, with an average length of ${Math.round(d.avgLength)} characters.`;
 			case 'row-type-discriminator': return `${d.values.length} row types, with ${Math.round(d.maxJaccardDistance * 100)}% maximum fill-pattern difference.`;
@@ -2752,6 +2758,7 @@ export class MappingWorkbench {
 			case 'facet-candidate': return 'Proposes tags from this column when the active preset uses facets.';
 			case 'parent-column': return 'Proposes a parent link when the active preset uses links.';
 			case 'multi-value-link': return 'Proposes a list of links when the active preset uses links.';
+			case 'crosswalk-column': return 'Proposes crosswalk-edge notes to the other framework, kept out of the concept note.';
 			case 'title-candidate': return 'Supplies naming evidence but does not create a mapping by itself.';
 			case 'body-candidate': return 'Suggests note content routing but does not create a shape mapping by itself.';
 			case 'edge-file': return 'Flags relationship-shaped input but does not create a shape mapping by itself.';

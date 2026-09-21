@@ -25,6 +25,8 @@ import type { ParsedData, ColumnInfo } from '../types/config';
 import { isTier1Curie } from '../validation/validator';
 import { isEagerRows } from '../types/config';
 import type { VariadicConfig } from '../render/types';
+import { ontologyForHeader, RECIPE_REGISTRY } from './recipe-registry';
+import type { RecipeRegistryEntry } from './recipe-registry';
 
 // ============================================================================
 // Public detection types
@@ -213,6 +215,23 @@ export type Detection =
 			sampleValues: string[];
 	  }
 	| {
+			kind: 'crosswalk-column';
+			column: string;
+			idColumn: string;
+			/** Registry ontology when the header alias or id pattern matched; otherwise null. */
+			targetOntology: string | null;
+			/** Share of atoms that match the shared id-like value shape. */
+			idShapeRate: number;
+			/** Share of atoms found in this source's own id column value set. */
+			selfMatchRate: number;
+			/** Mean atoms per non-empty cell. */
+			avgValuesPerCell: number;
+			/** First trailing parenthetical qualifier seen after an atom. */
+			qualifierSample: string | null;
+			sampleValues: string[];
+			proposal: { mechanism: 'crosswalk-edges'; predicate: 'is_approximate_to' };
+	  }
+	| {
 			/**
 			 * A column whose cells, after list-splitting, hold several ids from
 			 * another column's set (`related: T1055, T1548`). Proposes multiple
@@ -341,6 +360,12 @@ const EDGE_PREDICATE_MAX_CARDINALITY = 8;
  */
 const CONCEPT_TITLE_MIN_AVG_LEN = 25;
 
+// --- crosswalk-column (deep-reification spec §4.2) ---
+/** Fraction of split atoms that must have the shared id-like shape. */
+export const CROSSWALK_ID_SHAPE_MIN = 0.8;
+/** Maximum self-match rate for unnamed foreign ids; equality stays intra-ontology. */
+export const CROSSWALK_SELF_MATCH_MAX = 0.5;
+
 // --- multi-value-link (spec §7d) ---
 /** Fraction of exploded (list-split) values that must hit the id set. */
 const MULTI_LINK_MATCH_MIN = 0.6;
@@ -373,8 +398,9 @@ const BODY_SAMPLE_MAXLEN = 160;
  * `ParsedData` — which is what the wizard hands over at Step 2a.
  *
  * Output order is deterministic: packed-hierarchy, level-column-chain,
- * edge-file, parent-column, multi-value-link, row-type-discriminator, facet,
- * body-candidate, title-candidate — each pass visiting columns in source order.
+ * edge-file, parent-column, crosswalk-column, multi-value-link,
+ * row-type-discriminator, facet, body-candidate, title-candidate, with each
+ * pass visiting columns in source order.
  */
 export function detectStructure(data: ParsedData, columns: ColumnInfo[]): Detection[] {
 	const columnInfo = new Map(columns.map((c) => [c.name, c]));
@@ -463,10 +489,44 @@ export function detectStructure(data: ParsedData, columns: ColumnInfo[]): Detect
 	const packed = data.columns.map((c) => packedByColumn.get(c)).filter((d): d is Detection => d !== undefined);
 	const packedColumns = new Set(packedByColumn.keys());
 
+	// --- Pass 4b: crosswalk-column (foreign ontology ids packed in a concept column) ---
+	// Edge-file subject/object columns are claimed by the file-level route. A fired
+	// crosswalk claims its column from parent-column and multi-value-link so one
+	// column never carries two link-shaped proposals.
+	const crosswalks: Extract<Detection, { kind: 'crosswalk-column' }>[] = [];
+	const crosswalkColumns = new Set<string>();
+	const edgeFileColumns = new Set<string>(
+		edgeFile ? [edgeFile.subjectColumn, edgeFile.objectColumn] : [],
+	);
+	for (const col of data.columns) {
+		const idCol = idColumns[0];
+		if (idCol === undefined) break;
+		if (idColumnSet.has(col) || edgeFileColumns.has(col)) continue;
+		const detection = detectCrosswalkColumn(
+			col,
+			idCol,
+			valuesByColumn.get(col) ?? [],
+			valuesByColumn.get(idCol) ?? [],
+			col,
+			RECIPE_REGISTRY,
+		);
+		if (detection) {
+			crosswalks.push(detection);
+			crosswalkColumns.add(col);
+		}
+	}
+	if (crosswalkColumns.size > 0) {
+		for (let i = parents.length - 1; i >= 0; i--) {
+			if (crosswalkColumns.has(parents[i].column)) parents.splice(i, 1);
+		}
+		for (const col of crosswalkColumns) parentColumns.delete(col);
+	}
+
 	// --- Pass 5: multi-value-link (list-split cells hit another column's id set) ---
 	const multiLinks: Detection[] = [];
 	for (const col of data.columns) {
 		if (idColumnSet.size === 0) break;
+		if (crosswalkColumns.has(col)) continue;
 		for (const idCol of idColumns) {
 			if (col === idCol) continue;
 			const detection = detectMultiValueLink(col, idCol, valuesByColumn.get(col) ?? [], valuesByColumn.get(idCol) ?? []);
@@ -511,6 +571,7 @@ export function detectStructure(data: ParsedData, columns: ColumnInfo[]): Detect
 		...(chain ? [chain] : []),
 		...(edgeFile ? [edgeFile] : []),
 		...parents,
+		...crosswalks,
 		...multiLinks,
 		...discriminators,
 		...facets,
@@ -856,6 +917,31 @@ function splitMultiValue(value: string): string[] {
 		pieces = pieces.flatMap((p) => p.split(d));
 	}
 	return pieces.map((p) => p.trim()).filter((p) => p !== '');
+}
+
+/**
+ * Split one crosswalk cell into ids and aligned trailing qualifiers. Uses the
+ * shared list delimiters plus newlines, and drops the frozen empty sentinels.
+ */
+export function splitCrosswalkCell(value: string): { atoms: string[]; qualifiers: (string | null)[] } {
+	let pieces = [value];
+	for (const delimiter of [...LIST_DELIMITERS, '\n']) {
+		pieces = pieces.flatMap((piece) => piece.split(delimiter));
+	}
+
+	const atoms: string[] = [];
+	const qualifiers: (string | null)[] = [];
+	for (const piece of pieces) {
+		let atom = piece.trim();
+		if (atom === '' || /^(?:none|n\/a|-)$/i.test(atom)) continue;
+		const qualifierMatch = /(\([^()]*\))$/.exec(atom);
+		const qualifier = qualifierMatch?.[1] ?? null;
+		if (qualifierMatch) atom = atom.slice(0, qualifierMatch.index).trim();
+		if (atom === '' || /^(?:none|n\/a|-)$/i.test(atom)) continue;
+		atoms.push(atom);
+		qualifiers.push(qualifier);
+	}
+	return { atoms, qualifiers };
 }
 
 /** Deterministic tag-namespace slug for a column name (literal segment root). */
@@ -1248,6 +1334,78 @@ function detectEdgeFile(
 		objectConfidence: object.confidence,
 		...(predicateColumn ? { predicateColumn, predicateConfidence } : {}),
 		sampleValues,
+	};
+}
+
+// ============================================================================
+// Crosswalk-column detection (deep-reification spec §4.2)
+// ============================================================================
+
+/**
+ * Detect ids from another ontology inside a concept source. A named ontology
+ * wins even when its ids overlap this source's own ids, which preserves the CRI
+ * trap as a crosswalk offer instead of manufacturing intra-ontology links.
+ */
+function detectCrosswalkColumn(
+	column: string,
+	idColumn: string,
+	columnValues: string[],
+	idValues: string[],
+	columnHeader: string,
+	registry: RecipeRegistryEntry[],
+): Extract<Detection, { kind: 'crosswalk-column' }> | null {
+	if (column === idColumn || columnValues.length < 3 || idValues.length === 0) return null;
+
+	const atoms: string[] = [];
+	let qualifierSample: string | null = null;
+	for (const cell of columnValues) {
+		const split = splitCrosswalkCell(cell);
+		for (let i = 0; i < split.atoms.length; i++) {
+			atoms.push(split.atoms[i]);
+			if (qualifierSample === null && split.qualifiers[i] !== null) {
+				qualifierSample = split.qualifiers[i];
+			}
+		}
+	}
+	if (atoms.length === 0) return null;
+
+	const avgValuesPerCell = atoms.length / columnValues.length;
+	if (avgValuesPerCell < 1) return null;
+	const idShapeRate = atoms.reduce((count, atom) => count + (isIdLikeValue(atom) ? 1 : 0), 0) / atoms.length;
+	if (idShapeRate < CROSSWALK_ID_SHAPE_MIN) return null;
+
+	const idSet = new Set(idValues);
+	const selfMatchRate = atoms.reduce((count, atom) => count + (idSet.has(atom) ? 1 : 0), 0) / atoms.length;
+	const alias = ontologyForHeader(columnHeader, registry);
+	let targetOntology = alias?.ontology ?? null;
+	// Pattern fallback names a foreign scheme only when the atoms are not already
+	// mostly members of this source's own id set. Header aliases deliberately bypass
+	// this guard because overlapping ids are the CRI trap.
+	if (targetOntology === null && selfMatchRate < CROSSWALK_SELF_MATCH_MAX) {
+		for (const entry of registry) {
+			if (entry.idPattern === null) continue;
+			const pattern = new RegExp(entry.idPattern);
+			const matchRate = atoms.reduce((count, atom) => count + (pattern.test(atom) ? 1 : 0), 0) / atoms.length;
+			if (matchRate >= CROSSWALK_ID_SHAPE_MIN) {
+				targetOntology = entry.ontology;
+				break;
+			}
+		}
+	}
+
+	if (!(targetOntology !== null || selfMatchRate < CROSSWALK_SELF_MATCH_MAX)) return null;
+
+	return {
+		kind: 'crosswalk-column',
+		column,
+		idColumn,
+		targetOntology,
+		idShapeRate: round(idShapeRate),
+		selfMatchRate: round(selfMatchRate),
+		avgValuesPerCell: round(avgValuesPerCell),
+		qualifierSample,
+		sampleValues: columnValues.slice(0, SAMPLE_VALUES),
+		proposal: { mechanism: 'crosswalk-edges', predicate: 'is_approximate_to' },
 	};
 }
 
