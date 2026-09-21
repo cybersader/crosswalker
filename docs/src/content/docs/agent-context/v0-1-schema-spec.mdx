@@ -13,7 +13,7 @@ tags: [schema, foundation, v0-1, architecture]
 
 **Scoped addendum, 2026-09-07** — one subsection only. `source_ref` and its `source_hash` property were re-checked field by field against `spec/tier1.schema.json § $defs.provenance_block.properties.source_ref` (unchanged: five optional properties, `minProperties: 1`, `source_hash` still a plain unpatterned string) and against `buildSourceRef()` in `src/generation/provenance.ts` (unchanged: conditional emission, omitted when falsy). The new runtime producer was read in `src/import/parsers/xlsx-parser.ts` and `src/generation/hash.ts` on the local working tree. **Producer status at the time of writing:** uncommitted, unmerged, unreleased, and partially verified — see the status callout in that subsection. No other section of this page was re-verified on this date, and the lines below stand unchanged.
 
-**Status last verified:** 2026-09-15 — §4.12 (`part` / `prefix` delimiter-set filters, SchemaVer 1.11.0) was checked against the `$defs/template` description and `$comment` line in `spec/recipe.schema.json`, the `FILTERS` table in `src/render/template.ts`, and `LevelRule.delimiters` in `src/import/mapping/types.ts`. Earlier: 2026-09-06 — the recipe-document digest additions were checked field by field against the local working tree: both new `recipe_document_digest` definitions and reference locations in [`spec/tier1.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/tier1.schema.json) and [`spec/recipe.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/recipe.schema.json), the helper and the reduced effective-target input in `src/generation/hash.ts`, `normalizeRecipe()` and the fork branch in `src/import/recipe-document.ts`, and the generated `RecipeAncestryReference`. That work has since passed independent verification (full unit suite, golden tests, lint, build, `codegen --check`, fixture no-drift, and all six static gates — detail in [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present)) and remains unmerged and unreleased. The rest of the page retains its 2026-08-31 field-by-field verification against those two schemas and `src/tier2/schema.sql`.
+**Status last verified:** 2026-09-21. §4.13 and §4.14 (SchemaVer 1.12.0) were checked against `spec/recipe.schema.json` `$defs/crosswalk_entry`, `source.detect`, and the `$comment` history; `recipeHashCanonicalInput()` in `src/generation/hash.ts`; `src/generation/crosswalk-edge-pass.ts`; and the bundled `recipes/import/cri-profile-v2-2.json`. Earlier: 2026-09-15. §4.12 (`part` / `prefix` delimiter-set filters, SchemaVer 1.11.0) was checked against the `$defs/template` description and `$comment` line in `spec/recipe.schema.json`, the `FILTERS` table in `src/render/template.ts`, and `LevelRule.delimiters` in `src/import/mapping/types.ts`. Earlier: 2026-09-06. The recipe-document digest additions were checked field by field against the local working tree: both new `recipe_document_digest` definitions and reference locations in [`spec/tier1.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/tier1.schema.json) and [`spec/recipe.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/recipe.schema.json), the helper and the reduced effective-target input in `src/generation/hash.ts`, `normalizeRecipe()` and the fork branch in `src/import/recipe-document.ts`, and the generated `RecipeAncestryReference`. That work has since passed independent verification (full unit suite, golden tests, lint, build, `codegen --check`, fixture no-drift, and all six static gates; detail in [CHANGELOG.md, Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present)) and remains unmerged and unreleased. The rest of the page retains its 2026-08-31 field-by-field verification against those two schemas and `src/tier2/schema.sql`.
 
 The machine-readable contracts and canonical SQL remain authoritative. Sections §3 and §7 below summarize the shipped shapes. Historical TypeScript/YAML sketches are labeled as history and must not be used as implementation contracts.
 
@@ -176,7 +176,7 @@ Both accept only `^sha256-[a-f0-9]{64}$` through a local `$defs.recipe_document_
 
 Because normalization runs first, the digest covers the defaults `normalizeRecipe()` supplies: `spec_version`, `target.linkStyle`, the folder `variadic` defaults (`segment`, `drop_last`, `max_depth`, `on_overflow`), and the `also_emit.body` defaults (`position`, `format`, `omit_if_empty`, and `heading_depth` for `section` entries) — sourced from that function. The practical consequence for external producers: **an omitted default and an explicitly written equivalent default identify the same revision and digest identically.** This is a digest of a normalized canonical recipe, not of arbitrary raw recipe JSON, and object key order and input-file whitespace do not affect it while array order does.
 
-**How it differs from the existing recipe hash.** `computeRecipeHash()` hashes a deliberately reduced slice — `layout`, `also_emit`, `enrichment`, `auto_heading`, `source.where`, `source.joins` (source: `src/generation/hash.ts § recipeHashCanonicalInput`) — because it answers "did anything that changes output behavior change?" The document digest covers the whole recipe, so a changed recipe id, title, or ancestry reference changes the digest while leaving the effective-target hash fixed. Both meanings, and every value already written under them, are unchanged by this addition.
+**How it differs from the existing recipe hash.** `computeRecipeHash()` hashes a deliberately reduced slice: `layout`, `also_emit`, `enrichment`, `auto_heading`, `target.crosswalks`, `source.where`, and `source.joins` (source: `src/generation/hash.ts § recipeHashCanonicalInput`) because it answers "did anything that changes output behavior change?" The document digest covers the whole recipe, so a changed recipe id, title, or ancestry reference changes the digest while leaving the effective-target hash fixed. Both meanings, and every value already written under them, are unchanged by this addition.
 
 **No self-field and no stripping.** Digests live on references to *other* documents, so a recipe never carries its own digest: an own-digest property on recipe metadata is rejected by the closed metadata schema. Nothing is excluded before hashing either — an ancestor digest string already present in a recipe is ordinary document content and participates in that recipe's digest, as does any similarly named key inside an opaque block.
 
@@ -786,6 +786,58 @@ Lexing follows the SchemaVer 1.7.0 rules: the delimiter set is one filter argume
 On the mapping side (source: `src/import/mapping/types.ts` `LevelRule`), a level carries `delimiters` (the set) beside the legacy single `delimiter`; a level with only `delimiter` still serializes to `split(d,n)` byte-for-byte, so existing recipe hashes do not move. `naming: 'prefix'` is now meaningful on fixed levels, not only the variadic tail.
 
 **Backward compatibility**: purely additive (SchemaVer ADDITION). Recipes without these filters validate, render, and hash unchanged. Spec URI did NOT bump.
+
+<span id="target-crosswalks"></span>
+### §4.13 `target.crosswalks[]`: a crosswalk column role (added 2026-09-21, SchemaVer 1.12.0; additive)
+
+Crosswalker turns more of what is latent in a source into vault structure, and the import wizard is where the user decides, column by column, what becomes real. A [**crosswalk column role**](/crosswalker/concepts/terminology/#crosswalk-column-role) (plain: a source column whose cells contain identifiers from another framework) [reifies](/crosswalker/concepts/terminology/#reification) those references as first-class crosswalk-edge notes instead of leaving them as text or treating them as links inside the source ontology.
+
+Each `target.crosswalks[]` entry has seven fields (source: `spec/recipe.schema.json § $defs/crosswalk_entry`):
+
+| Field | Contract |
+|---|---|
+| `column` | Required non-empty source-column name. |
+| `to_ontology` | Required non-empty CURIE prefix for the target ontology, for example `nist-csf-2`. |
+| `predicate` | One of five allowed values: `is_equivalent_to`, `is_broader_than`, `is_narrower_than`, `is_approximate_to`, or `intersects_with`; default `is_approximate_to`. See [§6](#6-crosswalk-assertion-vocabulary-and-sssom-provenance) for their meanings. |
+| `split` | Cell delimiters; default `[",", "\n", ";"]`. |
+| `drop` | Atoms treated as empty; default `["None", "N/A", "-"]`. |
+| `qualifier` | Either `keep-as-justification` or `strip`; default `keep-as-justification`. |
+| `mapping_set_id` | Optional mapping-set identity; default `<source ontology>-to-<to_ontology>-<recipe id>`. |
+
+For each declared entry, the engine derives edge rows and writes Tier 1 `crosswalk_edge_frontmatter` notes under `_crosswalker/mappings/<source>-to-<target>` (source: `src/generation/crosswalk-edge-pass.ts`). The notes have their own newly minted import set under the `sssom` identity prefix. Nothing is written into the concept note. The edge pass uses the same SSSOM identity and generation path as a standalone mapping import, then invokes Tier 2 projection and closure precomputation when those handles are available.
+
+This is separate from `target.graph_edges` because the two keys describe different output shapes. `graph_edges` encodes intra-ontology relations as frontmatter on the concept note; a crosswalk column emits separate mapping notes. The SchemaVer 1.12.0 amendment makes the distinction explicit in `graph_edge.via`: `crosswalksTo (intra-vault convenience only; cross-ontology references belong in target.crosswalks)` (source: `spec/recipe.schema.json § $defs/graph_edge.properties.via`).
+
+A trailing parenthetical qualifier is kept verbatim as `mapping_justification` when `qualifier` is `keep-as-justification`, and is removed when the value is `strip`. Crosswalker does not parse the qualifier for meaning in this contract (source: `deriveCrosswalkEdgeRows()` in `src/generation/crosswalk-edge-pass.ts`).
+
+**CRI worked example.** The `NIST CSF v2 Mapping` column contains CSF identifiers that are byte-identical to CRI's own Profile identifiers. A wikilink would therefore resolve to a CRI note and manufacture a false intra-ontology relation. `recipes/import/cri-profile-v2-2.json` now declares the column as a crosswalk to `nist-csf-2`, uses `is_approximate_to`, and keeps qualifiers such as `(CRI Modified)` as justification. Its effective recipe hash moved because the recipe now produces additional edge notes; that output-changing declaration correctly participates in the hash.
+
+The wizard offers this role through detection kind `crosswalk-column` in `src/import/detection.ts`, then shows a **Crosswalks** card where the user names the framework and chooses the predicate. The framework control lists registry ontologies plus **Other**, and the predicate control exposes the five schema values above (source: `src/import/workbench.ts`). An unnamed target blocks Generate with: `Column "<column>" is marked as a crosswalk but no framework is named. Pick the framework on the Crosswalks card, or turn the card off.` (source: `src/import/recipe-document.ts`).
+
+`target.crosswalks` participates in `computeRecipeHash()` through `recipeHashCanonicalInput()` because it changes which notes exist. An absent key stays absent rather than becoming `null`, so every recipe without `target.crosswalks` keeps its pre-1.12.0 canonical input and hash byte for byte (source: `src/generation/hash.ts`).
+
+**Backward compatibility**: purely additive (SchemaVer ADDITION). Recipes without `target.crosswalks` validate, generate, and hash unchanged. Spec URI did NOT bump.
+
+<span id="source-detect"></span>
+### §4.14 `source.detect`: offer-only source recognition hints (added 2026-09-21, SchemaVer 1.12.0; additive)
+
+Crosswalker can carry hints about where a source's table begins, while the import wizard remains the control surface where the user confirms the source binding and decides what becomes real. `source.detect` is offer-only: hints may rank or explain a suggestion, but they never select a source, worksheet, or header row on their own.
+
+The block has five optional fields (source: `spec/recipe.schema.json § source.properties.detect`):
+
+| Field | Contract |
+|---|---|
+| `sheet` | Preferred worksheet name, matched exactly and case-sensitively after trimming. |
+| `sheet_aliases` | Unique alternative worksheet names, matched by the same rule as `sheet`. |
+| `header_row` | Zero-based header-row index on the preferred sheet. |
+| `filename` | Unique case-insensitive filename substrings that may raise the rank of a candidate already matched by columns, but never admit one by themselves. |
+| `notes` | Up to 512 characters of user-facing guidance about the source and download choice. |
+
+Nothing reads `source.detect` yet. The wizard's current sheet and header-row suggestion calls `scoreFilePeeks()` through `src/import/workbook-suggestion.ts`, so it scores observed columns, structural depth, signature length, and declaration order rather than consulting these hints. The hints are the next consumer boundary, not a claim of current behavior.
+
+`source.detect` is excluded from `computeRecipeHash()` because it changes no generated output. It is included in `computeRecipeDocumentDigest()` with the rest of the normalized recipe document (source: the `source.detect` description in `spec/recipe.schema.json` and the whole-document digest contract in §3 above).
+
+**Backward compatibility**: purely additive (SchemaVer ADDITION). Recipes without `source.detect` validate and identify exactly as before. Spec URI did NOT bump.
 
 ## §5 Historical junction-note design sketch
 
