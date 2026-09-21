@@ -587,6 +587,7 @@ export interface EffectiveRecipeTarget {
 	also_emit?: unknown;
 	enrichment?: unknown;
 	auto_heading?: unknown;
+	crosswalks?: unknown;
 }
 
 /**
@@ -614,7 +615,7 @@ export interface EffectiveRecipeSource {
  * for distinguishing recipe-drift from source-drift (Ch 43 deliverable §2's
  * two-axes table: unchanged concept_cid + changed recipe.hash = pure recipe
  * change, no semantic-diff risk; changed concept_cid + unchanged recipe.hash
- * = pure source-version change). Hashes exactly three fields of
+ * = pure source-version change). Hashes the output-affecting fields of
  * `recipe.target`:
  *
  *   - `layout`     — folder/file/heading mechanisms + templates (what
@@ -627,6 +628,8 @@ export interface EffectiveRecipeSource {
  *   - `auto_heading` — the recipe's control over the note's automatic H1
  *                    (schema SchemaVer 1.8.0). It materially changes emitted
  *                    body text, so it belongs here.
+ *   - `crosswalks` — cross-ontology column declarations. They change which
+ *                    crosswalk-edge notes exist, so they belong here.
  *
  * ...plus the source-shaping declarations of `recipe.source` (SchemaVer
  * 1.9.0, Ch 46 source contract §8):
@@ -670,6 +673,10 @@ export function recipeHashCanonicalInput(target: EffectiveRecipeTarget, source?:
 		// already-written _crosswalker.recipe.hash, and make every existing
 		// generated note look recipe-drifted on its next re-import.
 		auto_heading: target.auto_heading,
+		// Same absent-stays-absent rule as auto_heading: crosswalks changes which
+		// notes exist, so it participates, but NEVER `?? null` here. A recipe
+		// without crosswalks must keep its pre-1.12.0 canonical string and hash.
+		crosswalks: target.crosswalks,
 		// Same rule, same reason (Ch 46 source contract §8). Source shaping
 		// changes WHICH NOTES EXIST, so it must enter the hash — but a recipe
 		// that declares none must hash byte-identically to its pre-1.9.0 self,

@@ -27,6 +27,9 @@ describe('schema-generated recipe type contract', () => {
 			'body?: [BodyProjectionEntry, ...BodyProjectionEntry[]]',
 			'query?: QueryBlock',
 			'graph_edges?: GraphEdge[]',
+			'crosswalks?: [CrosswalkColumnEntry, ...CrosswalkColumnEntry[]]',
+			'export interface CrosswalkColumnEntry',
+			'detect?:',
 			"linkStyle?: 'absolute' | 'shortest'",
 		]) {
 			expect(generated).toContain(field);
