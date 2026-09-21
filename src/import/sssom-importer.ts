@@ -31,6 +31,7 @@ import type { App } from 'obsidian';
 import type { ParsedData, GenerationResult } from '../types/config';
 import { generateFromRecipe } from '../generation/generation-engine';
 import type { Recipe } from '../render';
+import type { CrosswalkPredicate } from './mapping/types';
 import type { DebugLog } from '../utils/debug';
 import {
 	parseSssomTsv,
@@ -394,13 +395,20 @@ function buildSyntheticRecipe(source: string, target: string): Recipe {
  *
  * Unknown predicates fall back to `intersects_with` with a warning logged.
  */
-const SKOS_TO_STRM: Record<string, string> = {
+const SKOS_TO_STRM: Record<string, CrosswalkPredicate> = {
 	'skos:exactMatch': 'is_equivalent_to',
 	'skos:closeMatch': 'is_approximate_to',
 	'skos:broadMatch': 'is_narrower_than',
 	'skos:narrowMatch': 'is_broader_than',
 	'skos:relatedMatch': 'intersects_with',
 };
+
+/** The inverse of the single SKOS→STRM table used by SSSOM normalization. */
+export function strmToSkos(predicate: CrosswalkPredicate): string {
+	const match = Object.entries(SKOS_TO_STRM).find(([, strm]) => strm === predicate);
+	if (!match) throw new Error(`No SSSOM predicate is registered for ${predicate}.`);
+	return match[0];
+}
 
 function normalizePredicate(sssomPredicate: string): { strm: string; warning?: string } {
 	const strm = SKOS_TO_STRM[sssomPredicate];

@@ -4013,6 +4013,10 @@ export class ImportFlow {
 			frameworkId: this.frameworkId || undefined,
 			configId: this.appliedConfig?.id,
 			sourceFileName: this.sourceFile?.name,
+			tier2: {
+				runProjection: this.plugin.runProjection,
+				precomputeClosure: this.plugin.precomputeClosure,
+			},
 			// `recipeOverride` is NOT built here (B2): `this.workbench.buildRecipe()`
 			// can throw (the single-structural-mapping guard, serialize.ts's
 			// `assertSingleStructural`) — building it as part of this object
@@ -4219,6 +4223,7 @@ export class ImportFlow {
 		errors: { row: number; message: string }[];
 		conflicts?: Array<{ path: string; code: string; detail: string }>;
 		filteredOut?: number;
+		crosswalkEdges?: { created: number; sets: string[] };
 		/** Notes the run relocated by identity. Empty unless a root actually moved. */
 		moved?: Array<{ curie: string; from: string; to: string }>;
 		/** Identities this set held that the source no longer produces. */
@@ -4234,6 +4239,11 @@ export class ImportFlow {
 		// Summary
 		const summary = contentEl.createEl('div', { cls: 'crosswalker-results-summary' });
 		summary.createEl('p', { text: `✅ Created: ${result.created.length} notes` });
+		if (result.crosswalkEdges) {
+			summary.createEl('p', {
+				text: `Wrote ${result.crosswalkEdges.created} crosswalk edges to ${result.crosswalkEdges.sets.length} mapping sets under _crosswalker/mappings.`,
+			});
+		}
 		if (result.skipped.length > 0) {
 			summary.createEl('p', { text: `⏭️ Skipped: ${result.skipped.length} existing notes` });
 		}

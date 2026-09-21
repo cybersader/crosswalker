@@ -28,6 +28,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as XLSX from 'xlsx';
 import { readFrontmatterFromDisk, requireFrontmatterIndexed } from './helpers/vault-readiness';
+import { splitCrosswalkCell } from '../../src/import/detection';
 
 const RUN_SCALE = process.env.CW_SCALE === '1';
 const describeScale = RUN_SCALE ? describe : describe.skip;
@@ -44,6 +45,8 @@ const CURIE_PATTERN = /^[a-z][a-z0-9_-]*:[A-Za-z0-9._\-()/]+$/;
 const PROSE_COLUMN = 'CRI Profile v2.2 Diagnostic Statement';
 const PATH_COLUMN = 'CRI Profile Function / Category / Subcategory';
 const BODY_HEADING = '## Diagnostic statement';
+const CROSSWALK_COLUMN = 'NIST CSF v2 Mapping';
+const MAPPING_DESTINATION = '_crosswalker/mappings/cri-profile-to-nist-csf-2';
 
 /** Mirror src/import/parsers/xlsx-parser.ts exactly: normKey + raw:false + defval:''. */
 const normKey = (key: string): string => key.replace(/\s+/g, ' ').trim();
@@ -98,19 +101,26 @@ describeScale('Crosswalker plugin — CRI Profile v2.2 flat recipe corpus proof 
 		// Every row carries prose, so a bodyless note can only be an engine fault.
 		expect(corpus.rows.filter((row) => (row[PROSE_COLUMN] ?? '').length > 0).length).toBe(EXPECTED_RECORD_COUNT);
 		metric('parsed_record_count', corpus.rows.length);
+		const expectedCrosswalkEdgeCount = corpus.rows.reduce(
+			(total, row) => total + splitCrosswalkCell(row[CROSSWALK_COLUMN] ?? '').atoms.length,
+			0,
+		);
+		metric('expected_crosswalk_edge_count', expectedCrosswalkEdgeCount);
 
-		const cleanup = await browser.executeObsidian(async ({ app }, destinationRoot) => {
-			const root = app.vault.getAbstractFileByPath(destinationRoot);
-			if (root) {
-				// @ts-expect-error - internal trash API, isolated E2E vault only
-				await app.vault.trash(root, false);
+		const cleanup = await browser.executeObsidian(async ({ app }, destinationRoots) => {
+			for (const destinationRoot of destinationRoots) {
+				const root = app.vault.getAbstractFileByPath(destinationRoot);
+				if (root) {
+					// @ts-expect-error - internal trash API, isolated E2E vault only
+					await app.vault.trash(root, false);
+				}
 			}
 			const deadline = Date.now() + 20_000;
-			while (app.vault.getAbstractFileByPath(destinationRoot) && Date.now() < deadline) {
+			while (destinationRoots.some((root) => app.vault.getAbstractFileByPath(root)) && Date.now() < deadline) {
 				await new Promise((resolve) => setTimeout(resolve, 50));
 			}
-			return !app.vault.getAbstractFileByPath(destinationRoot);
-		}, 'Frameworks');
+			return destinationRoots.every((root) => !app.vault.getAbstractFileByPath(root));
+		}, ['Frameworks', MAPPING_DESTINATION]);
 		expect(cleanup).toBe(true);
 
 		// Mirrors ImportWizard.buildWorkbenchConfig() + recipeOverride exactly as
@@ -154,7 +164,12 @@ describeScale('Crosswalker plugin — CRI Profile v2.2 flat recipe corpus proof 
 		expect(generation.success).toBe(true);
 		expect(generation.created.length).toBe(EXPECTED_RECORD_COUNT);
 		expect(generation.skipped).toEqual([]);
+		expect(generation.crosswalkEdges).toEqual({
+			created: expectedCrosswalkEdgeCount,
+			sets: [expect.stringMatching(/^iset-[a-z0-9]{6}$/)],
+		});
 		metric('generated_note_count', generation.created.length);
+		metric('generated_crosswalk_edge_count', generation.crosswalkEdges.created);
 		metric('render_error_count', generation.errors.length);
 		metric('generation_engine_duration_ms', generation.duration);
 
@@ -167,6 +182,15 @@ describeScale('Crosswalker plugin — CRI Profile v2.2 flat recipe corpus proof 
 		});
 		expect(indexed.total).toBe(EXPECTED_RECORD_COUNT);
 		metric('metadata_index_settle_ms', indexed.waitedMs);
+		const indexedEdges = await requireFrontmatterIndexed({
+			pathPrefixes: MAPPING_DESTINATION,
+			expectedCount: expectedCrosswalkEdgeCount,
+			requireKeys: ['curie', 'subject_id', 'predicate_id', 'object_id', '_crosswalker'],
+			timeoutMs: 120_000,
+			pollMs: 100,
+		});
+		expect(indexedEdges.total).toBe(expectedCrosswalkEdgeCount);
+		metric('crosswalk_metadata_index_settle_ms', indexedEdges.waitedMs);
 
 		// Frontmatter shape check on one note, by KEY PRESENCE and by value SHAPE.
 		// No source value is asserted literally except the row's own identifier,
@@ -272,6 +296,49 @@ describeScale('Crosswalker plugin — CRI Profile v2.2 flat recipe corpus proof 
 			bodyHeading: BODY_HEADING,
 		});
 
+		const edgeProof = await browser.executeObsidian(async ({ app }, args) => {
+			const conceptSetIds = new Set<string>();
+			for (const file of app.vault.getMarkdownFiles()) {
+				if (!file.path.startsWith(`${args.conceptRoot}/`)) continue;
+				const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+				const id = fm?._crosswalker?.import_set?.id;
+				if (typeof id === 'string') conceptSetIds.add(id);
+			}
+			const edgeSetIds = new Set<string>();
+			let edgeCount = 0;
+			let invalidOwnerCount = 0;
+			let sourceFileMismatchCount = 0;
+			for (const file of app.vault.getMarkdownFiles()) {
+				if (!file.path.startsWith(`${args.mappingRoot}/`)) continue;
+				edgeCount += 1;
+				const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+				if (fm?._crosswalker?.import_set?.ontology !== 'sssom') invalidOwnerCount += 1;
+				if (fm?._crosswalker?.source_ref?.file !== args.sourceFileName) sourceFileMismatchCount += 1;
+				const id = fm?._crosswalker?.import_set?.id;
+				if (typeof id === 'string') edgeSetIds.add(id);
+			}
+			return {
+				edgeCount,
+				invalidOwnerCount,
+				sourceFileMismatchCount,
+				conceptSetCount: conceptSetIds.size,
+				edgeSetCount: edgeSetIds.size,
+				sharedSetCount: [...edgeSetIds].filter((id) => conceptSetIds.has(id)).length,
+			};
+		}, {
+			conceptRoot: DESTINATION,
+			mappingRoot: MAPPING_DESTINATION,
+			sourceFileName: SOURCE_FILE_NAME,
+		});
+		expect(edgeProof).toEqual({
+			edgeCount: expectedCrosswalkEdgeCount,
+			invalidOwnerCount: 0,
+			sourceFileMismatchCount: 0,
+			conceptSetCount: 1,
+			edgeSetCount: 1,
+			sharedSetCount: 0,
+		});
+
 		// THE acceptance case: was 472 bodyless notes, must now be zero.
 		expect(proof.missingFiles.length).toBe(0);
 		expect(proof.emptyBodies.length).toBe(0);
@@ -283,6 +350,9 @@ describeScale('Crosswalker plugin — CRI Profile v2.2 flat recipe corpus proof 
 		// prose in it would be unprotected on the next re-import.
 		expect(proof.missingRegion).toEqual([]);
 		expect(proof.headingNotThePath.length).toBe(0);
+		expect(proof.frontmatterKeys).not.toEqual(expect.arrayContaining([
+			'subject_id', 'predicate_id', 'object_id', 'mapping_justification',
+		]));
 
 		metric('bodyless_note_count', proof.emptyBodies.length);
 		metric('notes_missing_prose_section', proof.missingProseSection.length);

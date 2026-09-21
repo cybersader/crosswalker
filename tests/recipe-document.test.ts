@@ -79,12 +79,6 @@ describe('RecipeDocument canonical preservation boundary', () => {
 			toOntology: 'target-framework',
 			predicate: 'is_approximate_to',
 		});
-		expect(diagnoseCanonicalRecipe(recipe)).toContainEqual({
-			code: 'crosswalks-pending-engine',
-			severity: 'warning',
-			path: 'target.crosswalks',
-			message: 'Crosswalk columns are recorded in the recipe; edge notes are written once the engine pass lands.',
-		});
 	});
 
 	it('a no-op patch without ancestry does not mint an id, ancestry, or digest', () => {

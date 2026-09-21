@@ -338,14 +338,6 @@ export function diagnoseCanonicalRecipe(recipe: CrosswalkerImportRecipe): Recipe
 			message: 'Recipe must contain a file or heading leaf output.',
 		});
 	}
-	if (recipe.target.crosswalks && recipe.target.crosswalks.length > 0) {
-		diagnostics.push({
-			code: 'crosswalks-pending-engine',
-			severity: 'warning',
-			path: 'target.crosswalks',
-			message: 'Crosswalk columns are recorded in the recipe; edge notes are written once the engine pass lands.',
-		});
-	}
 	if (recipe.target.graph_edges && recipe.target.graph_edges.length > 0) {
 		diagnostics.push({
 			code: 'graph-edges-deferred',

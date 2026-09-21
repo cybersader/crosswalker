@@ -1,5 +1,6 @@
 import { TextDecoder, TextEncoder } from 'node:util';
 import { TFile, TFolder } from 'obsidian';
+import { load } from 'js-yaml';
 import { generateNotes } from '../src/generation/generation-engine';
 import { computeSourceByteDigest } from '../src/generation/hash';
 import { recognizedDestination } from '../src/import/import-wizard';
@@ -39,6 +40,7 @@ class ByteFile {
 Object.assign(globalThis, { TextDecoder, TextEncoder, File: ByteFile });
 
 const ENTRY = RECIPE_REGISTRY.find((entry) => entry.id === 'nist-csf-2-flat')!;
+const CRI_ENTRY = RECIPE_REGISTRY.find((entry) => entry.id === 'cri-profile-v2-2-flat')!;
 const CSV = [
 	'Subcategory,Implementation Examples',
 	'GV.AA-01: Synthetic outcome one,Synthetic example one',
@@ -56,6 +58,11 @@ const debug = {
 	error() {},
 } as unknown as DebugLog;
 
+function parsedFrontmatter(text: string): Record<string, unknown> {
+	const match = /^---\n([\s\S]*?)\n---/.exec(text.replace(/\r\n/g, '\n'));
+	return match ? ((load(match[1]) as Record<string, unknown>) ?? {}) : {};
+}
+
 function sourceFile(path: string): TFile {
 	const file = new TFile(path);
 	const name = path.split('/').pop()!;
@@ -69,6 +76,7 @@ function sourceFile(path: string): TFile {
 
 function makeApp(sourcePath: string, sourcePayload: string | Uint8Array, initialMarkdown: Record<string, string> = {}) {
 	const files = new Map<string, string>(Object.entries(initialMarkdown));
+	const initiallyUnindexed = new Set(Object.keys(initialMarkdown));
 	const folders = new Set<string>(['']);
 	const source = sourceFile(sourcePath);
 	const sourceBytes = typeof sourcePayload === 'string'
@@ -106,7 +114,13 @@ function makeApp(sourcePath: string, sourcePayload: string | Uint8Array, initial
 			},
 		},
 		metadataCache: {
-			getFileCache: () => null,
+			getFileCache: (file: { path: string }) => {
+				if (initiallyUnindexed.has(file.path)) return null;
+				const text = files.get(file.path);
+				return text === undefined ? null : { frontmatter: parsedFrontmatter(text) };
+			},
+			on: () => ({}),
+			offref: () => {},
 		},
 	};
 	return { app: app as any, source, sourceBytes, files, create };
@@ -198,6 +212,45 @@ describe('runRecognizedImport', () => {
 			expect(content).toContain(`id: ${outcome.importSetId}`);
 			expect(content).toContain(`source_hash: ${expectedSourceDigest}`);
 		}
+	});
+
+	it('reports CRI crosswalk edges and runs Tier 2 handles through the recognized path', async () => {
+		const criCsv = [
+			'Profile Id,Level,Outline Id,CRI Profile Function / Category / Subcategory,Tier-1,Tier-2,Tier-3,Tier-4,CRI Profile v2.2 Diagnostic Statement,NIST CSF v2 Mapping',
+			'SYN-01,DS,1,Function / Category / Synthetic one,Yes,No,No,No,Synthetic diagnostic one,"GV.OC-01; GV.OC-02 (CRI Modified)"',
+			'SYN-02,DS,2,Function / Category / Synthetic two,Yes,No,No,No,Synthetic diagnostic two,None',
+			'SYN-03,DS,3,Function / Category / Synthetic three,Yes,No,No,No,Synthetic diagnostic three,ID.AM-01',
+			'SYN-04,DS,4,Function / Category / Synthetic four,Yes,No,No,No,Synthetic diagnostic four,',
+			'SYN-05,DS,5,Function / Category / Synthetic five,Yes,No,No,No,Synthetic diagnostic five,PR.AA-01',
+			'SYN-06,DS,6,Function / Category / Synthetic six,Yes,No,No,No,Synthetic diagnostic six,DE.CM-01',
+		].join('\n');
+		const harness = makeApp('Incoming/cri.csv', criCsv);
+		const tier2Plugin = {
+			settings: { defaultOutputPath: 'Ontologies' },
+			debug,
+			runProjection: jest.fn(async () => undefined),
+			precomputeClosure: jest.fn(async () => 5),
+		} as any;
+
+		const outcome = await runRecognizedImport(harness.app, tier2Plugin, {
+			file: harness.source,
+			entry: CRI_ENTRY,
+			table: '',
+			headerRow: 0,
+		});
+
+		expect(outcome).toMatchObject({
+			ok: true,
+			created: 6,
+			crosswalkEdges: 5,
+			errors: [],
+			parsedRowCount: 6,
+		});
+		expect(tier2Plugin.runProjection).toHaveBeenCalledTimes(1);
+		expect(tier2Plugin.precomputeClosure).toHaveBeenCalledWith('cri-profile', 'nist-csf-2');
+		expect([...harness.files.keys()].filter((path) =>
+			path.startsWith('_crosswalker/mappings/cri-profile-to-nist-csf-2/'),
+		)).toHaveLength(5);
 	});
 
 	it('returns the indexing error and writes nothing while markdown remains unindexed', async () => {

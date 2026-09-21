@@ -31,6 +31,7 @@ export interface RecognizedImportOutcome {
 	importSetId: string | null;
 	created: number;
 	skipped: number;
+	crosswalkEdges?: number;
 	errors: string[];
 	parsedRowCount: number;
 }
@@ -151,6 +152,10 @@ export async function runRecognizedImport(
 				createFolders: true,
 				sourceFileName: req.file.name,
 				recipeOverride,
+				tier2: {
+					runProjection: plugin.runProjection,
+					precomputeClosure: plugin.precomputeClosure,
+				},
 				strictValidation: true,
 				onProgress: req.onProgress,
 			},
@@ -169,6 +174,7 @@ export async function runRecognizedImport(
 			importSetId,
 			created: result.created.length,
 			skipped: result.skipped.length,
+			...(result.crosswalkEdges ? { crosswalkEdges: result.crosswalkEdges.created } : {}),
 			errors,
 			parsedRowCount: parsedData.rowCount,
 		};

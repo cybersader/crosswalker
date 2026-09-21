@@ -385,7 +385,10 @@ export class VaultSourceScanModal extends Modal {
 					control.result.setText(outcome.errors[0] ?? `Import failed for ${control.row.name}. Fix the source or configuration, then run Import selected again for the rest.`);
 					break;
 				}
-				control.result.setText(`Imported ${outcome.created} notes`);
+				control.result.setText(
+					`Imported ${outcome.created} notes`
+					+ (outcome.crosswalkEdges !== undefined ? `, ${outcome.crosswalkEdges} crosswalk edges` : ''),
+				);
 				control.checkbox.checked = false;
 			}
 		} finally {

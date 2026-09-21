@@ -93,7 +93,12 @@ import { wrapManagedBody, scanRegions, findSpan, replaceRegion } from './managed
 // so it asks that reader rather than carrying a second copy of the fence rule.
 import { mergeExistingNote, readExistingNote, splitNoteText, ExistingNoteReadError } from './existing-note';
 import type { FacetMembership } from '../import/mapping/facets';
+import type { CrosswalkColumnEntry } from '../types/generated/recipe';
 import { normalizeMappingSetId, normalizePredicateModifierInput } from '../utils/mapping-provenance';
+import {
+	runCrosswalkEdgePass,
+	type CrosswalkEdgeInput,
+} from './crosswalk-edge-pass';
 
 // ============================================================================
 // Types
@@ -135,6 +140,11 @@ export interface CrosswalkerMetadata {
 	sourceRow?: number;
 }
 
+export interface GenerationTier2Hooks {
+	runProjection: (() => Promise<unknown>) | null;
+	precomputeClosure: ((source: string, target: string) => Promise<number>) | null;
+}
+
 export interface GenerationOptions {
 	/** Base path for output (e.g., "Ontologies/MyFramework") */
 	basePath: string;
@@ -159,6 +169,9 @@ export interface GenerationOptions {
 
 	/** Source file name */
 	sourceFileName?: string;
+
+	/** Tier 2 handles used after a declared crosswalk edge pass. */
+	tier2?: GenerationTier2Hooks;
 
 	/**
 	 * Already-translated source predicate for this run. A nonblank value replaces
@@ -249,6 +262,57 @@ interface EnrichmentWriteOptions {
 	 * chosen a destination that never asks for a move.
 	 */
 	overwriteMode?: 'skip' | 'replace' | 'error';
+}
+
+function declaredCrosswalks(recipe: Recipe): CrosswalkColumnEntry[] {
+	return (recipe.target as Recipe['target'] & { crosswalks?: CrosswalkColumnEntry[] }).crosswalks ?? [];
+}
+
+async function applyDeclaredCrosswalks(
+	app: App,
+	recipe: Recipe,
+	sourceOntology: string,
+	inputs: CrosswalkEdgeInput[],
+	options: Pick<GenerationOptions, 'sourceFileName' | 'overwriteMode' | 'onProgress' | 'tier2'>,
+	result: GenerationResult,
+	debug?: DebugLog,
+): Promise<void> {
+	const entries = declaredCrosswalks(recipe);
+	if (entries.length === 0) return;
+
+	result.crosswalkEdges = { created: 0, sets: [] };
+	if (!result.success || result.errors.length > 0) {
+		const failedRows = new Set(result.errors.filter((error) => error.row >= 0).map((error) => error.row)).size
+			|| result.errors.length;
+		result.warnings ??= [];
+		result.warnings.push({
+			row: -1,
+			message: `Crosswalk edges were not written because ${failedRows} rows failed. Fix the rows and run the import again.`,
+		});
+		return;
+	}
+
+	const pass = await runCrosswalkEdgePass(app, {
+		entries,
+		sourceOntology,
+		recipeId: recipe.recipe,
+		sourceFileName: options.sourceFileName,
+		inputs,
+		overwriteMode: options.overwriteMode,
+		runProjection: options.tier2?.runProjection,
+		precomputeClosure: options.tier2?.precomputeClosure,
+		onProgress: options.onProgress,
+	}, debug);
+	result.crosswalkEdges = {
+		created: pass.totalCreated,
+		sets: pass.perEntry
+			.map((entry) => entry.importSetId)
+			.filter((id): id is string => id !== null),
+	};
+	if (pass.errors.length > 0) {
+		result.errors.push(...pass.errors.map((error) => ({ row: -1, message: error.message })));
+		result.success = false;
+	}
 }
 
 // Current schema version for _crosswalker metadata
@@ -539,6 +603,7 @@ export async function generateNotes(
 		// one; the vault holds the resolved one; the set stamp records what turns
 		// one into the other.
 		const basePrefix = baseCuriePrefixFor(importSet, ontologyId);
+		const crosswalkInputs: CrosswalkEdgeInput[] | null = declaredCrosswalks(recipe).length > 0 ? [] : null;
 		const enrichRecords: EnrichRecord[] = [];
 		// AM-2. Rows this run KEPT rather than wrote (overwriteMode 'skip').
 		//
@@ -749,6 +814,13 @@ export async function generateNotes(
 					claimProducedCurie(producedCuries, curieOrigins, noteData.curie, {
 						row: rowNum, path: noteData.path, kind: 'row',
 					});
+					if (crosswalkInputs) {
+						crosswalkInputs.push({
+							curie: noteData.curie,
+							row: row as Record<string, unknown>,
+							title: typeof noteData.frontmatter.title === 'string' ? noteData.frontmatter.title : undefined,
+						});
+					}
 
 					// The write target was resolved above (AM-14), before this row reserved
 					// anything. Consults BOTH the sibling path AND (when enrichment is on) the
@@ -1031,6 +1103,16 @@ export async function generateNotes(
 				.sort((a, b) => a.curie.localeCompare(b.curie) || a.path.localeCompare(b.path));
 			if (orphans.length > 0) result.orphans = orphans;
 		}
+
+		await applyDeclaredCrosswalks(
+			app,
+			recipe,
+			basePrefix,
+			crosswalkInputs ?? [],
+			options,
+			result,
+			debug,
+		);
 
 		// Final progress update
 		if (options.onProgress) {
@@ -2585,6 +2667,8 @@ export interface RecipeImportOptions {
 	createFolders?: boolean;
 	/** Source file name for provenance. */
 	sourceFileName?: string;
+	/** Tier 2 handles used after a declared crosswalk edge pass. */
+	tier2?: GenerationTier2Hooks;
 	/** Source version for provenance. */
 	sourceVersion?: string;
 	/**
@@ -2820,6 +2904,7 @@ export async function generateFromRecipe(
 	// re-reading the vault. One lightweight record per written note. Only
 	// populated when the recipe declares target.enrichment.
 	const enrichmentEnabled = !!recipe.target.enrichment;
+	const crosswalkInputs: CrosswalkEdgeInput[] | null = declaredCrosswalks(recipe).length > 0 ? [] : null;
 	const enrichRecords: EnrichRecord[] = [];
 	// AM-2. Rows this run KEPT rather than wrote (overwriteMode 'skip'). The same
 	// hole generateNotes had: the skip branch returns above the enrichment
@@ -3070,6 +3155,13 @@ export async function generateFromRecipe(
 			// AM-31: through the one claim function, so the produced set and the origin
 			// map cannot record different things.
 			claimProducedCurie(producedCuries, curieOrigins, curie, { row: rowNum, path: fullPath, kind: 'row' });
+			if (crosswalkInputs) {
+				crosswalkInputs.push({
+					curie,
+					row: sourceScope,
+					title: typeof frontmatter.title === 'string' ? frontmatter.title : undefined,
+				});
+			}
 			// Recorded only for a row that survived validation, so a junction row
 			// later in the same run can never be stamped against a concept this run
 			// refused to write.
@@ -3338,6 +3430,16 @@ export async function generateFromRecipe(
 			.sort((a, b) => a.curie.localeCompare(b.curie) || a.path.localeCompare(b.path));
 		if (orphans.length > 0) result.orphans = orphans;
 	}
+
+	await applyDeclaredCrosswalks(
+		app,
+		recipe,
+		baseCuriePrefix,
+		crosswalkInputs ?? [],
+		options,
+		result,
+		debug,
+	);
 
 	if (options.onProgress) options.onProgress(completed, total, 'Complete');
 	if (result.errors.length > 0) result.success = false;
