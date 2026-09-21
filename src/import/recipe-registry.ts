@@ -195,7 +195,7 @@ export interface RecipeMatch {
 export const CONFIDENT_MATCH_THRESHOLD = 90;
 
 /** Floor for `findRecognizedRecipes` to surface a partial (non-confident) candidate. */
-const CANDIDATE_FLOOR = 40;
+export const CANDIDATE_FLOOR = 40;
 
 // ============================================================================
 // Signature extraction (pure)
