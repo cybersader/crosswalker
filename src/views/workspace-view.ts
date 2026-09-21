@@ -20,6 +20,7 @@ import { outputRootFile } from '../settings/folder-settings';
 import { ImportFlow, type ImportFlowHost } from '../import/import-wizard';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { renderPresetGuide } from '../import/import-preset-guide';
+import { VaultSourceScanModal } from '../import/vault-source-scan-modal';
 import {
 	deriveInstalledOntologies,
 	findRecipeForOntologyIdentity,
@@ -181,6 +182,10 @@ export class CrosswalkerWorkspaceView extends ItemView {
 		// action opens the wide in-tab experience, not the modal.
 		this.launchButton(row, 'download', 'Import structured data', true, () => {
 			this.startFlow();
+		});
+
+		this.launchButton(row, 'search', 'Find sources in this vault', false, () => {
+			new VaultSourceScanModal(this.app, this.plugin).open();
 		});
 
 		this.launchButton(row, 'bookmark', 'Manage saved configs', false, () => {

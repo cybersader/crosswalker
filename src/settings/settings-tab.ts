@@ -12,6 +12,7 @@ import { exportConfigToString, importConfig } from '../config/config-manager';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { ImportWizardModal } from '../import/import-wizard';
 import { renderPresetGuide } from '../import/import-preset-guide';
+import { VaultSourceScanModal } from '../import/vault-source-scan-modal';
 import { SavedConfig } from '../types/config';
 import CrosswalkerPlugin from '../main';
 import {
@@ -336,6 +337,10 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 
 		this.launchButton(row, 'download', 'Import structured data', true, () => {
 			new ImportWizardModal(this.app, this.plugin).open();
+		});
+
+		this.launchButton(row, 'search', 'Find sources in this vault', false, () => {
+			new VaultSourceScanModal(this.app, this.plugin).open();
 		});
 
 		this.launchButton(row, 'bookmark', 'Manage saved configs', false, () => {

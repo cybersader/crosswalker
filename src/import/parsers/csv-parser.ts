@@ -440,10 +440,15 @@ export function estimateMemoryUsage(rowCount: number, columnCount: number, avgCe
 }
 
 /**
+ * Byte size above which a source is treated as large: the wizard recommends
+ * streaming, and the vault source scan skips the header peek with a note
+ * instead of reading the file. One number, shared, so the two surfaces agree.
+ */
+export const STREAMING_THRESHOLD_BYTES = 5 * 1024 * 1024;
+
+/**
  * Check if streaming should be recommended for a file
  */
 export function shouldUseStreaming(file: File): boolean {
-	// Recommend streaming for files > 5MB
-	const STREAMING_THRESHOLD = 5 * 1024 * 1024;
-	return file.size > STREAMING_THRESHOLD;
+	return file.size > STREAMING_THRESHOLD_BYTES;
 }

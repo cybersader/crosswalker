@@ -1758,7 +1758,8 @@
 
 .crosswalker-wizard-modal,
 .crosswalker-settings,
-.crosswalker-workspace-view {
+.crosswalker-workspace-view,
+.crosswalker-scan-modal {
 	/* Spacing scale (4px base). */
 	--cw-s1: 4px;
 	--cw-s2: 8px;
@@ -2536,6 +2537,121 @@
 .crosswalker-launch-ico .svg-icon {
 	width: var(--cw-icon);
 	height: var(--cw-icon);
+}
+
+/* -- Vault source scan: bounded progress and source-control results -- */
+.crosswalker-scan-modal .modal-content {
+	max-width: min(1100px, 92vw);
+}
+.crosswalker-scan-body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cw-s3);
+}
+.crosswalker-scan-progress {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--cw-s3);
+	padding: var(--cw-s3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--cw-radius-md);
+	background: var(--background-secondary);
+}
+.crosswalker-scan-path,
+.crosswalker-scan-file code,
+.crosswalker-scan-skipped-row code {
+	font-family: var(--font-monospace);
+	color: var(--text-muted);
+	overflow-wrap: anywhere;
+}
+.crosswalker-scan-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--cw-fs-body);
+}
+.crosswalker-scan-table th,
+.crosswalker-scan-table td {
+	padding: var(--cw-s2);
+	border-bottom: 1px solid var(--background-modifier-border);
+	vertical-align: top;
+	text-align: left;
+}
+.crosswalker-scan-table th {
+	font-size: var(--cw-fs-small);
+	color: var(--text-muted);
+	font-weight: 600;
+}
+.crosswalker-scan-file {
+	min-width: 12em;
+}
+.crosswalker-scan-score,
+.crosswalker-scan-details,
+.crosswalker-scan-state-help {
+	font-size: var(--cw-fs-small);
+	color: var(--text-muted);
+	margin-top: var(--cw-s1);
+}
+.crosswalker-scan-state {
+	display: inline-flex;
+	padding: var(--cw-chip-pad-y) var(--cw-chip-pad-x);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--cw-radius-pill);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: var(--cw-fs-chip);
+	white-space: nowrap;
+}
+.crosswalker-scan-state.is-not-imported {
+	border-color: var(--interactive-accent);
+	color: var(--text-accent);
+}
+.crosswalker-scan-state.is-imported-changed {
+	border-color: var(--text-warning);
+	color: var(--text-warning);
+}
+.crosswalker-scan-result {
+	min-width: 13em;
+	font-size: var(--cw-fs-small);
+	color: var(--text-muted);
+}
+.crosswalker-scan-stopped,
+.crosswalker-scan-cap,
+.crosswalker-scan-error {
+	padding: var(--cw-s2) var(--cw-s3);
+	border-left: 3px solid var(--text-warning);
+	background: var(--background-secondary);
+}
+.crosswalker-scan-foreign {
+	padding-top: var(--cw-s2);
+	border-top: 1px solid var(--background-modifier-border);
+}
+.crosswalker-scan-foreign-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--cw-s3);
+	padding: var(--cw-s1) 0;
+}
+.crosswalker-scan-skipped summary {
+	cursor: pointer;
+	font-weight: 600;
+	color: var(--text-muted);
+}
+.crosswalker-scan-skipped-row {
+	display: grid;
+	grid-template-columns: minmax(12em, 1fr) minmax(18em, 2fr);
+	gap: var(--cw-s3);
+	padding: var(--cw-s1) 0;
+	font-size: var(--cw-fs-small);
+	color: var(--text-muted);
+}
+.crosswalker-scan-modal .crosswalker-modal-footer {
+	padding: var(--cw-s3) 0 0;
+	border-top: 1px solid var(--background-modifier-border);
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--cw-s2);
 }
 
 /* -- Overview hub: section cards -- */
