@@ -69,6 +69,7 @@ describe('import-set ownership discovery and selection', () => {
 			// empty rather than absent: a set nothing can be matched against.
 			recipeIds: [],
 			ontologyPrefixes: [],
+			sources: [],
 		}]);
 	});
 
@@ -85,6 +86,7 @@ describe('import-set ownership discovery and selection', () => {
 			root: 'Frameworks',
 			recipeIds: [],
 			ontologyPrefixes: [],
+			sources: [],
 		}]);
 		expect(app.vault.cachedRead).toHaveBeenCalledTimes(1);
 	});
@@ -224,6 +226,7 @@ describe('import-set ownership discovery and selection', () => {
 			root: 'Frameworks',
 			recipeIds: [],
 			ontologyPrefixes: [],
+			sources: [],
 		}]);
 		await expect(resolveImportSet(app, 'Frameworks', { id: 'iset-abc123' })).resolves.toEqual({
 			id: 'iset-abc123', scheme: 'set-qualified-v1', destination: 'Frameworks',

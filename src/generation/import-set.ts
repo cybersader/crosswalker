@@ -11,6 +11,7 @@ import { App, normalizePath, parseYaml, TFile } from 'obsidian';
 import { slugifyForCurie } from './curie';
 import { normalizeFolderSetting } from '../settings/folder-settings';
 import { IDENTITY_SENTINELS } from './legacy-recipe-shim';
+import type { KnownSource } from '../import/vault-source-scan';
 
 export const IMPORT_SET_ID_PATTERN = /^iset-[a-z0-9]{6}$/;
 export const IMPORT_SET_SCHEMES = ['endpoint-v1', 'set-qualified-v1'] as const;
@@ -138,6 +139,12 @@ export interface DiscoveredImportSet extends ImportSetReference {
 	 * prefix is a pure function of the source, so it survives a recipe rename.
 	 */
 	ontologyPrefixes: string[];
+	/** Distinct source file/hash pairs recorded by this set, newest observation per pair. */
+	sources: Array<{
+		file: string | null;
+		sourceHash: string | null;
+		producedAt: string | null;
+	}>;
 }
 
 interface ImportSetObservation {
@@ -151,6 +158,10 @@ interface ImportSetObservation {
 	ontology: string | null;
 	/** The derivation pinned in this note's import_set block, if any (AM-27). */
 	derivation: string | null;
+	/** Source provenance stamped beside the import-set ownership block. */
+	sourceFile: string | null;
+	sourceHash: string | null;
+	producedAt: string | null;
 }
 
 /** Stored import-set provenance is malformed or disagrees within one set. */
@@ -168,6 +179,14 @@ export class ImportSetProvenanceError extends Error {
  */
 export async function discoverImportSets(app: App, basePath?: string): Promise<DiscoveredImportSet[]> {
 	return buildDiscoveredSets(await collectObservations(app, basePath));
+}
+
+/** Flatten discovered source provenance for vault-source reconciliation. */
+export function knownSourcesOf(sets: readonly DiscoveredImportSet[]): KnownSource[] {
+	return sets.flatMap((set) => set.sources.map((source) => ({
+		setId: set.id,
+		...source,
+	})));
 }
 
 /**
@@ -531,9 +550,14 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 		// id so a caller can ask "has this source written here before?" without
 		// re-deriving anything from the note's address. Both are optional: a note
 		// written by a producer that stamps neither simply contributes nothing.
-		const recipeBlock = (provenance as Record<string, unknown>).recipe;
+		const provenanceRecord = provenance as Record<string, unknown>;
+		const recipeBlock = provenanceRecord.recipe;
 		const recipeId = recipeBlock && typeof recipeBlock === 'object'
 			? readString((recipeBlock as Record<string, unknown>).id)
+			: null;
+		const sourceRef = provenanceRecord.source_ref;
+		const sourceRecord = sourceRef && typeof sourceRef === 'object' && !Array.isArray(sourceRef)
+			? sourceRef as Record<string, unknown>
 			: null;
 		observations.push({
 			id,
@@ -544,6 +568,9 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 			ontologyPrefix: curiePrefix(readString((fm as Record<string, unknown>).curie)),
 			ontology,
 			derivation,
+			sourceFile: readString(sourceRecord?.file),
+			sourceHash: readString(sourceRecord?.source_hash),
+			producedAt: readString(provenanceRecord.produced_at),
 		});
 	}
 	return observations;
@@ -599,6 +626,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 			root: resolveSetRoot(recorded, paths),
 			recipeIds: distinctSorted(group.map((entry) => entry.recipeId)),
 			ontologyPrefixes: distinctSorted(group.map((entry) => entry.ontologyPrefix)),
+			sources: sourceObservations(group),
 			...(recorded ? { destination: recorded } : {}),
 			...(pinnedOntology ? { ontology: pinnedOntology } : {}),
 			...(pinnedDerivation ? { derivation: pinnedDerivation } : {}),
@@ -675,6 +703,31 @@ function curiePrefix(curie: string | null): string | null {
 /** Distinct non-null values in a stable order, so two runs compare equal. */
 function distinctSorted(values: readonly (string | null)[]): string[] {
 	return [...new Set(values.filter((value): value is string => value !== null))].sort();
+}
+
+/** Distinct source file/hash pairs, retaining the latest ISO produced_at per pair. */
+function sourceObservations(group: readonly ImportSetObservation[]): DiscoveredImportSet['sources'] {
+	const byPair = new Map<string, DiscoveredImportSet['sources'][number]>();
+	for (const observation of group) {
+		if (observation.sourceFile === null && observation.sourceHash === null) continue;
+		const key = JSON.stringify([observation.sourceFile, observation.sourceHash]);
+		const current = byPair.get(key);
+		if (
+			!current
+			|| (observation.producedAt !== null
+				&& (current.producedAt === null || observation.producedAt > current.producedAt))
+		) {
+			byPair.set(key, {
+				file: observation.sourceFile,
+				sourceHash: observation.sourceHash,
+				producedAt: observation.producedAt,
+			});
+		}
+	}
+	return [...byPair.values()].sort((a, b) => {
+		const byFile = (a.file ?? '').localeCompare(b.file ?? '');
+		return byFile !== 0 ? byFile : (a.sourceHash ?? '').localeCompare(b.sourceHash ?? '');
+	});
 }
 
 /**

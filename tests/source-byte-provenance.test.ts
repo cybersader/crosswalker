@@ -5,17 +5,34 @@
  * from the exact captured bytes.
  */
 
+import { TextDecoder, TextEncoder } from 'node:util';
 import { TFile, TFolder } from 'obsidian';
 import { generateFromRecipe, generateNotes } from '../src/generation/generation-engine';
 import type { GenerationOptions, RecipeImportOptions } from '../src/generation/generation-engine';
+import { computeSourceByteDigest } from '../src/generation/hash';
+import { parseCSVFile } from '../src/import/parsers/csv-parser';
+import { parseJSONFile } from '../src/import/parsers/json-parser';
 import type { Recipe } from '../src/render';
 import type { ImportRecipe, ParsedData } from '../src/types/config';
+
+Object.assign(globalThis, { TextDecoder, TextEncoder });
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const yaml = require('js-yaml') as { load: (source: string) => unknown };
 
 const DIGEST_A = `sha256-${'a'.repeat(64)}`;
 const DIGEST_B = `sha256-${'b'.repeat(64)}`;
+
+function byteFile(bytes: Uint8Array, name: string): File {
+	return {
+		name,
+		size: bytes.byteLength,
+		arrayBuffer: async () => bytes.buffer.slice(
+			bytes.byteOffset,
+			bytes.byteOffset + bytes.byteLength,
+		),
+	} as unknown as File;
+}
 
 function makeApp() {
 	const files = new Map<string, string>();
@@ -169,6 +186,33 @@ async function runEntry(
 		? generateNotes(app, data, LEGACY_CONFIG, legacyOptions(recipe, overwriteMode, importSet))
 		: generateFromRecipe(app, data, recipe, nativeOptions(overwriteMode, importSet));
 }
+
+describe('CSV and JSON source-byte provenance', () => {
+	it.each([false, true])(
+		'stamps the digest of the exact CSV bytes on generated notes (streaming: %s)',
+		async (streaming) => {
+			const bytes = new TextEncoder().encode('id,title\nA-1,Alpha');
+			const data = await parseCSVFile(byteFile(bytes, 'source.csv'), { streaming });
+			const { app, files } = makeApp();
+			const result = await generateFromRecipe(app, data, FLAT_RECIPE, nativeOptions('replace'));
+
+			expect(result.errors).toEqual([]);
+			expect(data.sourceByteDigest).toBe(computeSourceByteDigest(bytes));
+			expect(sourceHashOf(files.get('Out/A-1.md')!)).toBe(computeSourceByteDigest(bytes));
+		},
+	);
+
+	it('stamps the digest of the exact JSON bytes on generated notes', async () => {
+		const bytes = new TextEncoder().encode('[{"id":"A-1","title":"Alpha"}]');
+		const data = await parseJSONFile(byteFile(bytes, 'source.json'));
+		const { app, files } = makeApp();
+		const result = await generateFromRecipe(app, data, FLAT_RECIPE, nativeOptions('replace'));
+
+		expect(result.errors).toEqual([]);
+		expect(data.sourceByteDigest).toBe(computeSourceByteDigest(bytes));
+		expect(sourceHashOf(files.get('Out/A-1.md')!)).toBe(computeSourceByteDigest(bytes));
+	});
+});
 
 describe.each(['generateNotes', 'generateFromRecipe'] as const)(
 	'XLSX source-byte provenance through %s',

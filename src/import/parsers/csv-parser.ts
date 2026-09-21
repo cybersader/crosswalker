@@ -6,6 +6,7 @@
  */
 
 import * as Papa from 'papaparse';
+import { computeSourceByteDigest } from '../../generation/hash';
 import { ParsedData, ColumnInfo } from '../../types/config';
 
 export interface CSVParserOptions {
@@ -108,22 +109,28 @@ export async function parseCSV(
 }
 
 /**
- * Parse CSV file with streaming - for very large files
+ * Parse a CSV file from one captured byte snapshot.
  *
- * This version uses File API streaming to handle files that are
- * too large to load entirely into memory.
+ * `streaming: true` keeps PapaParse's row delivery step-driven, but the full
+ * source snapshot is retained so parsing and provenance hash the same bytes.
  */
 export async function parseCSVFile(
 	file: File,
 	options: CSVParserOptions = {}
 ): Promise<ParsedData> {
-	const opts = { ...DEFAULT_OPTIONS, ...options, streaming: true };
+	const opts = { ...DEFAULT_OPTIONS, ...options };
+	// Capture once so provenance hashes the exact bytes that are decoded and
+	// parsed. The step-driven branch still bounds PapaParse's result handling,
+	// but intentionally shares this one complete source snapshot.
+	const sourceBytes = new Uint8Array(await file.arrayBuffer());
+	const sourceByteDigest = computeSourceByteDigest(sourceBytes);
+	const content = new TextDecoder(opts.encoding).decode(sourceBytes);
 
 	return new Promise((resolve, reject) => {
 		const rows: Record<string, unknown>[] = [];
 		let headers: string[] = [];
 		let rowCount = 0;
-		const fileSize = file.size;
+		const fileSize = sourceBytes.byteLength;
 
 		// PapaParse config - use type assertion due to complex overload types
 		// Note: Can't use worker: true with transformHeader (functions can't be cloned to workers)
@@ -134,7 +141,7 @@ export async function parseCSVFile(
 			skipEmptyLines: opts.skipEmptyRows,
 			dynamicTyping: false,
 
-			step: (results: { data: unknown; meta: { cursor?: number } }) => {
+			step: opts.streaming ? (results: { data: unknown; meta: { cursor?: number } }) => {
 				rowCount++;
 				if (results.data) {
 					rows.push(results.data as Record<string, unknown>);
@@ -150,9 +157,14 @@ export async function parseCSVFile(
 						percentComplete: fileSize > 0 ? Math.round((bytesProcessed / fileSize) * 100) : undefined
 					});
 				}
-			},
+			} : undefined,
 
 			complete: (results: { data: unknown[]; meta: { fields?: string[] } }) => {
+				if (!opts.streaming && results.data) {
+					rows.push(...(results.data as Record<string, unknown>[]));
+					rowCount = rows.length;
+				}
+
 				if (rows.length > 0) {
 					// Get headers and trim whitespace
 					headers = Object.keys(rows[0]).map(h => h.trim());
@@ -185,6 +197,7 @@ export async function parseCSVFile(
 					columns: headers,
 					rows: rows,
 					rowCount: rows.length,
+					sourceByteDigest,
 					// A CSV file IS one collection: there is no second thing for
 					// `source.joins` to name. Declared, not omitted, so the source
 					// stage refuses a join with the format reason rather than a
@@ -198,8 +211,8 @@ export async function parseCSVFile(
 			}
 		};
 
-		// Use explicit cast to work around PapaParse's complex overload types
-		(Papa.parse as (input: File, config: object) => void)(file, config);
+		// Parse the decoded form of the same captured bytes that were hashed.
+		(Papa.parse as (input: string, config: object) => void)(content, config);
 	});
 }
 

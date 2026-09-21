@@ -22,6 +22,7 @@
  * admits nothing is an error) and travels with the recipe.
  */
 
+import { computeSourceByteDigest } from '../../generation/hash';
 import { ParsedData } from '../../types/config';
 import { jsonToRows } from './json-source-core';
 
@@ -41,7 +42,11 @@ export interface JSONParseResult extends ParsedData {
  * survive so recipe templates can reach into them via dotted paths.
  */
 export async function parseJSONFile(file: File, options: JSONParseOptions = {}): Promise<JSONParseResult> {
-	const text = await file.text();
+	// Capture once so row parsing, lazy join reads, and provenance all describe
+	// the same immutable source payload.
+	const sourceBytes = new Uint8Array(await file.arrayBuffer());
+	const sourceByteDigest = computeSourceByteDigest(sourceBytes);
+	const text = new TextDecoder().decode(sourceBytes);
 	const result = jsonToRows(text, options.iterator || undefined);
 
 	// Column order = first appearance across rows (JSON objects can be sparse).
@@ -61,12 +66,13 @@ export async function parseJSONFile(file: File, options: JSONParseOptions = {}):
 		rows: result.rows,
 		rowCount: result.rows.length,
 		skippedNonObjects: result.skippedNonObjects,
+		sourceByteDigest,
 		// Ch 46 source contract 4.2: `source.joins` locates a secondary
 		// collection in a SIBLING ARRAY OF THIS SAME DOCUMENT. Lazy on purpose,
 		// so an import declaring no join never retains the parsed document.
 		container: {
 			kind: 'json',
-			readDocument: async () => JSON.parse(await file.text()) as unknown,
+			readDocument: async () => JSON.parse(text) as unknown,
 		},
 	};
 }
