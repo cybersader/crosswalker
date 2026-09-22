@@ -177,6 +177,25 @@ describe('SchemaVer 1.13.0 source.nest semantic diagnostics', () => {
 		);
 	});
 
+	it('requires parent_key to be a string in semantic diagnostics', () => {
+		const recipe = joinNestedRecipe();
+		nestEntries(recipe)[1].parent_key = 3;
+		const diagnostics = diagnoseCanonicalRecipe(recipe as unknown as CrosswalkerImportRecipe);
+		expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+			'parent_key on level "safeguard" must be a string naming the child field that holds its parent\'s id.',
+		);
+	});
+
+	it('warns when parent_key is ignored for JSON-field children', () => {
+		const recipe = nestedRecipe();
+		nestEntries(recipe)[1].parent_key = 'group_id';
+		const diagnostics = diagnoseCanonicalRecipe(recipe as unknown as CrosswalkerImportRecipe);
+		expect(diagnostics).toContainEqual(expect.objectContaining({
+			severity: 'warning',
+			message: 'parent_key on level "control" is ignored because its children come from a JSON field.',
+		}));
+	});
+
 	it('requires a non-last level to declare its own note output', () => {
 		const recipe = nestedRecipe();
 		delete nestEntries(recipe)[0].leaf;

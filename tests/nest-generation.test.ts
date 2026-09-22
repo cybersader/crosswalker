@@ -5,7 +5,9 @@ import { load } from 'js-yaml';
 import fixture from './fixtures/oscal-mini.json';
 import { parseJSONFile } from '../src/import/parsers/json-parser';
 import { generateFromRecipe } from '../src/generation/generation-engine';
+import { computeRecipeHash } from '../src/generation/hash';
 import type { Recipe } from '../src/render';
+import type { ParsedData, SourceContainer } from '../src/types/config';
 
 Object.assign(globalThis, { TextDecoder, TextEncoder });
 
@@ -70,6 +72,27 @@ async function parsed() {
 	return parseJSONFile(jsonFile(), { iterator: '$.catalog.groups[*]' });
 }
 
+function nestedData(groups: Record<string, unknown>[]): ParsedData {
+	return {
+		columns: ['id', 'title', 'controls'],
+		rows: groups,
+		rowCount: groups.length,
+		container: { kind: 'json', readDocument: async () => ({ groups }) },
+	};
+}
+
+function workbook(sheets: Record<string, Record<string, unknown>[]>): SourceContainer {
+	return {
+		kind: 'workbook',
+		sheetNames: Object.keys(sheets),
+		readSheet: async (sheet: string, headerRow: number) => {
+			const rows = sheets[sheet];
+			if (!rows) throw new Error(`no such sheet: ${sheet}`);
+			return rows.slice(headerRow);
+		},
+	};
+}
+
 function nestedRecipe(where?: string): Recipe {
 	return {
 		recipe: 'test:oscal-mini-nested',
@@ -104,7 +127,7 @@ function nestedRecipe(where?: string): Recipe {
 
 const OPTIONS = {
 	basePath: 'Out',
-	importSet: { id: 'iset-oscm01' },
+	importSet: 'new' as const,
 	overwriteMode: 'replace' as const,
 	createFolders: true,
 	curiePrefix: 'oscal-mini',
@@ -135,13 +158,132 @@ describe('nested generation', () => {
 		expect(part._crosswalker.source_ref.source_hash).toMatch(/^sha256-/);
 	});
 
+	it('N2 uses path identity only for the repeated part level and keeps existing identities on refresh', async () => {
+		const groups = [
+			{
+				id: 'ac',
+				title: 'Access coordination',
+				controls: [
+					{ id: 'ac-1', title: 'Account setup', parts: [{ id: 'statement' }, { id: 'guidance' }] },
+					{ id: 'ac-2', title: 'Account review', parts: [{ id: 'statement' }, { id: 'guidance' }] },
+				],
+			},
+		] as Record<string, unknown>[];
+		const recipe = nestedRecipe();
+		recipe.source!.nest![2].identity = 'path';
+		const vault = makeApp();
+		const first = await generateFromRecipe(vault.app, nestedData(groups), recipe, OPTIONS);
+		expect(first.errors).toEqual([]);
+		const original = new Map(
+			[...vault.files.entries()].map(([path, text]) => [path, frontmatter(text).curie]),
+		);
+		expect(frontmatter(vault.files.get('Out/ac/ac.md')!).curie).toBe('oscal-mini:ac');
+		expect(frontmatter(vault.files.get('Out/ac/ac-1/ac-1.md')!).curie).toBe('oscal-mini:ac-1');
+		expect(frontmatter(vault.files.get('Out/ac/ac-1/statement.md')!).curie).toBe('oscal-mini:ac/ac-1/statement');
+
+		const set = frontmatter(vault.files.get('Out/ac/ac.md')!)._crosswalker.import_set;
+		const expandedGroups = JSON.parse(JSON.stringify(groups)) as Record<string, unknown>[];
+		(expandedGroups[0].controls as Record<string, unknown>[]).push({
+			id: 'ac-3',
+			title: 'Account closure',
+			parts: [{ id: 'statement' }],
+		});
+		const second = await generateFromRecipe(vault.app, nestedData(expandedGroups), recipe, {
+			...OPTIONS,
+			importSet: { id: set.id, scheme: set.scheme },
+		});
+		expect(second.errors).toEqual([]);
+		for (const [path, curie] of original) {
+			expect(frontmatter(vault.files.get(path)!).curie).toBe(curie);
+		}
+		expect(frontmatter(vault.files.get('Out/ac/ac-3/statement.md')!).curie).toBe('oscal-mini:ac/ac-3/statement');
+	});
+
+	it('N2b keeps slash-bearing path pieces distinct from hierarchy boundaries and raw tokens', async () => {
+		const groups = [
+			{ id: 'a/b', controls: [{ id: 'c' }] },
+			{ id: 'a', controls: [{ id: 'b/c' }, { id: 'a--2f--b' }] },
+		] as Record<string, unknown>[];
+		const recipe: Recipe = {
+			recipe: 'test:path-piece-injectivity',
+			source: {
+				ontology: 'oscal-mini',
+				levels: ['group', 'control'],
+				nest: [
+					{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note' },
+					{ level: 'control', id: '{id}', identity: 'path' },
+				],
+			},
+			target: {
+				layout: [
+					{ level: 'group', mechanism: 'folder', template: '{_cw.ancestors.group.id|fs-safe}' },
+					{ level: 'control', mechanism: 'file', template: '{id|fs-safe}.md' },
+				],
+			},
+		};
+		const vault = makeApp();
+		const result = await generateFromRecipe(vault.app, nestedData(groups), recipe, OPTIONS);
+		expect(result.errors).toEqual([]);
+		const curies = [...vault.files.values()].map((text) => frontmatter(text).curie);
+		expect(new Set(curies).size).toBe(curies.length);
+	});
+
+	it('N3 refuses duplicate global nested identity before writing with the nested action', async () => {
+		const groups = [
+			{ id: 'ac', controls: [{ id: 'ac-1' }] },
+			{ id: 'au', controls: [{ id: 'ac-1' }] },
+		] as Record<string, unknown>[];
+		const recipe: Recipe = {
+			recipe: 'test:duplicate-global-nested',
+			source: {
+				ontology: 'oscal-mini',
+				levels: ['group', 'control'],
+				nest: [
+					{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note' },
+					{ level: 'control', id: '{id}', identity: 'global' },
+				],
+			},
+			target: {
+				layout: [
+					{ level: 'group', mechanism: 'folder', template: '{id}' },
+					{ level: 'control', mechanism: 'file', template: '{id}.md' },
+				],
+			},
+		};
+		const vault = makeApp();
+		const result = await generateFromRecipe(vault.app, nestedData(groups), recipe, OPTIONS);
+		expect(result.success).toBe(false);
+		expect(result.created).toEqual([]);
+		expect(result.errors[0].message).toBe(
+			'Ambiguous identity oscal-mini:ac-1 claimed by rows at ac/ac-1 and au/ac-1. '
+			+ 'Set identity: path on level "control" so each row is named by its place in the hierarchy.',
+		);
+	});
+
+	it('refuses a nested import into a legacy-derivation set before source expansion', async () => {
+		const vault = makeApp();
+		const result = await generateFromRecipe(vault.app, await parsed(), nestedRecipe(), {
+			...OPTIONS,
+			importSet: { id: 'iset-old001', scheme: 'endpoint-v1' },
+		});
+		expect(result.created).toEqual([]);
+		expect(result.errors[0].message).toBe(
+			'Nested records need the declared-facts identity rule. This import set was minted under filename-stem-v1; import into a new set.',
+		);
+	});
+
 	it('N9 re-imports without orphans or moves', async () => {
 		const vault = makeApp();
 		const data = await parsed();
 		const first = await generateFromRecipe(vault.app, data, nestedRecipe(), OPTIONS);
 		expect(first.errors).toEqual([]);
 		expect(first.success).toBe(true);
-		const second = await generateFromRecipe(vault.app, await parsed(), nestedRecipe(), OPTIONS);
+		const firstFrontmatter = frontmatter(vault.files.get('Out/ac/ac.md')!);
+		const set = firstFrontmatter._crosswalker.import_set;
+		const second = await generateFromRecipe(vault.app, await parsed(), nestedRecipe(), {
+			...OPTIONS,
+			importSet: { id: set.id, scheme: set.scheme },
+		});
 		expect(second.success).toBe(true);
 		expect(second.orphansChecked).toBe(true);
 		expect(second.orphans).toBeUndefined();
@@ -169,6 +311,71 @@ describe('nested generation', () => {
 		expect(skipped).toHaveLength(6);
 		expect(skipped.some((warning) => warning.row === 9)).toBe(true);
 		expect(skipped.some((warning) => warning.row === 12)).toBe(true);
+	});
+
+	it('N10 imports workbook children under controls, warns once for the unparented row, and hashes nest', async () => {
+		const controls = [
+			{ 'Control ID': '1', title: 'Inventory' },
+			{ 'Control ID': '2', title: 'Protection' },
+			{ 'Control ID': '3', title: 'Recovery' },
+		];
+		const safeguards = [
+			{ 'Control ID': '1', 'Safeguard ID': '1.1' },
+			{ 'Control ID': '1', 'Safeguard ID': '1.2' },
+			{ 'Control ID': '2', 'Safeguard ID': '2.1' },
+			{ 'Control ID': '2', 'Safeguard ID': '2.2' },
+			{ 'Control ID': '3', 'Safeguard ID': '3.1' },
+			{ 'Control ID': '3', 'Safeguard ID': '3.2' },
+			{ 'Control ID': '99', 'Safeguard ID': '99.1' },
+		];
+		const data: ParsedData = {
+			columns: ['Control ID', 'title'],
+			rows: controls,
+			rowCount: controls.length,
+			container: workbook({ Controls: controls, Safeguards: safeguards }),
+		};
+		const recipe: Recipe = {
+			recipe: 'test:cis-nested-workbook',
+			source: {
+				ontology: 'cis-mini',
+				levels: ['control', 'safeguard'],
+				nest: [
+					{
+						level: 'control',
+						id: '{Control ID}',
+						children: { sheet: 'Safeguards' },
+						leaf: 'folder-note',
+					},
+					{ level: 'safeguard', id: '{Safeguard ID}', parent_key: 'Control ID' },
+				],
+			},
+			target: {
+				layout: [
+					{ level: 'control', mechanism: 'folder', template: '{_cw.ancestors.control.[\'Control ID\']}' },
+					{ level: 'safeguard', mechanism: 'file', template: '{Safeguard ID}.md' },
+				],
+				also_emit: { frontmatter: { managed: { parent: '[[{_cw.parent}]]', level: '{_cw.level}' } } },
+			},
+		};
+		const vault = makeApp();
+		const result = await generateFromRecipe(vault.app, data, recipe, {
+			...OPTIONS,
+			curiePrefix: 'cis-mini',
+			sourceFileName: 'cis-mini.xlsx',
+		});
+		expect(result.errors).toEqual([]);
+		expect(result.created).toHaveLength(9);
+		expect(vault.files.has('Out/1/1.md')).toBe(true);
+		expect(vault.files.has('Out/1/1.1.md')).toBe(true);
+		expect(frontmatter(vault.files.get('Out/1/1.md')!).curie).toBe('cis-mini:1');
+		expect(frontmatter(vault.files.get('Out/1/1.1.md')!).curie).toBe('cis-mini:1.1');
+		expect(frontmatter(vault.files.get('Out/1/1.1.md')!).parent).toBe('[[1]]');
+		expect(result.warnings?.filter((warning) => warning.message.includes('records name a parent'))).toEqual([
+			{ row: 0, message: '1 safeguard records name a parent that is not in the source and were not imported.' },
+		]);
+		expect(frontmatter(vault.files.get('Out/1/1.md')!)._crosswalker.recipe.hash).toBe(
+			computeRecipeHash(recipe.target, recipe.source),
+		);
 	});
 
 	it('N7 preserves flat one-row-per-level-zero behavior when nest is absent', async () => {

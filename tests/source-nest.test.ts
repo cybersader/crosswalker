@@ -1,13 +1,18 @@
 import { TextDecoder, TextEncoder } from 'node:util';
 import * as XLSX from 'xlsx';
 import fixture from './fixtures/oscal-mini.json';
-import { expandNestedRows, prepareSourceStage, SourceStageError } from '../src/source';
+import {
+	expandNestedRows,
+	prepareSourceStage,
+	resolveSecondaryRows,
+	SourceStageError,
+} from '../src/source';
 import { renderTemplate } from '../src/render';
 import { parseCSV } from '../src/import/parsers/csv-parser';
 import { parseJSONFile } from '../src/import/parsers/json-parser';
 import { parseXLSXFile } from '../src/import/parsers/xlsx-parser';
 import type { NestedRecordLevel } from '../src/types/generated/recipe';
-import type { ParsedData } from '../src/types/config';
+import type { ParsedData, SourceContainer } from '../src/types/config';
 
 Object.assign(globalThis, { TextDecoder, TextEncoder });
 
@@ -20,7 +25,10 @@ const NEST: NestedRecordLevel[] = [
 ];
 
 const groups = (): Row[] => JSON.parse(JSON.stringify(fixture.catalog.groups)) as Row[];
-const expand = (rows = groups(), nest = NEST) => expandNestedRows(rows, nest, renderTemplate);
+const unavailableSecondary = {
+	resolve: async () => { throw new Error('No secondary collection expected in this test.'); },
+};
+const expand = (rows = groups(), nest = NEST) => expandNestedRows(rows, nest, renderTemplate, unavailableSecondary);
 
 function parsed(rows = groups()): ParsedData {
 	return {
@@ -48,9 +56,31 @@ function fileOf(content: ArrayBuffer | string, name: string): File {
 	return file;
 }
 
+function workbook(sheets: Record<string, Row[]>): SourceContainer {
+	return {
+		kind: 'workbook',
+		sheetNames: Object.keys(sheets),
+		readSheet: async (sheet: string, headerRow: number) => {
+			const rows = sheets[sheet];
+			if (!rows) throw new Error(`no such sheet: ${sheet}`);
+			return rows.slice(headerRow);
+		},
+	};
+}
+
+function jsonDocument(root: unknown): SourceContainer {
+	return { kind: 'json', readDocument: async () => root };
+}
+
+function secondary(container: SourceContainer) {
+	return {
+		resolve: (from: any, declaration: string) => resolveSecondaryRows(from, container, declaration),
+	};
+}
+
 describe('expandNestedRows', () => {
-	it('emits 21 rows depth first with exact control and part lineage', () => {
-		const result = expand();
+	it('emits 21 rows depth first with exact control and part lineage', async () => {
+		const result = await expand();
 		expect(result.rows).toHaveLength(21);
 		expect(result.countsByLevel).toEqual({ group: 3, control: 6, part: 12 });
 		expect(result.rows.map((row) => row.id).slice(0, 7)).toEqual([
@@ -79,53 +109,124 @@ describe('expandNestedRows', () => {
 		expect(result.rows[1]).not.toHaveProperty('parts');
 	});
 
-	it('does not emit a leaf:none level but keeps it in descendant lineage', () => {
+	it('does not emit a leaf:none level but keeps it in descendant lineage', async () => {
 		const nest = NEST.map((entry, index) => index === 0 ? { ...entry, leaf: 'none' as const } : entry);
-		const result = expand(groups(), nest);
+		const result = await expand(groups(), nest);
 		expect(result.rows).toHaveLength(18);
 		expect(result.countsByLevel).toEqual({ group: 3, control: 6, part: 12 });
 		expect((result.rows[0]._cw as any).ancestors.group.id).toBe('ac');
 	});
 
-	it('emits a control with missing parts and no descendants under it', () => {
+	it('emits a control with missing parts and no descendants under it', async () => {
 		const rows = groups();
 		delete ((rows[0].controls as Row[])[0] as Row).parts;
-		const result = expand(rows);
+		const result = await expand(rows);
 		expect(result.rows).toHaveLength(19);
 		expect(result.rows.map((row) => row.id)).toContain('ac-1');
 		expect(result.rows.map((row) => row.id)).not.toContain('ac-1_smt');
 	});
 
-	it('refuses an object where a child list is declared', () => {
+	it('refuses an object where a child list is declared', async () => {
 		const rows = groups();
 		((rows[0].controls as Row[])[0] as Row).parts = { id: 'wrong-shape' };
-		expect(() => expand(rows)).toThrow(
+		await expect(expand(rows)).rejects.toThrow(
 			'Nest level "control" expects "parts" to be a list of records; found an object at path ac/ac-1.',
 		);
 	});
 
-	it('refuses an empty id with the exact cause and action', () => {
+	it('refuses an empty id with the exact cause and action', async () => {
 		const rows = groups();
 		((rows[0].controls as Row[])[0] as Row).id = '';
-		expect(() => expand(rows)).toThrow(
+		await expect(expand(rows)).rejects.toThrow(
 			'Nest level "control" has a record with an empty id at path ac. Every record needs an id; check the id template.',
 		);
 	});
 
-	it('refuses join-sourced children in this wave', () => {
-		const nest = NEST.map((entry, index) => index === 0
-			? { ...entry, children: { sheet: 'Controls' } }
-			: entry);
-		expect(() => expand(groups(), nest)).toThrow(
-			'Nest level "group" is joined from another collection. That arrives in a later build; declare JSON field children for now.',
-		);
+	it('accepts identity:path as a generation-time identity declaration', async () => {
+		const nest = NEST.map((entry, index) => index === 2 ? { ...entry, identity: 'path' as const } : entry);
+		const result = await expand(groups(), nest);
+		expect(result.rows).toHaveLength(21);
+	});
+});
+
+describe('join-sourced nested children', () => {
+	const controls: Row[] = [
+		{ 'Control ID': '1', title: 'Inventory' },
+		{ 'Control ID': '2', title: 'Protection' },
+		{ 'Control ID': '3', title: 'Recovery' },
+	];
+	const safeguards: Row[] = [
+		{ 'Control ID': '1', 'Safeguard ID': '1.1' },
+		{ 'Control ID': '1', 'Safeguard ID': '1.2' },
+		{ 'Control ID': '2', 'Safeguard ID': '2.1' },
+		{ 'Control ID': '2', 'Safeguard ID': '2.2' },
+		{ 'Control ID': '3', 'Safeguard ID': '3.1' },
+		{ 'Control ID': '3', 'Safeguard ID': '3.2' },
+		{ 'Control ID': '99', 'Safeguard ID': '99.1' },
+	];
+	const workbookNest: NestedRecordLevel[] = [
+		{ level: 'control', id: '{Control ID}', children: { sheet: 'Safeguards' }, leaf: 'folder-note' },
+		{ level: 'safeguard', id: '{Safeguard ID}', parent_key: 'Control ID' },
+	];
+
+	it('groups a second worksheet once by normalized parent key and counts unparented rows', async () => {
+		const container = workbook({ Controls: controls, Safeguards: safeguards });
+		const result = await expandNestedRows(controls, workbookNest, renderTemplate, secondary(container));
+		expect(result.rows).toHaveLength(9);
+		expect(result.rows.map((row) => row['Safeguard ID'] ?? row['Control ID'])).toEqual([
+			'1', '1.1', '1.2', '2', '2.1', '2.2', '3', '3.1', '3.2',
+		]);
+		for (const row of result.rows.filter((candidate) => candidate['Safeguard ID'])) {
+			expect((row._cw as any).parent).toBe(String(row['Control ID']));
+		}
+		expect(result.unparented).toEqual({ safeguard: 1 });
 	});
 
-	it('refuses identity:path in this wave', () => {
-		const nest = NEST.map((entry, index) => index === 2 ? { ...entry, identity: 'path' as const } : entry);
-		expect(() => expand(groups(), nest)).toThrow(
-			'identity: path is not available in this build yet. Use identity: global, or wait for the next build.',
-		);
+	it('resolves a sibling JSON array through the same secondary resolver', async () => {
+		const root = { controls, safeguards };
+		const nest: NestedRecordLevel[] = [
+			{ level: 'control', id: '{Control ID}', children: { iterator: '$.safeguards[*]' }, leaf: 'folder-note' },
+			{ level: 'safeguard', id: '{Safeguard ID}', parent_key: 'Control ID' },
+		];
+		const result = await expandNestedRows(controls, nest, renderTemplate, secondary(jsonDocument(root)));
+		expect(result.rows).toHaveLength(9);
+		expect(result.unparented.safeguard).toBe(1);
+	});
+
+	it('applies a secondary where predicate before grouping joined children', async () => {
+		const filtered = safeguards.map((row) => ({ ...row, active: row['Safeguard ID'] === '2.2' ? 'no' : 'yes' }));
+		const data: ParsedData = {
+			columns: ['Control ID', 'title'],
+			rows: controls,
+			rowCount: controls.length,
+			container: jsonDocument({ controls, safeguards: filtered }),
+		};
+		const stage = await prepareSourceStage(data, {
+			nest: [
+				{
+					level: 'control',
+					id: '{Control ID}',
+					children: { iterator: '$.safeguards[*]', where: "active = 'yes'" },
+					leaf: 'folder-note',
+				},
+				{ level: 'safeguard', id: '{Safeguard ID}', parent_key: 'Control ID' },
+			],
+		});
+		const rows: Row[] = [];
+		for await (const row of stage.rows as AsyncIterable<Row>) rows.push(row);
+		stage.finalize();
+		expect(rows.map((row) => row['Safeguard ID'])).not.toContain('2.2');
+		expect(rows).toHaveLength(8);
+		expect(stage.unparented).toEqual({ safeguard: 1 });
+	});
+
+	it('refuses a join-sourced nested level for CSV with the joins wording', async () => {
+		await expect(expandNestedRows(
+			controls,
+			workbookNest,
+			renderTemplate,
+			secondary({ kind: 'flat' }),
+		)).rejects.toThrow('joins are not available for a single-collection source such as CSV');
 	});
 });
 

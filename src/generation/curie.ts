@@ -145,6 +145,22 @@ export function injectiveDeclaredIdLocalPart(raw: string): string {
 }
 
 /**
+ * Injective join of lineage path pieces for identity: path. Each piece is
+ * escaped so a '/' inside a piece cannot forge a boundary.
+ *
+ * The second escape reserves the existing token marker before `/` becomes the
+ * fixed `--2f--` token. A raw piece that already contains that marker therefore
+ * takes the digest branch in `escapeFrom` and cannot collide with a slash.
+ */
+export function pathIdentityLocalPart(pieces: readonly string[]): string {
+	return pieces.map((piece) => {
+		const declared = injectiveDeclaredIdLocalPart(piece);
+		const markerReserved = escapeFrom(piece, declared, /$^/g, TOKEN_ESCAPE_MARKER);
+		return markerReserved.replace(/\//g, '--2f--');
+	}).join('/');
+}
+
+/**
  * The same treatment for a deterministic endpoint token (SSSOM subject/object
  * ids), whose target charset is deliberately narrower than the spec's so the
  * assembled `cw-<subject>-<object>` local part stays legible and filesystem-safe.

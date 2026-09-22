@@ -335,6 +335,22 @@ export function diagnoseCanonicalRecipe(recipe: CrosswalkerImportRecipe): Recipe
 	if (nest) {
 		for (const [index, entry] of nest.entries()) {
 			const isLast = index === nest.length - 1;
+			const parentKey = (entry as { parent_key?: unknown }).parent_key;
+			if (parentKey !== undefined && typeof parentKey !== 'string') {
+				diagnostics.push(blocking(
+					'nest-parent-key-not-string',
+					`source.nest.${index}.parent_key`,
+					`parent_key on level "${entry.level}" must be a string naming the child field that holds its parent's id.`,
+				));
+			}
+			if (index > 0 && typeof nest[index - 1].children === 'string' && parentKey !== undefined) {
+				diagnostics.push({
+					code: 'nest-json-parent-key-ignored',
+					severity: 'warning',
+					path: `source.nest.${index}.parent_key`,
+					message: `parent_key on level "${entry.level}" is ignored because its children come from a JSON field.`,
+				});
+			}
 			if (!levels.has(entry.level)) {
 				diagnostics.push(blocking(
 					'nest-level-undeclared',

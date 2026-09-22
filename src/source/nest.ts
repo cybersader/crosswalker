@@ -1,5 +1,6 @@
 import type { NestedRecordLevel } from '../types/generated/recipe';
 import { SourceStageError } from './errors';
+import { normalizeKey, type JoinFromDeclaration } from './joins';
 
 export type Row = Record<string, unknown>;
 
@@ -13,37 +14,75 @@ export interface LineageObject {
 export interface NestExpansion {
 	rows: Row[];
 	countsByLevel: Record<string, number>;
+	unparented: Record<string, number>;
+}
+
+export interface NestSecondaryResolver {
+	resolve(from: JoinFromDeclaration, declaration: string): Promise<Row[]>;
+}
+
+interface SecondaryGrouping {
+	byParent: Map<string, Row[]>;
+	keys: Array<string | null>;
+	matched: Set<string>;
 }
 
 /**
  * Expand nested source records into one row per note-bearing record.
  *
- * Every emitted row is a new object. Its own child collection is removed so a
- * property destination cannot accidentally serialize the entire descendant
+ * Every emitted row is a new object. Its own JSON child collection is removed
+ * so a property destination cannot accidentally serialize the entire descendant
  * subtree. The reserved `_cw` object is the only lineage added to the row.
  */
-export function expandNestedRows(
+export async function expandNestedRows(
 	levelZeroRows: Row[],
 	nest: NestedRecordLevel[],
 	renderIdTemplate: (template: string, row: Row) => string,
-): NestExpansion {
-	for (const [index, entry] of nest.entries()) {
-		if (entry.identity === 'path') {
+	secondary: NestSecondaryResolver,
+): Promise<NestExpansion> {
+	const joinedChildren = new Map<number, SecondaryGrouping>();
+
+	// A joined collection is read exactly once per declared level, then retained as
+	// an insertion-ordered grouping for every parent at that level.
+	for (let levelIndex = 0; levelIndex < nest.length - 1; levelIndex++) {
+		const entry = nest[levelIndex];
+		if (!entry || entry.children === undefined || typeof entry.children === 'string') continue;
+		const next = nest[levelIndex + 1];
+		if (!next || typeof next.parent_key !== 'string' || next.parent_key.trim() === '') {
 			throw new SourceStageError(
-				'identity: path is not available in this build yet. Use identity: global, or wait for the next build.',
-				{ declaration: `source.nest.${index}.identity` },
+				`Nest level "${next?.level ?? levelIndex + 1}" is joined from another collection and needs parent_key: the child field that names its parent's id.`,
+				{ declaration: `source.nest.${levelIndex + 1}.parent_key` },
 			);
 		}
-		if (entry.children !== undefined && typeof entry.children === 'object') {
-			throw new SourceStageError(
-				`Nest level "${entry.level}" is joined from another collection. That arrives in a later build; declare JSON field children for now.`,
-				{ declaration: `source.nest.${index}.children` },
-			);
+
+		const declaration = `source.nest.${levelIndex}.children`;
+		const secondaryRows = await secondary.resolve(entry.children as JoinFromDeclaration, declaration);
+		const byParent = new Map<string, Row[]>();
+		const keys: Array<string | null> = [];
+		for (let rowIndex = 0; rowIndex < secondaryRows.length; rowIndex++) {
+			const row = secondaryRows[rowIndex];
+			const raw = row[next.parent_key];
+			if (raw === undefined || raw === null || typeof raw === 'string' && raw.trim() === '') {
+				keys.push(null);
+				continue;
+			}
+			const key = normalizeKey(raw, {
+				declaration,
+				expression: next.parent_key,
+				row: rowIndex + 1,
+				side: 'secondary',
+			});
+			keys.push(key);
+			const bucket = byParent.get(key);
+			if (bucket) bucket.push(row);
+			else byParent.set(key, [row]);
 		}
+		joinedChildren.set(levelIndex, { byParent, keys, matched: new Set<string>() });
 	}
 
 	const rows: Row[] = [];
 	const countsByLevel: Record<string, number> = {};
+	const unparented: Record<string, number> = {};
 
 	const walk = (
 		record: Row,
@@ -83,27 +122,50 @@ export function expandNestedRows(
 		if (typeof entry.children === 'string') delete emitted[entry.children];
 		if (entry.leaf !== 'none') rows.push(emitted);
 
-		if (typeof entry.children !== 'string') return;
-		const children = record[entry.children];
-		if (children === undefined || children === null || Array.isArray(children) && children.length === 0) return;
-		if (!Array.isArray(children)) {
-			if (typeof children === 'object') {
-				throw new SourceStageError(
-					`Nest level "${entry.level}" expects "${entry.children}" to be a list of records; found an object at path ${formatPath(path)}.`,
-					{ declaration: `source.nest.${levelIndex}.children` },
-				);
+		let children: Row[] = [];
+		if (typeof entry.children === 'string') {
+			const value = record[entry.children];
+			if (value === undefined || value === null || Array.isArray(value) && value.length === 0) return;
+			if (!Array.isArray(value)) {
+				if (typeof value === 'object') {
+					throw new SourceStageError(
+						`Nest level "${entry.level}" expects "${entry.children}" to be a list of records; found an object at path ${formatPath(path)}.`,
+						{ declaration: `source.nest.${levelIndex}.children` },
+					);
+				}
+				return;
 			}
+			children = value.filter((child): child is Row => child !== null && typeof child === 'object' && !Array.isArray(child));
+		} else if (entry.children && typeof entry.children === 'object') {
+			const grouping = joinedChildren.get(levelIndex);
+			if (!grouping) return;
+			const parentKey = normalizeKey(id, {
+				declaration: `source.nest.${levelIndex}.children`,
+				expression: entry.id,
+				row: countsByLevel[entry.level],
+				side: 'primary',
+			});
+			children = grouping.byParent.get(parentKey) ?? [];
+			if (children.length > 0) grouping.matched.add(parentKey);
+		} else {
 			return;
 		}
 
-		for (const child of children) {
-			if (child === null || typeof child !== 'object' || Array.isArray(child)) continue;
-			walk(child as Row, levelIndex + 1, path, ancestors);
-		}
+		for (const child of children) walk(child, levelIndex + 1, path, ancestors);
 	};
 
 	for (const row of levelZeroRows) walk(row, 0, [], {});
-	return { rows, countsByLevel };
+
+	for (const [levelIndex, grouping] of joinedChildren) {
+		const childLevel = nest[levelIndex + 1]?.level ?? String(levelIndex + 1);
+		const count = grouping.keys.reduce(
+			(total, key) => total + (key === null || !grouping.matched.has(key) ? 1 : 0),
+			0,
+		);
+		if (count > 0) unparented[childLevel] = count;
+	}
+
+	return { rows, countsByLevel, unparented };
 }
 
 function carryRecord(entry: NestedRecordLevel, record: Row, renderedId: string): Record<string, unknown> {

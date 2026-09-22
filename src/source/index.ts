@@ -28,7 +28,7 @@
  * (acceptance case A4).
  */
 
-import type { ParsedData } from '../types/config';
+import type { ParsedData, SourceContainer } from '../types/config';
 import type { NestedRecordLevel } from '../types/generated/recipe';
 import { renderTemplate } from '../render/template';
 import { SourceStageError } from './errors';
@@ -40,7 +40,14 @@ import {
 	type CompiledSourceExpression,
 } from './expression';
 import { assertAdmittedSomething, evaluateWherePredicate, WHERE_DECLARATION, type WhereTally } from './where';
-import { applyJoins, prepareJoins, type JoinsDeclaration, type PreparedJoin } from './joins';
+import {
+	applyJoins,
+	prepareJoins,
+	resolveSecondaryRows,
+	type JoinFromDeclaration,
+	type JoinsDeclaration,
+	type PreparedJoin,
+} from './joins';
 
 export { SourceStageError } from './errors';
 export type { SourceStageErrorInit } from './errors';
@@ -59,7 +66,14 @@ export {
 } from './expression';
 export { evaluateWherePredicate, assertAdmittedSomething, WHERE_DECLARATION } from './where';
 export { shorthandToSourceExpression } from './shorthand';
-export { prepareJoins, applyJoins, ALIAS_PATTERN, RESERVED_ALIASES } from './joins';
+export {
+	prepareJoins,
+	applyJoins,
+	resolveSecondaryRows,
+	normalizeKey,
+	ALIAS_PATTERN,
+	RESERVED_ALIASES,
+} from './joins';
 export { expandNestedRows } from './nest';
 export type { LineageObject, NestExpansion } from './nest';
 export type {
@@ -120,6 +134,8 @@ export interface SourceStage {
 	readonly expectedRowCount?: number;
 	/** Source record counts at each declared nest level, including leaf: none levels. */
 	readonly countsByLevel?: Record<string, number>;
+	/** Joined child rows whose parent key did not name an emitted parent, by child level. */
+	readonly unparented?: Record<string, number>;
 	/** End-of-stream guards (G3). Call after the row loop completes normally. */
 	finalize(): void;
 }
@@ -127,6 +143,36 @@ export interface SourceStage {
 const INACTIVE_STAGE_SOURCE_ROW = (_row: unknown, fallbackIndex: number) => fallbackIndex + 1;
 
 const EMPTY_JOINS: readonly PreparedJoin[] = Object.freeze([]);
+
+async function resolveNestedSecondaryRows(
+	from: JoinFromDeclaration,
+	container: SourceContainer | undefined,
+	declaration: string,
+	budget: SourceStageBudget,
+): Promise<Row[]> {
+	const rows = await resolveSecondaryRows(from, container, declaration);
+	if (from.where === undefined || from.where === null) return rows;
+
+	const names = unionKeys(rows);
+	const compiled = compileSourceExpression(from.where, {
+		declaration: `${declaration}.where`,
+		budget,
+	});
+	assertReferencesExist(compiled, new Set(names), names);
+	const tally: WhereTally = { examined: 0, admitted: 0, excluded: 0 };
+	const kept: Row[] = [];
+	for (let index = 0; index < rows.length; index++) {
+		tally.examined += 1;
+		if (await evaluateWherePredicate(compiled, rows[index], index + 1)) {
+			tally.admitted += 1;
+			kept.push(rows[index]);
+		} else {
+			tally.excluded += 1;
+		}
+	}
+	assertAdmittedSomething(compiled, tally);
+	return kept;
+}
 
 /**
  * Prepare the source stage for one generation run.
@@ -162,6 +208,7 @@ export async function prepareSourceStage(
 	const budget = options.budget ?? new SourceStageBudget();
 	let expectedRowCount: number | undefined;
 	let countsByLevel: Record<string, number> | undefined;
+	let unparented: Record<string, number> | undefined;
 	let stageData = parsedData;
 
 	// [0] nest expansion. JSON parsing is eager in this build, so the complete
@@ -175,9 +222,22 @@ export async function prepareSourceStage(
 				{ declaration: 'source.nest' },
 			);
 		}
-		const expansion = expandNestedRows(parsedData.rows, nest, (template, row) => renderTemplate(template, row));
+		const expansion = await expandNestedRows(
+			parsedData.rows,
+			nest,
+			(template, row) => renderTemplate(template, row),
+			{
+				resolve: (from, declaration) => resolveNestedSecondaryRows(
+					from,
+					parsedData.container,
+					declaration,
+					budget,
+				),
+			},
+		);
 		expectedRowCount = expansion.rows.length;
 		countsByLevel = expansion.countsByLevel;
+		unparented = expansion.unparented;
 		const columns = unionKeys(expansion.rows, [...parsedData.columns, '_cw']);
 		stageData = { ...parsedData, rows: expansion.rows, rowCount: expansion.rows.length, columns };
 	}
@@ -231,6 +291,7 @@ export async function prepareSourceStage(
 		joins,
 		expectedRowCount,
 		countsByLevel,
+		unparented,
 		finalize() {
 			if (compiled) assertAdmittedSomething(compiled, tally);
 		},

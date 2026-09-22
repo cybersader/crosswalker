@@ -227,7 +227,7 @@ async function prepareOneJoin(
 	}
 
 	// --- locate and materialize the secondary collection -------------------
-	const rawSecondary = await resolveSecondaryRows(alias, declaration.from, ctx.container);
+	const rawSecondary = await resolveSecondaryRows(declaration.from, ctx.container, `${root}.from`);
 	if (rawSecondary.length === 0) {
 		throw new SourceStageError('the secondary collection is empty, so this join can never match', {
 			declaration: `${root}.from`,
@@ -328,12 +328,11 @@ async function prepareOneJoin(
 // Locating a secondary collection (contract §4.2)
 // ---------------------------------------------------------------------------
 
-async function resolveSecondaryRows(
-	alias: string,
+export async function resolveSecondaryRows(
 	from: JoinFromDeclaration | undefined,
 	container: SourceContainer | undefined,
+	declaration: string,
 ): Promise<Row[]> {
-	const declaration = `source.joins.${alias}.from`;
 	const hasSheet = typeof from?.sheet === 'string' && from.sheet.length > 0;
 	const hasIterator = typeof from?.iterator === 'string' && from.iterator.length > 0;
 
@@ -501,7 +500,7 @@ function project(row: Row, select: readonly string[]): Row {
  * Every refusal here is the same rule: absence of the KEY is a defect, and a
  * key that is not a scalar is not a key.
  */
-function normalizeKey(
+export function normalizeKey(
 	value: unknown,
 	ctx: { declaration: string; expression: string; row: number; side: 'primary' | 'secondary' },
 ): string {

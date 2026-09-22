@@ -37,6 +37,7 @@ import {
 	injectiveCurieLocalPart,
 	injectiveDeclaredIdLocalPart,
 	isValidCurieLocalPart,
+	pathIdentityLocalPart,
 } from '../src/generation/curie';
 import type { App } from 'obsidian';
 import type { Recipe } from '../src/render';
@@ -104,6 +105,20 @@ describe('AM-28: a declared identifier is hashed as the source wrote it', () => 
 		expect(injectiveCurieLocalPart('AC-2')).toBe('AC-2');
 		expect(injectiveCurieLocalPart('nist:AC-2')).not.toBe('nist:AC-2');
 		expect(isValidCurieLocalPart(injectiveCurieLocalPart('nist:AC-2'))).toBe(true);
+	});
+});
+
+describe('pathIdentityLocalPart', () => {
+	it('keeps the readable hierarchy path', () => {
+		expect(pathIdentityLocalPart(['ac', 'ac-1', 'statement'])).toBe('ac/ac-1/statement');
+	});
+
+	it('does not let a slash inside a piece forge a path boundary', () => {
+		expect(pathIdentityLocalPart(['a/b', 'c'])).not.toBe(pathIdentityLocalPart(['a', 'b/c']));
+	});
+
+	it('does not let a raw slash token collide with an escaped slash', () => {
+		expect(pathIdentityLocalPart(['a--2f--b'])).not.toBe(pathIdentityLocalPart(['a/b']));
 	});
 });
 

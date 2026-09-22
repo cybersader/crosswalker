@@ -45,6 +45,7 @@ import {
 	edgeIdentityLocalPart,
 	injectiveCurieLocalPart,
 	injectiveDeclaredIdLocalPart,
+	pathIdentityLocalPart,
 	slugifyForCurie,
 } from './curie';
 import { mergeFrontmatter, computeDeclaredManagedKeys, computeManagedKeys } from './frontmatter-merge';
@@ -94,7 +95,6 @@ import { wrapManagedBody, scanRegions, findSpan, replaceRegion } from './managed
 import { mergeExistingNote, readExistingNote, splitNoteText, ExistingNoteReadError } from './existing-note';
 import type { FacetMembership } from '../import/mapping/facets';
 import type { CrosswalkColumnEntry, NestedRecordLevel } from '../types/generated/recipe';
-import { expandNestedRows } from '../source/nest';
 import { normalizeMappingSetId, normalizePredicateModifierInput } from '../utils/mapping-provenance';
 import {
 	runCrosswalkEdgePass,
@@ -529,10 +529,15 @@ export async function generateNotes(
 		// Never derive this id from recipe/source/path: all are allowed to change on
 		// a legitimate refresh, while the import set must remain the same.
 		const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId);
-
-		// Ensure base folder exists
-		if (options.createFolders) {
-			await ensureFolderExists(app, options.basePath);
+		if (recipe.source?.nest && derivationOf(importSet) !== 'declared-facts-v1') {
+			result.errors.push({
+				row: 0,
+				message: 'Nested records need the declared-facts identity rule. This import set was minted under filename-stem-v1; import into a new set.',
+				declaration: 'source.nest',
+			});
+			result.success = false;
+			result.duration = Date.now() - startTime;
+			return result;
 		}
 
 		// Snapshot this set's PRE-RUN membership. Metadata-cache updates are not
@@ -650,6 +655,49 @@ export async function generateNotes(
 			});
 			return result;
 		}
+		addUnparentedWarnings(result, sourceStage);
+		let rowsForGeneration: Iterable<Record<string, unknown>> | AsyncIterable<Record<string, unknown>> = sourceStage.rows;
+		if (recipe.source?.nest) {
+			let nestedRows: Record<string, unknown>[];
+			try {
+				nestedRows = await materializeNestedStageRows(sourceStage);
+			} catch (stageErr) {
+				if (!(stageErr instanceof SourceStageError)) throw stageErr;
+				result.errors.push({ row: stageErr.row ?? 0, message: stageErr.message, declaration: stageErr.declaration });
+				result.success = false;
+				result.duration = Date.now() - startTime;
+				return result;
+			}
+			const collision = nestedIdentityCollision(nestedRows, (row, rowIndex) => {
+				const rowNum = sourceStage.sourceRowNumber(row, rowIndex);
+				const filenameStem = deriveFilenameStem(row, mapping, rowNum);
+				return deriveRowCurie(
+					row,
+					curiePrefix,
+					basePrefix,
+					importSet,
+					recipe.source?.nest,
+					() => deriveRawFilenameStem(row, mapping, rowNum),
+					() => derivationOf(importSet) === 'declared-facts-v1'
+						? declaredFactsLocalPart(row, () => deriveRawFilenameStem(row, mapping, rowNum), basePrefix)
+						: filenameStem,
+				);
+			});
+			if (collision) {
+				result.errors.push({ row: 0, message: collision, declaration: 'source.nest' });
+				result.success = false;
+				result.duration = Date.now() - startTime;
+				return result;
+			}
+			rowsForGeneration = nestedRows;
+		}
+
+		// Folder creation follows all nested identity preflight, so a duplicate
+		// identity leaves the vault unchanged.
+		if (options.createFolders) {
+			await ensureFolderExists(app, options.basePath);
+		}
+
 		total = sourceStage.expectedRowCount ?? total;
 		let sourceStageFailure: SourceStageError | null = null;
 		const captureSourceStageFailure = (stageErr: unknown): void => {
@@ -665,7 +713,7 @@ export async function generateNotes(
 		};
 
 		await forEachConcurrent(
-			sourceStage.rows as Iterable<Record<string, any>> | AsyncIterable<Record<string, any>>,
+			rowsForGeneration as Iterable<Record<string, any>> | AsyncIterable<Record<string, any>>,
 			limit,
 			async (row, idx) => {
 				// The SOURCE row number, identical to `idx + 1` whenever no
@@ -1643,14 +1691,19 @@ function buildNoteDataViaRender(
 	// stated. Stripping the declared prefix and substituting ours is the silent
 	// rewrite the amendment forbids.
 	const filenameStem = deriveFilenameStem(row, mapping, rowNum);
-	// AM-34. The declared prefix is checked against the BASE ontology; the
-	// resolved (possibly set-qualified) prefix is what goes in front. One check,
-	// one uniform transform, both recorded on the set.
-	const curie = `${curiePrefix}:${
-		derivationOf(importSet) === 'declared-facts-v1'
+	// AM-34 plus source.nest identity. The same helper is called by the pre-write
+	// uniqueness pass, so preflight and the write loop cannot derive different ids.
+	const curie = deriveRowCurie(
+		row,
+		curiePrefix,
+		basePrefix,
+		importSet,
+		recipe.source?.nest,
+		() => deriveRawFilenameStem(row, mapping, rowNum),
+		() => derivationOf(importSet) === 'declared-facts-v1'
 			? declaredFactsLocalPart(row, () => deriveRawFilenameStem(row, mapping, rowNum), basePrefix)
-			: filenameStem
-	}`;
+			: filenameStem,
+	);
 
 	// 2. render() expects a SourceScope object — the row IS the scope (column
 	//    names map to template variables).
@@ -2591,6 +2644,31 @@ export function buildConfigFromWizardState(
 	};
 }
 
+function estimateJsonNestedRows(
+	rows: Record<string, unknown>[],
+	nest: readonly NestedRecordLevel[],
+): { rows: Record<string, unknown>[]; countsByLevel: Record<string, number> } | null {
+	if (nest.some((entry) => entry.children !== undefined && typeof entry.children !== 'string')) return null;
+	const emitted: Record<string, unknown>[] = [];
+	const countsByLevel: Record<string, number> = {};
+	const walk = (row: Record<string, unknown>, levelIndex: number): void => {
+		const entry = nest[levelIndex];
+		if (!entry) return;
+		countsByLevel[entry.level] = (countsByLevel[entry.level] ?? 0) + 1;
+		if (entry.leaf !== 'none') emitted.push(row);
+		if (typeof entry.children !== 'string') return;
+		const children = row[entry.children];
+		if (!Array.isArray(children)) return;
+		for (const child of children) {
+			if (child !== null && typeof child === 'object' && !Array.isArray(child)) {
+				walk(child as Record<string, unknown>, levelIndex + 1);
+			}
+		}
+	};
+	for (const row of rows) walk(row, 0);
+	return { rows: emitted, countsByLevel };
+}
+
 /**
  * Estimate the number of notes and folders that will be created
  */
@@ -2604,13 +2682,15 @@ export function estimateOutput(
 	let folderCount = 1; // At least the base folder
 
 	if (nest && estimateRows) {
-		const expansion = expandNestedRows(estimateRows, nest, () => 'estimate');
-		const nonLeafLevels = new Set(nest.slice(0, -1).map((entry) => entry.level));
-		noteCount = expansion.rows.length;
-		folderCount = Object.entries(expansion.countsByLevel)
-			.filter(([level]) => nonLeafLevels.has(level))
-			.reduce((sum, [, count]) => sum + count, 0);
-		estimateRows = expansion.rows;
+		const expansion = estimateJsonNestedRows(estimateRows, nest);
+		if (expansion) {
+			const nonLeafLevels = new Set(nest.slice(0, -1).map((entry) => entry.level));
+			noteCount = expansion.rows.length;
+			folderCount = Object.entries(expansion.countsByLevel)
+				.filter(([level]) => nonLeafLevels.has(level))
+				.reduce((sum, [, count]) => sum + count, 0);
+			estimateRows = expansion.rows;
+		}
 	} else if (config.mapping?.hierarchy && config.mapping.hierarchy.length > 0 && estimateRows) {
 		// Count unique combinations at each level. estimateOutput is only
 		// called on the eager-array form (wizard preview); streaming sources
@@ -2754,6 +2834,16 @@ export async function generateFromRecipe(
 	// Headless imports obey the same destination-discovery rules as the wizard.
 	// Callers can name a wiped/empty set explicitly or force a new mint.
 	const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId);
+	if (recipe.source?.nest && derivationOf(importSet) !== 'declared-facts-v1') {
+		result.errors.push({
+			row: 0,
+			message: 'Nested records need the declared-facts identity rule. This import set was minted under filename-stem-v1; import into a new set.',
+			declaration: 'source.nest',
+		});
+		result.success = false;
+		result.duration = Date.now() - startTime;
+		return result;
+	}
 	// AM-6. The set's pin wins over this run's proposal. A refresh whose curie
 	// prefix disagrees with the notes it owns writes a second copy of the whole
 	// import and orphans the first. An explicit `options.curiePrefix` still wins
@@ -2826,6 +2916,49 @@ export async function generateFromRecipe(
 			return result;
 		}
 		throw stageErr;
+	}
+
+	addUnparentedWarnings(result, sourceStage);
+	let rowsForGeneration: Iterable<Record<string, unknown>> | AsyncIterable<Record<string, unknown>> = sourceStage.rows;
+	if (recipe.source?.nest) {
+		let nestedRows: Record<string, unknown>[];
+		try {
+			nestedRows = await materializeNestedStageRows(sourceStage);
+		} catch (stageErr) {
+			if (!(stageErr instanceof SourceStageError)) throw stageErr;
+			result.errors.push({ row: stageErr.row ?? 0, message: stageErr.message, declaration: stageErr.declaration });
+			result.success = false;
+			result.duration = Date.now() - startTime;
+			return result;
+		}
+		const collision = nestedIdentityCollision(nestedRows, (row, rowIndex) => {
+				const rowNum = sourceStage.sourceRowNumber(row, rowIndex);
+			const scope: Record<string, unknown> = recipeNoteKind === 'crosswalk-edge'
+				? {
+					...row,
+					mapping_set_id: normalizeMappingSetId(row.mapping_set_id),
+					predicate_modifier: normalizePredicateModifierInput(row.predicate_modifier),
+				}
+				: row;
+			return deriveRowCurie(
+				scope,
+				curiePrefix,
+				baseCuriePrefix,
+				importSet,
+				recipe.source?.nest,
+				() => `row-${rowNum}`,
+				() => options.curieLocalPart
+					? options.curieLocalPart(scope, rowNum, importSet)
+					: defaultCurieLocalPart(scope, rowNum, derivationOf(importSet), baseCuriePrefix),
+			);
+		});
+		if (collision) {
+			result.errors.push({ row: 0, message: collision, declaration: 'source.nest' });
+			result.success = false;
+			result.duration = Date.now() - startTime;
+			return result;
+		}
+		rowsForGeneration = nestedRows;
 	}
 
 	if (createFolders && options.basePath) {
@@ -2956,7 +3089,7 @@ export async function generateFromRecipe(
 	};
 
 	await forEachConcurrent(
-		sourceStage.rows as Iterable<Record<string, any>> | AsyncIterable<Record<string, any>>,
+		rowsForGeneration as Iterable<Record<string, any>> | AsyncIterable<Record<string, any>>,
 		limit,
 		async (row, idx) => {
 		// The SOURCE row number, not the post-filter position: an error must
@@ -2980,11 +3113,18 @@ export async function generateFromRecipe(
 			// AM-28. The prefix travels with the row: a declared `curie` is honoured
 			// verbatim only when it already carries the prefix this run writes, and is
 			// refused by name otherwise, never stripped and re-prefixed.
-			const localPart = options.curieLocalPart
-				? options.curieLocalPart(scope, rowNum, importSet)
-				// AM-34: checked against the base ontology, written under the resolved prefix.
-				: defaultCurieLocalPart(scope, rowNum, derivationOf(importSet), baseCuriePrefix);
-			const curie = `${curiePrefix}:${localPart}`;
+			const curie = deriveRowCurie(
+				scope,
+				curiePrefix,
+				baseCuriePrefix,
+				importSet,
+				recipe.source?.nest,
+				() => `row-${rowNum}`,
+				() => options.curieLocalPart
+					? options.curieLocalPart(scope, rowNum, importSet)
+					: defaultCurieLocalPart(scope, rowNum, derivationOf(importSet), baseCuriePrefix),
+			);
+			const localPart = curie.slice(curiePrefix.length + 1);
 			// The index deliberately does not return an arbitrary winner for a
 			// collision. Refuse this row instead of making the duplicate permanent.
 			if (ambiguousCuries.has(curie)) return;
@@ -5355,6 +5495,94 @@ export function buildDefaultBody(
  * identity written into the vault than the one it declared - but it is what every
  * set minted before the pin already carries, and it is kept for exactly those.
  */
+interface NestedLineage {
+	level: string;
+	path: string[];
+}
+
+function nestedLineageOf(row: Record<string, unknown>): NestedLineage | null {
+	const raw = row._cw;
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+	const lineage = raw as Record<string, unknown>;
+	if (typeof lineage.level !== 'string' || !Array.isArray(lineage.path)
+		|| !lineage.path.every((piece) => typeof piece === 'string')) return null;
+	return { level: lineage.level, path: lineage.path as string[] };
+}
+
+/** One CURIE derivation used by nested preflight and the row-writing loops. */
+function deriveRowCurie(
+	row: Record<string, unknown>,
+	curiePrefix: string,
+	basePrefix: string,
+	importSet: ImportSetReference | undefined,
+	nest: readonly NestedRecordLevel[] | undefined,
+	lastResort: () => string,
+	defaultLocalPart: () => string,
+): string {
+	const lineage = nestedLineageOf(row);
+	const entry = lineage ? nest?.find((candidate) => candidate.level === lineage.level) : undefined;
+	if (!lineage || !entry) return `${curiePrefix}:${defaultLocalPart()}`;
+	if (derivationOf(importSet) !== 'declared-facts-v1') {
+		throw new SourceStageError(
+			'Nested records need the declared-facts identity rule. This import set was minted under filename-stem-v1; import into a new set.',
+			{ declaration: 'source.nest' },
+		);
+	}
+	const localPart = entry.identity === 'path'
+		? pathIdentityLocalPart(lineage.path)
+		// A nested level declares identity through its id template. The rendered
+		// value is the last lineage piece, even when the source column is named
+		// something domain-specific such as "Control ID" rather than `id`.
+		: declaredFactsLocalPart({ id: lineage.path[lineage.path.length - 1] }, lastResort, basePrefix);
+	return `${curiePrefix}:${localPart}`;
+}
+
+interface NestedCurieClaim {
+	path: string;
+	level: string;
+}
+
+function nestedIdentityCollision(
+	rows: readonly Record<string, unknown>[],
+	deriveCurie: (row: Record<string, unknown>, rowIndex: number) => string,
+): string | null {
+	const claims = new Map<string, NestedCurieClaim>();
+	for (let index = 0; index < rows.length; index++) {
+		const row = rows[index];
+		const lineage = nestedLineageOf(row);
+		if (!lineage) continue;
+		const curie = deriveCurie(row, index);
+		const path = lineage.path.join('/');
+		const first = claims.get(curie);
+		if (first) {
+			return `Ambiguous identity ${curie} claimed by rows at ${first.path} and ${path}. `
+				+ `Set identity: path on level "${lineage.level}" so each row is named by its place in the hierarchy.`;
+		}
+		claims.set(curie, { path, level: lineage.level });
+	}
+	return null;
+}
+
+function addUnparentedWarnings(result: GenerationResult, stage: SourceStage): void {
+	for (const [level, count] of Object.entries(stage.unparented ?? {})) {
+		if (count < 1) continue;
+		result.warnings ??= [];
+		result.warnings.push({
+			row: 0,
+			message: `${count} ${level} records name a parent that is not in the source and were not imported.`,
+		});
+	}
+}
+
+async function materializeNestedStageRows(stage: SourceStage): Promise<Record<string, unknown>[]> {
+	const rows: Record<string, unknown>[] = [];
+	for await (const row of stage.rows as Iterable<Record<string, unknown>> | AsyncIterable<Record<string, unknown>>) {
+		rows.push(row);
+	}
+	stage.finalize();
+	return rows;
+}
+
 function defaultCurieLocalPart(
 	row: Record<string, unknown>,
 	rowNum: number,
