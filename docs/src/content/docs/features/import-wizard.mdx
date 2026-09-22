@@ -10,6 +10,8 @@ Crosswalker's import experience lives in the **Crosswalker workspace tab** — a
 
 **Not yet verified in real Obsidian (2026-09-21):** the vault scan and the worksheet suggestion described below shipped on an unmerged branch without a screenshot run.
 
+**Not yet verified in real Obsidian (2026-09-22):** the nested-record picker and nested-row controls described below shipped on an unmerged branch without a screenshot run.
+
 ## The workspace tab
 
 Open it from the network-shaped **ribbon icon**, the **status bar** count, the **"Open workspace"** command, or by right-clicking a CSV, XLSX, or JSON file in the file explorer and choosing **"Import into vault with Crosswalker"** (the file arrives pre-selected, so you skip straight to configuring it). A one-time notice after you enable the plugin points at the tab too.
@@ -32,6 +34,8 @@ Pick a **CSV, XLSX, or JSON** file. Crosswalker reads each differently:
 - **CSV** — every row becomes a note; large files parse through a streaming reader so multi-megabyte exports don't stall.
 - **XLSX** — pick the worksheet, then the header row (raise it to skip banner rows sitting above the real headers).
 - **JSON** — Crosswalker finds the lists of records nested inside the file and shows them as selectable cards (list name, path, record count, field names); pick the one to import. An advanced path field is there if your records live somewhere unusual, but you rarely need it.
+
+When one JSON record list owns another, the picker makes deeper [reification](/crosswalker/concepts/terminology/#reification) and the user's control one decision: it summarizes the chain as **Records inside records**, then offers **Nested (N levels)** to make one note per record at every level or **Only this list** to keep the existing flat import. **Only this list** stays selected until you choose nesting.
 
 Under the record cards, **"Keep only matching records (optional)"** narrows the import: write `field=value` to keep matches or `field!=value` to drop them, and combine rules with commas. On an unmerged working branch this filter is now carried into generation on both the classic and workbench paths; previously it took effect only in the beta workbench. A filter that names a field your source does not have, or that matches nothing, reports an error at generation time rather than quietly importing the wrong set of records. The unknown-field case was observed in the running app on 2026-09-09: the results screen showed one error and zero created notes, and the message named the missing field and listed the fields the source does have. The "matches nothing" case is established from the engine and its tests, not from a run of the app.
 
@@ -65,6 +69,8 @@ When there's no confident match, or you chose Customize, you land on the mapping
   - **Live preview** (right) — a real folder tree and one fully rendered note, both recomputed as you change anything, plus a banner stating plainly whether every row fits the pattern you've built.
 
 When a column appears to contain identifiers from another framework, or a loaded recipe already declares that destination, the workbench shows a **Crosswalks** card. This [crosswalk column role](/crosswalker/concepts/terminology/#crosswalk-column-role) (plain: one source column names concepts in another framework) is where the user controls deeper reification: **Framework** names the target from the registry or **Other**, and **Predicate** names the relationship. Leaving the framework unnamed blocks Generate with `Column "<column>" is marked as a crosswalk but no framework is named. Pick the framework on the Crosswalks card, or turn the card off.` Generation writes separate edge notes in their own import set under `_crosswalker/mappings/<source>-to-<target>` and writes nothing into the concept note.
+
+On a [nested record level](/crosswalker/concepts/terminology/#nested-record-level), the workbench adds two small selects. **Own note** chooses **Folder note** or **Folders only**; **Named by** chooses **Its own identifier** or **Its place in the hierarchy**. **Folders only** keeps that level as a folder and keeps its name in each child's parent lineage, but creates no note for the level itself. Merge and Split are absent on these rows because the source already declares separate record types; combining children into sections inside the parent is a different body-projection capability and is not in this build.
 
 {/* FIGURE: test-screenshots/view-04-workbench-wide.png — Live mapping workbench: source rail (what we found), mapping canvas (how it lands), and live vault preview side by side */}
 
