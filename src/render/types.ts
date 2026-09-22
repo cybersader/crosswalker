@@ -35,8 +35,12 @@ export interface ConceptIdentity {
  */
 export type RenderNoteCode =
 	| 'folder-level-skipped' // folder segment rendered empty → level dropped, note lands one level up
+	| 'nest-folder-note-leaf' // non-leaf nested row used its declared implicit folder-note file
 	| 'split-no-delimiter' // split() found no delimiter in the value
 	| 'split-index-missing' // split() index past the number of pieces → empty string
+	| 'part-no-delimiter' // part() found no delimiter-set character in the value (index > 0) → empty string
+	| 'part-index-missing' // part() index past the number of pieces → empty string
+	| 'prefix-index-missing' // prefix() index past the number of pieces → empty string
 	| 'regex-no-match' // regex() matched nothing → empty string
 	| 'literal-key-shadowed' // a dotted path read BOTH as a literal column name and as nested traversal; the column won
 	| 'list-items-dropped' // a filter blanked one or more items of a list, and they were elided (contract §2 L2)

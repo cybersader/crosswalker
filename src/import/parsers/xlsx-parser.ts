@@ -15,6 +15,8 @@
 import * as XLSX from 'xlsx';
 import { computeSourceByteDigest } from '../../generation/hash';
 import { ParsedData } from '../../types/config';
+import { assertNoReservedSourceColumn } from '../../source/joins';
+import { PEEK_ROWS, type TablePeek } from './table-peek';
 
 export interface XLSXParseOptions {
 	/** Sheet to parse — name, or 0-based index. Defaults to the first sheet. */
@@ -29,6 +31,33 @@ const normKey = (k: string): string => k.replace(/\s+/g, ' ').trim();
 /** Decode from a disposable copy so the XLSX library never receives owned bytes. */
 function readWorkbookBytes(sourceBytes: Uint8Array): XLSX.WorkBook {
 	return XLSX.read(sourceBytes.slice(), { type: 'array' });
+}
+
+/** Read the first rows of every sheet without assigning a header. */
+export function peekXLSXBytes(bytes: Uint8Array, rows = PEEK_ROWS): TablePeek[] {
+	const workbook = readWorkbookBytes(bytes);
+	const limit = Math.max(0, Math.floor(rows));
+	return workbook.SheetNames.map((table) => {
+		const sheet = workbook.Sheets[table];
+		const reference = sheet?.['!ref'];
+		if (!sheet || !reference || limit === 0) return { table, rows: [] };
+		const used = XLSX.utils.decode_range(reference);
+		const range = {
+			s: { r: 0, c: used.s.c },
+			e: { r: Math.min(used.e.r, limit - 1), c: used.e.c },
+		};
+		const peeked = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+			header: 1,
+			range,
+			defval: '',
+			raw: false,
+			blankrows: true,
+		});
+		return {
+			table,
+			rows: peeked.map((row) => row.map((cell) => String(cell ?? '').trim())),
+		};
+	});
 }
 
 async function readWorkbook(file: File): Promise<XLSX.WorkBook> {
@@ -84,6 +113,7 @@ export async function parseXLSXFile(file: File, options: XLSXParseOptions = {}):
 			}
 		}
 	}
+	assertNoReservedSourceColumn(columns);
 
 	return {
 		columns,

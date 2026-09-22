@@ -31,6 +31,7 @@ import type { App } from 'obsidian';
 import type { ParsedData, GenerationResult } from '../types/config';
 import { generateFromRecipe } from '../generation/generation-engine';
 import type { Recipe } from '../render';
+import type { CrosswalkPredicate } from './mapping/types';
 import type { DebugLog } from '../utils/debug';
 import {
 	parseSssomTsv,
@@ -40,8 +41,9 @@ import {
 } from './sssom-parser';
 import { sha256Hex } from '../generation/hash';
 import { readNoteFrontmatterState } from '../export/vault-reader';
-import { derivationOf, type ImportSetOption, type ImportSetReference } from '../generation/import-set';
-import { injectiveEndpointToken } from '../generation/curie';
+import { type ImportSetOption } from '../generation/import-set';
+import { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../generation/crosswalk-identity';
+export { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../generation/crosswalk-identity';
 import {
 	assertionBaseKey,
 	mappingOccurrenceContentKey,
@@ -49,15 +51,6 @@ import {
 	normalizeMappingSetId,
 	normalizePredicateModifierInput,
 } from '../utils/mapping-provenance';
-
-/**
- * The curie prefix every SSSOM crosswalk edge is minted under, whatever the
- * ontology pair. Named once (AM-18, 2026-08-31) because it is what any caller
- * asking "would a new set here collide" has to compare against: the SSSOM path
- * overrides the engine's ontology-derived prefix with this literal, so the
- * ontology pair is NOT the identity space these edges occupy.
- */
-export const SSSOM_CURIE_PREFIX = 'sssom';
 
 /** Options accepted by importSssom(). */
 export interface SssomImportOptions {
@@ -394,13 +387,20 @@ function buildSyntheticRecipe(source: string, target: string): Recipe {
  *
  * Unknown predicates fall back to `intersects_with` with a warning logged.
  */
-const SKOS_TO_STRM: Record<string, string> = {
+const SKOS_TO_STRM: Record<string, CrosswalkPredicate> = {
 	'skos:exactMatch': 'is_equivalent_to',
 	'skos:closeMatch': 'is_approximate_to',
 	'skos:broadMatch': 'is_narrower_than',
 	'skos:narrowMatch': 'is_broader_than',
 	'skos:relatedMatch': 'intersects_with',
 };
+
+/** The inverse of the single SKOS→STRM table used by SSSOM normalization. */
+export function strmToSkos(predicate: CrosswalkPredicate): string {
+	const match = Object.entries(SKOS_TO_STRM).find(([, strm]) => strm === predicate);
+	if (!match) throw new Error(`No SSSOM predicate is registered for ${predicate}.`);
+	return match[0];
+}
 
 function normalizePredicate(sssomPredicate: string): { strm: string; warning?: string } {
 	const strm = SKOS_TO_STRM[sssomPredicate];
@@ -469,48 +469,6 @@ async function preflightMappingSetDestinations(
 			}
 		}
 	}
-}
-
-/**
- * Stable CURIE local-part for one SSSOM edge, dispatched by the active set's
- * scheme. endpoint-v1 remains byte-for-byte `cw-<subject>-<object>`.
- * set-qualified-v1 is exactly
- * `cwset-<import-set-id>-<sanitized-subject>-<sanitized-object>`: the `cwset-`
- * marker makes it visibly distinct, the minted set id isolates releases, and
- * endpoint sanitization keeps the deterministic result filesystem-safe.
- */
-export function sssomEdgeCurie(
-	row: Record<string, unknown>,
-	importSet: ImportSetReference,
-): string {
-	// AM-27. The endpoint sanitizer is part of the identity, so which one runs is
-	// the SET's pinned derivation, not this version's preference. Under the legacy
-	// pin the collapsing form below is reproduced byte-for-byte, because it is what
-	// every junction note already in a vault carries.
-	const sanitize = derivationOf(importSet) === 'declared-facts-v1'
-		? injectiveEndpointToken
-		: legacySanitizeCuriePart;
-	const subj = sanitize(String(row.subject_id ?? 'unknown'));
-	const obj = sanitize(String(row.object_id ?? 'unknown'));
-	if (importSet.scheme === 'endpoint-v1') return `cw-${subj}-${obj}`;
-	if (importSet.scheme === 'set-qualified-v1') return `cwset-${importSet.id}-${subj}-${obj}`;
-	const exhaustive: never = importSet.scheme;
-	throw new Error(`Unsupported import set scheme: ${String(exhaustive)}.`);
-}
-
-/**
- * AM-27. `filename-stem-v1` only. FROZEN.
- *
- * Many-to-one: `NIST:AC-2` and `NIST/AC-2` and `NIST AC 2` all become
- * `NIST-AC-2`, so two SSSOM rows mapping different endpoints produce one edge
- * identity, and the second row silently replaces the first's assertion. Kept
- * unchanged anyway - it is a record of what is in people's vaults, and changing
- * it would re-identify every junction note ever imported. New sets get
- * `injectiveEndpointToken`, which keeps the same readable shape and appends a
- * digest of the exact endpoint whenever a character had to be replaced.
- */
-function legacySanitizeCuriePart(value: string): string {
-	return value.replace(/[^a-zA-Z0-9_-]+/g, '-');
 }
 
 /** Convert a SssomRow to a plain Record for the generation engine. */

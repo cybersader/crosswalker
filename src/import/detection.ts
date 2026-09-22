@@ -21,10 +21,12 @@
  * that fixed order.
  */
 
-import type { ParsedData, ColumnInfo } from '../types/config';
+import type { ParsedData, ColumnInfo, SourceContainer } from '../types/config';
 import { isTier1Curie } from '../validation/validator';
 import { isEagerRows } from '../types/config';
 import type { VariadicConfig } from '../render/types';
+import { ontologyForHeader, RECIPE_REGISTRY } from './recipe-registry';
+import type { RecipeRegistryEntry } from './recipe-registry';
 
 // ============================================================================
 // Public detection types
@@ -120,6 +122,23 @@ export interface DiscriminatorProposal {
  */
 export type Detection =
 	| {
+			kind: 'nested-records';
+			iterator: string;
+			chain: Array<{
+				field: string;
+				avgPerParent: number;
+				sampleKeys: string[];
+				idKey: string | null;
+				repeatsUnderParents: boolean;
+			}>;
+			sampleValues: string[];
+			proposal: {
+				mechanism: 'nested-levels';
+				levels: string[];
+				identities: Array<'global' | 'path'>;
+			};
+		  }
+	| {
 			kind: 'packed-hierarchy';
 			column: string;
 			/** Operative delimiter (primary one, for the multi-delimiter uniform case). */
@@ -211,6 +230,23 @@ export type Detection =
 			predicateConfidence?: number;
 			/** Up to 5 "subject | predicate | object" sample tuples — the card's receipts. */
 			sampleValues: string[];
+	  }
+	| {
+			kind: 'crosswalk-column';
+			column: string;
+			idColumn: string;
+			/** Registry ontology when the header alias or id pattern matched; otherwise null. */
+			targetOntology: string | null;
+			/** Share of atoms that match the shared id-like value shape. */
+			idShapeRate: number;
+			/** Share of atoms found in this source's own id column value set. */
+			selfMatchRate: number;
+			/** Mean atoms per non-empty cell. */
+			avgValuesPerCell: number;
+			/** First trailing parenthetical qualifier seen after an atom. */
+			qualifierSample: string | null;
+			sampleValues: string[];
+			proposal: { mechanism: 'crosswalk-edges'; predicate: 'is_approximate_to' };
 	  }
 	| {
 			/**
@@ -341,6 +377,12 @@ const EDGE_PREDICATE_MAX_CARDINALITY = 8;
  */
 const CONCEPT_TITLE_MIN_AVG_LEN = 25;
 
+// --- crosswalk-column (deep-reification spec §4.2) ---
+/** Fraction of split atoms that must have the shared id-like shape. */
+export const CROSSWALK_ID_SHAPE_MIN = 0.8;
+/** Maximum self-match rate for unnamed foreign ids; equality stays intra-ontology. */
+export const CROSSWALK_SELF_MATCH_MAX = 0.5;
+
 // --- multi-value-link (spec §7d) ---
 /** Fraction of exploded (list-split) values that must hit the id set. */
 const MULTI_LINK_MATCH_MIN = 0.6;
@@ -360,6 +402,145 @@ const BODY_DISTINCTNESS_MIN = 0.7;
 const BODY_SAMPLE_MAXLEN = 160;
 
 // ============================================================================
+// Nested-record detection (Pass 0)
+// ============================================================================
+
+type ObjectRow = Record<string, unknown>;
+
+const isObjectRow = (value: unknown): value is ObjectRow =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+function singularLevelName(value: string, used: Set<string>): string {
+	const base = value.endsWith('s') && value.length > 1 ? value.slice(0, -1) : value;
+	let name = base || 'level';
+	let suffix = 2;
+	while (used.has(name)) name = `${base}${suffix++}`;
+	used.add(name);
+	return name;
+}
+
+function candidateIdKey(groups: ObjectRow[][], field: string): string | null {
+	const singular = field.endsWith('s') && field.length > 1 ? field.slice(0, -1) : field;
+	const candidates = ['id', 'identifier', 'uuid', `${singular}_id`, 'code'];
+	for (const key of candidates) {
+		let saw = false;
+		let valid = true;
+		for (const group of groups) {
+			const values = group.map((row) => row[key]);
+			if (values.some((value) => value === undefined || value === null || String(value).trim() === '')
+				|| new Set(values.map(String)).size !== values.length) {
+				valid = false;
+				break;
+			}
+			if (values.length > 0) saw = true;
+		}
+		if (valid && saw) return key;
+	}
+	return null;
+}
+
+function repeatedAcrossParents(groups: ObjectRow[][], idKey: string | null): boolean {
+	if (!idKey) return false;
+	const owners = new Map<string, number>();
+	for (let parent = 0; parent < groups.length; parent++) {
+		for (const row of groups[parent]) {
+			const value = row[idKey];
+			if (value === undefined || value === null) continue;
+			const key = String(value);
+			const owner = owners.get(key);
+			if (owner !== undefined && owner !== parent) return true;
+			owners.set(key, parent);
+		}
+	}
+	return false;
+}
+
+function detectNestedRecords(
+	data: ParsedData,
+	container?: SourceContainer,
+): Extract<Detection, { kind: 'nested-records' }> | null {
+	if (container?.kind !== 'json' || !isEagerRows(data.rows)) return null;
+	const rootRows = data.rows.filter(isObjectRow).slice(0, 50);
+	if (rootRows.length === 0) return null;
+
+	const chain: Extract<Detection, { kind: 'nested-records' }>['chain'] = [];
+	const pathRows: Array<{ row: ObjectRow; path: string[] }> = rootRows.map((row) => ({ row, path: [] }));
+	let current = pathRows;
+	for (let depth = 0; depth < 4 && current.length > 0; depth++) {
+		const parents = current.slice(0, 50);
+		const fieldOrder: string[] = [];
+		for (const { row } of parents) {
+			for (const key of Object.keys(row)) if (!fieldOrder.includes(key)) fieldOrder.push(key);
+		}
+		const field = fieldOrder.find((key) => {
+			const matches = parents.filter(({ row }) => {
+				const value = row[key];
+				return Array.isArray(value) && value.some(isObjectRow);
+			}).length;
+			return matches / parents.length >= 0.8;
+		});
+		if (!field) break;
+
+		const groups = parents.map(({ row }) => {
+			const value = row[field];
+			return Array.isArray(value) ? value.filter(isObjectRow) : [];
+		});
+		const children = groups.flat();
+		if (children.length === 0) break;
+		const idKey = candidateIdKey(groups, field);
+		chain.push({
+			field,
+			avgPerParent: Number((children.length / parents.length).toFixed(1)),
+			sampleKeys: Object.keys(children[0]).slice(0, 6),
+			idKey,
+			repeatsUnderParents: repeatedAcrossParents(groups, idKey),
+		});
+
+		const next: Array<{ row: ObjectRow; path: string[] }> = [];
+		for (let parent = 0; parent < parents.length; parent++) {
+			const parentId = String(parents[parent].row.id ?? parents[parent].row.identifier ?? parents[parent].row.uuid ?? parents[parent].row.code ?? '?');
+			for (const child of groups[parent]) next.push({ row: child, path: [...parents[parent].path, parentId] });
+		}
+		current = next;
+	}
+	if (chain.length === 0) return null;
+
+	const iterator = (container as SourceContainer & { iterator?: string }).iterator ?? '';
+	const lastIteratorSegment = iterator
+		.replace(/\[\*\]$/u, '')
+		.split('.')
+		.filter(Boolean)
+		.at(-1) ?? 'record';
+	const used = new Set<string>();
+	const levels = [singularLevelName(lastIteratorSegment, used), ...chain.map((entry) => singularLevelName(entry.field, used))];
+	const identities: Array<'global' | 'path'> = ['global', ...chain.map((entry) => entry.repeatsUnderParents ? 'path' as const : 'global' as const)];
+
+	const sampleValues: string[] = [];
+	const collectPaths = (rows: ObjectRow[], depth: number, path: string[]): void => {
+		if (sampleValues.length >= 5) return;
+		const idKey = depth === 0 ? candidateIdKey([rows], lastIteratorSegment) ?? 'id' : chain[depth - 1]?.idKey ?? 'id';
+		for (const row of rows) {
+			const nextPath = [...path, String(row[idKey] ?? '?')];
+			if (depth === chain.length) sampleValues.push(nextPath.join(' / '));
+			else {
+				const value = row[chain[depth].field];
+				if (Array.isArray(value)) collectPaths(value.filter(isObjectRow), depth + 1, nextPath);
+			}
+			if (sampleValues.length >= 5) return;
+		}
+	};
+	collectPaths(rootRows, 0, []);
+
+	return {
+		kind: 'nested-records',
+		iterator,
+		chain,
+		sampleValues,
+		proposal: { mechanism: 'nested-levels', levels, identities },
+	};
+}
+
+// ============================================================================
 // Entry point
 // ============================================================================
 
@@ -373,10 +554,16 @@ const BODY_SAMPLE_MAXLEN = 160;
  * `ParsedData` — which is what the wizard hands over at Step 2a.
  *
  * Output order is deterministic: packed-hierarchy, level-column-chain,
- * edge-file, parent-column, multi-value-link, row-type-discriminator, facet,
- * body-candidate, title-candidate — each pass visiting columns in source order.
+ * edge-file, parent-column, crosswalk-column, multi-value-link,
+ * row-type-discriminator, facet, body-candidate, title-candidate, with each
+ * pass visiting columns in source order.
  */
-export function detectStructure(data: ParsedData, columns: ColumnInfo[]): Detection[] {
+export function detectStructure(
+	data: ParsedData,
+	columns: ColumnInfo[],
+	container: SourceContainer | undefined = data.container,
+): Detection[] {
+	const nested = detectNestedRecords(data, container);
 	const columnInfo = new Map(columns.map((c) => [c.name, c]));
 	// Materialize normalized non-empty values per column once — every detector
 	// reads from this map so the source is scanned a single time.
@@ -463,10 +650,44 @@ export function detectStructure(data: ParsedData, columns: ColumnInfo[]): Detect
 	const packed = data.columns.map((c) => packedByColumn.get(c)).filter((d): d is Detection => d !== undefined);
 	const packedColumns = new Set(packedByColumn.keys());
 
+	// --- Pass 4b: crosswalk-column (foreign ontology ids packed in a concept column) ---
+	// Edge-file subject/object columns are claimed by the file-level route. A fired
+	// crosswalk claims its column from parent-column and multi-value-link so one
+	// column never carries two link-shaped proposals.
+	const crosswalks: Extract<Detection, { kind: 'crosswalk-column' }>[] = [];
+	const crosswalkColumns = new Set<string>();
+	const edgeFileColumns = new Set<string>(
+		edgeFile ? [edgeFile.subjectColumn, edgeFile.objectColumn] : [],
+	);
+	for (const col of data.columns) {
+		const idCol = idColumns[0];
+		if (idCol === undefined) break;
+		if (idColumnSet.has(col) || edgeFileColumns.has(col)) continue;
+		const detection = detectCrosswalkColumn(
+			col,
+			idCol,
+			valuesByColumn.get(col) ?? [],
+			valuesByColumn.get(idCol) ?? [],
+			col,
+			RECIPE_REGISTRY,
+		);
+		if (detection) {
+			crosswalks.push(detection);
+			crosswalkColumns.add(col);
+		}
+	}
+	if (crosswalkColumns.size > 0) {
+		for (let i = parents.length - 1; i >= 0; i--) {
+			if (crosswalkColumns.has(parents[i].column)) parents.splice(i, 1);
+		}
+		for (const col of crosswalkColumns) parentColumns.delete(col);
+	}
+
 	// --- Pass 5: multi-value-link (list-split cells hit another column's id set) ---
 	const multiLinks: Detection[] = [];
 	for (const col of data.columns) {
 		if (idColumnSet.size === 0) break;
+		if (crosswalkColumns.has(col)) continue;
 		for (const idCol of idColumns) {
 			if (col === idCol) continue;
 			const detection = detectMultiValueLink(col, idCol, valuesByColumn.get(col) ?? [], valuesByColumn.get(idCol) ?? []);
@@ -507,10 +728,12 @@ export function detectStructure(data: ParsedData, columns: ColumnInfo[]): Detect
 	}
 
 	return [
+		...(nested ? [nested] : []),
 		...packed,
 		...(chain ? [chain] : []),
 		...(edgeFile ? [edgeFile] : []),
 		...parents,
+		...crosswalks,
 		...multiLinks,
 		...discriminators,
 		...facets,
@@ -593,8 +816,10 @@ function detectPackedHierarchy(column: string, allValues: string[]): Detection |
 		// ordering (CSF `.` then `-`) matches today's recipe exactly.
 		const templates = deriveFixedSplitTemplates(column, sample);
 		const fixed = templates.length > 0 ? templates : uniform.map((u) => `{${column}|split(${u.delimiter},0)}`);
-		// Primary delimiter = the first fixed level's delimiter (first by rep position).
-		const primaryDelim = parseSplitDelimiter(fixed[0]) ?? uniform[0].delimiter;
+		// Primary delimiter = the first fixed level's delimiter (first by rep position);
+		// a set template `prefix(D,0)` contributes the first char of its set.
+		const primaryDelim =
+			parseSplitDelimiter(fixed[0]) ?? firstCharOf(parseSetDelimiters(fixed[0])) ?? uniform[0].delimiter;
 		const primaryStats = stats.find((s) => s.delimiter === primaryDelim) ?? uniform[0];
 		return {
 			kind: 'packed-hierarchy',
@@ -663,11 +888,16 @@ function analyzeDelimiter(values: string[], delimiter: string): DelimiterStats {
 }
 
 /**
- * Mirror of `deriveIdSplitTemplates` (generation-engine.ts) — kept as a private
- * copy so this module stays free of the Obsidian-importing engine. The two are
- * pinned equal by parity assertions in tests/detection.test.ts (the CSF/SCF/AC
- * fixtures assert this output deep-equals `deriveIdSplitTemplates(...)`). Do NOT
- * edit one without the other; the test will catch drift.
+ * Fixed-layout template inference for a packed id column.
+ *
+ * Single qualifying delimiter: a byte-identical mirror of
+ * `deriveIdSplitTemplates` (generation-engine.ts) — `split(d,0)` per level.
+ * Two or more: the spec §3 upgrade — a uniform depth over the delimiter SET
+ * proposes `prefix(D,i)` cumulative-prefix levels (the engine still emits
+ * `split()` per delimiter there, so the old parity assertions hold only for
+ * the single-delimiter case). Kept private so this module stays free of the
+ * Obsidian-importing engine; the single-delimiter output is pinned equal to
+ * `deriveIdSplitTemplates` by parity assertions in tests/detection.test.ts.
  */
 function deriveFixedSplitTemplates(column: string, values: string[]): string[] {
 	const samples = values.map((v) => String(v ?? '').trim()).filter(Boolean).slice(0, 200);
@@ -684,20 +914,84 @@ function deriveFixedSplitTemplates(column: string, values: string[]): string[] {
 	});
 	if (qualifying.length === 0) return [];
 
+	// Order delimiters by their first position in a representative (longest) value,
+	// for display only — the part/prefix filters are order-free over the set.
 	const rep = samples.reduce((a, b) => (b.length > a.length ? b : a), samples[0]);
 	const ordered = qualifying
 		.map((d) => ({ d, pos: rep.indexOf(d) }))
 		.filter((x) => x.pos >= 0)
 		.sort((a, b) => a.pos - b.pos)
 		.map((x) => x.d);
+	if (ordered.length === 0) return [];
+
+	// Two or more qualifying delimiters: propose cumulative-prefix levels over the
+	// SET (spec §3). Depth = piece count when every sample is tokenized on the set
+	// (empty pieces dropped, matching the render filter). Uniform depth → fixed
+	// `prefix(D,i)` levels with the untouched column as the leaf; ragged depth →
+	// fall back to the single-delimiter behaviour until `variadic.delimiters`
+	// exists (spec §8).
+	if (ordered.length >= 2) {
+		const set = ordered.join('');
+		const depths = samples.map((s) => splitOnSet(s, set).length);
+		const counts = new Map<number, number>();
+		for (const d of depths) counts.set(d, (counts.get(d) ?? 0) + 1);
+		let modalDepth = 0;
+		let modalCount = 0;
+		for (const [depth, count] of counts) {
+			if (count > modalCount) {
+				modalDepth = depth;
+				modalCount = count;
+			}
+		}
+		const modalShare = modalCount / samples.length;
+		if (modalShare >= UNIFORM_DEPTH_AGREEMENT) {
+			return Array.from({ length: modalDepth - 1 }, (_, i) => `{${column}|prefix(${set},${i})}`);
+		}
+		return ordered.map((d) => `{${column}|split(${d},0)}`);
+	}
 
 	return ordered.map((d) => `{${column}|split(${d},0)}`);
+}
+
+/**
+ * Tokenize a value on a delimiter SET: split on any single character of `set`
+ * and drop empty pieces (identical semantics to the `part` template filter, so
+ * a preview built on this helper matches what generation renders). Exported for
+ * the workbench "Split into levels" panel; `splitOnSet` below delegates here.
+ */
+export function splitOnDelimiterSet(value: string, set: string): string[] {
+	return value.split(new RegExp(`[${escapeCharClass(set)}]`)).filter(Boolean);
+}
+
+/** Tokenize on a delimiter set: split on any single char of the set, dropping empty pieces. */
+function splitOnSet(value: string, set: string): string[] {
+	return splitOnDelimiterSet(value, set);
+}
+
+/** Escape every character of `set` for use inside a regex character class. */
+function escapeCharClass(set: string): string {
+	return set.replace(/[-\\\]\^]/g, '\\$&');
 }
 
 /** Pull the delimiter `X` out of a `{col|split(X,0)}` template, or null. */
 function parseSplitDelimiter(template: string): string | null {
 	const m = /\|split\((.),0\)\}$/.exec(template);
 	return m ? m[1] : null;
+}
+
+/**
+ * Pull the delimiter set `D` out of a `{col|prefix(D,0)}` (or `part(D,0)`)
+ * template, or null. `D` is a raw string of single-character delimiters; any
+ * one of them separates parts.
+ */
+export function parseSetDelimiters(template: string): string | null {
+	const m = /\|(?:prefix|part)\(([^,()]+),0\)\}$/.exec(template);
+	return m ? m[1] : null;
+}
+
+/** First character of a set string, or undefined when empty. */
+function firstCharOf(set: string | null): string | undefined {
+	return set && set.length > 0 ? set[0] : undefined;
 }
 
 // ============================================================================
@@ -785,6 +1079,31 @@ function splitMultiValue(value: string): string[] {
 		pieces = pieces.flatMap((p) => p.split(d));
 	}
 	return pieces.map((p) => p.trim()).filter((p) => p !== '');
+}
+
+/**
+ * Split one crosswalk cell into ids and aligned trailing qualifiers. Uses the
+ * shared list delimiters plus newlines, and drops the frozen empty sentinels.
+ */
+export function splitCrosswalkCell(value: string): { atoms: string[]; qualifiers: (string | null)[] } {
+	let pieces = [value];
+	for (const delimiter of [...LIST_DELIMITERS, '\n']) {
+		pieces = pieces.flatMap((piece) => piece.split(delimiter));
+	}
+
+	const atoms: string[] = [];
+	const qualifiers: (string | null)[] = [];
+	for (const piece of pieces) {
+		let atom = piece.trim();
+		if (atom === '' || /^(?:none|n\/a|-)$/i.test(atom)) continue;
+		const qualifierMatch = /(\([^()]*\))$/.exec(atom);
+		const qualifier = qualifierMatch?.[1] ?? null;
+		if (qualifierMatch) atom = atom.slice(0, qualifierMatch.index).trim();
+		if (atom === '' || /^(?:none|n\/a|-)$/i.test(atom)) continue;
+		atoms.push(atom);
+		qualifiers.push(qualifier);
+	}
+	return { atoms, qualifiers };
 }
 
 /** Deterministic tag-namespace slug for a column name (literal segment root). */
@@ -1177,6 +1496,78 @@ function detectEdgeFile(
 		objectConfidence: object.confidence,
 		...(predicateColumn ? { predicateColumn, predicateConfidence } : {}),
 		sampleValues,
+	};
+}
+
+// ============================================================================
+// Crosswalk-column detection (deep-reification spec §4.2)
+// ============================================================================
+
+/**
+ * Detect ids from another ontology inside a concept source. A named ontology
+ * wins even when its ids overlap this source's own ids, which preserves the CRI
+ * trap as a crosswalk offer instead of manufacturing intra-ontology links.
+ */
+function detectCrosswalkColumn(
+	column: string,
+	idColumn: string,
+	columnValues: string[],
+	idValues: string[],
+	columnHeader: string,
+	registry: RecipeRegistryEntry[],
+): Extract<Detection, { kind: 'crosswalk-column' }> | null {
+	if (column === idColumn || columnValues.length < 3 || idValues.length === 0) return null;
+
+	const atoms: string[] = [];
+	let qualifierSample: string | null = null;
+	for (const cell of columnValues) {
+		const split = splitCrosswalkCell(cell);
+		for (let i = 0; i < split.atoms.length; i++) {
+			atoms.push(split.atoms[i]);
+			if (qualifierSample === null && split.qualifiers[i] !== null) {
+				qualifierSample = split.qualifiers[i];
+			}
+		}
+	}
+	if (atoms.length === 0) return null;
+
+	const avgValuesPerCell = atoms.length / columnValues.length;
+	if (avgValuesPerCell < 1) return null;
+	const idShapeRate = atoms.reduce((count, atom) => count + (isIdLikeValue(atom) ? 1 : 0), 0) / atoms.length;
+	if (idShapeRate < CROSSWALK_ID_SHAPE_MIN) return null;
+
+	const idSet = new Set(idValues);
+	const selfMatchRate = atoms.reduce((count, atom) => count + (idSet.has(atom) ? 1 : 0), 0) / atoms.length;
+	const alias = ontologyForHeader(columnHeader, registry);
+	let targetOntology = alias?.ontology ?? null;
+	// Pattern fallback names a foreign scheme only when the atoms are not already
+	// mostly members of this source's own id set. Header aliases deliberately bypass
+	// this guard because overlapping ids are the CRI trap.
+	if (targetOntology === null && selfMatchRate < CROSSWALK_SELF_MATCH_MAX) {
+		for (const entry of registry) {
+			if (entry.idPattern === null) continue;
+			const pattern = new RegExp(entry.idPattern);
+			const matchRate = atoms.reduce((count, atom) => count + (pattern.test(atom) ? 1 : 0), 0) / atoms.length;
+			if (matchRate >= CROSSWALK_ID_SHAPE_MIN) {
+				targetOntology = entry.ontology;
+				break;
+			}
+		}
+	}
+
+	if (!(targetOntology !== null || selfMatchRate < CROSSWALK_SELF_MATCH_MAX)) return null;
+
+	return {
+		kind: 'crosswalk-column',
+		column,
+		idColumn,
+		targetOntology,
+		idShapeRate: round(idShapeRate),
+		selfMatchRate: round(selfMatchRate),
+		avgValuesPerCell: round(avgValuesPerCell),
+		qualifierSample,
+		sampleValues: columnValues.slice(0, SAMPLE_VALUES),
+		proposal: { mechanism: 'crosswalk-edges', predicate: 'is_approximate_to' },
 	};
 }
 

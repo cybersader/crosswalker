@@ -516,6 +516,8 @@ export interface GenerationResult {
 	 * nothing about filtering rather than claiming zero.
 	 */
 	filteredOut?: number;
+	/** Crosswalk edge notes written by a declared target.crosswalks pass. */
+	crosswalkEdges?: { created: number; sets: string[] };
 	/**
 	 * Approved evidence links this run wrote WITHOUT a review baseline, because
 	 * their subject control was not resolvable in this vault (Ch 43

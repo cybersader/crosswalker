@@ -33,6 +33,8 @@ import { instantiate } from '../src/import/mapping/instantiate';
 import { collectScalarLinkEmissions, toRecipeRegions, fromRegions, fromRecipe } from '../src/import/mapping/serialize';
 import type { RecipeRegions } from '../src/import/mapping/serialize';
 import type { ImportMapping } from '../src/import/mapping/types';
+import { validateRecipe } from '../src/validation/validator';
+import { CURRENT_RECIPE_SPEC } from '../src/import/recipe-document';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -116,7 +118,7 @@ describe('instantiation — packed hierarchy (real detections)', () => {
 		expect(leaf!.source).toEqual({ column: 'technique_id' });
 	});
 
-	it('uniform CSF → fixed folder levels + a leaf, in order', () => {
+	it('uniform CSF → fixed folder levels + a leaf, in order (spec §3 set naming carried)', () => {
 		const detections = detect(rowsFrom('element_identifier', csf));
 		const mapping = instantiate(BROWSABLE_FRAMEWORK, detections);
 
@@ -125,11 +127,61 @@ describe('instantiation — packed hierarchy (real detections)', () => {
 		expect(levels.length).toBe(3);
 		expect(levels[0].destinations).toEqual([{ primitive: 'folder' }]);
 		expect(levels[0].source).toEqual({ column: 'element_identifier', part: 0 });
-		expect(levels[0].delimiter).toBe('.');
+		// The prefix(D,i) template reads back as a set level: naming 'prefix' and
+		// the whole delimiter set, no legacy single delimiter.
+		expect(levels[0].naming).toBe('prefix');
+		expect(levels[0].delimiters).toBe('.-');
+		expect(levels[0].delimiter).toBeUndefined();
 		expect(levels[1].destinations).toEqual([{ primitive: 'folder' }]);
-		expect(levels[1].delimiter).toBe('-');
+		expect(levels[1].naming).toBe('prefix');
+		expect(levels[1].delimiters).toBe('.-');
 		expect(levels[2].destinations).toEqual([{ primitive: 'name' }]);
 		expect(mapping.mappings[0].tail).toBeUndefined();
+	});
+
+	it('a prefix(.-,0) fixed-folders proposal instantiates with naming prefix + the set', () => {
+		const mapping = instantiate(BROWSABLE_FRAMEWORK, [
+			{
+				kind: 'packed-hierarchy',
+				column: 'element_identifier',
+				delimiter: '.',
+				coverage: 1,
+				depthHistogram: { 2: 6 },
+				classification: 'uniform',
+				sampleValues: ['GV.OC-01'],
+				proposal: {
+					mechanism: 'fixed-folders',
+					templates: ['{element_identifier|prefix(.-,0)}'],
+				},
+			},
+		]);
+		const level = mapping.mappings[0].levels[0];
+		expect(level.naming).toBe('prefix');
+		expect(level.delimiters).toBe('.-');
+		expect(level.delimiter).toBeUndefined();
+		expect(level.source).toEqual({ column: 'element_identifier', part: 0 });
+	});
+
+	it('a split(.,0) proposal still instantiates to a legacy single-delimiter part level', () => {
+		const mapping = instantiate(BROWSABLE_FRAMEWORK, [
+			{
+				kind: 'packed-hierarchy',
+				column: 'scf_id',
+				delimiter: '-',
+				coverage: 1,
+				depthHistogram: { 2: 6 },
+				classification: 'uniform',
+				sampleValues: ['GOV-01'],
+				proposal: {
+					mechanism: 'fixed-folders',
+					templates: ['{scf_id|split(.,0)}'],
+				},
+			},
+		]);
+		const level = mapping.mappings[0].levels[0];
+		expect(level.naming).toBe('part');
+		expect(level.delimiter).toBe('.');
+		expect(level).not.toHaveProperty('delimiters');
 	});
 
 	it('deep-everything puts folder + nested tag on every structural level', () => {
@@ -364,6 +416,58 @@ function assertRoundTrip(m: ImportMapping): void {
 }
 
 describe('round-trip law: mapping → regions → mapping', () => {
+	it('N8 round-trips nested lineage sources and source.nest', () => {
+		const mapping: ImportMapping = {
+			mappings: [{ levels: [
+				{ level: 'group', source: { column: '_cw.ancestors.group.id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'control', source: { column: '_cw.ancestors.control.id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'part', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+			] }],
+			nest: [
+				{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note', identity: 'global', carry: ['title'] },
+				{ level: 'control', id: '{id}', children: 'parts', leaf: 'folder-note', identity: 'global', carry: ['title'] },
+				{ level: 'part', id: '{id}', identity: 'global', carry: ['name'] },
+			],
+		};
+		assertRoundTrip(mapping);
+		expect(fromRegions(toRecipeRegions(mapping)).mappings[0].levels[0].source)
+			.toEqual({ column: '_cw.ancestors.group.id' });
+	});
+
+	it('keeps mappings without nest unchanged and omits the region', () => {
+		const mapping: ImportMapping = { mappings: [{ levels: [
+			{ level: 'leaf', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+		] }] };
+		const before = JSON.stringify(mapping);
+		const regions = toRecipeRegions(mapping);
+		expect(regions.nest).toBeUndefined();
+		expect(JSON.stringify(mapping)).toBe(before);
+		expect(fromRegions(regions)).toEqual(mapping);
+	});
+
+	it('drops folder-note leaf when a non-leaf level gains a file name', () => {
+		const mapping: ImportMapping = {
+			mappings: [{ levels: [
+				{ level: 'group', source: { column: '_cw.ancestors.group.id' }, destinations: [{ primitive: 'folder' }, { primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'part', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+			] }],
+			nest: [
+				{ level: 'group', id: '{id}', children: 'parts', leaf: 'folder-note', identity: 'global' },
+				{ level: 'part', id: '{id}', identity: 'global' },
+			],
+		};
+		const regions = toRecipeRegions(mapping);
+		expect(regions.nest?.[0].leaf).toBeUndefined();
+		const { nest, ...target } = regions;
+		const validation = validateRecipe({
+			recipe: 'test:nested-leaf-consistency',
+			spec_version: CURRENT_RECIPE_SPEC,
+			source: { ontology: 'test', levels: ['group', 'part'], nest },
+			target,
+		});
+		expect(validation.valid).toBe(true);
+	});
+
 	it('uniform fixed levels (two folders + a leaf file)', () => {
 		assertRoundTrip({
 			mappings: [
@@ -494,6 +598,99 @@ describe('round-trip law: mapping → regions → mapping', () => {
 		});
 	});
 
+	it('X3 crosswalk destination uses the compact default and round-trips', () => {
+		const mapping: ImportMapping = {
+			mappings: [{
+				levels: [{
+					level: 'NIST CSF v2 Mapping',
+					source: { column: 'NIST CSF v2 Mapping' },
+					destinations: [{
+						primitive: 'crosswalk',
+						toOntology: 'nist-csf-2',
+						predicate: 'is_approximate_to',
+					}],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				}],
+			}],
+		};
+		const regions = toRecipeRegions(mapping);
+		expect(regions.crosswalks).toEqual([{ column: 'NIST CSF v2 Mapping', to_ontology: 'nist-csf-2' }]);
+		expect(fromRegions(regions)).toEqual(mapping);
+	});
+
+	it('X3 crosswalk destination round-trips every optional field', () => {
+		assertRoundTrip({
+			mappings: [{
+				levels: [{
+					level: 'Maps to framework',
+					source: { column: 'Maps to framework' },
+					destinations: [{
+						primitive: 'crosswalk',
+						toOntology: 'target-framework',
+						predicate: 'is_broader_than',
+						split: [',', '\n'],
+						qualifier: 'strip',
+						mappingSetId: 'synthetic-map-set',
+					}],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				}],
+			}],
+		});
+	});
+
+	it('skips an unnamed crosswalk destination and leaves existing recipes unchanged', () => {
+		const unnamed: ImportMapping = {
+			mappings: [{
+				levels: [{
+					level: 'Maps to framework',
+					source: { column: 'Maps to framework' },
+					destinations: [{ primitive: 'crosswalk', toOntology: null, predicate: 'is_approximate_to' }],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				}],
+			}],
+		};
+		expect(toRecipeRegions(unnamed)).toEqual({ layout: [] });
+		const existing = toRecipeRegions({
+			mappings: [{
+				levels: [{
+					level: 'leaf',
+					source: { column: 'id' },
+					destinations: [{ primitive: 'name' }],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				}],
+			}],
+		});
+		expect(existing).toEqual({ layout: [{ level: 'leaf', mechanism: 'file', template: '{id}.md' }] });
+		expect(existing).not.toHaveProperty('crosswalks');
+	});
+
+	it('attaches a canonical crosswalk entry to an existing whole-column level', () => {
+		const mapping: ImportMapping = {
+			mappings: [{
+				levels: [{
+					level: 'leaf',
+					source: { column: 'id' },
+					destinations: [
+						{ primitive: 'name' },
+						{ primitive: 'crosswalk', toOntology: 'target-framework', predicate: 'is_approximate_to' },
+					],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				}],
+			}],
+		};
+		expect(fromRegions(toRecipeRegions(mapping))).toEqual(mapping);
+	});
+
 	// Pass 1.5 — the batch enrichment block round-trips through target.enrichment.
 	it('enrichment block round-trips (children_lists + facet_notes + parent_note)', () => {
 		assertRoundTrip({
@@ -611,6 +808,150 @@ describe('round-trip law: mapping → regions → mapping', () => {
 			],
 			userPreserve: ['review_status', 'creator_id'],
 		});
+	});
+});
+
+// ===========================================================================
+// 3b. Delimiter-set levels — part() / prefix()
+// ===========================================================================
+
+describe('delimiter-set levels (part/prefix)', () => {
+	/** A CSF-shaped leaf level, reused so each case only states what it is about. */
+	const leaf = {
+		level: 'leaf',
+		source: { column: 'element_identifier' },
+		destinations: [{ primitive: 'name' as const }],
+		naming: 'part' as const,
+		missing: 'skip' as const,
+		materialize: false,
+	};
+
+	it('round-trips a multi-delimiter part level', () => {
+		assertRoundTrip({
+			mappings: [
+				{
+					levels: [
+						{ level: 'level-1', source: { column: 'element_identifier', part: 0 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+						{ level: 'level-2', source: { column: 'element_identifier', part: 1 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+						leaf,
+					],
+				},
+			],
+		});
+	});
+
+	it('round-trips a prefix level on a FIXED level (today silently dropped)', () => {
+		assertRoundTrip({
+			mappings: [
+				{
+					levels: [
+						{ level: 'level-1', source: { column: 'element_identifier', part: 0 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'prefix', missing: 'skip', materialize: false },
+						{ level: 'level-2', source: { column: 'element_identifier', part: 1 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'prefix', missing: 'skip', materialize: false },
+						leaf,
+					],
+				},
+			],
+		});
+	});
+
+	it('emits prefix() for the two CSF folder levels', () => {
+		const regions = toRecipeRegions({
+			mappings: [
+				{
+					levels: [
+						{ level: 'level-1', source: { column: 'element_identifier', part: 0 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'prefix', missing: 'skip', materialize: false },
+						{ level: 'level-2', source: { column: 'element_identifier', part: 1 }, delimiters: '.-', destinations: [{ primitive: 'folder' }], naming: 'prefix', missing: 'skip', materialize: false },
+					],
+				},
+			],
+		});
+		expect(regions.layout.map((e) => e.template)).toEqual([
+			'{element_identifier|prefix(.-,0)}',
+			'{element_identifier|prefix(.-,1)}',
+		]);
+	});
+
+	// A3 — the whole point of gating on `delimiters`: a legacy single-delimiter
+	// level must serialize to the same bytes it did before part()/prefix() existed,
+	// so no existing recipe's hash moves.
+	it('A3 — a single-delimiter part level still emits split(), byte-identical', () => {
+		const regions = toRecipeRegions({
+			mappings: [
+				{
+					levels: [
+						{ level: 'level-1', source: { column: 'id', part: 0 }, delimiter: '.', destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+						{ level: 'level-2', source: { column: 'id', part: [0, 1] }, delimiter: '.', join: '.', destinations: [{ primitive: 'folder' }], naming: 'joined', missing: 'skip', materialize: false },
+						{ level: 'leaf', source: { column: 'id' }, filters: ['fs-safe'], destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+					],
+				},
+			],
+		});
+		expect(regions.layout.map((e) => e.template)).toEqual([
+			'{id|split(.,0)}',
+			'{id|split(.,0)}.{id|split(.,1)}',
+			'{id|fs-safe}.md',
+		]);
+	});
+
+	it('escapes , and ) in the delimiter set and reads them back', () => {
+		const m: ImportMapping = {
+			mappings: [
+				{
+					levels: [
+						{ level: 'level-1', source: { column: 'id', part: 0 }, delimiters: ',)', destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+						{ level: 'leaf', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+					],
+				},
+			],
+		};
+		expect(toRecipeRegions(m).layout[0].template).toBe('{id|part(\\,\\),0)}');
+		expect(fromRegions(toRecipeRegions(m))).toEqual(m);
+	});
+
+	it('merges consecutive part() indices on one column into a range', () => {
+		const regions: RecipeRegions = {
+			layout: [
+				{ level: 'pfx', mechanism: 'folder', template: '{tid|part(.-,0)}.{tid|part(.-,1)}' },
+				{ level: 'leaf', mechanism: 'file', template: '{tid}.md' },
+			],
+		};
+		const level = fromRegions(regions).mappings[0].levels[0];
+		expect(level.source).toEqual({ column: 'tid', part: [0, 1] });
+		expect(level.delimiters).toBe('.-');
+		expect(level.join).toBe('.');
+		// A merged range is `joined`, exactly as the split() form already reads.
+		expect(level.naming).toBe('joined');
+		// …and re-serializes to the template it came from.
+		expect(toRecipeRegions(fromRegions(regions)).layout[0].template).toBe(regions.layout[0].template);
+	});
+
+	it('source signature separates levels that differ only by delimiter set', () => {
+		const shared: RecipeRegions = {
+			layout: [{ level: 'l1', mechanism: 'folder', template: '{id|part(.-,0)}' }],
+			also_emit: { frontmatter: { managed: { family: '{id|part(.-,0)}' } } },
+		};
+		const differing: RecipeRegions = {
+			layout: [{ level: 'l1', mechanism: 'folder', template: '{id|part(.-,0)}' }],
+			also_emit: { frontmatter: { managed: { family: '{id|part(.,0)}' } } },
+		};
+		// Same set → the property regroups onto the structural level.
+		expect(fromRegions(shared).mappings.length).toBe(1);
+		expect(fromRegions(shared).mappings[0].levels[0].destinations).toEqual([
+			{ primitive: 'folder' },
+			{ primitive: 'property', key: 'family' },
+		]);
+		// Different set → a separate standalone mapping, not a silent merge.
+		expect(fromRegions(differing).mappings.length).toBe(2);
+	});
+
+	it('a single-character set parsed from part() stays a set, so it round-trips exactly', () => {
+		const regions: RecipeRegions = {
+			layout: [{ level: 'l1', mechanism: 'folder', template: '{id|part(.,0)}' }],
+		};
+		const back = fromRegions(regions);
+		expect(back.mappings[0].levels[0].delimiters).toBe('.');
+		expect(back.mappings[0].levels[0].delimiter).toBeUndefined();
+		expect(toRecipeRegions(back).layout[0].template).toBe('{id|part(.,0)}');
 	});
 });
 

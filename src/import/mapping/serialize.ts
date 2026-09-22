@@ -29,6 +29,7 @@
  */
 
 import type { VariadicConfig } from '../../render/types';
+import type { CrosswalkColumnEntry, NestedRecordLevel } from '../../types/generated/recipe';
 import type {
 	ImportMapping,
 	StructureMapping,
@@ -100,7 +101,9 @@ export interface AlsoEmit {
 /** The regions `toRecipeRegions` produces / `fromRegions` consumes. */
 export interface RecipeRegions {
 	layout: LayoutEntry[];
+	nest?: NestedRecordLevel[];
 	also_emit?: AlsoEmit;
+	crosswalks?: CrosswalkColumnEntry[];
 	/** Batch enrichment (Pass 1.5). Serializes to recipe target.enrichment. */
 	enrichment?: Enrichment;
 }
@@ -108,6 +111,7 @@ export interface RecipeRegions {
 /** A recipe (structural subset) accepted by `fromRecipe`. */
 export interface RecipeLike {
 	target: RecipeRegions;
+	source?: { nest?: NestedRecordLevel[] };
 }
 
 /** A constant level id for the variadic tail's folder entry (irrelevant to the tail model). */
@@ -211,7 +215,7 @@ export function collectScalarLinkEmissions(mapping: ImportMapping): ScalarLinkEm
 }
 
 function scalarLinkTemplate(rule: LevelRule, destination: Extract<Destination, { primitive: 'link' }>): string {
-	return `[[${buildName(rule.source, rule.delimiter, rule.join, rule.filters)}]]`;
+	return `[[${buildName(rule.source, rule.delimiter, rule.join, rule.filters, rule.naming, rule.delimiters)}]]`;
 }
 
 export function toRecipeRegions(mapping: ImportMapping): RecipeRegions {
@@ -222,6 +226,7 @@ export function toRecipeRegions(mapping: ImportMapping): RecipeRegions {
 	const managed: Record<string, string> = {};
 	const managedLinks: Record<string, ManagedLinkSpec> = {};
 	const body: OrderedEmission<BodyProjectionSpec>[] = [];
+	const crosswalks: CrosswalkColumnEntry[] = [];
 
 	// Precedence (2026-07-11, the Connections placement-chooser repro):
 	// `mapping.enrichment.parent_note` is the knob the workbench UI writes
@@ -244,7 +249,7 @@ export function toRecipeRegions(mapping: ImportMapping): RecipeRegions {
 	for (const structure of mapping.mappings) {
 		const structLayout: LayoutEntry[] = [];
 		for (const rule of structure.levels) {
-			emitLevel(rule, structLayout, tags, aliases, managed, managedLinks, body);
+			emitLevel(rule, structLayout, tags, aliases, managed, managedLinks, body, crosswalks);
 		}
 		if (structure.tail) {
 			// render() walks layout in order, so the variadic tail (parent
@@ -264,6 +269,24 @@ export function toRecipeRegions(mapping: ImportMapping): RecipeRegions {
 
 	const also_emit = buildAlsoEmit(tags, aliases, managed, managedLinks, body, mapping.userPreserve);
 	const regions: RecipeRegions = also_emit ? { layout, also_emit } : { layout };
+	if (mapping.nest?.length) {
+		regions.nest = mapping.nest.map((entry) => {
+			const copy: NestedRecordLevel = {
+				...entry,
+				...(entry.carry ? { carry: [...entry.carry] } : {}),
+				...(entry.children && typeof entry.children === 'object'
+					? { children: { ...entry.children } }
+					: {}),
+			};
+			const row = mapping.mappings.flatMap((structure) => structure.levels)
+				.find((level) => level.level === entry.level);
+			if (entry.children !== undefined && row?.destinations.some((destination) => destination.primitive === 'name')) {
+				delete copy.leaf;
+			}
+			return copy;
+		});
+	}
+	if (crosswalks.length > 0) regions.crosswalks = crosswalks;
 	// Enrichment-level wins when set (see the precedence note above); the tail's
 	// placement only fills in when the enrichment block leaves it unspecified.
 	const parentNote = mapping.enrichment?.parent_note ?? tailPlacement;
@@ -282,8 +305,9 @@ function emitLevel(
 	managed: Record<string, string>,
 	managedLinks: Record<string, ManagedLinkSpec>,
 	body: OrderedEmission<BodyProjectionSpec>[],
+	crosswalks: CrosswalkColumnEntry[],
 ): void {
-	const name = buildName(rule.source, rule.delimiter, rule.join, rule.filters);
+	const name = buildName(rule.source, rule.delimiter, rule.join, rule.filters, rule.naming, rule.delimiters);
 	for (const dest of rule.destinations) {
 		switch (dest.primitive) {
 			case 'folder':
@@ -302,7 +326,14 @@ function emitLevel(
 				break;
 			case 'tag': {
 				const ns = dest.namespace ?? slug(firstColumn(rule.source));
-				const tagValue = buildName(rule.source, rule.delimiter, rule.join, appendFilter(rule.filters, 'tagsafe'));
+				const tagValue = buildName(
+					rule.source,
+					rule.delimiter,
+					rule.join,
+					appendFilter(rule.filters, 'tagsafe'),
+					rule.naming,
+					rule.delimiters,
+				);
 				pushOrdered(tags, `${ns}/${tagValue}`, dest.canonicalOrder);
 				break;
 			}
@@ -321,6 +352,20 @@ function emitLevel(
 					managed[dest.key] = scalarLinkTemplate(rule, dest);
 				}
 				break;
+			case 'crosswalk': {
+				if (!dest.toOntology) break;
+				const column = singleSourceColumn(rule.source);
+				if (!column) break;
+				crosswalks.push({
+					column,
+					to_ontology: dest.toOntology,
+					...(dest.predicate && dest.predicate !== 'is_approximate_to' ? { predicate: dest.predicate } : {}),
+					...(dest.split && dest.split.length > 0 ? { split: [...dest.split] } : {}),
+					...(dest.qualifier ? { qualifier: dest.qualifier } : {}),
+					...(dest.mappingSetId ? { mapping_set_id: dest.mappingSetId } : {}),
+				});
+				break;
+			}
 			case 'alias':
 				pushOrdered(aliases, name, dest.canonicalOrder);
 				break;
@@ -432,14 +477,28 @@ function orderedValues<T>(items: OrderedEmission<T>[]): T[] {
  * Pieces are concatenated with `join ?? delimiter ?? ''`. Trailing filters chain
  * inside each interpolation. This is the exact inverse of
  * `parseStructuralTemplate`.
+ *
+ * Delimiter SETS: when the level carries `delimiters`, or is named `'prefix'`,
+ * the part filter becomes `part(D,n)` / `prefix(D,n)` instead of `split(d,n)`.
+ * A level carrying only the legacy single `delimiter` is byte-identical to the
+ * pre-set behaviour, which is what keeps existing recipe hashes stable.
  */
 export function buildName(
 	source: LevelSource,
 	delimiter: string | undefined,
 	join: string | undefined,
 	filters: string[] | undefined,
+	naming?: LevelNaming,
+	delimiters?: string,
 ): string {
 	const sep = join ?? delimiter ?? '';
+	// `prefix` has no `split` spelling, so a prefix level always takes the set
+	// form and falls back to the single delimiter when no set was recorded.
+	const useSet = delimiters !== undefined || naming === 'prefix';
+	const filterName = naming === 'prefix' ? 'prefix' : 'part';
+	const setArg = useSet ? escapeFilterArg(delimiters ?? delimiter ?? '') : '';
+	const partFilter = (index: number): string =>
+		useSet ? `${filterName}(${setArg},${index})` : `split(${delimiter},${index})`;
 	const pieces: string[] = [];
 	for (const ref of toSourceRefs(source)) {
 		if (isConstantRef(ref)) {
@@ -449,18 +508,27 @@ export function buildName(
 			pieces.push(`{${withFilters(pathTextFor(ref.column, ref.literal), filters)}}`);
 		} else if (typeof ref.part === 'number') {
 			pieces.push(
-				`{${withFilters(`${pathTextFor(ref.column, ref.literal)}|split(${delimiter},${ref.part})`, filters)}}`,
+				`{${withFilters(`${pathTextFor(ref.column, ref.literal)}|${partFilter(ref.part)}`, filters)}}`,
 			);
 		} else {
 			const [i, j] = ref.part;
 			for (let k = i; k <= j; k++) {
 				pieces.push(
-					`{${withFilters(`${pathTextFor(ref.column, ref.literal)}|split(${delimiter},${k})`, filters)}}`,
+					`{${withFilters(`${pathTextFor(ref.column, ref.literal)}|${partFilter(k)}`, filters)}}`,
 				);
 			}
 		}
 	}
 	return pieces.join(sep);
+}
+
+/**
+ * Escape a delimiter set for the balanced-paren filter lexer. Only the five
+ * characters the lexer treats specially are touched, and `\\` goes first so an
+ * already-escaping backslash is not double-counted.
+ */
+function escapeFilterArg(arg: string): string {
+	return arg.replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/\)/g, '\\)').replace(/\|/g, '\\|');
 }
 
 /** Append a filter chain onto an interpolation body. */
@@ -487,7 +555,10 @@ export interface FromRegionsOptions {
 
 /** Reconstruct an ImportMapping from a full recipe. */
 export function fromRecipe(recipe: RecipeLike, options: FromRegionsOptions = {}): ImportMapping {
-	return fromRegions(recipe.target, options);
+	return fromRegions(
+		{ ...recipe.target, ...(recipe.source?.nest ? { nest: recipe.source.nest } : {}) },
+		options,
+	);
 }
 
 /**
@@ -607,6 +678,17 @@ export function fromRegions(regions: RecipeRegions, options: FromRegionsOptions 
 		}
 	}
 
+	for (const entry of regions.crosswalks ?? []) {
+		attach(parseStructuralTemplate(`{${entry.column}}`), {
+			primitive: 'crosswalk',
+			toOntology: entry.to_ontology,
+			predicate: entry.predicate ?? 'is_approximate_to',
+			...(entry.split && entry.split.length > 0 ? { split: [...entry.split] } : {}),
+			...(entry.qualifier ? { qualifier: entry.qualifier } : {}),
+			...(entry.mapping_set_id ? { mappingSetId: entry.mapping_set_id } : {}),
+		});
+	}
+
 	// Canonicalize destination order on every level.
 	for (const rule of structuralLevels) sortDestinations(rule);
 	for (const rule of standalone.values()) sortDestinations(rule);
@@ -620,6 +702,15 @@ export function fromRegions(regions: RecipeRegions, options: FromRegionsOptions 
 	}
 
 	const result: ImportMapping = { mappings };
+	if (regions.nest?.length) {
+		result.nest = regions.nest.map((entry) => ({
+			...entry,
+			...(entry.carry ? { carry: [...entry.carry] } : {}),
+			...(entry.children && typeof entry.children === 'object'
+				? { children: { ...entry.children } }
+				: {}),
+		}));
+	}
 	if (regions.enrichment) result.enrichment = regions.enrichment;
 	// B7 (2026-07-12 pre-merge review): read user_preserve back so the
 	// round-trip law holds — see buildAlsoEmit's write side above.
@@ -634,11 +725,12 @@ function makeLevel(level: string, parsed: ParsedSource, destinations: Destinatio
 		level,
 		source: parsed.source,
 		destinations,
-		naming: inferNaming(parsed.source),
+		naming: parsed.naming ?? inferNaming(parsed.source),
 		missing: DEFAULT_MISSING,
 		materialize: false,
 	};
 	if (parsed.delimiter !== undefined) rule.delimiter = parsed.delimiter;
+	if (parsed.delimiters !== undefined) rule.delimiters = parsed.delimiters;
 	if (parsed.join !== undefined) rule.join = parsed.join;
 	if (parsed.filters.length > 0) rule.filters = parsed.filters;
 	return rule;
@@ -674,6 +766,14 @@ function variadicToTail(entry: LayoutEntry): TailRule {
 export interface ParsedSource {
 	source: LevelSource;
 	delimiter?: string;
+	/** Delimiter set, when the template used `part()` / `prefix()`. */
+	delimiters?: string;
+	/**
+	 * Naming the template stated outright. Only `prefix` is carried: a `part`
+	 * template is left to `inferNaming`, which correctly reads a merged range as
+	 * `joined` while a single part stays `part`.
+	 */
+	naming?: LevelNaming;
 	join?: string;
 	filters: string[];
 }
@@ -684,6 +784,10 @@ interface ParsedInterp {
 	literal?: boolean;
 	part?: number;
 	delimiter?: string;
+	/** Delimiter set recovered from a `part(D,n)` / `prefix(D,n)` filter. */
+	delimiters?: string;
+	/** Naming the template stated outright (only `part`/`prefix` filters do). */
+	naming?: 'part' | 'prefix';
 	filters: string[];
 }
 
@@ -726,6 +830,8 @@ export function parseStructuralTemplate(template: string): ParsedSource {
 		return {
 			source,
 			delimiter: p.delimiter,
+			...(p.delimiters !== undefined ? { delimiters: p.delimiters } : {}),
+			...(p.naming === 'prefix' ? { naming: 'prefix' as LevelNaming } : {}),
 			...(segments.length > 1 ? { join: '' } : {}),
 			filters: p.filters,
 		};
@@ -737,16 +843,23 @@ export function parseStructuralTemplate(template: string): ParsedSource {
 	const allIndexed = parsedInterps.every((p) => typeof p.part === 'number');
 	const delimiter = parsedInterps[0].delimiter;
 	const sameDelimiter = parsedInterps.every((p) => p.delimiter === delimiter);
+	// A delimiter SET merges into a range on exactly the same terms as a single
+	// delimiter: same column, same set, same filter name, consecutive indices.
+	const delimiters = parsedInterps[0].delimiters;
+	const sameDelimiters = parsedInterps.every((p) => p.delimiters === delimiters);
+	const naming = explicitNaming(parsedInterps);
 	const consecutive =
 		allIndexed &&
 		parsedInterps.every((p, i) => i === 0 || (p.part as number) === (parsedInterps[i - 1].part as number) + 1);
 
-	if (sameColumn && allIndexed && sameDelimiter && consecutive) {
+	if (sameColumn && allIndexed && sameDelimiter && sameDelimiters && consecutive) {
 		const first = parsedInterps[0].part as number;
 		const last = parsedInterps[parsedInterps.length - 1].part as number;
 		return {
 			source: partRefFor(parsedInterps[0], [first, last]),
 			delimiter,
+			...(delimiters !== undefined ? { delimiters } : {}),
+			...(naming !== undefined ? { naming } : {}),
 			join: sep,
 			filters: parsedInterps[0].filters,
 		};
@@ -765,7 +878,26 @@ export function parseStructuralTemplate(template: string): ParsedSource {
 		const parsed = parseInterp(segment.interp);
 		return partRefFor(parsed);
 	});
-	return { source, delimiter, join: '', filters: sharedFilters };
+	return {
+		source,
+		delimiter,
+		...(sameDelimiters && delimiters !== undefined ? { delimiters } : {}),
+		...(naming !== undefined ? { naming } : {}),
+		join: '',
+		filters: sharedFilters,
+	};
+}
+
+/**
+ * The naming a template stated outright, or undefined when it said nothing.
+ * Only `prefix` is reported: a `part` template is left to `inferNaming`, which
+ * reads a merged range as `joined` and a lone part as `part` — exactly what
+ * `buildName` re-emits.
+ */
+function explicitNaming(parsedInterps: ParsedInterp[]): LevelNaming | undefined {
+	const indexed = parsedInterps.filter((p) => p.naming !== undefined);
+	if (indexed.length === 0) return undefined;
+	return indexed.every((p) => p.naming === 'prefix') ? 'prefix' : undefined;
 }
 
 /**
@@ -800,10 +932,22 @@ function parseInterp(interp: Interpolation): ParsedInterp {
 	const { column, literal } = interpolationColumn(interp);
 	let part: number | undefined;
 	let delimiter: string | undefined;
+	let delimiters: string | undefined;
+	let naming: 'part' | 'prefix' | undefined;
 	const filters: string[] = [];
 	for (const call of interp.filters) {
+		// `call.arg` arrives already unescaped from the shared lexer, so the index
+		// is taken greedily off the decoded text: a set containing `,` reads back
+		// whole. The list form `part(D)` carries no index and stays an opaque
+		// filter, since it does not name a single level part.
+		const isSet = (call.name === 'part' || call.name === 'prefix') && call.arg !== undefined;
+		const setCall = isSet ? /^(.*),(\d+)$/.exec(call.arg as string) : null;
 		const sp = call.name === 'split' && call.arg !== undefined ? /^(.),(\d+)$/.exec(call.arg) : null;
-		if (sp) {
+		if (setCall) {
+			delimiters = setCall[1];
+			part = Number(setCall[2]);
+			naming = call.name === 'prefix' ? 'prefix' : 'part';
+		} else if (sp) {
 			delimiter = sp[1];
 			part = Number(sp[2]);
 		} else {
@@ -812,7 +956,7 @@ function parseInterp(interp: Interpolation): ParsedInterp {
 	}
 	// Non-literal columns keep the raw (untrimmed) path text so re-serialization
 	// is byte-exact against the pre-tokenizer behaviour.
-	return { column: literal ? column : interp.rawPath, literal, part, delimiter, filters };
+	return { column: literal ? column : interp.rawPath, literal, part, delimiter, delimiters, naming, filters };
 }
 
 /** Parse a tag template (`namespace/{col|tagsafe}`) → namespace + source (tagsafe stripped). */
@@ -854,12 +998,24 @@ function sourceSignature(parsed: ParsedSource): string {
 			? { constant: r.constant }
 			: { column: r.column, part: r.part ?? null, literal: r.literal ?? null },
 	);
-	return JSON.stringify({ refs, delimiter: parsed.delimiter ?? null, filters: parsed.filters });
+	return JSON.stringify({
+		refs,
+		delimiter: parsed.delimiter ?? null,
+		delimiters: parsed.delimiters ?? null,
+		filters: parsed.filters,
+	});
 }
 
 /** Deterministic level id for a standalone (metadata-only) source. */
 function synthLevelId(parsed: ParsedSource): string {
 	return firstColumn(parsed.source);
+}
+
+/** The one real whole-column source required by a crosswalk column role. */
+function singleSourceColumn(source: LevelSource): string | null {
+	const refs = toSourceRefs(source);
+	if (refs.length !== 1 || isConstantRef(refs[0]) || refs[0].part !== undefined) return null;
+	return refs[0].column;
 }
 
 /** First column (or literal) referenced by a source — the level's identity key. */

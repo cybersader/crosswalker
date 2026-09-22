@@ -12,15 +12,18 @@ import { TFile, TFolder } from 'obsidian';
 import { MappingWorkbench, type WorkbenchOptions } from '../src/import/workbench';
 import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import type { ParsedData, ImportRecipe } from '../src/types/config';
+import type { CrosswalkerImportRecipe } from '../src/types/generated/recipe';
 import type { ImportMapping, StructureMapping } from '../src/import/mapping/types';
 import { toSourceRefs, isConstantRef } from '../src/import/mapping/types';
 import type { DebugLog } from '../src/utils/debug';
 import { deriveFacetMemberships } from '../src/import/mapping/facets';
 import { facetTagColumns, buildParentPlacementPreview, toFolderNotePaths } from '../src/import/mapping/view-model';
+import { explainRecipeError, NOTHING_PLACED_MESSAGE } from '../src/import/mapping/diagnostics';
 import { BUILT_IN_PRESETS } from '../src/import/mapping/presets';
 import { findRecipeForOntologyName } from '../src/views/workspace-view-helpers';
 import { generateNotes, type GenerationOptions } from '../src/generation/generation-engine';
 import { render } from '../src/render';
+import { validateRecipe } from '../src/validation/validator';
 
 // A no-op DebugLog stub (the workbench only calls .info/.trace).
 const debug = {
@@ -43,6 +46,52 @@ function makeWorkbench(rows: Record<string, unknown>[]): MappingWorkbench {
 	});
 }
 
+function crosswalkRecipe(): CrosswalkerImportRecipe {
+	return {
+		recipe: 'synthetic-workbench-crosswalk',
+		source: { ontology: 'synthetic-source', levels: ['concept'] },
+		target: { layout: [{ level: 'concept', mechanism: 'file', template: '{id}.md' }] },
+	} as CrosswalkerImportRecipe;
+}
+
+function crosswalkMapping(toOntology: string | null): ImportMapping {
+	return {
+		mappings: [{
+			levels: [{
+				level: 'concept',
+				source: { column: 'id' },
+				destinations: [
+					{ primitive: 'name' },
+					{ primitive: 'crosswalk', toOntology, predicate: 'is_approximate_to' },
+				],
+				naming: 'part',
+				missing: 'skip',
+				materialize: false,
+			}],
+		}],
+	};
+}
+
+function makeCrosswalkWorkbench(toOntology: string | null): MappingWorkbench {
+	const parsedData: ParsedData = {
+		columns: ['id'],
+		rows: [{ id: 'SYN-001' }],
+		rowCount: 1,
+	};
+	return new MappingWorkbench({
+		parsedData,
+		columnInfos: analyzeColumns(parsedData),
+		outputPath: 'Frameworks',
+		debug,
+		defaultPresetId: 'browsable-framework',
+		initialRecipe: crosswalkRecipe(),
+		recipeOrigin: 'bundled',
+		initialMapping: crosswalkMapping(toOntology),
+		seedColumnDefaults: false,
+		onChange: () => {},
+	});
+}
+
 // Ragged ATT&CK ids (variadic) + a facet + a free-text column.
 function attackRows(): Record<string, unknown>[] {
 	const ids = ['T1055', 'T1059', 'T1003', 'T1071', 'T1027', 'T1005', 'T1055.011', 'T1059.001', 'T1003.001', 'T1071.004'];
@@ -59,6 +108,18 @@ function attackRows(): Record<string, unknown>[] {
 }
 
 describe('MappingWorkbench recipe assembly', () => {
+	it('patches a bundled-origin recipe with a valid crosswalk declaration', () => {
+		const recipe = makeCrosswalkWorkbench('nist-csf-2').buildRecipe() as CrosswalkerImportRecipe;
+		expect(recipe.target.crosswalks).toEqual([{ column: 'id', to_ontology: 'nist-csf-2' }]);
+		expect(validateRecipe(recipe).valid).toBe(true);
+	});
+
+	it('blocks Generate until the crosswalk framework is named', () => {
+		expect(() => makeCrosswalkWorkbench(null).buildRecipe()).toThrow(
+			'Column "id" is marked as a crosswalk but no framework is named. Pick the framework on the Crosswalks card, or turn the card off.',
+		);
+	});
+
 	it('produces a recipe with a layout from the detected shapes', () => {
 		const wb = makeWorkbench(attackRows());
 		const recipe = wb.buildRecipe();
@@ -292,6 +353,37 @@ describe('B6 + B2: the single-structural-mapping guard (source fix + error surfa
 		expect(wb.getPreviewError()).toBeNull(); // nothing has attempted a build yet
 		expect(wb.computePreview()).toBeNull();
 		expect(wb.getPreviewError()).toMatch(/one recipe supports exactly one structural mapping/);
+	});
+
+	it('a mapping left with nowhere to put its notes surfaces as a translated error, not raw validator text', () => {
+		// The user-reported state: one mapped id column, File names turned off, so
+		// the mapping emits no folder/file/heading at all. The validator reports
+		// "/source/levels must not have fewer than 1 items; /target/layout ...",
+		// which names a JSON pointer the user cannot act on.
+		const wb = makeWorkbench(attackRows());
+		const stripped: ImportMapping = {
+			mappings: [
+				{
+					levels: [
+						{
+							level: 'technique_id',
+							source: { column: 'technique_id' },
+							destinations: [],
+							naming: 'part',
+							missing: 'skip',
+							materialize: false,
+						},
+					],
+				},
+			],
+		};
+		(wb as unknown as { mapping: ImportMapping }).mapping = stripped;
+
+		expect(wb.computePreview()).toBeNull();
+		const raw = wb.getPreviewError();
+		expect(raw).toMatch(/must NOT have fewer than 1 items/);
+		// Both surfaces (preview rail + step-3 banner) render this instead.
+		expect(explainRecipeError(raw!)).toBe(NOTHING_PLACED_MESSAGE);
 	});
 });
 

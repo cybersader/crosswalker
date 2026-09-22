@@ -140,6 +140,20 @@ describe('DraftStore — save + list round-trip', () => {
 		expect(list[0].columnConfigsDict['Control ID'].useAs).toBe('hierarchy');
 	});
 
+	it('still lists an older draft literal without xlsxHeaderRow', async () => {
+		const { app } = createMockApp();
+		const store = new DraftStore(app, mockDebug, { draftExpiryDays: 30, maxDrafts: 20 });
+		const oldDraft = buildDraft({ sourceType: 'xlsx', selectedSheet: 'Profile' });
+		expect(oldDraft).not.toHaveProperty('xlsxHeaderRow');
+
+		await store.save(oldDraft);
+
+		const list = await store.list();
+		expect(list).toHaveLength(1);
+		expect(list[0].id).toBe(oldDraft.id);
+		expect(list[0]).not.toHaveProperty('xlsxHeaderRow');
+	});
+
 	it('save() with same ID overwrites existing draft (idempotent)', async () => {
 		const { app } = createMockApp();
 		const store = new DraftStore(app, mockDebug, { draftExpiryDays: 30, maxDrafts: 20 });

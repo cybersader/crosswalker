@@ -1,0 +1,79 @@
+---
+title: "The xwalk identity space: frozen as legacy, never migrated"
+description: "Crosswalk edges have been minted under two identity prefixes: the older xwalk: from the bundled OLIR recipe and the headless crosswalk tools, and sssom: from the SSSOM importer and the new crosswalk-column pass. Decision: every new crosswalk edge mints under sssom; existing xwalk notes keep their identities as recorded facts and are never rewritten or stamped in bulk; a same-pair legacy edge is recognized and adopted rather than duplicated. Ratified by the owner 2026-09-22."
+tags: [decision, identity, crosswalk, sssom, legacy, import-set]
+date: 2026-09-22
+sidebar:
+  label: "09-22 · The xwalk identity space"
+  order: -20260922
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="note" title="Status">
+Ratified by the owner 2026-09-22 (Option B). This entry records the decision; the implementation items in section 5 land separately and are tracked in `CHANGELOG.md` `[Unreleased]`.
+</Aside>
+
+## 1. In one breath
+
+A crosswalk edge (a note saying "control A in one framework relates to control B in another") has been given its identity under two different prefixes depending on which path created it. That splits one kind of thing across two identity spaces, so duplicate checks and closure pairing can miss a match. The decision: **one space, `sssom`, for every new edge; the old `xwalk` notes stay exactly as they are and are recognized, never rewritten.**
+
+## 2. The facts
+
+| Fact | Source |
+|---|---|
+| The bundled recipe `olir-crosswalk-edge` declares `source.ontology: "xwalk"`, so the engine mints `xwalk:` curies (the stable identifiers stamped on each note) for every import through it, including a wizard import of an OLIR spreadsheet | `recipes/import/crosswalk-edge.json`, `src/import/recipe-registry.ts` |
+| The headless tool `tools/crosswalk-from-olir.ts` hard-codes the same `xwalk:` form | `tools/crosswalk-from-olir.ts` (the `curie` template near line 270) |
+| The SSSOM importer and the crosswalk-column pass mint under a named constant, `sssom`, and say explicitly that the ontology pair is not the identity space | `src/import/sssom-importer.ts` (`SSSOM_CURIE_PREFIX`), `src/generation/crosswalk-edge-pass.ts` |
+| The local development vault holds 7,608 `xwalk:` edge notes under `_crosswalker/mappings/`, all written by the headless tools in May 2026, none stamped with an [import set](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/), and zero stamped sets exist under either prefix | Counted 2026-09-21; see the [2026-09-21 synthesis §5.4](/crosswalker/agent-context/zz-log/2026-09-21-deep-reification-and-import-control-synthesis/) |
+| Those notes are untracked local data (part of the source is licensed and stays local). No released build has written `xwalk:` edges into a user vault through an import set | `git ls-files`; the plugin is on 0.1.x prereleases |
+
+The last row is why this is cheap to settle now: the only population at stake is our own development data.
+
+## 3. The options
+
+### Option A: migrate everything to `sssom`
+
+**What:** change the recipe and tools, then rewrite the 7,608 curies from `xwalk:` to `sssom:`.
+**Pros:** one space with no legacy branch in the code.
+**Cons:** it rewrites identities, which the project treats as recorded facts. Any junction, closure row, or user link that captured the old curie breaks silently. It also sets the precedent that a rename of the identity scheme justifies rewriting every note, which is the same move that [four failed passes](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/) taught us to stop making.
+
+### Option B: freeze `xwalk` as a legacy space; mint `sssom` going forward (recommended)
+
+**What:** new edges from any path mint `sssom:`. Existing `xwalk:` notes keep their curies. Any lookup for an edge also checks the legacy `xwalk:` form of the same pair, and on a match it updates that note where it lives instead of creating a twin.
+**Pros:** it matches the rule already used for junction notes (the legacy form is kept as a recorded alias and is adopted on a match). Nothing is rewritten, and one space holds all new work.
+**Cons:** there is one more alias form to test, and the `xwalk` space never fully disappears from old vaults.
+
+### Option C: a one-time stamping pass
+
+**What:** walk the 7,608 notes, mint an import set for each mapping folder, and stamp it in.
+**Pros:** legacy edges become owned and refreshable immediately.
+**Cons:** stamping asserts ownership, and ownership is [minted at import, never derived](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/). A pass that infers "this folder is one set" from a path is exactly the guess the project has ruled out. The honest route to ownership already exists: an explicit refresh chosen by the user adopts the notes and pins the prefix they already carry.
+
+## 4. Decision
+
+**Option B.** Concretely:
+
+1. **One space for new edges.** Every crosswalk edge, whether it comes from an SSSOM file, a crosswalk column, the bundled OLIR recipe, or a headless tool, mints under `sssom:`. The identity is a property of the *kind* of note (a crosswalk edge), not of the recipe's `source.ontology` label.
+2. **Legacy identities are facts, not errors.** Existing `xwalk:` curies are never rewritten, renamed, or bulk-stamped.
+3. **Recognize before creating.** Edge lookup checks the pair's `sssom:` form, then its legacy `xwalk:` form. A match on either updates that note in place, so no vault gains a duplicate edge because the scheme changed. This follows the junction precedent: the pair decides.
+4. **Ownership only by explicit refresh.** A legacy mapping folder becomes an owned set only when the user chooses to refresh it. That follows the standing rule that [a refresh is chosen, never guessed](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/). On that refresh the set is pinned to the prefix its notes already carry (`xwalk`), so it matches its own notes and nothing is orphaned.
+5. **The development vault is regenerated, not migrated.** When convenient, our local `_crosswalker/mappings/` data is deleted and re-imported through the plugin. That is a fixture refresh, not a product migration path.
+
+## 5. Follow-up work
+
+| Item | Where |
+|---|---|
+| Make the crosswalk-edge kind mint `sssom:` regardless of `source.ontology`; decide whether the recipe keeps `xwalk` as a descriptive source label or drops it | `src/generation/generation-engine.ts` (the prefix derivation), `recipes/import/crosswalk-edge.json` |
+| Point the headless tools at the shared constant instead of a literal | `tools/crosswalk-from-olir.ts`, `tools/crosswalk-from-melt.ts` |
+| Add the legacy `xwalk:` form to edge lookup, with a test for a vault holding a legacy edge plus an import of the same pair: one note, updated in place | `src/generation/crosswalk-edge-pass.ts`, `src/import/sssom-importer.ts` |
+| A test that a legacy-refresh of an `xwalk` mapping folder pins `xwalk` and reports zero orphans | alongside `tests/legacy-vault-refresh.test.ts` |
+| Remove the "owner decision" line from `CHANGELOG.md` `[Unreleased]` once ratified | `CHANGELOG.md` |
+
+## Related
+
+- Where the question was raised: [deeper reification and import control synthesis §5.4](/crosswalker/agent-context/zz-log/2026-09-21-deep-reification-and-import-control-synthesis/)
+- Rules this applies: [import set = ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/), [re-import is identity reconciliation](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/)
+- Why `xwalk` is a shape name, not a thing name: [first run and the blind spots that hid it](/crosswalker/agent-context/zz-log/2026-08-28-first-run-and-the-blind-spots-that-hid-it/)
+- Contract: [v0.1 schema spec §6, crosswalk vocabulary and SSSOM provenance](/crosswalker/agent-context/v0-1-schema-spec/#6-crosswalk-assertion-vocabulary-and-sssom-provenance)
+- Terms: [terminology](/crosswalker/concepts/terminology/) (curie, import set, crosswalk edge)

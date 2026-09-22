@@ -139,6 +139,11 @@
                 "declared-facts-v1"
               ],
               "description": "Identity-derivation rule fixed when the import set is minted, the same way scheme and ontology are. filename-stem-v1 is the rule shipped since v0.1.0: the CURIE local part is the leaf filename stem passed through the filesystem sanitizer, which is many-to-one and rewrites even a declared curie column. declared-facts-v1 derives from the source's declared identity first (curie, then id, subject_id, control_id, code) and falls back to the filename stem only when none is present; a declared curie outside the CURIE charset is refused for that row rather than rewritten, and any sanitization that does happen is injective, so two distinct source values can never produce one CURIE. Absent means filename-stem-v1: every note written before this pin existed was written by that rule, and a refresh must keep using it or it recognises none of the notes the set already owns."
+            },
+            "nest_identity": {
+              "type": "object",
+              "additionalProperties": { "enum": ["global", "path"] },
+              "description": "Nested-record identity mode for each level, fixed when the import set is minted, the same way derivation is. global names a row by its declared id; path names it by its escaped lineage path. Absent means every level is global: every nested note written before this pin existed was written by that rule, and a refresh must keep using it or it recognises none of the notes the set already owns."
             }
           }
         },

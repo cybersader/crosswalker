@@ -83,10 +83,18 @@ export const ALIAS_PATTERN = /^[a-z][a-z0-9_]*$/;
  * generation-engine.ts; `_crosswalker` is the Tier 1 provenance block.
  */
 export const RESERVED_ALIASES: ReadonlySet<string> = new Set([
+	'_cw',
 	'_crosswalker',
 	'_crosswalker_curie_local_part',
 	'curie',
 ]);
+
+/** Refuse a source column that would collide with nested-record lineage. */
+export function assertNoReservedSourceColumn(columns: string[]): void {
+	if (columns.includes('_cw')) {
+		throw new Error('Column "_cw" is reserved for nested-record lineage. Rename it in the source and import again.');
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Prepared join
@@ -219,7 +227,7 @@ async function prepareOneJoin(
 	}
 
 	// --- locate and materialize the secondary collection -------------------
-	const rawSecondary = await resolveSecondaryRows(alias, declaration.from, ctx.container);
+	const rawSecondary = await resolveSecondaryRows(declaration.from, ctx.container, `${root}.from`);
 	if (rawSecondary.length === 0) {
 		throw new SourceStageError('the secondary collection is empty, so this join can never match', {
 			declaration: `${root}.from`,
@@ -320,12 +328,11 @@ async function prepareOneJoin(
 // Locating a secondary collection (contract §4.2)
 // ---------------------------------------------------------------------------
 
-async function resolveSecondaryRows(
-	alias: string,
+export async function resolveSecondaryRows(
 	from: JoinFromDeclaration | undefined,
 	container: SourceContainer | undefined,
+	declaration: string,
 ): Promise<Row[]> {
-	const declaration = `source.joins.${alias}.from`;
 	const hasSheet = typeof from?.sheet === 'string' && from.sheet.length > 0;
 	const hasIterator = typeof from?.iterator === 'string' && from.iterator.length > 0;
 
@@ -493,7 +500,7 @@ function project(row: Row, select: readonly string[]): Row {
  * Every refusal here is the same rule: absence of the KEY is a defect, and a
  * key that is not a scalar is not a key.
  */
-function normalizeKey(
+export function normalizeKey(
 	value: unknown,
 	ctx: { declaration: string; expression: string; row: number; side: 'primary' | 'secondary' },
 ): string {

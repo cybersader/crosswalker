@@ -86,8 +86,9 @@ function prepareForCodegen(schema: SchemaObject, filename: string): SchemaObject
  */
 function expandSourceJoinForCodegen(defs: SchemaObject | undefined): void {
 	const join = defs?.source_join as SchemaObject | undefined;
-	if (!join?.properties || !join.allOf) {
-		throw new Error('recipe.schema.json source_join shape changed; update codegen adapter.');
+	const from = defs?.source_join_from as SchemaObject | undefined;
+	if (!join?.properties || !join.allOf || !from?.properties) {
+		throw new Error('recipe.schema.json source_join/source_join_from shape changed; update codegen adapter.');
 	}
 	const properties = join.properties as SchemaObject;
 	const required = join.required as string[];
@@ -95,7 +96,6 @@ function expandSourceJoinForCodegen(defs: SchemaObject | undefined): void {
 	// `from`'s own `oneOf: [required sheet | required iterator]` collapses the
 	// same way. Expanding it also lets the generated type carry the runtime rule
 	// that header_row belongs to a sheet and never to an iterator.
-	const from = properties.from as SchemaObject;
 	const fromProps = from.properties as SchemaObject;
 	from.oneOf = [
 		{

@@ -11,7 +11,7 @@ import {
 	type RecipeRegions,
 } from './mapping/serialize';
 import type { ImportMapping } from './mapping/types';
-import { DEFAULT_MISSING } from './mapping/types';
+import { DEFAULT_MISSING, isConstantRef, toSourceRefs } from './mapping/types';
 import { interpolationColumn, parseTemplateSegments } from '../render/template';
 
 export const CURRENT_RECIPE_SPEC = 'https://crosswalker.dev/spec/recipe.schema.json' as const;
@@ -156,11 +156,18 @@ export function createFreshRecipeDocument(
 	}
 	const levels = unique(regions.layout.map((entry) => entry.level));
 	const ontology = slug(sourceOntology) || 'source';
+	const { nest, ...targetRegions } = regions;
 	const canonical: CrosswalkerImportRecipe = {
 		recipe: `custom-${ontology}`,
 		spec_version: CURRENT_RECIPE_SPEC,
-		source: { ontology, levels: levels as [string, ...string[]] },
-		target: regions as CrosswalkerImportRecipe['target'],
+		source: {
+			ontology,
+			levels: levels as [string, ...string[]],
+			...(nest?.length
+				? { nest: deepClone(nest) as NonNullable<CrosswalkerImportRecipe['source']['nest']> }
+				: {}),
+		},
+		target: targetRegions as CrosswalkerImportRecipe['target'],
 	};
 	return loadRecipeDocument(canonical, { ...options, origin: 'fresh' });
 }
@@ -175,7 +182,10 @@ export function canonicalToMapping(recipe: CrosswalkerImportRecipe): ImportMappi
 			entry.mechanism === 'folder' || entry.mechanism === 'file' || entry.mechanism === 'heading'),
 	};
 	return fromRecipe(
-		{ target: editableTarget as RecipeRegions },
+		{
+			target: editableTarget as RecipeRegions,
+			source: { ...(recipe.source.nest ? { nest: deepClone(recipe.source.nest) } : {}) },
+		},
 		{ preserveCanonicalOrder: true },
 	);
 }
@@ -330,6 +340,97 @@ export function diagnoseCanonicalRecipe(recipe: CrosswalkerImportRecipe): Recipe
 			});
 		}
 	}
+
+	const nest = recipe.source.nest;
+	if (nest) {
+		for (const [index, entry] of nest.entries()) {
+			const isLast = index === nest.length - 1;
+			const parentKey = (entry as { parent_key?: unknown }).parent_key;
+			if (parentKey !== undefined && typeof parentKey !== 'string') {
+				diagnostics.push(blocking(
+					'nest-parent-key-not-string',
+					`source.nest.${index}.parent_key`,
+					`parent_key on level "${entry.level}" must be a string naming the child field that holds its parent's id.`,
+				));
+			}
+			if (index > 0 && typeof nest[index - 1].children === 'string' && parentKey !== undefined) {
+				diagnostics.push({
+					code: 'nest-json-parent-key-ignored',
+					severity: 'warning',
+					path: `source.nest.${index}.parent_key`,
+					message: `parent_key on level "${entry.level}" is ignored because its children come from a JSON field.`,
+				});
+			}
+			if (!levels.has(entry.level)) {
+				diagnostics.push(blocking(
+					'nest-level-undeclared',
+					`source.nest.${index}.level`,
+					`Nest level "${entry.level}" is not declared in source.levels.`,
+				));
+			}
+			if (!isLast && entry.children === undefined) {
+				diagnostics.push(blocking(
+					'nest-children-missing',
+					`source.nest.${index}.children`,
+					`Nest level "${entry.level}" has no children but is not the last level. Remove it or give it children.`,
+				));
+			}
+			if (isLast && entry.children !== undefined) {
+				diagnostics.push(blocking(
+					'nest-last-has-children',
+					`source.nest.${index}.children`,
+					`The last nest level "${entry.level}" must not declare children.`,
+				));
+			}
+			if (!isLast && typeof entry.children === 'object' && !nest[index + 1].parent_key) {
+				const next = nest[index + 1];
+				diagnostics.push(blocking(
+					'nest-join-parent-key-missing',
+					`source.nest.${index + 1}.parent_key`,
+					`Nest level "${next.level}" is joined from another collection and needs parent_key: the child field that names its parent's id.`,
+				));
+			}
+			if (!isLast && entry.leaf === undefined) {
+				const hasFileEntry = recipe.target.layout.some(
+					(layoutEntry) => layoutEntry.level === entry.level && layoutEntry.mechanism === 'file',
+				);
+				if (!hasFileEntry) {
+					diagnostics.push(blocking(
+						'nest-non-leaf-output-missing',
+						`source.nest.${index}.leaf`,
+						`Level "${entry.level}" has children but no note of its own. Add a file entry for it, or set leaf to folder-note or none.`,
+					));
+				}
+			}
+			if (isLast && entry.leaf === 'folder-note') {
+				diagnostics.push(blocking(
+					'nest-last-has-leaf',
+					`source.nest.${index}.leaf`,
+					`The last nest level "${entry.level}" is the note itself; folder-note applies only to levels that have children.`,
+				));
+			}
+		}
+
+		const nestOrder = new Map(nest.map((entry, index) => [entry.level, index]));
+		const namedLayout = recipe.target.layout
+			.map((entry, index) => ({ entry, index, nestIndex: nestOrder.get(entry.level) }))
+			.filter((item): item is typeof item & { nestIndex: number } => item.nestIndex !== undefined);
+		outer: for (let left = 0; left < namedLayout.length; left++) {
+			for (let right = left + 1; right < namedLayout.length; right++) {
+				const above = namedLayout[left];
+				const below = namedLayout[right];
+				if (above.nestIndex > below.nestIndex) {
+					diagnostics.push(blocking(
+						'nest-layout-order-mismatch',
+						`target.layout.${above.index}.level`,
+						`Layout places level "${above.entry.level}" above "${below.entry.level}", but source.nest declares "${below.entry.level}" as the parent. Reorder the layout to match the nesting.`,
+					));
+					break outer;
+				}
+			}
+		}
+	}
+
 	if (!hasLeaf) {
 		diagnostics.push({
 			code: 'missing-leaf-output',
@@ -423,6 +524,24 @@ export function diagnoseEditableMapping(mapping: ImportMapping): RecipeDocumentD
 							'This link predicate or direction cannot be represented losslessly in a portable import recipe.',
 						));
 					}
+				} else if (destination.primitive === 'crosswalk') {
+					const refs = toSourceRefs(level.source);
+					const oneColumn = refs.length === 1 && !isConstantRef(refs[0]) && refs[0].part === undefined;
+					if (!oneColumn) {
+						diagnostics.push(blocking(
+							'crosswalk-source-not-a-column',
+							destPath,
+							'Crosswalk columns must read one whole source column. Choose a single column for this level or turn the Crosswalks card off.',
+						));
+					}
+					if (!destination.toOntology) {
+						const column = oneColumn && !isConstantRef(refs[0]) ? refs[0].column : level.level;
+						diagnostics.push(blocking(
+							'crosswalk-ontology-missing',
+							destPath,
+							`Column "${column}" is marked as a crosswalk but no framework is named. Pick the framework on the Crosswalks card, or turn the card off.`,
+						));
+					}
 				} else if (destination.primitive === 'property' && destination.list) {
 					diagnostics.push(blocking(
 						'property-list-not-portable',
@@ -485,11 +604,18 @@ function patchOwnedRegions(
 	// canonical source declaration synchronized so a legitimate workbench level
 	// edit cannot produce a self-invalid recipe with undeclared levels.
 	patched.source.levels = unique(layout.map((entry) => entry.level)) as [string, ...string[]];
+	if (regions.nest?.length) {
+		patched.source.nest = deepClone(regions.nest) as NonNullable<CrosswalkerImportRecipe['source']['nest']>;
+	}
+	else delete patched.source.nest;
 
 	if (regions.also_emit) {
 		patched.target.also_emit = deepClone(regions.also_emit) as CrosswalkerImportRecipe['target']['also_emit'];
 	}
 	else delete patched.target.also_emit;
+	if (regions.crosswalks && regions.crosswalks.length > 0) {
+		patched.target.crosswalks = deepClone(regions.crosswalks) as CrosswalkerImportRecipe['target']['crosswalks'];
+	} else delete patched.target.crosswalks;
 	if (regions.enrichment) patched.target.enrichment = deepClone(regions.enrichment);
 	else delete patched.target.enrichment;
 }
@@ -502,7 +628,7 @@ function referencedColumns(recipe: CrosswalkerImportRecipe): string[] {
 		for (const segment of parseTemplateSegments(template)) {
 			if (segment.kind !== 'interp') continue;
 			const column = interpolationColumn(segment.interp).column;
-			if (column) columns.add(column);
+			if (column && !column.startsWith('_cw.')) columns.add(column);
 		}
 	};
 	for (const entry of recipe.target.layout) collect(entry.template);

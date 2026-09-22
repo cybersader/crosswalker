@@ -25,7 +25,8 @@ import { setIcon } from 'obsidian';
 import type { ParsedData, ColumnInfo } from '../types/config';
 import { isEagerRows } from '../types/config';
 import type { Detection } from './detection';
-import { detectStructure, defaultDestinationForColumn } from './detection';
+import { PACKED_DELIMITERS, detectStructure, defaultDestinationForColumn } from './detection';
+import { splitOnDelimiterSet, parseSetDelimiters } from './detection';
 import type { DebugLog } from '../utils/debug';
 import {
 	render,
@@ -53,11 +54,13 @@ import type {
 	LevelNaming,
 	MissingPolicy,
 	Enrichment,
+	CrosswalkPredicate,
 } from './mapping/types';
-import { toSourceRefs, isConstantRef } from './mapping/types';
+import { CROSSWALK_PREDICATES, toSourceRefs, isConstantRef } from './mapping/types';
 import { deriveFacetMemberships } from './mapping/facets';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import { isTier1CuriePrefix } from '../validation/validator';
+import { entriesByOntology, RECIPE_REGISTRY } from './recipe-registry';
 import {
 	createFreshRecipeDocument,
 	loadRecipeDocument,
@@ -72,18 +75,30 @@ import {
 	toggleDestinationAcrossMapping,
 	addDestination,
 	removeDestination,
+	setCrosswalkTarget,
+	setNestLeaf,
+	setNestIdentity,
 	mergeRows,
 	splitRow,
+	splitIntoLevels,
 	isUnmodifiedPreset,
 	deriveProvenance,
 	destKey,
 	structuralEqual,
 	facetTagColumns,
 	buildParentPlacementPreview,
+	shapeCardHint,
+	blockedPlacingToggle,
+	folderDepthOf,
+	maxFolderDepthOf,
+	setFolderDepth,
 	type ShapeCardId,
 	type Provenance,
 	type PathTreeNode,
 } from './mapping/view-model';
+import { explainRecipeError } from './mapping/diagnostics';
+import { expandNestedRows } from '../source/nest';
+import { renderTemplate } from '../render/template';
 
 /** Render the provenance badge(s) for a preset/config surface (spec §7j #3). */
 export function renderProvenanceBadge(parent: HTMLElement, prov: Provenance): void {
@@ -104,7 +119,7 @@ function wbIcon(parent: HTMLElement, name: string, extraCls = ''): HTMLElement {
  *  Exported so callers can persist a snapshot of it (draft resume, M8). */
 export type ColumnDest = 'property' | 'tag' | 'body' | 'title' | 'alias' | 'link' | 'skip';
 
-/** The subset of primitives the two-stage ⊕ menu offers, grouped by role (spec §3d). */
+/** The destinations the two-stage ⊕ menu offers, grouped by role (spec §3d). */
 const ADD_MENU_GROUPS: { group: string; items: { primitive: DestinationPrimitive; label: string }[] }[] = [
 	{
 		group: 'Structure',
@@ -120,6 +135,7 @@ const ADD_MENU_GROUPS: { group: string; items: { primitive: DestinationPrimitive
 			{ primitive: 'property', label: 'Property' },
 			{ primitive: 'tag', label: 'Tag' },
 			{ primitive: 'link', label: 'Link' },
+			{ primitive: 'crosswalk', label: 'Crosswalk to another framework' },
 		],
 	},
 	{
@@ -132,7 +148,7 @@ const ADD_MENU_GROUPS: { group: string; items: { primitive: DestinationPrimitive
 	},
 ];
 
-/** Affordance + whisper copy for the six shape cards (mockup M2, sentence case). */
+/** Affordance + whisper copy for the seven shape cards (mockup M2, sentence case). */
 const SHAPE_CARD_COPY: Record<ShapeCardId, { icon: string; afford: string; whisper: string }> = {
 	folder: { icon: 'folder', afford: 'Browse down into it in the file explorer.', whisper: 'pre-coordinated hierarchy' },
 	name: { icon: 'file', afford: 'Keep it flat. The id reads at a glance.', whisper: 'packed notation' },
@@ -140,10 +156,42 @@ const SHAPE_CARD_COPY: Record<ShapeCardId, { icon: string; afford: string; whisp
 	heading: { icon: 'file-text', afford: 'Read top to bottom, one portable outline.', whisper: 'document order' },
 	link: { icon: 'link', afford: 'Hop the graph. A note can sit under many parents.', whisper: 'polyhierarchy' },
 	property: { icon: 'table', afford: 'Group, sort, and filter by level in Bases.', whisper: 'faceted metadata' },
+	crosswalk: {
+		icon: 'arrow-right-left',
+		afford: 'Link this framework to another one. Each reference becomes a queryable edge note, not a wikilink.',
+		whisper: 'cross-ontology mapping',
+	},
+};
+
+const CROSSWALK_PREDICATE_LABELS: Record<CrosswalkPredicate, string> = {
+	is_approximate_to: 'Roughly the same requirement',
+	is_equivalent_to: 'Exactly the same requirement',
+	is_broader_than: 'This one is broader',
+	is_narrower_than: 'This one is narrower',
+	intersects_with: 'They partly overlap',
 };
 
 const PREVIEW_ROW_LIMIT = 20;
+/** Matches detection.ts's hierarchy analysis ceiling without widening its API. */
+const SPLIT_PANEL_SAMPLE_LIMIT = 500;
 let workbenchInstanceCounter = 0;
+
+interface SplitDepthBar {
+	depth: number;
+	count: number;
+	percent: number;
+}
+
+interface SplitPanelPreview {
+	column: string;
+	delimiters: string;
+	samples: string[];
+	streamed: boolean;
+	histogram: SplitDepthBar[];
+	modalDepth: number;
+	deepestSample: string | null;
+	caption: string | null;
+}
 
 /** Semantic focus target that survives the workbench's full DOM rebuilds. */
 type WorkbenchFocusTarget =
@@ -192,6 +240,8 @@ export interface WorkbenchOptions {
 	 * the recipe author deliberately omitted.
 	 */
 	seedColumnDefaults?: boolean;
+	/** Selected JSON iterator whose child arrays should become nested levels. */
+	jsonNest?: string | null;
 	/**
 	 * Restore the demoted "all columns" destination table from a persisted draft
 	 * (draft resume, M8). When present, this IS the seed — `seedColumnDests()`
@@ -259,6 +309,17 @@ export class MappingWorkbench {
 	 * as a blocking error instead of a silent "0 deviations" state.
 	 */
 	private previewError: string | null = null;
+	/**
+	 * The last shape-card toggle that was refused because it would have left the
+	 * import with nowhere to put its notes. Rendered inline under that one card,
+	 * and cleared by the next toggle that does apply, so a refusal is never
+	 * silent (it used to be: the write simply did nothing).
+	 */
+	private blockedCard: { mi: number; primitive: DestinationPrimitive; message: string } | null = null;
+	/** Expanded nested rows used by every worked preview once the async source walk lands. */
+	private expandedRows: Record<string, unknown>[] | null = null;
+	/** Discards an older async expansion when a newer mapping change finishes first. */
+	private expansionVersion = 0;
 
 	// Transient view state (persists across re-renders).
 	private expanded = new Set<number>();
@@ -271,6 +332,12 @@ export class MappingWorkbench {
 	private addMenu: { mi: number; li: number } | null = null;
 	private addMenuPrimitive: DestinationPrimitive | null = null;
 	private addMenuParams: Record<string, string> = {};
+	/**
+	 * The open "Split into levels" panel (spec 2026-09-14 §4): the matrix row
+	 * (mi, li) it is attached to, or null when closed. One panel at a time per
+	 * workbench; re-render closes it unless the same row is still open.
+	 */
+	private splitPanel: { mi: number; li: number } | null = null;
 	private selectedNoteRow = 0;
 	/** Source visibility is transient to this workbench instance, never persisted. */
 	private sourceCollapsed = false;
@@ -286,7 +353,8 @@ export class MappingWorkbench {
 		// rather than only cosmetically re-marking the badge.
 		this.dismissed = new Set(opts.initialDismissed ?? []);
 		this.columnSig = opts.parsedData.columns.join('|');
-		this.detections = detectStructure(opts.parsedData, opts.columnInfos);
+		this.detections = detectStructure(opts.parsedData, opts.columnInfos, opts.parsedData.container)
+			.filter((detection) => detection.kind !== 'nested-records' || opts.jsonNest === detection.iterator);
 		this.presetId = getBuiltInPreset(opts.defaultPresetId) ? opts.defaultPresetId : 'browsable-framework';
 		const loadedRecipe = opts.initialRecipe
 			? loadRecipeDocument(opts.initialRecipe, {
@@ -339,6 +407,7 @@ export class MappingWorkbench {
 				dirty: false,
 			};
 		}
+		this.refreshExpandedRows();
 		opts.debug.info('wizard', 'workbench-init', 'Shape workbench initialized', {
 			detections: this.detections.length,
 			mappings: this.mapping.mappings.length,
@@ -510,6 +579,7 @@ export class MappingWorkbench {
 			|| Object.keys(managedLinks).length
 			|| userPreserve.length;
 		const regions: RecipeRegions = hasAlsoEmit ? { layout, also_emit: alsoEmit } : { layout };
+		if (base.crosswalks) regions.crosswalks = base.crosswalks;
 		// §7o root cause: toRecipeRegions(this.mapping) computes `base.enrichment`
 		// (Pass 1.5 batch enrichment — children lists, facet hubs, edge stats), but
 		// this method was rebuilding a fresh regions literal that dropped it, so
@@ -634,7 +704,9 @@ export class MappingWorkbench {
 	 * Escape will tear down the whole wizard instead of just that surface.
 	 */
 	closeTransientUi(): boolean {
-		if (this.mappingChooserOpen) {
+		if (this.splitPanel) {
+			this.splitPanel = null;
+		} else if (this.mappingChooserOpen) {
 			this.mappingChooserOpen = false;
 			this.mappingChooserQuery = '';
 			this.pendingFocus = { kind: 'chooser-trigger' };
@@ -700,6 +772,34 @@ export class MappingWorkbench {
 		}, delay);
 	}
 
+	/**
+	 * Expand eager nested rows for honest samples and combined previews. Joined
+	 * child collections deliberately fall back to the level-0 row here because
+	 * the workbench preview has no secondary-source reader.
+	 */
+	private refreshExpandedRows(): void {
+		const version = ++this.expansionVersion;
+		this.expandedRows = null;
+		const rows = this.opts.parsedData.rows;
+		const nest = this.mapping.nest;
+		if (!nest?.length || !isEagerRows(rows) || rows.length === 0) return;
+
+		void expandNestedRows(
+			rows as Record<string, unknown>[],
+			nest,
+			renderTemplate,
+			{
+				resolve: () => Promise.reject(new Error('Joined levels are not previewed here.')),
+			},
+		).then((expansion) => {
+			if (version !== this.expansionVersion) return;
+			this.expandedRows = expansion.rows;
+			this.scheduleRerender();
+		}).catch(() => {
+			// The eager level-0 row remains the truthful fallback for join-sourced levels.
+		});
+	}
+
 	/** Commit a model change: persist via onChange, then re-render. */
 	private applyChange(delay = 0): void {
 		let regions: RecipeRegions | undefined;
@@ -709,6 +809,7 @@ export class MappingWorkbench {
 			// The preview/generation path surfaces the full blocking diagnostic.
 		}
 		this.recipeDocument = updateRecipeDocumentMapping(this.recipeDocument, this.mapping, regions);
+		this.refreshExpandedRows();
 		this.opts.onChange();
 		this.scheduleRerender(delay);
 	}
@@ -729,9 +830,21 @@ export class MappingWorkbench {
 	}
 
 	/** Replace one shape mapping and commit. */
-	private updateMapping(mi: number, next: StructureMapping, delay = 0): void {
+	private updateMapping(
+		mi: number,
+		next: StructureMapping,
+		delay = 0,
+		nestUpdate?: { value: ImportMapping['nest'] },
+	): void {
 		this.replaceMappingAt(mi, next);
+		if (nestUpdate) this.mapping = { ...this.mapping, nest: nestUpdate.value };
 		this.applyChange(delay);
+	}
+
+	/** Apply the Depth dial to both the shape mapping and its nested-source leaves. */
+	private updateFolderDepth(mi: number, mapping: StructureMapping, depth: number): void {
+		const next = setFolderDepth(mapping, depth, this.mapping.nest);
+		this.updateMapping(mi, next.mapping, 0, { value: next.nest });
 	}
 
 	/**
@@ -741,8 +854,20 @@ export class MappingWorkbench {
 	 * has nothing left to group by — clear it back to `'none'` so the
 	 * Connections card doesn't keep rendering a stale selection with zero
 	 * facet columns behind it.
+	 *
+	 * Returns FALSE when the toggle was refused (turning it off would leave the
+	 * import with no folder, file name or one file anywhere, so generation would
+	 * have nowhere to put its notes). The caller restores the checkbox and the
+	 * refusal renders under the card; it is never swallowed.
 	 */
-	private toggleShapeCard(mi: number, m: StructureMapping, primitive: DestinationPrimitive, on: boolean): void {
+	private toggleShapeCard(mi: number, m: StructureMapping, primitive: DestinationPrimitive, on: boolean): boolean {
+		const blocked = blockedPlacingToggle(this.mapping, mi, primitive, on);
+		if (blocked) {
+			this.blockedCard = { mi, primitive, message: blocked };
+			this.scheduleRerender();
+			return false;
+		}
+		this.blockedCard = null;
 		this.replaceMappingAt(mi, toggleDestinationAcrossMapping(m, primitive, on));
 		if (primitive === 'tag' && !on) {
 			const enrichment = this.mapping.enrichment;
@@ -751,6 +876,7 @@ export class MappingWorkbench {
 			}
 		}
 		this.applyChange();
+		return true;
 	}
 
 	/** Patch the batch-scope enrichment block (Pass 1.5, spec §7k) and commit.
@@ -1111,6 +1237,14 @@ export class MappingWorkbench {
 				metadata.createSpan({ text: `Type: ${info.detectedType}` });
 				metadata.createSpan({ text: `${info.uniqueCount.toLocaleString()} unique` });
 				metadata.createSpan({ text: info.hasEmptyValues ? 'Contains empty values' : 'No empty values' });
+				// Tell the user, before they click, that this column brings its own
+				// levels (folders) rather than a single flat value.
+				const structural = this.structuralDetectionForColumn(info.name);
+				if (structural?.kind === 'packed-hierarchy') {
+					metadata.createSpan({ text: `Splits into levels on "${structural.delimiter}"` });
+				} else if (structural?.kind === 'level-column-chain') {
+					metadata.createSpan({ text: `Chain of ${structural.columns.length} columns` });
+				}
 				const sampleValues = info.sampleValues
 					.filter((value) => value !== null && value !== undefined && String(value).length > 0)
 					.map((value) => String(value));
@@ -1187,7 +1321,8 @@ export class MappingWorkbench {
 
 		if (!expanded) return;
 
-		// Shape cards.
+		// Coarse placement first, then the individual shape cards it rewrites.
+		this.renderDepthDial(card, m, mi);
 		this.renderShapeCards(card, m, mi);
 
 		// Combined preview — one sample row through the whole mix.
@@ -1196,7 +1331,10 @@ export class MappingWorkbench {
 		// Arrange levels → the matrix.
 		const arrange = card.createEl('button', {
 			cls: 'crosswalker-wb-arrange',
-			text: (this.matrixOpen.has(mi) ? '▾' : '▸') + ' Arrange levels (combine or drop id levels)',
+			text: (this.matrixOpen.has(mi) ? '▾' : '▸')
+				+ (this.mapping.nest
+					? ' Arrange levels (which get a note, how each is named)'
+					: ' Arrange levels (combine or drop id levels)'),
 		});
 		arrange.addEventListener('click', () => {
 			if (this.matrixOpen.has(mi)) this.matrixOpen.delete(mi);
@@ -1206,24 +1344,128 @@ export class MappingWorkbench {
 		if (this.matrixOpen.has(mi)) this.renderMatrix(card, m, mi);
 	}
 
+	private renderDepthDial(card: HTMLElement, mapping: StructureMapping, mi: number): void {
+		const hasPlacingRow = [...mapping.levels, ...(mapping.tail ? [mapping.tail] : [])]
+			.some((row) => row.destinations.some((destination) =>
+				destination.primitive === 'folder'
+				|| destination.primitive === 'name'
+				|| destination.primitive === 'heading',
+			));
+		if (!hasPlacingRow) return;
+
+		const row = card.createDiv({ cls: 'crosswalker-wb-depth' });
+		row.createEl('label', { text: 'Depth' });
+		const select = row.createEl('select', {
+			cls: 'dropdown',
+			attr: { 'aria-label': 'Depth' },
+		});
+		const current = folderDepthOf(mapping);
+		if (current === null) {
+			select.createEl('option', {
+				text: 'Custom',
+				attr: { value: 'custom', disabled: 'disabled' },
+			});
+		}
+		const maximum = maxFolderDepthOf(mapping);
+		for (let depth = 0; depth <= maximum; depth++) {
+			select.createEl('option', {
+				text: depth === 0 ? 'No folders' : depth === 1 ? '1 folder' : `${depth} folders`,
+				attr: { value: String(depth) },
+			});
+		}
+		select.value = current === null ? 'custom' : String(current);
+		select.addEventListener('change', () => {
+			const depth = Number(select.value);
+			if (Number.isInteger(depth)) this.updateFolderDepth(mi, mapping, depth);
+		});
+		const names = mapping.levels.map((level) => level.level);
+		const depth = current ?? 0;
+		const folders = names.slice(0, depth).join(' and ');
+		const left = names.slice(depth + 1);
+		let hint: string;
+		if (current === null) {
+			hint = 'Custom arrangement. Pick a depth to reset which levels become folders and which becomes the note.';
+		} else {
+			hint = `${folders ? `Each ${folders} becomes a folder; ` : 'No folders; '}each ${names[depth] ?? names[names.length - 1]} becomes a note`;
+			if (left.length > 0) {
+				hint += this.mapping.nest?.length
+					? `; ${left.join(' and ')} ${left.length === 1 ? 'is' : 'are'} left out of this import.`
+					: `; ${left.join(' and ')} kept as properties.`;
+			} else {
+				hint += '.';
+			}
+		}
+		row.createSpan({ cls: 'crosswalker-wb-depth-hint', text: hint });
+	}
+
+	private crosswalkDestination(
+		m: StructureMapping,
+	): { levelIndex: number; destination: Extract<Destination, { primitive: 'crosswalk' }> } | null {
+		for (const [levelIndex, level] of m.levels.entries()) {
+			const destination = level.destinations.find(
+				(candidate): candidate is Extract<Destination, { primitive: 'crosswalk' }> => candidate.primitive === 'crosswalk',
+			);
+			if (destination) return { levelIndex, destination };
+		}
+		return null;
+	}
+
+	private crosswalkDetectionForMapping(
+		m: StructureMapping,
+	): Extract<Detection, { kind: 'crosswalk-column' }> | null {
+		const source = m.levels[0]?.source;
+		if (!source) return null;
+		const column = this.firstColumn(source);
+		return this.detections.find(
+			(detection): detection is Extract<Detection, { kind: 'crosswalk-column' }> =>
+				detection.kind === 'crosswalk-column' && detection.column === column,
+		) ?? null;
+	}
+
 	private renderShapeCards(card: HTMLElement, m: StructureMapping, mi: number): void {
 		const states = deriveShapeCards(m);
+		const sampleValue = this.firstSampleValue(m);
+		const crosswalkDetection = this.crosswalkDetectionForMapping(m);
+		const crosswalkTarget = this.crosswalkDestination(m);
 		const grid = card.createDiv({ cls: 'crosswalker-wb-shapes' });
 		for (const { id, label, primitive } of SHAPE_CARDS) {
+			if (id === 'crosswalk' && !crosswalkDetection && !crosswalkTarget) continue;
 			const state = states[id];
 			const copy = SHAPE_CARD_COPY[id];
-			const stateLabel = state === 'on' ? 'On' : state === 'mixed' ? 'Some levels' : 'Off';
+			// A card no row of this mapping can carry used to render as a plain
+			// "Off" card whose checkbox silently did nothing. Say why instead.
+			const hint = shapeCardHint(m, primitive, { sampleValue });
+			const blocked = this.blockedCard && this.blockedCard.mi === mi && this.blockedCard.primitive === primitive
+				? this.blockedCard.message
+				: null;
+			const splitHint = id === 'folder' ? this.folderSplitHint(mi) : null;
+			const needsOntology = id === 'crosswalk'
+				&& crosswalkTarget !== null
+				&& crosswalkTarget.destination.toOntology === null;
+			const stateLabel = hint
+				? 'Not available'
+				: state === 'on' ? 'On' : state === 'mixed' ? 'Some levels' : 'Off';
 			const shape = grid.createDiv({
 				cls: 'crosswalker-wb-shape'
-					+ (state === 'on' ? ' is-on' : state === 'mixed' ? ' is-mixed' : ''),
+					+ (state === 'on' ? ' is-on' : state === 'mixed' ? ' is-mixed' : '')
+					+ (hint ? ' is-unavailable' : '')
+					+ (needsOntology ? ' is-needs-ontology' : ''),
 			});
+			const noteId = `${this.sourceRegionId}-shape-${mi}-${id}`;
 			const control = shape.createEl('label', { cls: 'crosswalker-wb-shape-control' });
 			const cb = control.createEl('input', { type: 'checkbox' });
 			cb.checked = state === 'on';
 			cb.indeterminate = state === 'mixed';
 			if (state === 'mixed') cb.setAttr('aria-checked', 'mixed');
+			if (hint) {
+				cb.disabled = true;
+				cb.setAttr('aria-describedby', noteId);
+			}
 			cb.addEventListener('change', () => {
-				this.toggleShapeCard(mi, m, primitive, cb.checked);
+				if (this.toggleShapeCard(mi, m, primitive, cb.checked)) return;
+				// Refused: keep the control showing what the mapping actually says.
+				cb.checked = state === 'on';
+				cb.indeterminate = state === 'mixed';
 			});
 			const title = control.createSpan({ cls: 'crosswalker-wb-shape-title' });
 			wbIcon(title, copy.icon);
@@ -1235,6 +1477,131 @@ export class MappingWorkbench {
 			details.createEl('summary', { text: 'What this does' });
 			details.createDiv({ cls: 'crosswalker-wb-shape-afford', text: copy.afford });
 			details.createDiv({ cls: 'crosswalker-wb-whisper', text: copy.whisper });
+			if (id === 'crosswalk' && crosswalkTarget) {
+				this.renderCrosswalkControls(shape, m, mi, crosswalkTarget, crosswalkDetection);
+			}
+			if (needsOntology) {
+				shape.createDiv({
+					cls: 'crosswalker-wb-shape-hint',
+					text: 'Pick the framework these ids point to. No crosswalk edges are written for this column until you do.',
+					attr: { id: noteId },
+				});
+			} else if (hint) {
+				shape.createDiv({ cls: 'crosswalker-wb-shape-hint', text: hint, attr: { id: noteId } });
+			} else if (blocked) {
+				shape.createDiv({ cls: 'crosswalker-wb-shape-hint is-blocked', text: blocked });
+			}
+			if (splitHint) {
+				const splitLine = shape.createDiv({ cls: 'crosswalker-wb-shape-hint is-split-hint' });
+				splitLine.createSpan({ text: splitHint.text });
+				const splitButton = splitLine.createEl('button', { text: 'Split into levels' });
+				splitButton.addEventListener('click', () => this.openFolderSplitPanel(mi));
+			}
+		}
+	}
+
+	private renderCrosswalkControls(
+		shape: HTMLElement,
+		m: StructureMapping,
+		mi: number,
+		target: { levelIndex: number; destination: Extract<Destination, { primitive: 'crosswalk' }> },
+		detection: Extract<Detection, { kind: 'crosswalk-column' }> | null,
+	): void {
+		const controls = shape.createDiv({ cls: 'crosswalker-wb-crosswalk-controls' });
+		const registry = entriesByOntology(RECIPE_REGISTRY);
+		const sourceOntology = this.recipeDocument.original.source.ontology;
+		const frameworkRow = controls.createEl('label');
+		frameworkRow.createSpan({ text: 'These ids point to' });
+		const framework = frameworkRow.createEl('select', { cls: 'dropdown' });
+		const placeholder = framework.createEl('option', {
+			text: 'Choose a framework',
+			attr: { value: '' },
+		});
+		placeholder.disabled = true;
+		for (const [ontology, entries] of registry) {
+			if (ontology === 'xwalk' || ontology === 'evidence-mappings' || ontology === sourceOntology) continue;
+			framework.createEl('option', {
+				text: entries[0].label.replace(/\s*\([^)]*\)$/, ''),
+				attr: { value: ontology },
+			});
+		}
+		framework.createEl('option', { text: 'Other', attr: { value: '__other__' } });
+		const knownOntology = target.destination.toOntology && registry.has(target.destination.toOntology);
+		framework.value = knownOntology
+			? target.destination.toOntology!
+			: target.destination.toOntology
+				? '__other__'
+				: '';
+
+		const customRow = controls.createEl('label');
+		customRow.createSpan({ text: 'Framework id' });
+		const custom = customRow.createEl('input', {
+			type: 'text',
+			value: knownOntology ? '' : target.destination.toOntology ?? '',
+		});
+		customRow.style.display = framework.value === '__other__' ? '' : 'none';
+
+		framework.addEventListener('change', () => {
+			if (framework.value === '__other__') {
+				customRow.style.display = '';
+				custom.focus();
+				return;
+			}
+			customRow.style.display = 'none';
+			this.updateMapping(mi, setCrosswalkTarget(m, target.levelIndex, {
+				toOntology: framework.value || null,
+			}));
+		});
+		custom.addEventListener('change', () => {
+			this.updateMapping(mi, setCrosswalkTarget(m, target.levelIndex, {
+				toOntology: this.slug(custom.value) || null,
+			}));
+		});
+
+		const predicateRow = controls.createEl('label');
+		predicateRow.createSpan({ text: 'How they relate' });
+		const predicate = predicateRow.createEl('select', { cls: 'dropdown' });
+		for (const value of CROSSWALK_PREDICATES) {
+			predicate.createEl('option', {
+				text: CROSSWALK_PREDICATE_LABELS[value],
+				attr: { value },
+			});
+		}
+		predicate.value = target.destination.predicate ?? 'is_approximate_to';
+		predicate.addEventListener('change', () => {
+			this.updateMapping(mi, setCrosswalkTarget(m, target.levelIndex, {
+				predicate: predicate.value as CrosswalkPredicate,
+			}));
+		});
+
+		const ontology = target.destination.toOntology;
+		if (ontology) {
+			const column = this.firstColumn(m.levels[target.levelIndex].source);
+			let hint = `${column}: one edge note per reference, filed under _crosswalker/mappings/ and queryable in Bases.`;
+			if (detection) {
+				const registryLabel = registry.get(ontology)?.[0]?.label;
+				const destinationLabel = registryLabel ?? ontology;
+				hint += ` ${detection.column} holds ${detection.avgValuesPerCell.toFixed(1)} references per row to ${destinationLabel}.`;
+				if (detection.qualifierSample) {
+					hint += ` Notes like ${detection.qualifierSample} are kept as the mapping justification.`;
+				}
+			}
+			controls.createDiv({ cls: 'crosswalker-wb-crosswalk-summary', text: hint });
+		}
+	}
+
+	/** A real value from the same row every other worked preview renders. */
+	private firstSampleValue(m: StructureMapping): string | null {
+		const source = m.levels[0]?.source;
+		const sample = this.firstRow();
+		if (!source || !sample) return null;
+		const ref = toSourceRefs(source)[0];
+		if (isConstantRef(ref)) return ref.constant;
+		try {
+			const value = renderTemplate(`{${ref.column}|optional}`, sample).trim();
+			return value || null;
+		} catch {
+			return null;
 		}
 	}
 
@@ -1273,6 +1640,11 @@ export class MappingWorkbench {
 					row.createSpan({ cls: 'crosswalker-wb-mini-key' });
 					row.createSpan({ cls: 'crosswalker-wb-mini-value' });
 				}
+				break;
+			case 'crosswalk':
+				illustration.createSpan({ cls: 'crosswalker-wb-mini-crosswalk-box' });
+				illustration.createSpan({ cls: 'crosswalker-wb-mini-crosswalk-arrow', text: '→' });
+				illustration.createSpan({ cls: 'crosswalker-wb-mini-crosswalk-box is-target' });
 				break;
 		}
 	}
@@ -1594,16 +1966,29 @@ export class MappingWorkbench {
 		// Level cell — id + merge/split buttons.
 		const lvl = tr.createEl('td');
 		lvl.createEl('b', { text: rule.level });
+		const nestedEntry = this.mapping.nest?.find((entry) => entry.level === rule.level);
 		const gestures = lvl.createDiv({ cls: 'crosswalker-wb-gestures' });
-		if (li < m.levels.length - 1) {
+		if (!nestedEntry && li < m.levels.length - 1) {
 			const mergeBtn = gestures.createEl('button', { text: 'Merge ▾', attr: { title: 'Merge with the next level' } });
 			mergeBtn.addEventListener('click', () => this.updateMapping(mi, mergeRows(m, li)));
 		}
-		if (this.isSplittable(rule.source)) {
+		if (!nestedEntry && this.isSplittable(rule.source)) {
 			const splitBtn = gestures.createEl('button', { text: 'Split', attr: { title: 'Split this merged level back apart' } });
 			splitBtn.addEventListener('click', () => this.updateMapping(mi, splitRow(m, li)));
+		} else if (!nestedEntry && this.splitPanelColumn(rule)) {
+			const levelsBtn = gestures.createEl('button', {
+				text: 'Split into levels',
+				attr: { title: 'Split this value into one level per piece' },
+			});
+			levelsBtn.addEventListener('click', () => {
+				if (this.splitPanel?.mi === mi && this.splitPanel.li === li) {
+					this.splitPanel = null;
+					this.scheduleRerender();
+				} else {
+					this.openSplitPanel(mi, li);
+				}
+			});
 		}
-
 		// Sample cell.
 		tr.createEl('td', { cls: 'mono', text: this.sampleForLevel(rule) });
 
@@ -1642,6 +2027,427 @@ export class MappingWorkbench {
 			const next: LevelRule = { ...rule, missing: missSel.value as MissingPolicy };
 			this.updateMapping(mi, this.replaceLevel(m, li, next));
 		});
+
+		if (nestedEntry) {
+			const nestedControls = tbody
+				.createEl('tr', { cls: 'crosswalker-wb-nest-row' })
+				.createEl('td', { attr: { colspan: '5' } })
+				.createDiv({ cls: 'crosswalker-wb-nest-controls' });
+			if (nestedEntry.children !== undefined) {
+				const ownLabel = nestedControls.createEl('label');
+				ownLabel.createSpan({ text: 'Own note' });
+				const ownSelect = ownLabel.createEl('select', {
+					cls: 'dropdown',
+					attr: { 'aria-label': `Own note for ${rule.level}`, 'data-nest-control': 'leaf' },
+				});
+				ownSelect.createEl('option', { text: 'Yes, as a folder note', attr: { value: 'folder-note' } });
+				ownSelect.createEl('option', { text: 'No, folder only', attr: { value: 'none' } });
+				ownSelect.value = nestedEntry.leaf ?? 'folder-note';
+				ownSelect.addEventListener('change', () => {
+					this.mapping = setNestLeaf(this.mapping, rule.level, ownSelect.value as 'folder-note' | 'none');
+					this.applyChange();
+				});
+			}
+			const identityLabel = nestedControls.createEl('label');
+			identityLabel.createSpan({ text: 'Identified by' });
+			const identitySelect = identityLabel.createEl('select', {
+				cls: 'dropdown',
+				attr: { 'aria-label': `Identified by for ${rule.level}`, 'data-nest-control': 'identity' },
+			});
+			identitySelect.createEl('option', { text: 'Its own identifier', attr: { value: 'global' } });
+			identitySelect.createEl('option', { text: 'Its path from the top level', attr: { value: 'path' } });
+			identitySelect.value = nestedEntry.identity ?? 'global';
+			identitySelect.addEventListener('change', () => {
+				this.mapping = setNestIdentity(this.mapping, rule.level, identitySelect.value as 'global' | 'path');
+				this.applyChange();
+			});
+		}
+
+		if (this.splitPanel?.mi === mi && this.splitPanel.li === li) {
+			this.renderSplitPanel(tbody, m, mi, rule, li);
+		}
+	}
+
+	/** A row that can be split names exactly one real column and is not a joined range. */
+	private splitPanelColumn(rule: LevelRule): string | null {
+		const refs = toSourceRefs(rule.source);
+		if (refs.length !== 1 || isConstantRef(refs[0]) || Array.isArray(refs[0].part)) return null;
+		return refs[0].column;
+	}
+
+	/** Open the one inline panel and make its matrix visible. */
+	private openSplitPanel(mi: number, li: number): void {
+		const mapping = this.mapping.mappings[mi];
+		if (!mapping || !mapping.levels[li] || !this.splitPanelColumn(mapping.levels[li])) return;
+		this.splitPanel = { mi, li };
+		this.expanded.add(mi);
+		this.matrixOpen.add(mi);
+		this.scheduleRerender();
+	}
+
+	/** Values used by the histogram. Streaming sources use their bounded column samples. */
+	private splitPanelSamples(column: string): { values: string[]; streamed: boolean } {
+		const rows = this.opts.parsedData.rows;
+		if (isEagerRows(rows)) {
+			return {
+				values: rows
+					.slice(0, SPLIT_PANEL_SAMPLE_LIMIT)
+					.map((row) => String(row[column] ?? '').trim())
+					.filter(Boolean),
+				streamed: false,
+			};
+		}
+		const info = this.opts.columnInfos.find((candidate) => candidate.name === column);
+		return {
+			values: (info?.sampleValues ?? []).map((value) => String(value ?? '').trim()).filter(Boolean),
+			streamed: true,
+		};
+	}
+
+	/** Preserve first occurrence order while removing duplicate delimiter characters. */
+	private normalizeDelimiterSet(value: string): string {
+		return Array.from(new Set(Array.from(value))).join('');
+	}
+
+	/** Read the delimiter from a legacy single-split proposal without exporting detection internals. */
+	private parseSingleSplitDelimiter(template: string): string | null {
+		const match = /\|split\((.),0\)\}$/.exec(template);
+		return match ? match[1] : null;
+	}
+
+	/** Initial delimiters: edited row, existing run, detection proposal, then observed samples. */
+	private initialSplitDelimiters(
+		m: StructureMapping,
+		rule: LevelRule,
+		column: string,
+		samples: string[],
+	): string {
+		if (rule.delimiters) return this.normalizeDelimiterSet(rule.delimiters);
+		const existing = m.levels.find((candidate) => this.splitPanelColumn(candidate) === column && candidate.delimiters);
+		if (existing?.delimiters) return this.normalizeDelimiterSet(existing.delimiters);
+
+		const detection = this.structuralDetectionForColumn(column);
+		if (detection?.kind === 'packed-hierarchy') {
+			if (detection.proposal.mechanism === 'fixed-folders') {
+				const template = detection.proposal.templates[0];
+				const detected = template
+					? parseSetDelimiters(template) ?? this.parseSingleSplitDelimiter(template)
+					: null;
+				if (detected) return this.normalizeDelimiterSet(detected);
+			}
+			if (detection.delimiter) return detection.delimiter;
+		}
+
+		const observed = PACKED_DELIMITERS.filter((delimiter) => samples.some((value) => value.includes(delimiter))).join('');
+		return observed || PACKED_DELIMITERS[0];
+	}
+
+	/** Pure preview data used by both the panel renderer and focused unit tests. */
+	private splitPanelPreview(mi: number, li: number, requestedDelimiters?: string): SplitPanelPreview | null {
+		const m = this.mapping.mappings[mi];
+		const rule = m?.levels[li];
+		if (!m || !rule) return null;
+		const column = this.splitPanelColumn(rule);
+		if (!column) return null;
+		const sampleState = this.splitPanelSamples(column);
+		const delimiters = this.normalizeDelimiterSet(
+			requestedDelimiters ?? this.initialSplitDelimiters(m, rule, column, sampleState.values),
+		);
+		if (!delimiters) return null;
+
+		const counts = new Map<number, number>();
+		let deepestSample: string | null = null;
+		let deepestDepth = -1;
+		for (const value of sampleState.values) {
+			const depth = splitOnDelimiterSet(value, delimiters).length;
+			counts.set(depth, (counts.get(depth) ?? 0) + 1);
+			if (depth > deepestDepth) {
+				deepestDepth = depth;
+				deepestSample = value;
+			}
+		}
+		const histogram = [...counts.entries()]
+			.filter(([, count]) => count > 0)
+			.sort(([a], [b]) => a - b)
+			.map(([depth, count]) => ({
+				depth,
+				count,
+				percent: Math.round((count / sampleState.values.length) * 100),
+			}));
+		let modalDepth = 0;
+		let modalCount = -1;
+		for (const bar of histogram) {
+			// The deeper level wins an exact tie. A fully ragged 1/2/3/4 sample must
+			// propose four levels so `missing: skip` can preserve every observed piece.
+			if (bar.count > modalCount || (bar.count === modalCount && bar.depth > modalDepth)) {
+				modalDepth = bar.depth;
+				modalCount = bar.count;
+			}
+		}
+		if (modalDepth < 2) {
+			const detection = this.structuralDetectionForColumn(column);
+			const detectedDepth = detection?.kind === 'packed-hierarchy'
+				&& detection.proposal.mechanism === 'fixed-folders'
+				? detection.proposal.templates.length + 1
+				: 0;
+			const existingDepth = m.levels.filter((candidate) => this.splitPanelColumn(candidate) === column).length;
+			modalDepth = Math.max(2, detectedDepth, existingDepth);
+		}
+		return {
+			column,
+			delimiters,
+			samples: sampleState.values,
+			streamed: sampleState.streamed,
+			histogram,
+			modalDepth,
+			deepestSample,
+			caption: sampleState.streamed && sampleState.values.length > 0
+				? `Depth is estimated from ${sampleState.values.length} sample values. Streamed sources are not fully scanned.`
+				: null,
+		};
+	}
+
+	/** Folder-card disclosure for a detected or already configured delimiter split. */
+	private folderSplitHint(mi: number): { text: string; li: number } | null {
+		const m = this.mapping.mappings[mi];
+		if (!m) return null;
+		const firstColumn = m.levels.map((rule) => this.splitPanelColumn(rule)).find((column): column is string => column !== null);
+		if (!firstColumn) return null;
+		const detection = this.structuralDetectionForColumn(firstColumn);
+		const configured = m.levels.some((rule) => this.splitPanelColumn(rule) === firstColumn && Boolean(rule.delimiters));
+		if (detection?.kind !== 'packed-hierarchy' && !configured) return null;
+		const li = m.levels.findIndex((rule) => this.splitPanelColumn(rule) === firstColumn);
+		if (li < 0) return null;
+		const preview = this.splitPanelPreview(mi, li);
+		if (!preview) return null;
+		return {
+			text: `Splits into ${preview.modalDepth} levels on ${Array.from(preview.delimiters).join(' and ')}`,
+			li,
+		};
+	}
+
+	/** Folder-card button path: resolve the current target row, then open its panel. */
+	private openFolderSplitPanel(mi: number): void {
+		const hint = this.folderSplitHint(mi);
+		if (hint) this.openSplitPanel(mi, hint.li);
+	}
+
+	/** The leaf whose destinations splitIntoLevels will preserve for this column run. */
+	private splitLeafRule(m: StructureMapping, column: string, start: number): LevelRule {
+		for (let i = start; i < m.levels.length; i++) {
+			const candidate = m.levels[i];
+			const refs = toSourceRefs(candidate.source);
+			if (refs.length !== 1 || isConstantRef(refs[0]) || refs[0].column !== column) break;
+			if (refs[0].part === undefined) return candidate;
+		}
+		return m.levels[start];
+	}
+
+	/** Apply path kept narrow so tests drive the same write the button uses. */
+	private applySplitPanel(
+		mi: number,
+		li: number,
+		delimiters: string,
+		depth: number,
+		naming: ('part' | 'prefix')[],
+		missing: 'skip' | 'error',
+	): void {
+		const m = this.mapping.mappings[mi];
+		if (!m || !m.levels[li]) return;
+		const normalized = this.normalizeDelimiterSet(delimiters);
+		if (!normalized || !Number.isInteger(depth) || depth < 2) return;
+		this.splitPanel = null;
+		this.updateMapping(mi, splitIntoLevels(m, li, { delimiters: normalized, depth, naming, missing }));
+	}
+
+	/** Render the inline editor immediately after its matrix row. */
+	private renderSplitPanel(
+		tbody: HTMLElement,
+		m: StructureMapping,
+		mi: number,
+		rule: LevelRule,
+		li: number,
+	): void {
+		const initial = this.splitPanelPreview(mi, li);
+		if (!initial) {
+			this.splitPanel = null;
+			return;
+		}
+		const panelRow = tbody.createEl('tr', { cls: 'crosswalker-wb-split-panel' });
+		const cell = panelRow.createEl('td', { attr: { colspan: '5' } });
+		cell.createEl('b', { cls: 'crosswalker-wb-split-title', text: `Split "${initial.column}" into levels` });
+
+		let delimiters = initial.delimiters;
+		let modalDepth = initial.modalDepth;
+		let manualDepth = initial.modalDepth;
+		let missing: 'skip' | 'error' = 'skip';
+		const naming: ('part' | 'prefix')[] = Array.from({ length: 7 }, () => 'prefix');
+		const structural = m.levels.some((candidate) => candidate.destinations.some((destination) => destination.primitive === 'folder'));
+		const leafRule = this.splitLeafRule(m, initial.column, li);
+
+		const delimiterRow = cell.createDiv({ cls: 'crosswalker-wb-split-delimiters' });
+		delimiterRow.createSpan({ cls: 'crosswalker-wb-split-label', text: 'Delimiters' });
+		const chipButtons = new Map<string, HTMLButtonElement>();
+		for (const delimiter of PACKED_DELIMITERS) {
+			const button = delimiterRow.createEl('button', {
+				cls: 'crosswalker-wb-chip' + (delimiters.includes(delimiter) ? ' is-on' : ''),
+				text: delimiter,
+				attr: { type: 'button', 'aria-pressed': delimiters.includes(delimiter) ? 'true' : 'false' },
+			});
+			chipButtons.set(delimiter, button);
+		}
+		const otherLabel = delimiterRow.createEl('label', { cls: 'crosswalker-wb-split-other' });
+		otherLabel.createSpan({ text: 'Other' });
+		const customInitial = Array.from(delimiters).find((delimiter) => !PACKED_DELIMITERS.includes(delimiter as typeof PACKED_DELIMITERS[number])) ?? '';
+		const otherInput = otherLabel.createEl('input', { type: 'text', value: customInitial });
+		otherInput.maxLength = 1;
+		const message = cell.createDiv({ cls: 'crosswalker-wb-split-message', attr: { 'aria-live': 'polite' } });
+		const details = cell.createDiv({ cls: 'crosswalker-wb-split-details' });
+
+		const currentStandardSet = (): string => PACKED_DELIMITERS
+			.filter((delimiter) => chipButtons.get(delimiter)?.classList.contains('is-on'))
+			.join('');
+		const setMessage = (text = ''): void => message.setText(text);
+		const renderDetails = (): void => {
+			const preview = this.splitPanelPreview(mi, li, delimiters);
+			if (!preview) return;
+			if (preview.samples.length > 0) modalDepth = preview.modalDepth;
+			else modalDepth = manualDepth;
+			details.replaceChildren();
+
+			const depthSection = details.createDiv({ cls: 'crosswalker-wb-split-depth' });
+			depthSection.createSpan({ cls: 'crosswalker-wb-split-label', text: 'Depth' });
+			if (preview.samples.length > 0) {
+				const histogram = depthSection.createDiv({ cls: 'crosswalker-wb-split-histogram' });
+				for (const bar of preview.histogram) {
+					const row = histogram.createDiv({ cls: 'crosswalker-wb-split-bar-row' });
+					row.createSpan({ text: `${bar.depth} levels  ${bar.percent}%` });
+					const track = row.createDiv({ cls: 'crosswalker-wb-split-bar-track' });
+					const fill = track.createDiv({ cls: 'crosswalker-wb-split-bar' });
+					fill.style.width = `${bar.percent}%`;
+				}
+				if (preview.caption) depthSection.createDiv({ cls: 'crosswalker-wb-split-caption', text: preview.caption });
+			} else {
+				const numberLabel = depthSection.createEl('label', { cls: 'crosswalker-wb-split-number' });
+				numberLabel.createSpan({ text: 'Number of levels' });
+				const numberInput = numberLabel.createEl('input', {
+					type: 'number',
+					value: String(manualDepth),
+					attr: { min: '2', max: '8' },
+				});
+				numberInput.addEventListener('change', () => {
+					manualDepth = Math.min(8, Math.max(2, Number(numberInput.value) || 2));
+					renderDetails();
+				});
+			}
+
+			details.createDiv({ cls: 'crosswalker-wb-split-label crosswalker-wb-split-levels-label', text: 'Levels' });
+			const levelsTable = details.createEl('table', { cls: 'crosswalker-wb-split-levels' });
+			const head = levelsTable.createEl('thead').createEl('tr');
+			for (const heading of ['#', 'Sample', 'Named as', 'Lands as']) head.createEl('th', { text: heading });
+			const body = levelsTable.createEl('tbody');
+			for (let index = 0; index < modalDepth; index++) {
+				const levelRow = body.createEl('tr');
+				levelRow.createEl('td', { text: String(index + 1) });
+				let sample = 'No sample';
+				if (preview.deepestSample) {
+					if (index === modalDepth - 1) {
+						sample = preview.deepestSample;
+					} else {
+						const sampleRule: LevelRule = {
+							level: 'preview',
+							source: [{ column: preview.column, part: index }],
+							delimiters,
+							naming: naming[index] ?? 'prefix',
+							destinations: [{ primitive: 'folder' }],
+							missing: 'skip',
+							materialize: false,
+						};
+						sample = this.sampleForLevelOnRow(sampleRule, { [preview.column]: preview.deepestSample });
+					}
+				}
+				levelRow.createEl('td', { cls: 'mono', text: sample });
+				const namedCell = levelRow.createEl('td');
+				if (index === modalDepth - 1) {
+					namedCell.createSpan({ text: 'Full value' });
+				} else {
+					const namingSelect = namedCell.createEl('select', { cls: 'dropdown' });
+					namingSelect.createEl('option', { text: 'Cumulative prefix', attr: { value: 'prefix' } });
+					namingSelect.createEl('option', { text: 'The part', attr: { value: 'part' } });
+					namingSelect.value = naming[index] ?? 'prefix';
+					namingSelect.addEventListener('change', () => {
+						naming[index] = namingSelect.value as 'part' | 'prefix';
+						renderDetails();
+					});
+				}
+				const lands = index === modalDepth - 1
+					? structural ? 'Note name' : this.destinationLabels(leafRule.destinations)
+					: structural ? 'Folder' : '(none)';
+				levelRow.createEl('td', { text: lands });
+			}
+
+			const missingLabel = details.createEl('label', { cls: 'crosswalker-wb-split-missing' });
+			missingLabel.createSpan({ text: `Rows shorter than ${modalDepth} levels` });
+			const missingSelect = missingLabel.createEl('select', { cls: 'dropdown' });
+			missingSelect.createEl('option', { text: 'Skip the missing level', attr: { value: 'skip' } });
+			missingSelect.createEl('option', { text: 'Report as an error', attr: { value: 'error' } });
+			missingSelect.value = missing;
+			missingSelect.addEventListener('change', () => { missing = missingSelect.value as 'skip' | 'error'; });
+		};
+
+		for (const [delimiter, button] of chipButtons) {
+			button.addEventListener('click', () => {
+				const on = button.classList.contains('is-on');
+				if (on && delimiters.length === 1) {
+					setMessage('Keep at least one delimiter on.');
+					return;
+				}
+				button.classList.toggle('is-on', !on);
+				button.setAttr('aria-pressed', on ? 'false' : 'true');
+				delimiters = this.normalizeDelimiterSet(currentStandardSet() + otherInput.value);
+				setMessage();
+				renderDetails();
+			});
+		}
+		otherInput.addEventListener('input', () => {
+			const nextOther = Array.from(otherInput.value)[0] ?? '';
+			otherInput.value = nextOther;
+			const next = this.normalizeDelimiterSet(currentStandardSet() + nextOther);
+			if (!next) {
+				otherInput.value = Array.from(delimiters).find((delimiter) => !PACKED_DELIMITERS.includes(delimiter as typeof PACKED_DELIMITERS[number])) ?? '';
+				setMessage('Keep at least one delimiter on.');
+				return;
+			}
+			delimiters = next;
+			setMessage();
+			renderDetails();
+		});
+
+		renderDetails();
+		const actions = cell.createDiv({ cls: 'crosswalker-wb-split-actions' });
+		const apply = actions.createEl('button', { cls: 'mod-cta', text: 'Apply' });
+		apply.addEventListener('click', () => this.applySplitPanel(
+			mi,
+			li,
+			delimiters,
+			modalDepth,
+			naming.slice(0, modalDepth - 1),
+			missing,
+		));
+		const cancel = actions.createEl('button', { text: 'Cancel' });
+		cancel.addEventListener('click', () => {
+			this.splitPanel = null;
+			this.scheduleRerender();
+		});
+	}
+
+	/** Plain destination names for a non-structural leaf preview. */
+	private destinationLabels(destinations: Destination[]): string {
+		if (destinations.length === 0) return '(none)';
+		return destinations.map((destination) => {
+			const label = this.destChipLabel(destination);
+			return label.charAt(0).toUpperCase() + label.slice(1);
+		}).join(', ');
 	}
 
 	private renderTailRow(tbody: HTMLElement, m: StructureMapping, mi: number, tail: TailRule): void {
@@ -1681,7 +2487,7 @@ export class MappingWorkbench {
 		}
 	}
 
-	/** The two-stage ⊕ menu: pick a primitive, then a small param popover (spec §3d). */
+	/** The two-stage ⊕ menu: pick a destination, then a small parameter popover (spec §3d). */
 	private renderAddMenu(cell: HTMLElement, m: StructureMapping, mi: number, li: number): void {
 		const menu = cell.createDiv({ cls: 'crosswalker-wb-addmenu' });
 		if (!this.addMenuPrimitive) {
@@ -1700,7 +2506,7 @@ export class MappingWorkbench {
 			return;
 		}
 
-		// Stage 2 — parameter popover for the chosen primitive.
+		// Stage 2 — parameter popover for the chosen destination.
 		const primitive = this.addMenuPrimitive;
 		menu.createDiv({ cls: 'crosswalker-wb-addmenu-title', text: `Add ${primitive}` });
 		for (const field of this.paramFields(primitive)) {
@@ -1753,7 +2559,7 @@ export class MappingWorkbench {
 				const structuralTitles = this.structuralMappingTitles();
 				const text = structuralTitles.length > 1
 					? `${structuralTitles.join(' and ')} both shape the vault. On one mapping, untick Folders and File names. Tags, Properties, and Links can stay enabled.`
-					: `Can't generate: ${this.previewError}`;
+					: explainRecipeError(this.previewError) ?? `Can't generate: ${this.previewError}`;
 				banner.createSpan({ cls: 'crosswalker-render-banner-text', text });
 				return;
 			}
@@ -1983,6 +2789,27 @@ export class MappingWorkbench {
 	}
 
 	/**
+	 * The column's OWN structural detection (packed hierarchy or the last link of
+	 * a level-column chain), or undefined when it has none.
+	 *
+	 * Searches every detection, including dismissed ones: picking a column out of
+	 * the chooser by hand is an explicit "use this column" statement that outranks
+	 * an earlier dismiss of the evidence card.
+	 *
+	 * A chain only matches on its LAST column, because that column is the one that
+	 * names the leaf note (`instantiate.ts`'s `lastColumn`). Matching a middle
+	 * column would silently drag every other column of the chain into a mapping the
+	 * user only asked one column for.
+	 */
+	private structuralDetectionForColumn(column: string): Detection | undefined {
+		return this.detections.find((d) => {
+			if (d.kind === 'packed-hierarchy') return d.column === column;
+			if (d.kind === 'level-column-chain') return d.columns[d.columns.length - 1] === column;
+			return false;
+		});
+	}
+
+	/**
 	 * Add a mapping by hand from the "Add mapping from a column" chooser
 	 * (B6). A recipe supports exactly one structural mapping (folder/name/
 	 * heading) — `serialize.ts`'s `assertSingleStructural` throws the moment a
@@ -1991,23 +2818,61 @@ export class MappingWorkbench {
 	 * NO structural mapping exists yet; otherwise the natural "route this
 	 * column" action is a frontmatter property, same as the demoted "all
 	 * columns" table's own default.
+	 *
+	 * D (2026-09-14): that single-structural rationale is intact, but the seed was
+	 * ALWAYS one leaf-only level, which threw away what detection already knows
+	 * about the column. Hand-picking a packed id column (`GV.OC-01.01`) produced a
+	 * one-row mapping whose every row is the leaf, so the Folders card had zero
+	 * eligible rows and rendered dead ("Not available", see `view-model.ts`'s
+	 * `eligibleRows`/`shapeCardHint`). When the column carries its own structural
+	 * detection the seed now comes from `instantiate()` instead, so the hand-added
+	 * card holds the same levels detection would have produced:
+	 *   - no structural mapping yet → the full instantiated card (folder levels +
+	 *     a `name` leaf), exactly as if detection had elected it. Any `enrichment`
+	 *     that `instantiate()` returns is discarded; `mapping.enrichment` belongs
+	 *     to the session, not to one hand-added column.
+	 *   - a structural mapping already exists → the SAME levels, stripped of every
+	 *     destination (non-leaf levels get none, the leaf gets a frontmatter
+	 *     property), so the single-structural guard still holds and the user can
+	 *     tick the levels they want on afterwards. A ragged detection's variadic
+	 *     tail is dropped in this branch: `toRecipeRegions` emits a tail as a
+	 *     variadic folder layout entry regardless of its destinations, which is a
+	 *     second structural region by another name.
+	 * A column with no structural detection keeps the original leaf-only seed.
 	 */
 	private addManualMapping(column: string): void {
 		const structuralExists = this.hasStructuralMapping();
-		const next: StructureMapping = {
-			levels: [
-				{
-					level: column,
-					source: { column },
-					destinations: [
-						structuralExists ? { primitive: 'property', key: this.keyOf(column) } : { primitive: 'name' },
-					],
-					naming: 'part',
-					missing: 'skip',
-					materialize: false,
-				},
-			],
-		};
+		const detection = this.structuralDetectionForColumn(column);
+		const seeded = detection ? instantiate(this.currentPreset(), [detection]).mappings[0] : undefined;
+		let next: StructureMapping;
+		if (seeded && !structuralExists) {
+			next = seeded;
+		} else if (seeded) {
+			const lastIndex = seeded.levels.length - 1;
+			next = {
+				levels: seeded.levels.map((level, i) => ({
+					...level,
+					destinations: i === lastIndex
+						? [{ primitive: 'property', key: this.keyOf(column) } as Destination]
+						: [],
+				})),
+			};
+		} else {
+			next = {
+				levels: [
+					{
+						level: column,
+						source: { column },
+						destinations: [
+							structuralExists ? { primitive: 'property', key: this.keyOf(column) } : { primitive: 'name' },
+						],
+						naming: 'part',
+						missing: 'skip',
+						materialize: false,
+					},
+				],
+			};
+		}
 		this.mapping = { ...this.mapping, mappings: [...this.mapping.mappings, next] };
 		this.manualMappings.push(next);
 		this.expanded.add(this.mapping.mappings.length - 1);
@@ -2034,6 +2899,7 @@ export class MappingWorkbench {
 		switch (primitive) {
 			case 'property': return { key: this.keyOf(col) };
 			case 'link': return { key: 'parent', direction: 'parent-on-child' };
+			case 'crosswalk': return { toOntology: '', predicate: 'is_approximate_to' };
 			case 'tag': return { namespace: this.slug(col) };
 			case 'heading': return { depth: '2' };
 			case 'body': return { position: 'section' };
@@ -2047,6 +2913,14 @@ export class MappingWorkbench {
 			case 'link': return [
 				{ key: 'key', label: 'Frontmatter key' },
 				{ key: 'direction', label: 'Direction', options: [['parent-on-child', 'Parent on child'], ['children-on-parent', 'Children on parent'], ['both', 'Both']] },
+			];
+			case 'crosswalk': return [
+				{ key: 'toOntology', label: 'Framework id' },
+				{
+					key: 'predicate',
+					label: 'Predicate',
+					options: CROSSWALK_PREDICATES.map((value) => [value, CROSSWALK_PREDICATE_LABELS[value]]),
+				},
 			];
 			case 'tag': return [{ key: 'namespace', label: 'Tag namespace' }];
 			case 'heading': return [{ key: 'depth', label: 'Heading depth', options: [['1', '1'], ['2', '2'], ['3', '3'], ['4', '4'], ['5', '5'], ['6', '6']] }];
@@ -2066,6 +2940,14 @@ export class MappingWorkbench {
 				const dir = params.direction === 'children-on-parent' || params.direction === 'both' ? params.direction : 'parent-on-child';
 				return { primitive: 'link', key: params.key || 'parent', direction: dir };
 			}
+			case 'crosswalk':
+				return {
+					primitive: 'crosswalk',
+					toOntology: params.toOntology ? this.slug(params.toOntology) : null,
+					predicate: CROSSWALK_PREDICATES.includes(params.predicate as CrosswalkPredicate)
+						? params.predicate as CrosswalkPredicate
+						: 'is_approximate_to',
+				};
 			case 'tag': return params.namespace ? { primitive: 'tag', namespace: params.namespace } : { primitive: 'tag' };
 			case 'heading': return { primitive: 'heading', hostRule: 'root', depth: Number(params.depth) || 2 };
 			case 'body': return { primitive: 'body', position: (params.position as 'section' | 'append' | 'table-row') || 'section' };
@@ -2082,6 +2964,11 @@ export class MappingWorkbench {
 
 	private detectionColumns(d: Detection): string[] {
 		switch (d.kind) {
+			case 'nested-records': {
+				const columns = ['id', ...d.chain.flatMap((entry) => entry.idKey ? [entry.idKey] : [])];
+				const present = [...new Set(columns)].filter((entry) => this.opts.parsedData.columns.includes(entry));
+				return present.length > 0 ? present : this.opts.parsedData.columns.slice(0, 1);
+			}
 			case 'level-column-chain': return d.columns;
 			case 'edge-file': return [d.subjectColumn, d.objectColumn, ...(d.predicateColumn ? [d.predicateColumn] : [])];
 			default: return 'column' in d ? [d.column] : [];
@@ -2095,6 +2982,7 @@ export class MappingWorkbench {
 	/** Lucide icon id per detection kind (rendered via setIcon — theme-aware). */
 	private badgeIcon(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': return 'layers';
 			case 'packed-hierarchy': return 'layers';
 			case 'level-column-chain': return 'layers';
 			case 'facet-candidate': return 'tag';
@@ -2102,6 +2990,7 @@ export class MappingWorkbench {
 			case 'multi-value-link': return 'link';
 			case 'title-candidate': return 'type';
 			case 'body-candidate': return 'pilcrow';
+			case 'crosswalk-column': return 'arrow-right-left';
 			case 'edge-file': return 'arrow-left-right';
 			case 'row-type-discriminator': return 'list';
 		}
@@ -2110,6 +2999,7 @@ export class MappingWorkbench {
 	/** Short one-word chip label per detection kind (spec §7h #2). */
 	private badgeLabel(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': return 'nested';
 			case 'packed-hierarchy': return 'hierarchy';
 			case 'level-column-chain': return 'chain';
 			case 'facet-candidate': return 'facet';
@@ -2117,6 +3007,7 @@ export class MappingWorkbench {
 			case 'multi-value-link': return 'link';
 			case 'title-candidate': return 'title';
 			case 'body-candidate': return 'text';
+			case 'crosswalk-column': return 'crosswalk';
 			case 'edge-file': return 'edge';
 			case 'row-type-discriminator': return 'mixed';
 		}
@@ -2124,6 +3015,7 @@ export class MappingWorkbench {
 
 	private badgeTitle(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': return `Records inside records, ${d.proposal.levels.length} levels`;
 			case 'packed-hierarchy': return `Packed hierarchy (${d.classification})`;
 			case 'level-column-chain': return 'Level per column';
 			case 'facet-candidate': return `Facet, ${d.cardinality} values`;
@@ -2131,6 +3023,7 @@ export class MappingWorkbench {
 			case 'multi-value-link': return 'Multi-value link';
 			case 'title-candidate': return 'Title candidate';
 			case 'body-candidate': return 'Body candidate';
+			case 'crosswalk-column': return `Crosswalk to ${d.targetOntology ?? 'another framework'}`;
 			case 'edge-file': return 'Edge-shaped file';
 			case 'row-type-discriminator': return 'Row-type discriminator';
 		}
@@ -2138,6 +3031,7 @@ export class MappingWorkbench {
 
 	private evidenceTitle(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': return 'Records inside records';
 			case 'packed-hierarchy': return 'Packed hierarchy';
 			case 'level-column-chain': return 'Hierarchy across columns';
 			case 'facet-candidate': return 'Facet candidate';
@@ -2145,6 +3039,7 @@ export class MappingWorkbench {
 			case 'multi-value-link': return 'Multiple references per cell';
 			case 'title-candidate': return 'Title candidate';
 			case 'body-candidate': return 'Body text candidate';
+			case 'crosswalk-column': return 'References to another framework';
 			case 'edge-file': return 'Relationship-shaped source';
 			case 'row-type-discriminator': return 'Mixed row levels';
 		}
@@ -2152,6 +3047,10 @@ export class MappingWorkbench {
 
 	private evidenceNotice(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': {
+				const [first, second, third] = d.proposal.levels;
+				return `Each ${first} holds ${second}${third ? `, and each ${second} holds ${third}` : ''}.`;
+			}
 			case 'packed-hierarchy': return `Values split on "${d.delimiter}" into a ${d.classification} hierarchy.`;
 			case 'level-column-chain': return `Values become more specific across ${d.columns.join(' → ')}.`;
 			case 'facet-candidate': return `A small repeated set of ${d.cardinality} values behaves like labels.`;
@@ -2159,6 +3058,7 @@ export class MappingWorkbench {
 			case 'multi-value-link': return `Cells list several identifiers found in ${d.idColumn}.`;
 			case 'title-candidate': return 'Values are distinct enough to name individual rows.';
 			case 'body-candidate': return 'Values are long, distinct prose suitable for note content.';
+			case 'crosswalk-column': return d.targetOntology ? `Cells hold identifiers from ${d.targetOntology}, not from this source.` : 'Cells hold identifiers that are not from this source.';
 			case 'edge-file': return 'The source has subject and object identifiers, so its rows describe relationships.';
 			case 'row-type-discriminator': return 'Repeated row types correlate with different sets of populated columns.';
 		}
@@ -2166,6 +3066,12 @@ export class MappingWorkbench {
 
 	private evidenceCoverage(d: Detection, column: string): string {
 		switch (d.kind) {
+			case 'nested-records': {
+				const receipts = d.chain.map((entry) => `${entry.field}: about ${entry.avgPerParent} per parent`).join('; ');
+				return receipts + (d.chain.some((entry) => entry.repeatsUnderParents)
+					? ' Ids repeat under different parents, so those levels are named by their path.'
+					: '');
+			}
 			case 'packed-hierarchy': return `${Math.round(d.coverage * 100)}% of sampled non-empty values contain the delimiter.`;
 			case 'level-column-chain': {
 				const position = d.columns.indexOf(column);
@@ -2176,6 +3082,7 @@ export class MappingWorkbench {
 			case 'facet-candidate': return `${d.cardinality} distinct label values in the sampled rows.`;
 			case 'parent-column': return `${Math.round(d.matchRate * 100)}% of values match an identifier in ${d.idColumn}.`;
 			case 'multi-value-link': return `${Math.round(d.matchRate * 100)}% of split values match an identifier, averaging ${d.avgValuesPerCell.toFixed(1)} per cell.`;
+			case 'crosswalk-column': return `${Math.round(d.idShapeRate * 100)}% of split values look like identifiers; ${Math.round(d.selfMatchRate * 100)}% also appear in ${d.idColumn}, averaging ${d.avgValuesPerCell} per cell.` + (d.qualifierSample ? ` Qualifiers like ${d.qualifierSample} are kept as the mapping justification.` : '');
 			case 'title-candidate': return `${Math.round(d.distinctness * 100)}% distinct among non-empty sampled values.`;
 			case 'body-candidate': return `${Math.round(d.distinctness * 100)}% distinct, with an average length of ${Math.round(d.avgLength)} characters.`;
 			case 'row-type-discriminator': return `${d.values.length} row types, with ${Math.round(d.maxJaccardDistance * 100)}% maximum fill-pattern difference.`;
@@ -2189,11 +3096,13 @@ export class MappingWorkbench {
 
 	private evidenceEffect(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': return 'Proposes one level per record type, nested as folders, with the innermost as notes.';
 			case 'packed-hierarchy': return 'Proposes folders and a file name from the hierarchy levels.';
 			case 'level-column-chain': return 'Proposes one hierarchy level for each detected source column.';
 			case 'facet-candidate': return 'Proposes tags from this column when the active preset uses facets.';
 			case 'parent-column': return 'Proposes a parent link when the active preset uses links.';
 			case 'multi-value-link': return 'Proposes a list of links when the active preset uses links.';
+			case 'crosswalk-column': return 'Proposes crosswalk-edge notes to the other framework, kept out of the concept note.';
 			case 'title-candidate': return 'Supplies naming evidence but does not create a mapping by itself.';
 			case 'body-candidate': return 'Suggests note content routing but does not create a shape mapping by itself.';
 			case 'edge-file': return 'Flags relationship-shaped input but does not create a shape mapping by itself.';
@@ -2218,6 +3127,7 @@ export class MappingWorkbench {
 			case 'property': return 'table';
 			case 'tag': return 'tag';
 			case 'link': return 'link';
+			case 'crosswalk': return 'arrow-right-left';
 			case 'alias': return 'quote';
 			case 'body': return 'pilcrow';
 		}
@@ -2233,6 +3143,7 @@ export class MappingWorkbench {
 			case 'property': return d.key;
 			case 'tag': return d.namespace ?? 'tag';
 			case 'link': return d.key;
+			case 'crosswalk': return d.toOntology ? `crosswalk to ${d.toOntology}` : 'crosswalk (framework not set)';
 			case 'alias': return 'alias';
 			case 'body': return 'body';
 		}
@@ -2259,7 +3170,11 @@ export class MappingWorkbench {
 
 	private sampleForLevel(rule: LevelRule): string {
 		const sample = this.firstRow();
-		if (!sample) return '-';
+		return sample ? this.sampleForLevelOnRow(rule, sample) : '-';
+	}
+
+	/** Render one matrix sample through the exact serializer + renderer path. */
+	private sampleForLevelOnRow(rule: LevelRule, sample: Record<string, unknown>): string {
 		try {
 			const regions = toRecipeRegions({ mappings: [{ levels: [rule] }] });
 			const recipe: Recipe = { recipe: 'wb-cell', target: regions as Recipe['target'] };
@@ -2279,6 +3194,16 @@ export class MappingWorkbench {
 	private firstRow(): Record<string, unknown> | null {
 		const rows = this.opts.parsedData.rows;
 		if (!isEagerRows(rows) || rows.length === 0) return null;
+		const lastLevel = this.mapping.nest?.[this.mapping.nest.length - 1]?.level;
+		if (lastLevel && this.expandedRows) {
+			const deepest = this.expandedRows.find((row) => {
+				const lineage = row._cw;
+				return typeof lineage === 'object'
+					&& lineage !== null
+					&& (lineage as { level?: unknown }).level === lastLevel;
+			});
+			if (deepest) return deepest;
+		}
 		return rows[0] as Record<string, unknown>;
 	}
 

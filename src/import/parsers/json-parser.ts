@@ -22,7 +22,9 @@
  * admits nothing is an error) and travels with the recipe.
  */
 
-import { ParsedData } from '../../types/config';
+import { computeSourceByteDigest } from '../../generation/hash';
+import { ParsedData, type SourceContainer } from '../../types/config';
+import { assertNoReservedSourceColumn } from '../../source/joins';
 import { jsonToRows } from './json-source-core';
 
 export interface JSONParseOptions {
@@ -41,7 +43,11 @@ export interface JSONParseResult extends ParsedData {
  * survive so recipe templates can reach into them via dotted paths.
  */
 export async function parseJSONFile(file: File, options: JSONParseOptions = {}): Promise<JSONParseResult> {
-	const text = await file.text();
+	// Capture once so row parsing, lazy join reads, and provenance all describe
+	// the same immutable source payload.
+	const sourceBytes = new Uint8Array(await file.arrayBuffer());
+	const sourceByteDigest = computeSourceByteDigest(sourceBytes);
+	const text = new TextDecoder().decode(sourceBytes);
 	const result = jsonToRows(text, options.iterator || undefined);
 
 	// Column order = first appearance across rows (JSON objects can be sparse).
@@ -55,19 +61,24 @@ export async function parseJSONFile(file: File, options: JSONParseOptions = {}):
 			}
 		}
 	}
+	assertNoReservedSourceColumn(columns);
 
 	return {
 		columns,
 		rows: result.rows,
 		rowCount: result.rows.length,
 		skippedNonObjects: result.skippedNonObjects,
+		sourceByteDigest,
 		// Ch 46 source contract 4.2: `source.joins` locates a secondary
 		// collection in a SIBLING ARRAY OF THIS SAME DOCUMENT. Lazy on purpose,
 		// so an import declaring no join never retains the parsed document.
 		container: {
 			kind: 'json',
-			readDocument: async () => JSON.parse(await file.text()) as unknown,
-		},
+			readDocument: async () => JSON.parse(text) as unknown,
+			// Runtime-only evidence for synchronous nested-record detection. The
+			// canonical source contract still owns the iterator in Recipe.source.
+			iterator: options.iterator ?? '',
+		} as SourceContainer,
 	};
 }
 
@@ -89,6 +100,13 @@ export interface IteratorCandidate {
 	sample: Array<{ key: string; value: string }>;
 	/** Heuristic: the list name reads like edges/mappings, not primary records. */
 	looksLikeEdges: boolean;
+	/** Bounded child-record chain discovered below this list. */
+	nested?: Array<{
+		field: string;
+		count: number;
+		sampleKeys: string[];
+		idKey: string | null;
+	}>;
 }
 
 export interface JsonStructure {
@@ -133,6 +151,58 @@ const buildSample = (record: Record<string, unknown>): Array<{ key: string; valu
 	return out;
 };
 
+const ID_KEYS = ['id', 'identifier', 'uuid', 'code'] as const;
+
+function nestedIdKey(
+	childrenByParent: Record<string, unknown>[][],
+	field: string,
+): string | null {
+	const singular = field.endsWith('s') && field.length > 1 ? field.slice(0, -1) : field;
+	const candidates = [...ID_KEYS.slice(0, 3), `${singular}_id`, ID_KEYS[3]];
+	for (const key of candidates) {
+		let sawValue = false;
+		let valid = true;
+		for (const children of childrenByParent) {
+			const values = children.map((child) => child[key]).filter((value) => value !== undefined && value !== null && String(value).trim() !== '');
+			if (values.length !== children.length || new Set(values.map(String)).size !== values.length) {
+				valid = false;
+				break;
+			}
+			if (values.length > 0) sawValue = true;
+		}
+		if (valid && sawValue) return key;
+	}
+	return null;
+}
+
+function nestedChain(records: Record<string, unknown>[]): NonNullable<IteratorCandidate['nested']> {
+	const chain: NonNullable<IteratorCandidate['nested']> = [];
+	let parents = records;
+	for (let depth = 0; depth < 4 && parents.length > 0; depth++) {
+		const sampledParents = parents.slice(0, 50);
+		const first = sampledParents[0];
+		const field = Object.keys(first).find((key) => {
+			const value = first[key];
+			return Array.isArray(value) && value.some(isRecord);
+		});
+		if (!field) break;
+		const childrenByParent = sampledParents.map((parent) => {
+			const value = parent[field];
+			return Array.isArray(value) ? value.filter(isRecord) : [];
+		});
+		const children = childrenByParent.flat();
+		if (children.length === 0) break;
+		chain.push({
+			field,
+			count: children.length,
+			sampleKeys: Object.keys(children[0]).slice(0, 6),
+			idKey: nestedIdKey(childrenByParent, field),
+		});
+		parents = children;
+	}
+	return chain;
+}
+
 /**
  * Inspect a JSON document and suggest where the records live, so the wizard
  * can offer a click-to-pick list instead of asking users to write `$.a.b[*]`
@@ -149,8 +219,10 @@ export function suggestIterators(text: string): JsonStructure {
 	}
 
 	if (Array.isArray(root)) {
-		const first = root.find(isRecord);
+		const records = root.filter(isRecord);
+		const first = records[0];
 		const keys = first ? Object.keys(first) : [];
+		const nested = nestedChain(records);
 		return {
 			rootIsArray: true,
 			rootCount: root.length,
@@ -163,6 +235,7 @@ export function suggestIterators(text: string): JsonStructure {
 				fieldCount: keys.length,
 				sample: first ? buildSample(first) : [],
 				looksLikeEdges: false,
+				...(nested.length > 0 ? { nested } : {}),
 			}],
 		};
 	}
@@ -176,6 +249,7 @@ export function suggestIterators(text: string): JsonStructure {
 				if (first) {
 					const segs = [...path, key];
 					const keys = Object.keys(first);
+					const nested = nestedChain(value.filter(isRecord));
 					candidates.push({
 						iterator: '$.' + segs.join('.').replace(/\.(?=\[)/g, ''),
 						label: segs.join(' → '),
@@ -185,6 +259,7 @@ export function suggestIterators(text: string): JsonStructure {
 						fieldCount: keys.length,
 						sample: buildSample(first),
 						looksLikeEdges: looksLikeEdgeName(key),
+						...(nested.length > 0 ? { nested } : {}),
 					});
 					// continue INTO the first record for multi-fan shapes
 					walk(first, [...path, key + '[*]'], depth + 1);

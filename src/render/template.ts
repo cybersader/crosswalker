@@ -633,6 +633,85 @@ const FILTERS: Record<string, (v: unknown, arg?: string, ctx?: FilterCtx) => unk
 		}
 		return (parts[idx] ?? '').trim();
 	},
+	part: (v, arg, ctx) => {
+		// Two forms, mirroring split but over a delimiter SET (any single
+		// character of D separates pieces; order-free):
+		//   {var|part(<delims>,<index>)} — scalar to scalar, the n-th (0-based)
+		//     piece of the trimmed value; empty pieces are dropped before indexing.
+		//   {var|part(<delims>)}         — scalar to LIST of the non-empty pieces.
+		// The 2-arg form takes parse precedence, exactly like split. The greedy
+		// match means the index is the digits after the LAST comma: a literal
+		// comma in D is written `\,` and unescapes to a comma that still reads as
+		// part of D when the trailing group is the index (`part(\,,1)` splits on
+		// ","). The same ambiguity class split already has; multi-character
+		// delimiters stay on `split`.
+		if (arg === undefined) {
+			throw new RenderError(
+				`part filter requires "<delims>,<index>" or "<delims>", e.g. {var|part(.-,0)}.`,
+			);
+		}
+		const m = arg.match(/^(.*),(\d+)$/);
+		if (!m) return partToList(v, arg);
+		const [, delims, idxStr] = m;
+		const delimSet = decodeDelimiter(delims);
+		if (delimSet === '') {
+			throw new RenderError(`part filter requires a non-empty delimiter set; got "${delims}".`);
+		}
+		const source = String(v).trim();
+		const idx = parseInt(idxStr, 10);
+		if (!containsAnyChar(source, delimSet)) {
+			// No character of D occurs: the whole (trimmed) value IS piece 0, so
+			// index 0 has an answer and only a higher index is a miss (spec §2.1).
+			if (idx > 0) {
+				ctx?.report?.notes.push({
+					code: 'part-no-delimiter',
+					template: ctx.template,
+					detail: `"${source}" contains none of the delimiter characters "${delimSet}" and piece ${idx} doesn't exist, so it came back empty.`,
+				});
+			}
+			return idx === 0 ? source : '';
+		}
+		const pieces = splitOnSet(source, delimSet)
+			.map((piece) => piece.text.trim())
+			.filter((piece) => piece !== '');
+		if (idx >= pieces.length) {
+			ctx?.report?.notes.push({
+				code: 'part-index-missing',
+				template: ctx.template,
+				detail: `"${source}" splits on any of "${delimSet}" into ${pieces.length} piece(s) — piece ${idx} doesn't exist, so it came back empty.`,
+			});
+			return '';
+		}
+		return pieces[idx];
+	},
+	prefix: (v, arg, ctx) => {
+		// {var|prefix(<delims>,<index>)} — scalar to scalar. The ORIGINAL text
+		// truncated right after the end of the n-th non-empty piece, delimiters
+		// preserved: `GV.OC-01.01` with D=`.-` gives `GV`, `GV.OC`, `GV.OC-01`.
+		// No list form: a prefix of pieces is not a list use case, and `part(D)`
+		// covers list production.
+		if (arg === undefined || !/^(.*),(\d+)$/.test(arg)) {
+			throw new RenderError(`prefix filter requires "<delims>,<index>", e.g. {var|prefix(.-,0)}.`);
+		}
+		const [, delims, idxStr] = arg.match(/^(.*),(\d+)$/) as RegExpMatchArray;
+		const delimSet = decodeDelimiter(delims);
+		if (delimSet === '') {
+			throw new RenderError(`prefix filter requires a non-empty delimiter set; got "${delims}".`);
+		}
+		const source = String(v).trim();
+		const idx = parseInt(idxStr, 10);
+		const nonEmpty = splitOnSet(source, delimSet).filter((piece) => piece.text.trim() !== '');
+		const piece = nonEmpty[idx];
+		if (!piece) {
+			ctx?.report?.notes.push({
+				code: 'prefix-index-missing',
+				template: ctx.template,
+				detail: `"${source}" splits on any of "${delimSet}" into ${nonEmpty.length} piece(s) — piece ${idx} doesn't exist, so the prefix came back empty.`,
+			});
+			return '';
+		}
+		return source.slice(0, piece.end);
+	},
 	join: (v, arg) => {
 		// List to scalar. Identity on a scalar, so it composes harmlessly.
 		if (arg === undefined) {
@@ -700,11 +779,53 @@ function splitToList(value: unknown, arg: string): string[] {
 		.filter((piece) => piece !== '');
 }
 
+/**
+ * True when at least one character of `set` occurs in `s`.
+ * Delimiter sets are tiny and values are short cell text, so a linear scan over
+ * the set (not the string) is the cheap order.
+ */
+function containsAnyChar(s: string, set: string): boolean {
+	return set.split('').some((c) => s.includes(c));
+}
+
+/**
+ * Tokenize `s` on ANY single character of `set`. Returns the pieces WITH their
+ * original end offsets so `prefix` can truncate while keeping the delimiters.
+ * Adjacent delimiters yield empty pieces (dropped by the callers, per §2.1).
+ */
+function splitOnSet(s: string, set: string): { text: string; end: number }[] {
+	const chars = new Set(set.split(''));
+	const pieces: { text: string; end: number }[] = [];
+	let start = 0;
+	for (let i = 0; i < s.length; i++) {
+		if (!chars.has(s[i])) continue;
+		pieces.push({ text: s.slice(start, i), end: i });
+		start = i + 1;
+	}
+	pieces.push({ text: s.slice(start), end: s.length });
+	return pieces;
+}
+
+/** `part(<delims>)` — the produce step. Trimmed non-empty pieces of the set split. */
+function partToList(value: unknown, arg: string): string[] {
+	const delimSet = decodeDelimiter(arg);
+	if (delimSet === '') {
+		throw new RenderError(`part filter requires a non-empty delimiter set; got "${arg}".`);
+	}
+	const source = Array.isArray(value) ? value : [value];
+	return source
+		.flatMap((item) => splitOnSet(String(item).trim(), delimSet))
+		.map((piece) => piece.text.trim())
+		.filter((piece) => piece !== '');
+}
+
 /** True for the filter forms that consume a list directly instead of lifting. */
 function isListAware(call: FilterCall): boolean {
 	if (call.name === 'join') return true;
 	// `split`'s 1-argument (list-producing) form; the 2-arg form is scalar to scalar.
 	if (call.name === 'split' && call.arg !== undefined && !/^(.*),(\d+)$/.test(call.arg)) return true;
+	// `part`'s 1-argument (list-producing) form; same shape as split.
+	if (call.name === 'part' && call.arg !== undefined && !/^(.*),(\d+)$/.test(call.arg)) return true;
 	return false;
 }
 

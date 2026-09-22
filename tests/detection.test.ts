@@ -121,24 +121,31 @@ describe('packed-hierarchy — ATT&CK ragged (~40% sub-techniques)', () => {
 describe('packed-hierarchy — NIST-CSF uniform ("." then "-")', () => {
 	const ids = ['GV.OC-01', 'GV.OC-02', 'DE.AE-02', 'DE.AE-03', 'PR.AA-05', 'ID.AM-01'];
 
-	it('classifies uniform with primary delimiter "."', () => {
+	it('classifies uniform with primary delimiter "." and the set-depth histogram', () => {
 		const p = packedOf(detect(rowsFrom('element_identifier', ids)), 'element_identifier');
 		expect(p!.classification).toBe('uniform');
 		expect(p!.delimiter).toBe('.');
 		expect(p!.coverage).toBe(1);
+		// The histogram stays keyed on the primary single delimiter (unchanged
+		// behaviour): every sample splits on "." into 2 parts.
 		expect(p!.depthHistogram).toEqual({ 2: 6 });
 	});
 
-	it('proposes ordered fixed folders matching deriveIdSplitTemplates (parity)', () => {
+	it('proposes cumulative prefix(.-,i) levels over the delimiter set (spec §3, A1)', () => {
 		const p = packedOf(detect(rowsFrom('element_identifier', ids)), 'element_identifier');
 		expect(p!.proposal).toEqual({
 			mechanism: 'fixed-folders',
-			templates: ['{element_identifier|split(.,0)}', '{element_identifier|split(-,0)}'],
+			templates: ['{element_identifier|prefix(.-,0)}', '{element_identifier|prefix(.-,1)}'],
 		});
-		// Parity guard: the fixed proposal must equal today's engine inference.
-		expect((p!.proposal as { templates: string[] }).templates).toEqual(
-			deriveIdSplitTemplates('element_identifier', ids),
-		);
+		// Divergence guard (spec §3): with two or more qualifying delimiters the
+		// detection now emits prefix(D,i) over the set, while the engine mirror
+		// still emits one split(d,0) per delimiter. Same depth, different naming.
+		expect(deriveIdSplitTemplates('element_identifier', ids)).toEqual([
+			'{element_identifier|split(.,0)}',
+			'{element_identifier|split(-,0)}',
+		]);
+		// The set order follows the delimiters' first occurrence in the longest id.
+		expect(p!.delimiter).toBe('.');
 	});
 });
 
@@ -171,6 +178,67 @@ describe('packed-hierarchy — SCF uniform on "-"', () => {
 		expect(p!.delimiter).toBe('-');
 		expect(p!.proposal).toEqual({ mechanism: 'fixed-folders', templates: ['{scf_id|split(-,0)}'] });
 		expect((p!.proposal as { templates: string[] }).templates).toEqual(deriveIdSplitTemplates('scf_id', ids));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Packed-hierarchy — multi-delimiter set (spec §3): uniform depth-4 and ragged
+// ---------------------------------------------------------------------------
+
+describe('packed-hierarchy — CRI-shaped uniform depth-4 over the {.-} set (synthetic values)', () => {
+	// Synthetic GV.OC-01.01-shaped ids (never real workbook rows): function,
+	// category, subcategory, sub-subcategory. 100% depth-4 agreement.
+	const ids = [
+		'GV.OC-01.01', 'GV.OC-01.02', 'GV.OC-02.01', 'GV.OC-02.02',
+		'GV.ID-01.01', 'GV.ID-01.02', 'GV.ID-02.01', 'GV.RA-01.01',
+		'DE.AE-01.01', 'DE.AE-01.02', 'DE.AE-02.01', 'DE.CM-01.01',
+		'PR.AA-01.01', 'PR.AA-01.02', 'PR.AA-02.01', 'PR.AT-01.01',
+	];
+
+	it('proposes three prefix(.-,i) folder levels with the untouched column as leaf (A2)', () => {
+		const p = packedOf(detect(rowsFrom('element_identifier', ids)), 'element_identifier');
+		expect(p!.classification).toBe('uniform');
+		expect(p!.proposal).toEqual({
+			mechanism: 'fixed-folders',
+			templates: [
+				'{element_identifier|prefix(.-,0)}',
+				'{element_identifier|prefix(.-,1)}',
+				'{element_identifier|prefix(.-,2)}',
+			],
+		});
+		// Histogram stays keyed on the primary single delimiter: 3 parts on ".".
+		expect(p!.depthHistogram).toEqual({ 3: ids.length });
+	});
+});
+
+describe('packed-hierarchy — ragged mixes keep the pre-existing single-delimiter output', () => {
+	it('a shallow ragged mix classifies ragged (variadic), never prefix levels (A4, detection half)', () => {
+		// '.' covers only 3/4 values → the whole detection goes ragged before any
+		// set logic runs; the variadic proposal must be byte-identical to today's.
+		const ids = ['GV', 'GV.OC', 'GV.OC-01', 'GV.OC-01.01'];
+		const p = packedOf(detect(rowsFrom('element_identifier', ids)), 'element_identifier');
+		expect(p).toBeDefined();
+		expect(p!.classification).toBe('ragged');
+		expect(p!.proposal).toEqual({
+			mechanism: 'variadic-folders',
+			variadic: { delimiter: '.', segment: 'prefix', drop_last: true },
+		});
+	});
+
+	it('two qualifying delimiters with a ragged set-depth fall back to the per-delimiter splits', () => {
+		// Both '.' and '-' qualify (100% coverage), '-' alone is uniform
+		// (one '-' per value), but the set-depth disagrees (17×3 vs 3×4 < 90%),
+		// so the multi-delimiter branch falls back to today's split() templates.
+		const ids: string[] = [];
+		for (let i = 0; i < 17; i++) ids.push(`AB.CD-E${String(i).padStart(2, '0')}`);
+		for (let i = 0; i < 3; i++) ids.push(`AB.CD-E0.0${i}`);
+		const p = packedOf(detect(rowsFrom('element_identifier', ids)), 'element_identifier');
+		expect(p).toBeDefined();
+		expect(p!.classification).toBe('uniform'); // '-' alone is still uniform
+		expect(p!.proposal).toEqual({
+			mechanism: 'fixed-folders',
+			templates: ['{element_identifier|split(.,0)}', '{element_identifier|split(-,0)}'],
+		});
 	});
 });
 

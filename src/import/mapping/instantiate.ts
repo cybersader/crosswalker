@@ -12,9 +12,10 @@
  *
  * Detection taxonomy coverage (detection.ts is the source of truth; do not edit
  * it here): packed-hierarchy and level-column-chain → structural mappings; facet
- * → tag mapping; parent-column and multi-value-link → link mappings. The
- * remaining kinds (title-candidate, row-type-discriminator, edge-file,
- * body-candidate) carry no clean recipe-region projection yet and are skipped
+ * → tag mapping; parent-column and multi-value-link → link mappings; a detected
+ * crosswalk column → a crosswalk destination. The remaining kinds
+ * (title-candidate, row-type-discriminator, edge-file, body-candidate) carry no
+ * clean recipe-region projection yet and are skipped
  * (they surface in the UI as flags / route elsewhere) — the defaults law still
  * guarantees a non-empty matrix.
  *
@@ -37,11 +38,11 @@ import { DEFAULT_MISSING, isConstantRef } from './types';
 import { markDetectionBackedLink, parseStructuralTemplate } from './serialize';
 
 /** A detection that would carry structural destinations (folders + a file leaf). */
-type StructuralDetection = Extract<Detection, { kind: 'packed-hierarchy' | 'level-column-chain' }>;
+type StructuralDetection = Extract<Detection, { kind: 'nested-records' | 'packed-hierarchy' | 'level-column-chain' }>;
 
 /** Does this detection produce a structural mapping (folders/file leaf)? */
 function isStructural(d: Detection): d is StructuralDetection {
-	return d.kind === 'packed-hierarchy' || d.kind === 'level-column-chain';
+	return d.kind === 'nested-records' || d.kind === 'packed-hierarchy' || d.kind === 'level-column-chain';
 }
 
 /**
@@ -71,6 +72,7 @@ function isStructural(d: Detection): d is StructuralDetection {
  * the interleave it replaces. See the report for the architect-decision note.
  */
 function structuralRank(d: StructuralDetection): number {
+	if (d.kind === 'nested-records') return -1;
 	if (d.kind === 'level-column-chain') return 0;
 	return d.classification === 'uniform' ? 1 : 2;
 }
@@ -78,6 +80,7 @@ function structuralRank(d: StructuralDetection): number {
 /** Coverage proxy for the tie-break: packed uses its measured coverage; a chain
  * (never more than one per source, so it never ties) uses its weakest FD agreement. */
 function structuralCoverage(d: StructuralDetection): number {
+	if (d.kind === 'nested-records') return 1;
 	if (d.kind === 'packed-hierarchy') return d.coverage;
 	return d.agreements.length > 0 ? Math.min(...d.agreements) : 1;
 }
@@ -102,7 +105,7 @@ function structuralCoverage(d: StructuralDetection): number {
  * from silently eating rows when a unique packed id is present.
  */
 function canOwnUniqueLeaf(d: StructuralDetection): boolean {
-	return d.kind === 'packed-hierarchy';
+	return d.kind === 'nested-records' || d.kind === 'packed-hierarchy';
 }
 
 /**
@@ -148,10 +151,18 @@ function selectStructuralWinner(detections: Detection[]): StructuralDetection | 
  */
 export function instantiate(preset: Preset, detections: Detection[]): ImportMapping {
 	const mappings: StructureMapping[] = [];
+	let nest: ImportMapping['nest'];
 	const structuralWinner = selectStructuralWinner(detections);
 
 	for (const detection of detections) {
 		switch (detection.kind) {
+			case 'nested-records':
+				if (detection === structuralWinner) {
+					const nested = instantiateNested(preset, detection);
+					mappings.push(nested.mapping);
+					nest = nested.nest;
+				}
+				break;
 			case 'packed-hierarchy':
 				// Demoted losers contribute nothing structural (no folders/files).
 				if (detection === structuralWinner) {
@@ -182,6 +193,9 @@ export function instantiate(preset: Preset, detections: Detection[]): ImportMapp
 				if (m) mappings.push(m);
 				break;
 			}
+			case 'crosswalk-column':
+				mappings.push(instantiateCrosswalk(detection));
+				break;
 			case 'title-candidate':
 			case 'row-type-discriminator':
 			case 'edge-file':
@@ -202,7 +216,50 @@ export function instantiate(preset: Preset, detections: Detection[]): ImportMapp
 	// carries none — there is nothing to enrich. Serializes to recipe
 	// target.enrichment via toRecipeRegions.
 	const enrichment = enrichmentForPreset(preset.preset);
-	return enrichment && mappings.length > 0 ? { mappings, enrichment } : { mappings };
+	return {
+		mappings,
+		...(nest ? { nest } : {}),
+		...(enrichment && mappings.length > 0 ? { enrichment } : {}),
+	};
+}
+
+function instantiateNested(
+	preset: Preset,
+	detection: Extract<Detection, { kind: 'nested-records' }>,
+): { mapping: StructureMapping; nest: NonNullable<ImportMapping['nest']> } {
+	const levels = detection.proposal.levels;
+	const last = levels.length - 1;
+	const everyLevelDests: PresetDestination[] =
+		preset.structural.every_level?.destinations ?? [{ primitive: 'folder' }];
+	const rules: LevelRule[] = levels.map((level, index) => {
+		const idKey = index === 0 ? 'id' : detection.chain[index - 1]?.idKey ?? 'id';
+		if (index === last) {
+			return { ...leafLevel(preset, idKey), level };
+		}
+		return {
+			level,
+			source: { column: `_cw.ancestors.${level}.${idKey}` },
+			destinations: everyLevelDests.map((destination) =>
+				mapDestination(destination, { column: `_cw.ancestors.${level}.${idKey}`, propertyKey: level }),
+			),
+			naming: 'part',
+			missing: DEFAULT_MISSING,
+			materialize: false,
+		};
+	});
+	const nest = levels.map((level, index) => {
+		const idKey = index === 0 ? 'id' : detection.chain[index - 1]?.idKey ?? 'id';
+		const sampleKeys = index === 0 ? ['title'] : detection.chain[index - 1]?.sampleKeys ?? [];
+		const titleKey = sampleKeys.includes('title') ? 'title' : sampleKeys.includes('name') ? 'name' : null;
+		return {
+			level,
+			id: `{${idKey}}`,
+			...(index < last ? { children: detection.chain[index].field, leaf: 'folder-note' as const } : {}),
+			identity: detection.proposal.identities[index],
+			...(titleKey ? { carry: [titleKey] } : {}),
+		};
+	});
+	return { mapping: { levels: rules }, nest };
 }
 
 // ============================================================================
@@ -235,11 +292,12 @@ function instantiateStructural(
 				destinations: everyLevelDests.map((d) =>
 					mapDestination(d, { column: levelColumn, propertyKey: `level-${i + 1}` }),
 				),
-				naming: 'part',
+				naming: parsed.naming ?? 'part',
 				missing: DEFAULT_MISSING,
 				materialize: false,
 			};
 			if (parsed.delimiter !== undefined) rule.delimiter = parsed.delimiter;
+			if (parsed.delimiters !== undefined) rule.delimiters = parsed.delimiters;
 			if (parsed.filters.length > 0) rule.filters = parsed.filters;
 			levels.push(rule);
 		});
@@ -295,6 +353,29 @@ function instantiateFacet(preset: Preset, column: string): StructureMapping | nu
 				level: column,
 				source: { column },
 				destinations: dests.map((d) => mapDestination(d, { column })),
+				naming: 'part',
+				missing: DEFAULT_MISSING,
+				materialize: false,
+			},
+		],
+	};
+}
+
+function instantiateCrosswalk(
+	detection: Extract<Detection, { kind: 'crosswalk-column' }>,
+): StructureMapping {
+	return {
+		levels: [
+			{
+				level: detection.column,
+				source: { column: detection.column },
+				destinations: [
+					{
+						primitive: 'crosswalk',
+						toOntology: detection.targetOntology,
+						predicate: 'is_approximate_to',
+					},
+				],
 				naming: 'part',
 				missing: DEFAULT_MISSING,
 				materialize: false,
@@ -425,6 +506,8 @@ function lastColumn(columns: string[]): string {
 /** A representative column for any detection kind (undefined for shapes with none). */
 function detectionColumn(detection: Detection): string | undefined {
 	switch (detection.kind) {
+		case 'nested-records':
+			return detection.chain.at(-1)?.idKey ?? 'id';
 		case 'packed-hierarchy':
 		case 'parent-column':
 		case 'facet-candidate':

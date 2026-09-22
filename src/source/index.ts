@@ -4,7 +4,8 @@
  * Ch 46 source contract §2. Fixed, spec-owned pipeline order:
  *
  *   parse
- *     -> [1] source.where     row predicate, over the RAW parser row
+ *     -> [0] source.nest      depth-first row emission with lineage
+ *     -> [1] source.where     row predicate, over each emitted row
  *     -> [2] source.joins     keyed lookup enrichment, over surviving rows
  *   identity -> curie mint -> concept_cid -> render() -> Tier 1 validate -> write
  *
@@ -27,8 +28,11 @@
  * (acceptance case A4).
  */
 
-import type { ParsedData } from '../types/config';
+import type { ParsedData, SourceContainer } from '../types/config';
+import type { NestedRecordLevel } from '../types/generated/recipe';
+import { renderTemplate } from '../render/template';
 import { SourceStageError } from './errors';
+import { expandNestedRows, type LineageObject } from './nest';
 import {
 	assertReferencesExist,
 	compileSourceExpression,
@@ -36,7 +40,14 @@ import {
 	type CompiledSourceExpression,
 } from './expression';
 import { assertAdmittedSomething, evaluateWherePredicate, WHERE_DECLARATION, type WhereTally } from './where';
-import { applyJoins, prepareJoins, type JoinsDeclaration, type PreparedJoin } from './joins';
+import {
+	applyJoins,
+	prepareJoins,
+	resolveSecondaryRows,
+	type JoinFromDeclaration,
+	type JoinsDeclaration,
+	type PreparedJoin,
+} from './joins';
 
 export { SourceStageError } from './errors';
 export type { SourceStageErrorInit } from './errors';
@@ -55,7 +66,16 @@ export {
 } from './expression';
 export { evaluateWherePredicate, assertAdmittedSomething, WHERE_DECLARATION } from './where';
 export { shorthandToSourceExpression } from './shorthand';
-export { prepareJoins, applyJoins, ALIAS_PATTERN, RESERVED_ALIASES } from './joins';
+export {
+	prepareJoins,
+	applyJoins,
+	resolveSecondaryRows,
+	normalizeKey,
+	ALIAS_PATTERN,
+	RESERVED_ALIASES,
+} from './joins';
+export { expandNestedRows } from './nest';
+export type { LineageObject, NestExpansion } from './nest';
 export type {
 	JoinDeclaration,
 	JoinFromDeclaration,
@@ -80,6 +100,7 @@ export const STREAM_KEY_UNIVERSE_SAMPLE = 200;
  * upstream against spec/recipe.schema.json.
  */
 export interface SourceStageDeclaration {
+	nest?: NestedRecordLevel[];
 	where?: string;
 	joins?: JoinsDeclaration;
 }
@@ -109,6 +130,12 @@ export interface SourceStage {
 	 * can assert on rather than a claim in a comment.
 	 */
 	readonly joins: readonly PreparedJoin[];
+	/** Emitted row total when source shaping can know it before iteration. */
+	readonly expectedRowCount?: number;
+	/** Source record counts at each declared nest level, including leaf: none levels. */
+	readonly countsByLevel?: Record<string, number>;
+	/** Joined child rows whose parent key did not name an emitted parent, by child level. */
+	readonly unparented?: Record<string, number>;
 	/** End-of-stream guards (G3). Call after the row loop completes normally. */
 	finalize(): void;
 }
@@ -116,6 +143,36 @@ export interface SourceStage {
 const INACTIVE_STAGE_SOURCE_ROW = (_row: unknown, fallbackIndex: number) => fallbackIndex + 1;
 
 const EMPTY_JOINS: readonly PreparedJoin[] = Object.freeze([]);
+
+async function resolveNestedSecondaryRows(
+	from: JoinFromDeclaration,
+	container: SourceContainer | undefined,
+	declaration: string,
+	budget: SourceStageBudget,
+): Promise<Row[]> {
+	const rows = await resolveSecondaryRows(from, container, declaration);
+	if (from.where === undefined || from.where === null) return rows;
+
+	const names = unionKeys(rows);
+	const compiled = compileSourceExpression(from.where, {
+		declaration: `${declaration}.where`,
+		budget,
+	});
+	assertReferencesExist(compiled, new Set(names), names);
+	const tally: WhereTally = { examined: 0, admitted: 0, excluded: 0 };
+	const kept: Row[] = [];
+	for (let index = 0; index < rows.length; index++) {
+		tally.examined += 1;
+		if (await evaluateWherePredicate(compiled, rows[index], index + 1)) {
+			tally.admitted += 1;
+			kept.push(rows[index]);
+		} else {
+			tally.excluded += 1;
+		}
+	}
+	assertAdmittedSomething(compiled, tally);
+	return kept;
+}
 
 /**
  * Prepare the source stage for one generation run.
@@ -129,13 +186,14 @@ export async function prepareSourceStage(
 	source: SourceStageDeclaration | undefined,
 	options: { budget?: SourceStageBudget } = {},
 ): Promise<SourceStage> {
+	const nest = source?.nest;
 	const whereText = source?.where;
 	const joinsDeclaration = hasJoins(source?.joins) ? (source!.joins as JoinsDeclaration) : undefined;
 
 	// The additive path. No expression is constructed, jsonata is never entered,
 	// no container handle is ever called, and the caller's rows reference is
 	// passed straight through.
-	if ((whereText === undefined || whereText === null) && joinsDeclaration === undefined) {
+	if (nest === undefined && (whereText === undefined || whereText === null) && joinsDeclaration === undefined) {
 		return {
 			active: false,
 			rows: parsedData.rows as Iterable<Row> | AsyncIterable<Row>,
@@ -148,11 +206,46 @@ export async function prepareSourceStage(
 	}
 
 	const budget = options.budget ?? new SourceStageBudget();
+	let expectedRowCount: number | undefined;
+	let countsByLevel: Record<string, number> | undefined;
+	let unparented: Record<string, number> | undefined;
+	let stageData = parsedData;
+
+	// [0] nest expansion. JSON parsing is eager in this build, so the complete
+	// depth-first sequence is available before G2 checks expressions. That lets
+	// `_cw` and every child-level field enter the key universe before `where`
+	// compiles, while the downstream generator still sees one row per note.
+	if (nest !== undefined) {
+		if (!Array.isArray(parsedData.rows)) {
+			throw new SourceStageError(
+				'Nested records need the whole source in memory. Import the file without streaming.',
+				{ declaration: 'source.nest' },
+			);
+		}
+		const expansion = await expandNestedRows(
+			parsedData.rows,
+			nest,
+			(template, row) => renderTemplate(template, row),
+			{
+				resolve: (from, declaration) => resolveNestedSecondaryRows(
+					from,
+					parsedData.container,
+					declaration,
+					budget,
+				),
+			},
+		);
+		expectedRowCount = expansion.rows.length;
+		countsByLevel = expansion.countsByLevel;
+		unparented = expansion.unparented;
+		const columns = unionKeys(expansion.rows, [...parsedData.columns, '_cw']);
+		stageData = { ...parsedData, rows: expansion.rows, rowCount: expansion.rows.length, columns };
+	}
 
 	// G2 preflight needs the primary collection's key universe, and so does the
 	// alias-collision check. Buffers a bounded prefix when the parser has not
 	// published columns yet (streaming CSV publishes them lazily, as rows arrive).
-	const { universe, names, buffered, iterator } = await resolveKeyUniverse(parsedData);
+	const { universe, names, buffered, iterator } = await resolveKeyUniverse(stageData);
 
 	let compiled: CompiledSourceExpression | undefined;
 	if (whereText !== undefined && whereText !== null) {
@@ -196,6 +289,9 @@ export async function prepareSourceStage(
 			return tally.examined;
 		},
 		joins,
+		expectedRowCount,
+		countsByLevel,
+		unparented,
 		finalize() {
 			if (compiled) assertAdmittedSomething(compiled, tally);
 		},
@@ -233,21 +329,34 @@ async function* shapeRows(
 	buffered: Row[],
 	iterator: Iterator<Row> | AsyncIterator<Row> | null,
 ): AsyncIterable<Row> {
+	const excludedAncestors: Array<{ level: string; path: string[] }> = [];
 	const shape = async function* (row: Row, sourceRowNumber: number) {
 		tally.examined += 1;
 
-		// [1] where — over the RAW parser row, before any alias exists.
+		// [0] nest expansion already produced this depth-first row and attached
+		// lineage during preflight. This is the first shaping step; no later step
+		// creates rows.
+
+		// [1] where — over the emitted row, before any alias exists.
 		if (compiled) {
 			const keep = await evaluateWherePredicate(compiled, row, sourceRowNumber);
 			if (!keep) {
 				tally.excluded += 1;
+				const lineage = lineageOf(row);
+				if (lineage) excludedAncestors.push({ level: lineage.level, path: lineage.path });
 				return;
 			}
 		}
 		tally.admitted += 1;
 
+		// A filtered parent does not cascade to its descendants. Its identity stays
+		// in `_cw.parent` and `_cw.path`, while its carried folder values are blanked
+		// so render records the existing folder-level-skipped deviation and places
+		// the descendant one level up.
+		const admitted = omitExcludedAncestorValues(row, excludedAncestors);
+
 		// [2] joins — over the surviving row only.
-		const shaped = joins.length > 0 ? await applyJoins(row, joins, sourceRowNumber) : row;
+		const shaped = joins.length > 0 ? await applyJoins(admitted, joins, sourceRowNumber) : admitted;
 
 		// Number the object the pipeline actually emits: a joined row is a new
 		// object, so registering the input would leave downstream errors naming
@@ -268,6 +377,37 @@ async function* shapeRows(
 		sourceRowNumber += 1;
 		yield* shape(next.value as Row, sourceRowNumber);
 	}
+}
+
+function lineageOf(row: Row): LineageObject | null {
+	const value = row._cw;
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+	const lineage = value as Partial<LineageObject>;
+	return typeof lineage.level === 'string' && Array.isArray(lineage.path) && lineage.ancestors
+		? lineage as LineageObject
+		: null;
+}
+
+function omitExcludedAncestorValues(
+	row: Row,
+	excluded: readonly { level: string; path: string[] }[],
+): Row {
+	const lineage = lineageOf(row);
+	if (!lineage) return row;
+	const levels = excluded
+		.filter((candidate) => candidate.path.length < lineage.path.length
+			&& candidate.path.every((part, index) => lineage.path[index] === part))
+		.map((candidate) => candidate.level);
+	if (levels.length === 0) return row;
+	const ancestors = Object.fromEntries(
+		Object.entries(lineage.ancestors).map(([level, values]) => [
+			level,
+			levels.includes(level)
+				? Object.fromEntries(Object.keys(values).map((key) => [key, '']))
+				: { ...values },
+		]),
+	);
+	return { ...row, _cw: { ...lineage, ancestors } };
 }
 
 interface KeyUniverse {

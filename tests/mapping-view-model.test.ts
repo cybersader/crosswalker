@@ -21,12 +21,25 @@ import {
 	deriveShapeCards,
 	toggleDestinationAcrossMapping,
 	addDestination,
+	setCrosswalkTarget,
+	setNestLeaf,
+	setNestIdentity,
 	removeDestination,
 	mergeRows,
 	splitRow,
+	splitIntoLevels,
 	isUnmodifiedPreset,
 	structuralEqual,
+	shapeCardHint,
+	blockedPlacingToggle,
+	hasPlacingDestination,
+	NO_PLACE_TO_LAND,
+	folderDepthOf,
+	maxFolderDepthOf,
+	setFolderDepth,
 } from '../src/import/mapping/view-model';
+import { explainRecipeError, NOTHING_PLACED_MESSAGE } from '../src/import/mapping/diagnostics';
+import { validateRecipe } from '../src/validation/validator';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -51,9 +64,126 @@ function csfMapping(): StructureMapping {
 	return instantiate(BROWSABLE_FRAMEWORK, detect(rowsFrom('element_identifier', CSF))).mappings[0];
 }
 
+/**
+ * A single-level, leaf-only mapping — exactly what `instantiate.leafLevel` and
+ * the workbench's first manual "add mapping from a column" produce when nothing
+ * about the column was detected as a packed hierarchy. Every non-name card has
+ * ZERO eligible rows here, which is the state that used to render as a dead
+ * "Off" checkbox with no explanation.
+ */
+function leafOnlyMapping(column = 'profile_id'): StructureMapping {
+	return {
+		levels: [{
+			level: column,
+			source: { column },
+			destinations: [{ primitive: 'name' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		}],
+	};
+}
+
+/** A mapping with no leaf at all (the manual "route this column" default). */
+function propertyOnlyMapping(column = 'owner'): StructureMapping {
+	return {
+		levels: [{
+			level: column,
+			source: { column },
+			destinations: [{ primitive: 'property', key: column }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		}],
+	};
+}
+
 // ===========================================================================
 // 1. Shape-card summary derivation
 // ===========================================================================
+
+describe('crosswalk destination controls', () => {
+	function x1Rows(): Record<string, unknown>[] {
+		return Array.from({ length: 8 }, (_, index) => ({
+			'Profile Id': `GV.OC-${String(index + 1).padStart(2, '0')}.01`,
+			'NIST CSF v2 Mapping': 'GV.OC-01.01 (Synthetic note)\nGV.OC-02.01',
+		}));
+	}
+
+	function x5Rows(): Record<string, unknown>[] {
+		return Array.from({ length: 6 }, (_, index) => ({
+			id: `SRC${String(index + 1).padStart(3, '0')}`,
+			'Maps to ISO 27001': 'A.5.1, A.5.2',
+		}));
+	}
+
+	it('instantiates X1 and X5 crosswalk offers under every preset', () => {
+		const x1 = instantiate(BROWSABLE_FRAMEWORK, detect(x1Rows())).mappings.find((mapping) =>
+			mapping.levels.some((level) => level.destinations.some((destination) => destination.primitive === 'crosswalk')),
+		);
+		const x5 = instantiate(DEEP_EVERYTHING, detect(x5Rows())).mappings.find((mapping) =>
+			mapping.levels.some((level) => level.destinations.some((destination) => destination.primitive === 'crosswalk')),
+		);
+		expect(x1?.levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: 'nist-csf-2',
+			predicate: 'is_approximate_to',
+		});
+		expect(x5?.levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: null,
+			predicate: 'is_approximate_to',
+		});
+	});
+
+	it('derives, toggles, and configures a crosswalk destination immutably', () => {
+		const original = propertyOnlyMapping('Maps to framework');
+		const added = addDestination(original, 0, 'crosswalk');
+		expect(deriveShapeCards(added).crosswalk).toBe('on');
+		expect(deriveShapeCards(csfMapping()).crosswalk).toBe('off');
+		expect(added.levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: null,
+			predicate: 'is_approximate_to',
+		});
+
+		const configured = setCrosswalkTarget(added, 0, {
+			toOntology: 'iso-27001',
+			predicate: 'is_equivalent_to',
+		});
+		expect(configured).not.toBe(added);
+		expect(configured.levels[0]).not.toBe(added.levels[0]);
+		expect(configured.levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: 'iso-27001',
+			predicate: 'is_equivalent_to',
+		});
+		expect(added.levels[0].destinations).toContainEqual({
+			primitive: 'crosswalk',
+			toOntology: null,
+			predicate: 'is_approximate_to',
+		});
+		expect(toggleDestinationAcrossMapping(configured, 'crosswalk', false).levels[0].destinations)
+			.not.toContainEqual(expect.objectContaining({ primitive: 'crosswalk' }));
+	});
+
+	it('explains when no level reads one real column', () => {
+		expect(shapeCardHint(propertyOnlyMapping(), 'crosswalk')).toBeNull();
+		const noColumn: StructureMapping = {
+			levels: [{
+				level: 'combined',
+				source: [{ column: 'left' }, { column: 'right' }],
+				destinations: [{ primitive: 'property', key: 'combined' }],
+				naming: 'joined',
+				missing: 'skip',
+				materialize: false,
+			}],
+		};
+		expect(shapeCardHint(noColumn, 'crosswalk')).toBe(
+			'Crosswalks need a level that reads one column. This mapping has none.',
+		);
+	});
+});
 
 describe('deriveShapeCards', () => {
 	it('browsable CSF → folders on, file names on, everything else off', () => {
@@ -125,6 +255,145 @@ describe('toggleDestinationAcrossMapping', () => {
 });
 
 // ===========================================================================
+// 2b. A card that cannot be turned on says why (no silent no-ops)
+// ===========================================================================
+
+describe('shapeCardHint', () => {
+	it('a leaf-only single-level mapping reports Folders as unavailable, with a cause and an action', () => {
+		const m = leafOnlyMapping();
+		expect(deriveShapeCards(m).folder).toBe('off');
+		const hint = shapeCardHint(m, 'folder');
+		expect(hint).not.toBeNull();
+		expect(hint).toContain('one level');
+		expect(hint).toContain('separator');
+		expect(hint).toContain('Map a column whose values split that way');
+	});
+
+	it('every non-name card on that mapping is unavailable, not merely off', () => {
+		const m = leafOnlyMapping();
+		for (const primitive of ['folder', 'tag', 'heading', 'link', 'property'] as const) {
+			expect(shapeCardHint(m, primitive)).not.toBeNull();
+		}
+	});
+
+	it('builds the worked example from a real sample value when one is supplied', () => {
+		const hint = shapeCardHint(leafOnlyMapping(), 'folder', { sampleValue: 'GV.OC-01.01' });
+		expect(hint).toContain('GV.OC-01.01 splits into GV, then GV.OC, then GV.OC-01, then GV.OC-01.01');
+	});
+
+	it('falls back to a generic example when the sample value has no separator', () => {
+		const hint = shapeCardHint(leafOnlyMapping(), 'folder', { sampleValue: 'Governance' });
+		expect(hint).toContain('GV.OC-01 splits into GV, then GV.OC, then GV.OC-01');
+	});
+
+	it('File names is unavailable on a mapping with no leaf row, and points at the matrix', () => {
+		const m = propertyOnlyMapping();
+		expect(deriveShapeCards(m).name).toBe('off');
+		const hint = shapeCardHint(m, 'name');
+		expect(hint).not.toBeNull();
+		expect(hint).toContain('Arrange levels');
+	});
+
+	it('is null for every card a real preset mapping can actually carry', () => {
+		const m = csfMapping();
+		expect(shapeCardHint(m, 'folder')).toBeNull();
+		expect(shapeCardHint(m, 'tag')).toBeNull();
+		expect(shapeCardHint(m, 'name')).toBeNull();
+	});
+
+	it('the unavailable cards are exactly the toggles that would do nothing', () => {
+		const m = leafOnlyMapping();
+		// The silent no-op this hint replaces: the write returns the mapping unchanged.
+		const after = toggleDestinationAcrossMapping(m, 'folder', true);
+		expect(structuralEqual(after, m)).toBe(true);
+		expect(deriveShapeCards(after).folder).toBe('off');
+		expect(shapeCardHint(m, 'folder')).not.toBeNull();
+
+		const nameOn = toggleDestinationAcrossMapping(propertyOnlyMapping(), 'name', true);
+		expect(structuralEqual(nameOn, propertyOnlyMapping())).toBe(true);
+		expect(shapeCardHint(propertyOnlyMapping(), 'name')).not.toBeNull();
+	});
+});
+
+// ===========================================================================
+// 2c. Never leave the import with nowhere to put its notes
+// ===========================================================================
+
+describe('blockedPlacingToggle', () => {
+	it('blocks turning File names off when it is the only thing placing notes', () => {
+		const mapping: ImportMapping = { mappings: [leafOnlyMapping()] };
+		expect(blockedPlacingToggle(mapping, 0, 'name', false)).toBe(NO_PLACE_TO_LAND);
+	});
+
+	it('allows it once the same mapping also has folders', () => {
+		// A browsable preset keeps its folder levels when the leaf name goes away.
+		const mapping: ImportMapping = { mappings: [csfMapping()] };
+		expect(blockedPlacingToggle(mapping, 0, 'name', false)).toBeNull();
+	});
+
+	it('allows it when another mapping still places notes (the two-structural fix)', () => {
+		const mapping: ImportMapping = { mappings: [csfMapping(), leafOnlyMapping()] };
+		expect(blockedPlacingToggle(mapping, 1, 'name', false)).toBeNull();
+		// And unticking BOTH cards on the first mapping stays possible.
+		const noFolders: ImportMapping = {
+			mappings: [toggleDestinationAcrossMapping(csfMapping(), 'folder', false), leafOnlyMapping()],
+		};
+		expect(blockedPlacingToggle(noFolders, 0, 'name', false)).toBeNull();
+	});
+
+	it('never blocks turning a card ON, or touching a non-placing card', () => {
+		const mapping: ImportMapping = { mappings: [leafOnlyMapping()] };
+		expect(blockedPlacingToggle(mapping, 0, 'name', true)).toBeNull();
+		expect(blockedPlacingToggle(mapping, 0, 'tag', false)).toBeNull();
+		expect(blockedPlacingToggle(mapping, 0, 'property', false)).toBeNull();
+	});
+
+	it('is a no-op on an out-of-range mapping index', () => {
+		expect(blockedPlacingToggle({ mappings: [leafOnlyMapping()] }, 7, 'name', false)).toBeNull();
+	});
+
+	it('hasPlacingDestination sees folder, name and one file, not metadata', () => {
+		expect(hasPlacingDestination(leafOnlyMapping())).toBe(true);
+		expect(hasPlacingDestination(csfMapping())).toBe(true);
+		expect(hasPlacingDestination(propertyOnlyMapping())).toBe(false);
+		expect(hasPlacingDestination(toggleDestinationAcrossMapping(propertyOnlyMapping(), 'heading', true))).toBe(true);
+	});
+});
+
+// ===========================================================================
+// 2d. The empty-layout validator error, in plain language
+// ===========================================================================
+
+describe('explainRecipeError', () => {
+	it('translates both halves of the empty-layout error', () => {
+		expect(explainRecipeError('/source/levels: must NOT have fewer than 1 items')).toBe(NOTHING_PLACED_MESSAGE);
+		expect(explainRecipeError('/target/layout: must NOT have fewer than 1 items')).toBe(NOTHING_PLACED_MESSAGE);
+	});
+
+	it('translates the joined message the recipe builder actually throws', () => {
+		// Verbatim from `buildRecipe()` on a mapping with no placing destination.
+		const joined = '/source/levels: must NOT have fewer than 1 items; /target/layout: must NOT have fewer than 1 items';
+		expect(explainRecipeError(joined)).toBe(NOTHING_PLACED_MESSAGE);
+	});
+
+	it('is insensitive to the validator\'s casing of NOT', () => {
+		expect(explainRecipeError('/target/layout must not have fewer than 1 items')).toBe(NOTHING_PLACED_MESSAGE);
+	});
+
+	it('names a cause and an action, and leaks no validator vocabulary', () => {
+		expect(NOTHING_PLACED_MESSAGE).toContain('No column is set to place notes in the vault');
+		expect(NOTHING_PLACED_MESSAGE).toContain('turn on File names, Folders, or One file');
+		expect(NOTHING_PLACED_MESSAGE).not.toMatch(/\/source|\/target|items|schema|debug log/);
+	});
+
+	it('leaves an unrelated error untouched so the caller keeps its own wording', () => {
+		expect(explainRecipeError('Two mappings both shape the vault')).toBeNull();
+		expect(explainRecipeError('/target/layout/0/template: must be string')).toBeNull();
+		expect(explainRecipeError('must NOT have fewer than 1 items')).toBeNull();
+	});
+});
+
+// ===========================================================================
 // 3. Add / remove a single destination (matrix ⊕ + chip remove)
 // ===========================================================================
 
@@ -184,6 +453,253 @@ describe('mergeRows / splitRow', () => {
 		const back = fromRegions(regions);
 		// Round-trips through the recipe layer (the merged row is representable).
 		expect(back.mappings[0].levels.length).toBe(merged.levels.length);
+	});
+});
+
+// ===========================================================================
+// 4b. Split one row into N levels (spec §4.3, acceptance A2/A4/A7/A9)
+// ===========================================================================
+
+/**
+ * One structural row on a packed column: what the "Split into levels" panel
+ * opens on (spec §4.1). It places folders AND names the note, so the leaf of a
+ * split has destinations worth keeping.
+ */
+function packedOneRowMapping(column = 'id'): StructureMapping {
+	return {
+		levels: [{
+			level: 'level-1',
+			source: { column },
+			destinations: [{ primitive: 'folder' }, { primitive: 'name' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		}],
+	};
+}
+
+/**
+ * The A2 panel settings: `GV.OC-01.01` on `.` and `-`, four levels deep. `naming`
+ * covers the NON-LEAF rows only, so it is `depth - 1` long (spec §4.3 step 1).
+ */
+const A2_OPTS = {
+	delimiters: '.-',
+	depth: 4,
+	naming: ['prefix', 'prefix', 'prefix'] as ('part' | 'prefix')[],
+	missing: 'skip' as const,
+};
+
+describe('splitIntoLevels', () => {
+	it('A2: one structural row becomes depth rows, folders on every non-leaf', () => {
+		const m = packedOneRowMapping();
+		const out = splitIntoLevels(m, 0, A2_OPTS);
+
+		expect(out.levels.length).toBe(4);
+		for (let i = 0; i < 3; i++) {
+			expect(out.levels[i].level).toBe(`level-${i + 1}`);
+			expect(out.levels[i].source).toEqual([{ column: 'id', part: i }]);
+			expect(out.levels[i].delimiters).toBe('.-');
+			expect(out.levels[i].naming).toBe('prefix');
+			expect(out.levels[i].missing).toBe('skip');
+			expect(out.levels[i].materialize).toBe(false);
+			expect(out.levels[i].destinations).toEqual([{ primitive: 'folder' }]);
+		}
+		// The leaf is the untouched column and keeps the split row's destinations.
+		expect(out.levels[3].level).toBe('level-4');
+		expect(out.levels[3].source).toEqual([{ column: 'id' }]);
+		expect(out.levels[3].delimiters).toBeUndefined();
+		expect(out.levels[3].naming).toBe('part');
+		expect(out.levels[3].destinations).toEqual([{ primitive: 'folder' }, { primitive: 'name' }]);
+
+		// Pure: the input is never mutated.
+		expect(m.levels.length).toBe(1);
+		expect(m.levels[0].delimiters).toBeUndefined();
+	});
+
+	it('A4: the leaf is the untouched column, so a row short a level keeps its full id', () => {
+		const leaf = splitIntoLevels(packedOneRowMapping(), 0, A2_OPTS).levels[3];
+		// Nothing about the leaf addresses a piece, so `missing: skip` on the folder
+		// levels can drop a level without ever emptying the note name.
+		expect(leaf.source).toEqual([{ column: 'id' }]);
+		expect(leaf.delimiters).toBeUndefined();
+		expect(leaf.missing).toBe('skip');
+	});
+
+	it('re-splitting from a folder row replaces the whole run, so applying twice is idempotent', () => {
+		const first = splitIntoLevels(packedOneRowMapping(), 0, A2_OPTS);
+		const second = splitIntoLevels(first, 1, { ...A2_OPTS, depth: 3, naming: ['prefix', 'prefix'] });
+
+		expect(second.levels.length).toBe(3);
+		expect(second.levels.map((l) => l.level)).toEqual(['level-1', 'level-2', 'level-3']);
+		expect(second.levels.map((l) => l.source)).toEqual([
+			[{ column: 'id', part: 0 }],
+			[{ column: 'id', part: 1 }],
+			[{ column: 'id' }],
+		]);
+		// The run's leaf destinations carry through the second apply unchanged.
+		expect(second.levels[2].destinations).toEqual([{ primitive: 'folder' }, { primitive: 'name' }]);
+	});
+
+	it('re-splitting from the run leaf finds the same run', () => {
+		const first = splitIntoLevels(packedOneRowMapping(), 0, A2_OPTS);
+		const second = splitIntoLevels(first, 3, { ...A2_OPTS, depth: 3, naming: ['prefix', 'prefix'] });
+
+		expect(second.levels.length).toBe(3);
+		expect(second.levels.map((l) => l.source)).toEqual([
+			[{ column: 'id', part: 0 }],
+			[{ column: 'id', part: 1 }],
+			[{ column: 'id' }],
+		]);
+		expect(second.levels[2].destinations).toEqual([{ primitive: 'folder' }, { primitive: 'name' }]);
+	});
+
+	it('rows from other sources before and after the run are untouched', () => {
+		const split = splitIntoLevels(packedOneRowMapping(), 0, A2_OPTS);
+		const leading: StructureMapping['levels'][number] = {
+			level: 'root',
+			source: { constant: 'Frameworks' },
+			destinations: [{ primitive: 'folder' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		};
+		const trailing: StructureMapping['levels'][number] = {
+			level: 'facet',
+			source: { column: 'family' },
+			destinations: [{ primitive: 'tag', namespace: 'family' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		};
+		const mixed: StructureMapping = { levels: [leading, ...split.levels, trailing] };
+
+		// Index 2 is the second piece of the run, so the run (indices 1..4, the three
+		// part rows plus their whole-column leaf) goes.
+		const out = splitIntoLevels(mixed, 2, { ...A2_OPTS, depth: 3, naming: ['prefix', 'prefix'] });
+		expect(out.levels.length).toBe(5);
+		expect(out.levels[0]).toEqual(leading);
+		expect(out.levels[4]).toEqual(trailing);
+		expect(out.levels.slice(1, 4).map((l) => l.source)).toEqual([
+			[{ column: 'id', part: 0 }],
+			[{ column: 'id', part: 1 }],
+			[{ column: 'id' }],
+		]);
+		// New ids never collide with the rows left in place.
+		expect(new Set(out.levels.map((l) => l.level)).size).toBe(5);
+	});
+
+	it('a non-structural split row produces non-leaf rows with no destinations', () => {
+		const m: StructureMapping = {
+			levels: [{
+				level: 'level-1',
+				source: { column: 'id' },
+				destinations: [{ primitive: 'name' }],
+				naming: 'part',
+				missing: 'skip',
+				materialize: false,
+			}],
+		};
+		const out = splitIntoLevels(m, 0, { ...A2_OPTS, depth: 3, naming: ['prefix', 'prefix'] });
+		expect(out.levels.length).toBe(3);
+		expect(out.levels[0].destinations).toEqual([]);
+		expect(out.levels[1].destinations).toEqual([]);
+		expect(out.levels[2].destinations).toEqual([{ primitive: 'name' }]);
+		expect(out.levels[2].source).toEqual([{ column: 'id' }]);
+	});
+
+	it('invalid input returns the same mapping object', () => {
+		const m = packedOneRowMapping();
+		expect(splitIntoLevels(m, -1, A2_OPTS)).toBe(m);
+		expect(splitIntoLevels(m, 99, A2_OPTS)).toBe(m);
+		expect(splitIntoLevels(m, 0, { ...A2_OPTS, depth: 1 })).toBe(m);
+		expect(splitIntoLevels(m, 0, { ...A2_OPTS, delimiters: '' })).toBe(m);
+
+		const constantOnly: StructureMapping = {
+			levels: [{
+				level: 'root',
+				source: { constant: 'Frameworks' },
+				destinations: [{ primitive: 'folder' }],
+				naming: 'part',
+				missing: 'skip',
+				materialize: false,
+			}],
+		};
+		expect(splitIntoLevels(constantOnly, 0, A2_OPTS)).toBe(constantOnly);
+	});
+
+	it('A9: merging two split rows keeps the delimiter set and joins on its first character', () => {
+		const out = splitIntoLevels(packedOneRowMapping(), 0, A2_OPTS);
+		const merged = mergeRows(out, 1);
+
+		expect(merged.levels.length).toBe(3);
+		const row = merged.levels[1];
+		expect(row.naming).toBe('joined');
+		expect(row.delimiters).toBe('.-');
+		expect(row.join).toBe('.');
+		expect(row.source).toEqual({ column: 'id', part: [1, 2] });
+		// No single delimiter was invented for the merged row.
+		expect(row.delimiter).toBeUndefined();
+	});
+
+	it('an existing single-delimiter merge is unchanged by the set fallback', () => {
+		// Legacy shape: `delimiter`, no `delimiters`. The join must still come from
+		// the single delimiter, and no set may appear out of nowhere.
+		const legacy = (level: string, part: number): StructureMapping['levels'][number] => ({
+			level,
+			source: { column: 'id', part },
+			delimiter: '.',
+			destinations: [{ primitive: 'folder' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		});
+		const merged = mergeRows({ levels: [legacy('level-1', 0), legacy('level-2', 1)] }, 0);
+		expect(merged.levels[0].delimiters).toBeUndefined();
+		expect(merged.levels[0].delimiter).toBe('.');
+		expect(merged.levels[0].join).toBe('.');
+	});
+
+	it('A7: split levels survive serialize → parse', () => {
+		// One structural destination per row, which is what the recipe layout can
+		// represent one-to-one (fromRegions builds a LevelRule per layout entry).
+		const m: StructureMapping = {
+			levels: [
+				{
+					level: 'folders',
+					source: { column: 'id' },
+					destinations: [{ primitive: 'folder' }],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				},
+				{
+					level: 'leaf',
+					source: { column: 'id' },
+					destinations: [{ primitive: 'name' }],
+					naming: 'part',
+					missing: 'skip',
+					materialize: false,
+				},
+			],
+		};
+		const out = splitIntoLevels(m, 0, { ...A2_OPTS, depth: 3, naming: ['prefix', 'prefix'] });
+		expect(out.levels.length).toBe(4);
+
+		const back = fromRegions(toRecipeRegions({ mappings: [out] })).mappings[0];
+		expect(back.levels.length).toBe(out.levels.length);
+		expect(back.levels.map((l) => l.level)).toEqual(out.levels.map((l) => l.level));
+		expect(back.levels.map((l) => l.delimiters)).toEqual(['.-', '.-', undefined, undefined]);
+		expect(back.levels.map((l) => l.naming)).toEqual(['prefix', 'prefix', 'part', 'part']);
+		expect(back.levels.map((l) => l.destinations)).toEqual(out.levels.map((l) => l.destinations));
+		// The ONE documented normalization: `parseStructuralTemplate` returns a bare
+		// PartRef for a single-interpolation template, so a one-element source array
+		// comes back unwrapped. Nothing else about the level changes.
+		expect(back.levels.map((l) => l.source)).toEqual([
+			{ column: 'id', part: 0 },
+			{ column: 'id', part: 1 },
+			{ column: 'id' },
+			{ column: 'id' },
+		]);
 	});
 });
 
@@ -277,6 +793,194 @@ describe('preferredParentNote: adaptive default from installed plugins', () => {
 		const r = preferredParentNote(new Set(['dataview', 'templater-obsidian']));
 		expect(r.value).toBe('folder-note');
 		expect(r.reason).toBeUndefined();
+	});
+});
+
+describe('nested mapping view model', () => {
+	const detection: Extract<Detection, { kind: 'nested-records' }> = {
+		kind: 'nested-records',
+		iterator: '$.catalog.groups[*]',
+		chain: [
+			{ field: 'controls', avgPerParent: 2, sampleKeys: ['id', 'title', 'parts'], idKey: 'id', repeatsUnderParents: false },
+			{ field: 'parts', avgPerParent: 2, sampleKeys: ['id', 'name'], idKey: 'id', repeatsUnderParents: false },
+		],
+		sampleValues: ['ac / ac-1 / ac-1_smt'],
+		proposal: { mechanism: 'nested-levels', levels: ['group', 'control', 'part'], identities: ['global', 'global', 'global'] },
+	};
+
+	it('instantiates lineage rows and source.nest', () => {
+		const mapping = instantiate(BROWSABLE_FRAMEWORK, [detection]);
+		expect(mapping.mappings[0].levels.map((level) => level.source)).toEqual([
+			{ column: '_cw.ancestors.group.id' },
+			{ column: '_cw.ancestors.control.id' },
+			{ column: 'id' },
+		]);
+		expect(mapping.nest).toEqual([
+			{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note', identity: 'global', carry: ['title'] },
+			{ level: 'control', id: '{id}', children: 'parts', leaf: 'folder-note', identity: 'global', carry: ['title'] },
+			{ level: 'part', id: '{id}', identity: 'global', carry: ['name'] },
+		]);
+	});
+
+	it('updates leaf and identity immutably', () => {
+		const mapping = instantiate(BROWSABLE_FRAMEWORK, [detection]);
+		const snapshot = JSON.parse(JSON.stringify(mapping));
+		const leaf = setNestLeaf(mapping, 'control', 'none');
+		const identity = setNestIdentity(leaf, 'part', 'path');
+		expect(mapping).toEqual(snapshot);
+		expect(leaf.nest?.find((entry) => entry.level === 'control')?.leaf).toBe('none');
+		expect(identity.nest?.find((entry) => entry.level === 'part')?.identity).toBe('path');
+		expect(toRecipeRegions(leaf).nest?.find((entry) => entry.level === 'control')?.leaf).toBe('none');
+	});
+});
+
+describe('folder depth view model', () => {
+	function nestedMapping(): StructureMapping {
+		return {
+			levels: [
+				{ level: 'group', source: { column: 'group' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'control', source: { column: 'control' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'part', source: { column: 'part' }, destinations: [{ primitive: 'name' }, { primitive: 'tag' }], naming: 'part', missing: 'skip', materialize: false },
+			],
+		};
+	}
+
+	function packedFourLevels(): StructureMapping {
+		return {
+			levels: Array.from({ length: 4 }, (_, index) => ({
+				level: `level-${index + 1}`,
+				source: { column: 'packed', part: index },
+				destinations: [{ primitive: index === 3 ? 'name' as const : 'folder' as const }],
+				naming: 'part' as const,
+				missing: 'skip' as const,
+				materialize: false,
+			})),
+		};
+	}
+
+	it('reads fixed depths and rejects custom placing arrangements', () => {
+		const mapping = nestedMapping();
+		expect(folderDepthOf(mapping)).toBe(2);
+		expect(maxFolderDepthOf(mapping)).toBe(2);
+		const custom: StructureMapping = {
+			...mapping,
+			levels: mapping.levels.map((level, index) => index === 2
+				? { ...level, destinations: [{ primitive: 'name' }, { primitive: 'folder' }] }
+				: level),
+		};
+		expect(folderDepthOf(custom)).toBeNull();
+	});
+
+	it('reshapes four packed levels to depth two and depth zero', () => {
+		const mapping = packedFourLevels();
+		expect(folderDepthOf(mapping)).toBe(3);
+		expect(maxFolderDepthOf(mapping)).toBe(3);
+		const depthTwo = setFolderDepth(mapping, 2).mapping;
+		expect(depthTwo.levels[0].destinations).toContainEqual({ primitive: 'folder' });
+		expect(depthTwo.levels[1].destinations).toContainEqual({ primitive: 'folder' });
+		expect(depthTwo.levels[2].destinations).toContainEqual({ primitive: 'name' });
+		expect(depthTwo.levels[3].destinations).toEqual([{ primitive: 'property', key: 'level-4' }]);
+		expect(depthTwo.levels.slice(2).flatMap((level) => level.destinations))
+			.not.toContainEqual({ primitive: 'folder' });
+		const flat = setFolderDepth(mapping, 0).mapping;
+		expect(flat.levels[0].destinations).toContainEqual({ primitive: 'name' });
+		expect(flat.levels.slice(1).map((level) => level.destinations[0])).toEqual([
+			{ primitive: 'property', key: 'level-2' },
+			{ primitive: 'property', key: 'level-3' },
+			{ primitive: 'property', key: 'level-4' },
+		]);
+	});
+
+	it('sets depth zero immutably and records lower levels as properties', () => {
+		const mapping = nestedMapping();
+		const snapshot = JSON.parse(JSON.stringify(mapping));
+		const result = setFolderDepth(mapping, 0);
+		expect(mapping).toEqual(snapshot);
+		expect(result.mapping.levels[0].destinations).toContainEqual({ primitive: 'name' });
+		expect(result.mapping.levels[1].destinations).toEqual([{ primitive: 'property', key: 'control' }]);
+		expect(result.mapping.levels[2].destinations).toEqual([
+			{ primitive: 'tag' },
+		]);
+		expect(folderDepthOf(result.mapping)).toBe(0);
+	});
+
+	it('sets nested folder leaves, suppresses demoted rows, and preserves other destinations', () => {
+		const mapping = nestedMapping();
+		const nest = [
+			{ level: 'group', id: '{id}', children: 'controls' },
+			{ level: 'control', id: '{id}', children: 'parts', leaf: 'none' as const },
+			{ level: 'part', id: '{id}' },
+		];
+		const result = setFolderDepth(mapping, 1, nest);
+		expect(result.mapping.levels[0].destinations).toContainEqual({ primitive: 'folder' });
+		expect(result.mapping.levels[1].destinations).toContainEqual({ primitive: 'name' });
+		expect(result.mapping.levels[2].destinations).toEqual([{ primitive: 'tag' }]);
+		expect(result.nest?.[0].leaf).toBe('folder-note');
+		expect(result.nest?.[1].leaf).toBeUndefined();
+		expect(result.nest?.[2].leaf).toBe('none');
+		const regions = toRecipeRegions({ mappings: [result.mapping], nest: result.nest });
+		expect(regions.nest?.[1].leaf).toBeUndefined();
+		expect(regions.nest?.[2].leaf).toBe('none');
+		expect(nest[0].leaf).toBeUndefined();
+	});
+
+	it('round-trips depth two with nested folder-note consistency', () => {
+		const nest = [
+			{ level: 'group', id: '{id}', children: 'controls' },
+			{ level: 'control', id: '{id}', children: 'parts' },
+			{ level: 'part', id: '{id}' },
+		];
+		const flat = setFolderDepth(nestedMapping(), 0).mapping;
+		const changed = setFolderDepth(flat, 2, nest);
+		const regions = toRecipeRegions({ mappings: [changed.mapping], nest: changed.nest });
+		expect(regions.nest?.[0].leaf).toBe('folder-note');
+		expect(regions.nest?.[1].leaf).toBe('folder-note');
+		expect(regions.nest?.[2].leaf).toBeUndefined();
+		const back = fromRegions(regions);
+		expect(folderDepthOf(back.mappings[0])).toBe(2);
+		expect(back.nest).toEqual(regions.nest);
+		const validation = validateRecipe({
+			recipe: 'test:depth-two-round-trip',
+			source: { ontology: 'test', levels: ['group', 'control', 'part'], nest: regions.nest },
+			target: { layout: regions.layout, also_emit: regions.also_emit },
+		});
+		expect(validation.errors).toEqual([]);
+		expect(validation.valid).toBe(true);
+	});
+
+	it('drops a variadic tail below maximum and keeps it as the final folder at maximum', () => {
+		const mapping = nestedMapping();
+		mapping.tail = {
+			source: { column: 'remainder' },
+			destinations: [{ primitive: 'folder' }, { primitive: 'tag' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		};
+		expect(maxFolderDepthOf(mapping)).toBe(3);
+		const shallow = setFolderDepth(mapping, 1).mapping;
+		expect(shallow.tail).toBeUndefined();
+		const deepest = setFolderDepth(mapping, 3).mapping;
+		expect(folderDepthOf(deepest)).toBe(3);
+		expect(deepest.tail?.destinations).toEqual([
+			{ primitive: 'folder' },
+			{ primitive: 'tag' },
+		]);
+		expect(deepest.levels[2].destinations).toContainEqual({ primitive: 'name' });
+	});
+
+	it('keeps a place for notes at every selectable depth', () => {
+		const mapping = nestedMapping();
+		for (let depth = 0; depth <= maxFolderDepthOf(mapping); depth++) {
+			expect(hasPlacingDestination(setFolderDepth(mapping, depth).mapping)).toBe(true);
+		}
+	});
+
+	it('returns the original model for equal and out-of-range depths', () => {
+		const mapping = nestedMapping();
+		expect(setFolderDepth(mapping, 2).mapping).toBe(mapping);
+		expect(setFolderDepth(mapping, -1).mapping).toBe(mapping);
+		expect(setFolderDepth(mapping, 3).mapping).toBe(mapping);
 	});
 });
 

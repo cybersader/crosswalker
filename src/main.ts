@@ -10,6 +10,7 @@ import { CrosswalkerSettingTab } from './settings/settings-tab';
 import { ImportWizardModal } from './import/import-wizard';
 import { RECIPE_REGISTRY } from './import/recipe-registry';
 import { SssomImportModal } from './import/sssom-import-modal';
+import { VaultSourceScanModal } from './import/vault-source-scan-modal';
 import {
 	ExportFolderPickerModal,
 	exportFolderAsSssomTsv,
@@ -122,7 +123,10 @@ export default class CrosswalkerPlugin extends Plugin {
 	 * export with the plugin's app + debug instances.
 	 */
 	runImport = async (parsedData: any, config: any, options: any) => {
-		return generateNotes(this.app, parsedData, config, options, this.debug);
+		return generateNotes(this.app, parsedData, config, {
+			...options,
+			tier2: { runProjection: this.runProjection, precomputeClosure: this.precomputeClosure },
+		}, this.debug);
 	};
 
 	/**
@@ -132,7 +136,10 @@ export default class CrosswalkerPlugin extends Plugin {
 	 * concept recipe authored natively without the wizard).
 	 */
 	runImportFromRecipe = async (parsedData: any, recipe: any, options: any) => {
-		return generateFromRecipe(this.app, parsedData, recipe, options, this.debug);
+		return generateFromRecipe(this.app, parsedData, recipe, {
+			...options,
+			tier2: { runProjection: this.runProjection, precomputeClosure: this.precomputeClosure },
+		}, this.debug);
 	};
 
 	/**
@@ -311,6 +318,14 @@ export default class CrosswalkerPlugin extends Plugin {
 			callback: () => {
 				new ImportWizardModal(this.app, this).open();
 			}
+		});
+
+		this.addCommand({
+			id: 'find-vault-sources',
+			name: 'Start here: find framework sources in this vault',
+			callback: () => {
+				new VaultSourceScanModal(this.app, this).open();
+			},
 		});
 
 		// v0.1.6 Phase 2: SSSOM TSV import (per Ch 35)

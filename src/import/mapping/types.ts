@@ -10,7 +10,7 @@
  * The distilled engine (spec §3a½): every translation is one pipeline —
  *   split the source into ordered levels
  *     → regroup them (merge adjacent, drop some, leave the rest packed)
- *     → assign each group to Obsidian primitives
+ *     → assign each group to editable output destinations
  *     → set policies (ragged, placement, depth).
  * `LevelRule` is one group; its `destinations` are the assignment; `TailRule` is
  * the "however many levels remain" group (variadic).
@@ -62,6 +62,8 @@
  * schema, not tied to any one structural level. See serialize.ts's
  * `buildAlsoEmit`/`fromRegions`.
  */
+
+import type { NestedRecordLevel } from '../../types/generated/recipe';
 
 // ============================================================================
 // Source references
@@ -122,13 +124,16 @@ export function isConstantRef(ref: SourceRef): ref is ConstantRef {
 }
 
 // ============================================================================
-// Destinations — the six Obsidian structuring primitives + content carriers
+// Destinations — vault outputs, content carriers, and crosswalk column roles
 // ============================================================================
 
 /**
  * How a merged level's rendered name is produced (spec §3a½).
  *   - 'part'   — the single selected part, verbatim.
- *   - 'prefix' — cumulative prefix (used by the variadic tail's `segment: prefix`).
+ *   - 'prefix' — the original text truncated after the selected part, delimiters
+ *                kept (`GV.OC` from `GV.OC-01`). Used by the variadic tail's
+ *                `segment: prefix` AND by fixed levels, which serialize to the
+ *                `prefix(delimiters,index)` template filter.
  *   - 'joined' — the merged pieces concatenated with the level's `join` text.
  *   - { lookup } — a human label pulled from a sibling column (`GV — Govern`).
  *                  NOT round-trip safe yet (see module note).
@@ -141,9 +146,19 @@ export type LinkDirection = 'parent-on-child' | 'children-on-parent' | 'both';
 /** Where a body destination writes into the host note. */
 export type BodyPosition = 'section' | 'append' | 'table-row';
 
+export const CROSSWALK_PREDICATES = [
+	'is_equivalent_to',
+	'is_broader_than',
+	'is_narrower_than',
+	'is_approximate_to',
+	'intersects_with',
+] as const;
+
+export type CrosswalkPredicate = (typeof CROSSWALK_PREDICATES)[number];
+
 /**
- * A destination is one Obsidian primitive a level lands in, plus that
- * primitive's parameters (spec §7c — the full ⊕ menu). A single level may carry
+ * A destination is one output role a level carries, plus that role's parameters
+ * (spec §7c — the full ⊕ menu). A single level may carry
  * several destinations at once (folder AND property AND tag), which is why
  * `LevelRule.destinations` is plural.
  */
@@ -193,6 +208,21 @@ export type Destination =
 			/** Delimiters preserved from a canonical managed_links declaration. */
 			split?: string[];
 	  }
+	/**
+	 * A crosswalk column role: the cells hold identifiers from another framework.
+	 * Serializes to one target.crosswalks[] entry; the engine writes crosswalk-edge
+	 * notes in their own import set and nothing into the concept note. Distinct from
+	 * `link`, which is an intra-ontology reference written as a wikilink.
+	 */
+	| {
+			primitive: 'crosswalk';
+			/** CURIE prefix of the target framework. Null until the user names it. */
+			toOntology: string | null;
+			predicate?: CrosswalkPredicate;
+			split?: string[];
+			qualifier?: 'keep-as-justification' | 'strip';
+			mappingSetId?: string;
+	  }
 	/** A plain queryable frontmatter field. */
 	| {
 			primitive: 'property';
@@ -217,7 +247,10 @@ export type Destination =
 			canonicalOrder?: number;
 	  };
 
-/** Discriminant union of every destination primitive. */
+/** A configured crosswalk destination in the editable mapping. */
+export type CrosswalkDest = Extract<Destination, { primitive: 'crosswalk' }>;
+
+/** Discriminant union of every destination kind. */
 export type DestinationPrimitive = Destination['primitive'];
 
 /** Per-level missing-value policy (spec §3a½). Not serializable yet. */
@@ -242,11 +275,18 @@ export interface LevelRule {
 	 * note — carried here (not on PartRef) so PartRef stays `{ column, part? }`.
 	 */
 	delimiter?: string;
+	/**
+	 * Delimiter SET — a string of single characters, any one of which separates
+	 * parts. When present (or when `naming === 'prefix'`), the serializer emits
+	 * `part(D,n)` / `prefix(D,n)` instead of the legacy `split(d,n)`. A level
+	 * that carries only `delimiter` is untouched and still emits `split(d,n)`.
+	 */
+	delimiters?: string;
 	/** Text placed between merged pieces (range or multi-column). Defaults to the delimiter. */
 	join?: string;
 	/** Trailing filter chain applied to the rendered name (`fs-safe`, `tagsafe`, `trim`, `lower`). */
 	filters?: string[];
-	/** One or more primitives this level lands in (plural — spec §3a½). */
+	/** One or more output roles this level carries (plural — spec §3a½). */
 	destinations: Destination[];
 	/** How the rendered name is composed. */
 	naming: LevelNaming;
@@ -342,6 +382,8 @@ export interface Enrichment {
  */
 export interface ImportMapping {
 	mappings: StructureMapping[];
+	/** Source-level nested-record expansion declaration. */
+	nest?: NestedRecordLevel[];
 	/** Row-include predicates. Not serializable yet (lossy TODO). */
 	filters?: RowFilter[];
 	/** Batch-scope enrichment (Pass 1.5). Serializes to recipe `target.enrichment`. */
@@ -377,11 +419,12 @@ export const DESTINATION_ORDER: DestinationPrimitive[] = [
 	'property',
 	'tag',
 	'link',
+	'crosswalk',
 	'alias',
 	'body',
 ];
 
-/** Rank a destination primitive for canonical ordering. */
+/** Rank a destination kind for canonical ordering. */
 export function destinationRank(p: DestinationPrimitive): number {
 	const i = DESTINATION_ORDER.indexOf(p);
 	return i === -1 ? DESTINATION_ORDER.length : i;

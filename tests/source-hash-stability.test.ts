@@ -16,7 +16,10 @@
  * 1.8.0) for exactly this reason.
  *
  * tests/fixtures/recipe-hash-golden.json was generated from the PRE-change
- * code. Do not regenerate it to make this test pass.
+ * code. Do not regenerate it to make this test pass. The sole documented
+ * exception is `cri-profile-v2-2.json`: Wave 2d deliberately moved its target
+ * hash from sha256-3f44049e... to sha256-84e795b6... by declaring
+ * `target.crosswalks`; every other pin remains the original baseline.
  *
  * Six shipped recipes have since adopted `source.where` to select their own
  * rows (SchemaVer 1.9.0), so their LIVE hash legitimately differs from the
@@ -123,6 +126,21 @@ describe('A1 — the source-stage code change moved no shipped recipe hash', () 
 			.map((r) => r.relPath)
 			.sort();
 		expect(declaring).toEqual(Object.keys(DECLARED_WHERE).sort());
+	});
+
+	it('pins the sole Wave 2d target-hash move to the CRI crosswalk declaration', () => {
+		const entry = recipes.find((r) => r.relPath === 'recipes/import/cri-profile-v2-2.json');
+		expect(entry?.recipe.target.crosswalks).toEqual([
+			{
+				column: 'NIST CSF v2 Mapping',
+				to_ontology: 'nist-csf-2',
+				predicate: 'is_approximate_to',
+				qualifier: 'keep-as-justification',
+			},
+		]);
+		expect(GOLDEN['recipes/import/cri-profile-v2-2.json']).toBe(
+			'sha256-84e795b6529a60615e9183f9e63aac43a991bc8f5a0f4b430ed80413bf7deaf7',
+		);
 	});
 
 	it('no shipped recipe declares joins', () => {

@@ -16,6 +16,8 @@ import * as XLSX from 'xlsx';
 import { parseXLSXFile, listXLSXSheets } from '../src/import/parsers/xlsx-parser';
 import { parseJSONFile } from '../src/import/parsers/json-parser';
 
+Object.assign(globalThis, { TextDecoder, TextEncoder });
+
 /** Build one in-memory .xlsx payload from rows of cells. */
 function makeXlsxBytes(sheets: Record<string, unknown[][]>): ArrayBuffer {
 	const wb = XLSX.utils.book_new();

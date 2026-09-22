@@ -25,6 +25,7 @@
  */
 
 import { App, parseYaml, TFile } from 'obsidian';
+import { LEGACY_XWALK_CURIE_PREFIX } from './crosswalk-identity';
 
 /** A curie claimed by more than one note. Ambiguous: identity must be unique. */
 export interface IdentityCollision {
@@ -83,6 +84,11 @@ export interface IdentityIndex {
 	 * user note.
 	 */
 	provenanceAt(path: string): AddressStamp | null;
+	/**
+	 * Legacy xwalk notes that record this endpoint pair. Returns every claimant so
+	 * callers can refuse ambiguity rather than choose an arbitrary note.
+	 */
+	legacyCrosswalkEdges(subjectId: string, objectId: string): Array<{ file: TFile; curie: string }>;
 	/** Every curie the index holds — the vault side of a reconciliation. */
 	curies(): string[];
 	/** Curies held by more than one note. Non-empty means the vault is ambiguous. */
@@ -107,6 +113,11 @@ function readString(value: unknown): string | null {
 	if (typeof value !== 'string') return null;
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : null;
+}
+
+/** Collision-free key for a recorded crosswalk endpoint pair. */
+function crosswalkPairKey(subjectId: string, objectId: string): string {
+	return JSON.stringify([subjectId, objectId]);
 }
 
 /**
@@ -165,6 +176,7 @@ export async function buildIdentityIndex(app: App, options: BuildIdentityIndexOp
 	const byCurie = new Map<string, TFile>();
 	const ownerByCurie = new Map<string, string>();
 	const claims = new Map<string, string[]>();
+	const legacyCrosswalkByPair = new Map<string, Array<{ file: TFile; curie: string }>>();
 	// AM-14. Address -> import-set stamp, for every provenance-carrying note in the
 	// vault. Recorded BEFORE the ownership and curie filters below, because the
 	// address question is "who owns the note at this path", which a filtered index
@@ -226,8 +238,20 @@ export async function buildIdentityIndex(app: App, options: BuildIdentityIndexOp
 			if (id !== options.recipeId) continue;
 		}
 
-		const curie = readString((fm as Record<string, unknown>).curie);
+		const frontmatter = fm as Record<string, unknown>;
+		const curie = readString(frontmatter.curie);
 		if (!curie) continue;
+
+		if (frontmatter.kind === 'crosswalk-edge' && curie.startsWith(`${LEGACY_XWALK_CURIE_PREFIX}:`)) {
+			const subjectId = readString(frontmatter.subject_id);
+			const objectId = readString(frontmatter.object_id);
+			if (subjectId && objectId) {
+				const key = crosswalkPairKey(subjectId, objectId);
+				const pair = legacyCrosswalkByPair.get(key) ?? [];
+				pair.push({ file, curie });
+				legacyCrosswalkByPair.set(key, pair);
+			}
+		}
 
 		const existing = claims.get(curie);
 		if (existing) {
@@ -251,6 +275,9 @@ export async function buildIdentityIndex(app: App, options: BuildIdentityIndexOp
 		get: (curie: string) => byCurie.get(curie) ?? null,
 		owner: (curie: string) => ownerByCurie.get(curie) ?? null,
 		provenanceAt: (path: string) => stampByPath.get(path) ?? null,
+		legacyCrosswalkEdges: (subjectId: string, objectId: string) => [
+			...(legacyCrosswalkByPair.get(crosswalkPairKey(subjectId, objectId)) ?? []),
+		],
 		curies: () => [...byCurie.keys()],
 		collisions,
 		size: byCurie.size,
