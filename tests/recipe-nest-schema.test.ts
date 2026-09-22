@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import {
 	canonicalStringify,
 	computeRecipeHash,
@@ -150,6 +151,40 @@ describe('SchemaVer 1.13.0 source.nest schema', () => {
 	});
 });
 
+describe('SchemaVer 1.14.0 body projection schema', () => {
+	it('accepts leaf section and level on append body projections', () => {
+		const recipe = nestedRecipe();
+		nestEntries(recipe)[2].leaf = 'section';
+		recipe.target.layout[2] = {
+			level: 'part', mechanism: 'heading', level_depth: 2, template: '{id}',
+		};
+		recipe.target.also_emit = {
+			body: [{ template: '{prose}', position: 'append', level: 'part' }],
+		};
+		expect(validateRecipe(recipe).valid).toBe(true);
+	});
+
+	it('refuses level on section body projections', () => {
+		const recipe = nestedRecipe();
+		recipe.target.also_emit = {
+			body: [{
+				template: '{prose}',
+				position: 'section',
+				heading: 'Details',
+				level: 'part',
+			}],
+		};
+		expect(validateRecipe(recipe).valid).toBe(false);
+	});
+
+	it('records the additive 1.14.0 schema history', () => {
+		const schema = JSON.parse(readFileSync('spec/recipe.schema.json', 'utf8')) as { $comment: string };
+		expect(schema.$comment).toContain('SchemaVer 1.14.0');
+		expect(schema.$comment).toContain("nest_level.leaf gains 'section'");
+		expect(schema.$comment).toContain('body_entry (append) gains optional level');
+	});
+});
+
 describe('SchemaVer 1.13.0 source.nest semantic diagnostics', () => {
 	it('requires every nested level to appear in source.levels', () => {
 		const recipe = nestedRecipe();
@@ -236,6 +271,15 @@ describe('SchemaVer 1.13.0 source.nest recipe hash', () => {
 	const target = {
 		layout: [{ level: 'part', mechanism: 'file', template: '{id}.md' }],
 	};
+
+	it('B15 keeps an existing recipe without section or body level byte-identical through validation', () => {
+		const recipe = nestedRecipe();
+		const before = clone(recipe);
+		const hash = computeRecipeHash(recipe.target, recipe.source);
+		expect(validateRecipe(recipe).valid).toBe(true);
+		expect(recipe).toEqual(before);
+		expect(computeRecipeHash(recipe.target, recipe.source)).toBe(hash);
+	});
 
 	it('changes when nest is declared', () => {
 		const nest = [{ level: 'part', id: '{id}', identity: 'path' }];

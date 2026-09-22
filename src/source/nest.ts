@@ -9,6 +9,7 @@ export interface LineageObject {
 	path: string[];
 	parent: string;
 	ancestors: Record<string, Record<string, unknown>>;
+	sections?: Row[];
 }
 
 export interface NestExpansion {
@@ -89,6 +90,7 @@ export async function expandNestedRows(
 		levelIndex: number,
 		ancestorPath: string[],
 		ancestorValues: Record<string, Record<string, unknown>>,
+		nearestOutput?: Row,
 	): void => {
 		const entry = nest[levelIndex];
 		if (!entry) return;
@@ -126,7 +128,14 @@ export async function expandNestedRows(
 		}
 		const emitted: Row = { ...record, _cw: lineage };
 		if (typeof entry.children === 'string') delete emitted[entry.children];
-		if (entry.leaf !== 'none') rows.push(emitted);
+		let childOutput = nearestOutput;
+		if (entry.leaf === 'section') {
+			if (nearestOutput) attachSection(nearestOutput, emitted);
+			childOutput = emitted;
+		} else if (entry.leaf !== 'none') {
+			rows.push(emitted);
+			childOutput = emitted;
+		}
 
 		let children: Row[] = [];
 		if (typeof entry.children === 'string') {
@@ -157,7 +166,7 @@ export async function expandNestedRows(
 			return;
 		}
 
-		for (const child of children) walk(child, levelIndex + 1, path, ancestors);
+		for (const child of children) walk(child, levelIndex + 1, path, ancestors, childOutput);
 	};
 
 	for (const row of levelZeroRows) walk(row, 0, [], {});
@@ -172,6 +181,11 @@ export async function expandNestedRows(
 	}
 
 	return { rows, countsByLevel, unparented };
+}
+
+function attachSection(host: Row, section: Row): void {
+	const lineage = host._cw as LineageObject;
+	(lineage.sections ??= []).push(section);
 }
 
 function carryRecord(entry: NestedRecordLevel, record: Row, renderedId: string): Record<string, unknown> {

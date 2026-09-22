@@ -175,16 +175,17 @@ describe('import-set ownership discovery and selection', () => {
 		expect(resolved.destination).toBe('Frameworks');
 	});
 
-	it('pins nested identity at mint, discovers it, and carries it through refresh', async () => {
+	it('pins every nested identity at mint including section levels, discovers it, and carries it through refresh', async () => {
 		const nest = [
 			{ level: 'group', id: '{id}', children: 'controls' },
-			{ level: 'control', id: '{id}', identity: 'path' as const },
+			{ level: 'control', id: '{id}', children: 'parts', identity: 'path' as const },
+			{ level: 'part', id: '{id}', leaf: 'section' as const, identity: 'path' as const },
 		];
 		const empty = mockApp({});
 		await expect(
 			resolveImportSet(empty, 'Frameworks', undefined, undefined, nest),
 		).resolves.toMatchObject({
-			nest_identity: { group: 'global', control: 'path' },
+			nest_identity: { group: 'global', control: 'path', part: 'path' },
 		});
 
 		const app = mockApp({
