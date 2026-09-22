@@ -60,6 +60,7 @@ import { normalizeFolderSetting } from '../settings/folder-settings';
 import { readNoteFrontmatterState, type NoteFrontmatterRead } from '../export/vault-reader';
 import { buildProvenance } from './provenance';
 import { derivationOf, resolveImportSet, type ImportSetDerivation, type ImportSetOption, type ImportSetReference } from './import-set';
+import { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from './crosswalk-identity';
 import {
 	computeConceptCid,
 	computeRecipeHash,
@@ -521,9 +522,12 @@ export async function generateNotes(
 		const provenanceRecipeId = options.recipeOverride
 			? recipe.recipe
 			: (options.configId ?? recipe.recipe);
-		// AM-6. What this run WOULD mint curies under if the set were new. A
-		// proposal, not the answer: see `ontologyId` below.
-		const proposedOntologyId = recipe.source?.ontology ?? (config.name ?? LEGACY_ONTOLOGY_SENTINEL);
+		// Crosswalk identity belongs to the note kind, not to the source label. A
+		// refresh still wins through the import set's pinned ontology below.
+		const recipeNoteKind = noteKindOf(recipe);
+		const proposedOntologyId = recipeNoteKind === 'crosswalk-edge'
+			? SSSOM_CURIE_PREFIX
+			: recipe.source?.ontology ?? (config.name ?? LEGACY_ONTOLOGY_SENTINEL);
 
 		// Ownership is minted or selected once per run, before any note is written.
 		// Never derive this id from recipe/source/path: all are allowed to change on
@@ -616,11 +620,14 @@ export async function generateNotes(
 		// A set minted set-qualified writes qualified curies for its concepts and
 		// for every hub enrichment derives from this prefix, which is what lets a
 		// second release of the same framework exist beside the first.
-		const curiePrefix = curiePrefixFor(importSet, ontologyId);
-		// AM-34. The un-qualified ontology prefix behind it. A source states this
-		// one; the vault holds the resolved one; the set stamp records what turns
-		// one into the other.
-		const basePrefix = baseCuriePrefixFor(importSet, ontologyId);
+		const curiePrefix = recipeNoteKind === 'crosswalk-edge'
+			? slugifyForCurie(ontologyId)
+			: curiePrefixFor(importSet, ontologyId);
+		// Crosswalk release isolation lives in the edge local-part (`cwset-...`),
+		// while other note kinds qualify the prefix itself.
+		const basePrefix = recipeNoteKind === 'crosswalk-edge'
+			? slugifyForCurie(ontologyId)
+			: baseCuriePrefixFor(importSet, ontologyId);
 		const crosswalkInputs: CrosswalkEdgeInput[] | null = declaredCrosswalks(recipe).length > 0 ? [] : null;
 		const enrichRecords: EnrichRecord[] = [];
 		// AM-2. Rows this run KEPT rather than wrote (overwriteMode 'skip').
@@ -736,7 +743,7 @@ export async function generateNotes(
 					// content still comes from the existing column-role logic for
 					// backward-compat.
 					const renderReport: RenderReport = { notes: [] };
-					const noteData = buildNoteDataViaRender(
+					let noteData = buildNoteDataViaRender(
 						row,
 						rowNum,
 						mapping,
@@ -750,6 +757,33 @@ export async function generateNotes(
 						importSet,
 						parsedData.sourceByteDigest,
 					);
+					let legacyAdoption: LegacyCrosswalkAdoption | null = null;
+					if (recipeNoteKind === 'crosswalk-edge') {
+						const match = legacyCrosswalkAdoption(identityIndex, row, importSet.id, noteData.curie);
+						if (match.error) {
+							result.errors.push({ row: rowNum, message: match.error });
+							return;
+						}
+						legacyAdoption = match.adoption;
+						if (legacyAdoption) {
+							renderReport.notes.length = 0;
+							noteData = buildNoteDataViaRender(
+								row,
+								rowNum,
+								mapping,
+								options,
+								recipe,
+								curiePrefix,
+								basePrefix,
+								renderReport,
+								recipeHash,
+								provenanceRecipeId,
+								importSet,
+								parsedData.sourceByteDigest,
+								legacyAdoption.curie,
+							);
+						}
+					}
 					if (renderReport.notes.length > 0) {
 						result.warnings ??= [];
 						for (const note of renderReport.notes) {
@@ -777,7 +811,9 @@ export async function generateNotes(
 					// a row this run declines to write must not be counted as produced, must
 					// not reserve its rendered path against a later row, and must not be
 					// recorded anywhere as a note that is going to exist.
-					const foreign = foreignSetClaim(ownedIdentityIndex, identityIndex, noteData.curie);
+					const foreign = legacyAdoption
+						? null
+						: foreignSetClaim(ownedIdentityIndex, identityIndex, noteData.curie);
 					if (foreign) {
 						result.errors.push({ row: rowNum, message: crossSetCollisionMessage(noteData.curie, foreign) });
 						return;
@@ -828,6 +864,7 @@ export async function generateNotes(
 						ownedIdentityIndex,
 						identityIndex,
 						importSet.id,
+						legacyAdoption?.file,
 					);
 					if (target.refusal) {
 						reportAddressRefusal(result, debug, target.refusal, rowNum, noteData.curie);
@@ -1354,6 +1391,58 @@ interface ForeignClaim {
 	setId: string | null;
 }
 
+function noteKindOf(recipe: Recipe): string {
+	return recipe.target.layout.find((entry) => entry.mechanism === 'file')?.kind ?? 'concept';
+}
+
+interface LegacyCrosswalkAdoption {
+	file: TFile;
+	curie: string;
+}
+
+/**
+ * A legacy xwalk edge is named by the endpoint pair it records, not by
+ * recomputing its superseded local-part. One match is adoptable when it is
+ * unstamped or already belongs to this set; more than one is ambiguous.
+ */
+function legacyCrosswalkAdoption(
+	index: IdentityIndex,
+	row: Record<string, unknown>,
+	importSetId: string,
+	mintedCurie: string,
+): { adoption: LegacyCrosswalkAdoption | null; error: string | null } {
+	const subjectId = typeof row.subject_id === 'string' ? row.subject_id.trim() : '';
+	const objectId = typeof row.object_id === 'string' ? row.object_id.trim() : '';
+	if (!subjectId || !objectId) return { adoption: null, error: null };
+	const matches = index.legacyCrosswalkEdges(subjectId, objectId);
+	if (matches.length > 1) {
+		return {
+			adoption: null,
+			error: `${matches.length} legacy crosswalk notes already record ${subjectId} -> ${objectId}: `
+				+ `${matches.map((match) => match.file.path).sort().join(', ')}. Fix the duplicates, then import again.`,
+		};
+	}
+	const adoption = matches[0] ?? null;
+	if (!adoption) return { adoption: null, error: null };
+
+	const current = index.get(mintedCurie);
+	if (current && current.path !== adoption.file.path) {
+		return {
+			adoption: null,
+			error: `Both ${current.path} and ${adoption.file.path} record ${subjectId} -> ${objectId}. `
+				+ 'Fix the duplicate crosswalk edge, then import again.',
+		};
+	}
+	const owner = index.owner(adoption.curie);
+	if (owner && owner !== importSetId) {
+		return {
+			adoption: null,
+			error: crossSetCollisionMessage(adoption.curie, { path: adoption.file.path, setId: owner }),
+		};
+	}
+	return { adoption, error: null };
+}
+
 /**
  * The error a refused row reports. Names the identity, the owner, and the file,
  * because "something is in the way" is not something a user can act on, and ends
@@ -1587,7 +1676,13 @@ function resolveWriteTarget(
 	ownedIndex?: IdentityIndex,
 	vaultWideIndex?: IdentityIndex,
 	ownedSetId?: string,
+	adoptInPlace?: TFile,
 ): { existingFile: TFile | null; writePath: string; moveFrom?: string; refusal?: AddressRefusal } {
+	// The pair lookup has already established that this is the one legacy xwalk
+	// assertion being refreshed. Its recorded address and curie are facts, so keep
+	// both rather than routing it through generic move/address adoption.
+	if (adoptInPlace) return { existingFile: adoptInPlace, writePath: adoptInPlace.path };
+
 	const direct = app.vault.getAbstractFileByPath(siblingPath);
 	if (direct instanceof TFile) {
 		// AM-14. The owned-stamp case is the ordinary same-set re-import and is
@@ -1677,6 +1772,7 @@ function buildNoteDataViaRender(
 	provenanceRecipeId?: string,
 	importSet?: ImportSetReference,
 	sourceHash?: string,
+	curieOverride?: string,
 ): { path: string; frontmatter: Record<string, any>; body: string; sourceRow: number; curie: string; tags: string[]; layoutValues: LayoutValue[] } {
 	// 1. Build a CURIE for this row, under the derivation THIS SET IS PINNED TO.
 	//
@@ -1703,18 +1799,21 @@ function buildNoteDataViaRender(
 	// stated. Stripping the declared prefix and substituting ours is the silent
 	// rewrite the amendment forbids.
 	const filenameStem = deriveFilenameStem(row, mapping, rowNum);
-	// AM-34 plus source.nest identity. The same helper is called by the pre-write
-	// uniqueness pass, so preflight and the write loop cannot derive different ids.
-	const curie = deriveRowCurie(
+	const noteKind = noteKindOf(recipe);
+	// Crosswalk edges share one pair identity form across every producer. Other
+	// note kinds retain the set-pinned general derivation.
+	const curie = curieOverride ?? deriveRowCurie(
 		row,
 		curiePrefix,
 		basePrefix,
 		importSet,
 		recipe.source?.nest,
 		() => deriveRawFilenameStem(row, mapping, rowNum),
-		() => derivationOf(importSet) === 'declared-facts-v1'
-			? declaredFactsLocalPart(row, () => deriveRawFilenameStem(row, mapping, rowNum), basePrefix)
-			: filenameStem,
+		() => noteKind === 'crosswalk-edge'
+			? sssomEdgeCurie(row, importSet!)
+			: derivationOf(importSet) === 'declared-facts-v1'
+				? declaredFactsLocalPart(row, () => deriveRawFilenameStem(row, mapping, rowNum), basePrefix)
+				: filenameStem,
 	);
 
 	// 2. render() expects a SourceScope object — the row IS the scope (column
@@ -1732,7 +1831,6 @@ function buildNoteDataViaRender(
 	// Scoped to crosswalk-edge recipes so nothing else gains fields it never had,
 	// and deliberately NOT fed into concept identity: see identityScopeForNoteKind.
 	const sourceScope = row as Record<string, unknown>;
-	const noteKind = recipe.target.layout.find((entry) => entry.mechanism === 'file')?.kind ?? 'concept';
 	const renderScope: Record<string, unknown> = noteKind === 'crosswalk-edge'
 		? {
 			...sourceScope,
@@ -2841,8 +2939,12 @@ export async function generateFromRecipe(
 
 	const strict = options.strictValidation ?? true;
 	const createFolders = options.createFolders ?? true;
-	// AM-6. What this run WOULD mint curies under if the set were new.
-	const proposedOntologyId = recipe.source?.ontology ?? recipe.recipe;
+	const recipeNoteKind = noteKindOf(recipe);
+	// Crosswalk identity belongs to the note kind, not to the source label. The
+	// existing set's pin still wins below, including the frozen legacy xwalk space.
+	const proposedOntologyId = recipeNoteKind === 'crosswalk-edge'
+		? SSSOM_CURIE_PREFIX
+		: recipe.source?.ontology ?? recipe.recipe;
 	// Headless imports obey the same destination-discovery rules as the wizard.
 	// Callers can name a wiped/empty set explicitly or force a new mint.
 	const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest);
@@ -2872,15 +2974,15 @@ export async function generateFromRecipe(
 	// import and orphans the first. An explicit `options.curiePrefix` still wins
 	// over both: that caller is naming the identity space on purpose.
 	const ontologyId = importSet.ontology ?? proposedOntologyId;
-	// AM-13. Scheme-aware, same rule as generateNotes. An explicit
-	// `options.curiePrefix` still wins over both: the SSSOM importer names its own
-	// identity space and already qualifies its LEAF by scheme, so it must not be
-	// qualified a second time at the prefix.
-	const curiePrefix = options.curiePrefix ?? curiePrefixFor(importSet, ontologyId);
-	// AM-34. The base ontology prefix a source's declared `curie` is checked
-	// against. An explicit `options.curiePrefix` names its own identity space, so
-	// there is no qualification to invert and the two are the same value.
-	const baseCuriePrefix = options.curiePrefix ?? baseCuriePrefixFor(importSet, ontologyId);
+	// Crosswalk release isolation lives in `sssomEdgeCurie`'s local part, so its
+	// prefix is the set-pinned ontology itself. Other note kinds keep the ordinary
+	// scheme-aware prefix and caller override behavior.
+	const curiePrefix = recipeNoteKind === 'crosswalk-edge'
+		? slugifyForCurie(ontologyId)
+		: options.curiePrefix ?? curiePrefixFor(importSet, ontologyId);
+	const baseCuriePrefix = recipeNoteKind === 'crosswalk-edge'
+		? slugifyForCurie(ontologyId)
+		: options.curiePrefix ?? baseCuriePrefixFor(importSet, ontologyId);
 	const ownedIdentityIndex = await buildIdentityIndex(app, { importSetId: importSet.id });
 
 	// _crosswalker.recipe.hash: computed ONCE per generation run — see
@@ -2888,9 +2990,6 @@ export async function generateFromRecipe(
 	// `recipe.source` participates only through its shaping declarations; a
 	// recipe declaring none hashes byte-identically to its pre-1.9.0 self.
 	const recipeHash = computeRecipeHash(recipe.target, recipe.source);
-	// A recipe declares the note kind at its file leaf. Mapping-only render
-	// defaults must never widen concept or junction identity/source scopes.
-	const recipeNoteKind = recipe.target.layout.find((entry) => entry.mechanism === 'file')?.kind ?? 'concept';
 	// See generateNotes above: recipe declaration, not row output, decides ownership.
 	const declaredManagedKeys = computeDeclaredManagedKeys(recipe.target.also_emit?.frontmatter);
 	// Resolve existing notes by canonical identity before considering their current
@@ -2970,9 +3069,11 @@ export async function generateFromRecipe(
 				importSet,
 				recipe.source?.nest,
 				() => `row-${rowNum}`,
-				() => options.curieLocalPart
-					? options.curieLocalPart(scope, rowNum, importSet)
-					: defaultCurieLocalPart(scope, rowNum, derivationOf(importSet), baseCuriePrefix),
+				() => recipeNoteKind === 'crosswalk-edge'
+					? sssomEdgeCurie(scope, importSet)
+					: options.curieLocalPart
+						? options.curieLocalPart(scope, rowNum, importSet)
+						: defaultCurieLocalPart(scope, rowNum, derivationOf(importSet), baseCuriePrefix),
 			);
 		});
 		if (collision) {
@@ -3136,21 +3237,33 @@ export async function generateFromRecipe(
 			// AM-28. The prefix travels with the row: a declared `curie` is honoured
 			// verbatim only when it already carries the prefix this run writes, and is
 			// refused by name otherwise, never stripped and re-prefixed.
-			const curie = deriveRowCurie(
+			const mintedCurie = deriveRowCurie(
 				scope,
 				curiePrefix,
 				baseCuriePrefix,
 				importSet,
 				recipe.source?.nest,
 				() => `row-${rowNum}`,
-				() => options.curieLocalPart
-					? options.curieLocalPart(scope, rowNum, importSet)
-					: defaultCurieLocalPart(scope, rowNum, derivationOf(importSet), baseCuriePrefix),
+				() => recipeNoteKind === 'crosswalk-edge'
+					? sssomEdgeCurie(scope, importSet)
+					: options.curieLocalPart
+						? options.curieLocalPart(scope, rowNum, importSet)
+						: defaultCurieLocalPart(scope, rowNum, derivationOf(importSet), baseCuriePrefix),
 			);
-			const localPart = curie.slice(curiePrefix.length + 1);
+			let legacyAdoption: LegacyCrosswalkAdoption | null = null;
+			if (recipeNoteKind === 'crosswalk-edge') {
+				const match = legacyCrosswalkAdoption(identityIndex, sourceScope, importSet.id, mintedCurie);
+				if (match.error) {
+					result.errors.push({ row: rowNum, message: match.error });
+					return;
+				}
+				legacyAdoption = match.adoption;
+			}
+			const curie = legacyAdoption?.curie ?? mintedCurie;
+			const localPart = curie.slice(curie.indexOf(':') + 1);
 			// The index deliberately does not return an arbitrary winner for a
 			// collision. Refuse this row instead of making the duplicate permanent.
-			if (ambiguousCuries.has(curie)) return;
+			if (ambiguousCuries.has(curie) || ambiguousCuries.has(mintedCurie)) return;
 
 			// AM-12. A write never crosses a set boundary. Same rule as generateNotes,
 			// refused at the same point: the vault-wide index only DETECTS, and a curie
@@ -3159,7 +3272,9 @@ export async function generateFromRecipe(
 			// refusal because both are answers about identity alone, so neither should
 			// cost a render, a folder, a produced curie, or a review baseline recorded
 			// for a note this run will never write.
-			const foreignClaim = foreignSetClaim(ownedIdentityIndex, identityIndex, curie);
+			const foreignClaim = legacyAdoption
+				? null
+				: foreignSetClaim(ownedIdentityIndex, identityIndex, curie);
 			if (foreignClaim) {
 				result.errors.push({ row: rowNum, message: crossSetCollisionMessage(curie, foreignClaim) });
 				return;
@@ -3246,6 +3361,7 @@ export async function generateFromRecipe(
 				ownedIdentityIndex,
 				identityIndex,
 				importSet.id,
+				legacyAdoption?.file,
 			);
 			if (target.refusal) {
 				reportAddressRefusal(result, debug, target.refusal, rowNum, curie);

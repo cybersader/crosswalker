@@ -5,9 +5,9 @@
  */
 
 import { TFile, TFolder } from 'obsidian';
-import { buildNoteContent, generateFromRecipe } from '../src/generation/generation-engine';
+import { buildNoteContent, generateFromRecipe, generateNotes } from '../src/generation/generation-engine';
 import type { Recipe } from '../src/render';
-import type { ParsedData } from '../src/types/config';
+import type { ImportRecipe, ParsedData } from '../src/types/config';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const yaml = require('js-yaml') as { load: (text: string) => unknown };
@@ -40,16 +40,19 @@ const RECIPE: Recipe = {
 
 const ROW = {
 	edge_id: 'edge-1',
-	subject_id: 'nist:AC-2',
+	subject_id: 'ex-a:A-1',
 	predicate_id: 'is_equivalent_to',
-	object_id: 'iso27001:A.9.2.1',
+	object_id: 'ex-b:B-1',
 };
 
 function parsed(): ParsedData {
 	return { columns: Object.keys(ROW), rows: [{ ...ROW }], rowCount: 1 };
 }
 
-function generatedCrosswalkContent(): string {
+function generatedCrosswalkContent(
+	body: string = `# ${CURIE}\n`,
+	importSetId: string = 'iset-abc123',
+): string {
 	return buildNoteContent({
 		curie: CURIE,
 		kind: 'crosswalk-edge',
@@ -60,16 +63,18 @@ function generatedCrosswalkContent(): string {
 			spec_version: 'https://crosswalker.dev/spec/tier1.schema.json',
 			source_ref: { curie: 'unknown:_' },
 			produced_at: '2026-08-21T00:00:00.000Z',
-			import_set: { id: 'iset-abc123', scheme: 'endpoint-v1' },
+			import_set: { id: importSetId, scheme: 'endpoint-v1' },
 			recipe: { id: RECIPE.recipe },
 		},
-	}, '# Existing crosswalk\n');
+	}, body);
 }
 
-function makeApp(seedPaths: string[]) {
+function makeApp(seedPaths: string[], legacyBody?: string, legacyImportSetId?: string) {
 	const files = new Map<string, string>();
 	const folders = new Set<string>(['', 'Mappings', 'Mappings/legacy']);
-	for (const path of seedPaths) files.set(path, generatedCrosswalkContent());
+	for (const path of seedPaths) {
+		files.set(path, generatedCrosswalkContent(legacyBody, legacyImportSetId));
+	}
 	const renameFile = jest.fn(async (file: TFile, newPath: string) => {
 		const content = files.get(file.path);
 		if (content === undefined) throw new Error(`Missing source file: ${file.path}`);
@@ -117,19 +122,31 @@ const OPTIONS = {
 	curieLocalPart: () => 'edge-1',
 };
 
+const WIZARD_CONFIG: Partial<ImportRecipe> = {
+	name: 'xwalk',
+	mapping: {
+		hierarchy: [],
+		frontmatter: [],
+		links: [],
+		body: [],
+		filename: { template: '{edge_id}.md', sanitize: true },
+	},
+};
+
 describe('generateFromRecipe identity reconciliation', () => {
-	it('stamps fresh crosswalk edges and junction notes with one selected set', async () => {
+	it('mints a fresh OLIR-recipe crosswalk edge under sssom even when the source label and caller override say xwalk', async () => {
 		const crosswalkVault = makeApp([]);
 		const crosswalkResult = await generateFromRecipe(crosswalkVault.app, parsed(), RECIPE, OPTIONS);
 		expect(crosswalkResult.errors).toEqual([]);
 		const crosswalkFm = yaml.load(/^---\n([\s\S]*?)\n---/.exec(crosswalkVault.files.get(NEW_PATH)!)![1]) as any;
 		expect(crosswalkFm.kind).toBe('crosswalk-edge');
+		expect(crosswalkFm.curie).toBe('sssom:cw-ex-a-A-1-ex-b-B-1');
 		// `destination` is recorded on every run so a refresh never has to infer
 		// where its own set lives (2026-08-29).
 		// AM-6 (2026-08-30): the set also carries the ontology its curies are
 		// minted under, pinned at mint beside the scheme.
 		expect(crosswalkFm._crosswalker.import_set).toEqual({
-			id: 'iset-abc123', scheme: 'endpoint-v1', destination: 'Mappings', ontology: 'xwalk',
+			id: 'iset-abc123', scheme: 'endpoint-v1', destination: 'Mappings', ontology: 'sssom',
 		});
 
 		const junctionRecipe: Recipe = {
@@ -158,17 +175,57 @@ describe('generateFromRecipe identity reconciliation', () => {
 		});
 	});
 
-	it('moves a crosswalk note whose rendered address changed instead of duplicating it', async () => {
+	it('mints the bundled-recipe wizard path under sssom instead of its xwalk source label', async () => {
+		const vault = makeApp([]);
+		const result = await generateNotes(vault.app, parsed(), WIZARD_CONFIG, {
+			basePath: 'Mappings',
+			importSet: { id: 'iset-abc123' },
+			overwriteMode: 'replace',
+			createFolders: true,
+			recipeOverride: RECIPE,
+		});
+
+		expect(result.errors).toEqual([]);
+		const frontmatter = yaml.load(/^---\n([\s\S]*?)\n---/.exec(vault.files.get(NEW_PATH)!)![1]) as any;
+		expect(frontmatter.curie).toBe('sssom:cw-ex-a-A-1-ex-b-B-1');
+		expect(frontmatter._crosswalker.import_set.ontology).toBe('sssom');
+	});
+
+	it('recognizes the same legacy pair on the wizard path and keeps its address and curie', async () => {
+		const { app, files, renameFile } = makeApp([OLD_PATH], '');
+		const result = await generateNotes(app, parsed(), WIZARD_CONFIG, {
+			basePath: 'Mappings',
+			importSet: { id: 'iset-abc123' },
+			overwriteMode: 'replace',
+			createFolders: true,
+			recipeOverride: RECIPE,
+		});
+
+		expect(result.errors).toEqual([]);
+		expect(result.conflicts).toBeUndefined();
+		expect(renameFile).not.toHaveBeenCalled();
+		expect(files.has(OLD_PATH)).toBe(true);
+		expect(files.has(NEW_PATH)).toBe(false);
+		const refreshed = yaml.load(/^---\n([\s\S]*?)\n---/.exec(files.get(OLD_PATH)!)![1]) as any;
+		expect(refreshed.curie).toBe(CURIE);
+	});
+
+	it('updates one legacy xwalk edge in place, pins xwalk, and reports zero orphans on explicit refresh', async () => {
 		const { app, files, renameFile } = makeApp([OLD_PATH]);
 
 		const result = await generateFromRecipe(app, parsed(), RECIPE, OPTIONS);
 
 		expect(result.errors).toEqual([]);
-		expect(result.moved).toEqual([{ curie: CURIE, from: OLD_PATH, to: NEW_PATH }]);
-		expect(renameFile).toHaveBeenCalledTimes(1);
-		expect(files.has(OLD_PATH)).toBe(false);
-		expect(files.has(NEW_PATH)).toBe(true);
+		expect(result.moved).toBeUndefined();
+		expect(renameFile).not.toHaveBeenCalled();
+		expect(files.has(OLD_PATH)).toBe(true);
+		expect(files.has(NEW_PATH)).toBe(false);
 		expect(files.size).toBe(1);
+		const refreshed = yaml.load(/^---\n([\s\S]*?)\n---/.exec(files.get(OLD_PATH)!)![1]) as any;
+		expect(refreshed.curie).toBe(CURIE);
+		expect(refreshed._crosswalker.import_set.ontology).toBe('xwalk');
+		expect(result.orphansChecked).toBe(true);
+		expect(result.orphans ?? []).toEqual([]);
 	});
 
 	it('does not move an identity under skip mode', async () => {
@@ -187,6 +244,24 @@ describe('generateFromRecipe identity reconciliation', () => {
 		expect(files.size).toBe(1);
 	});
 
+	it('refuses to annex a same-pair legacy edge owned by another import set', async () => {
+		const foreignSetId = 'iset-fedcba';
+		const { app, files, renameFile } = makeApp([OLD_PATH], undefined, foreignSetId);
+
+		const result = await generateFromRecipe(app, parsed(), RECIPE, OPTIONS);
+
+		expect(result.success).toBe(false);
+		expect(result.errors).toEqual([{
+			row: 1,
+			message: `Cross-set identity collision: ${CURIE} is claimed by import set ${foreignSetId} at ${OLD_PATH}. Nothing was written for it. Refresh that set instead, or rename this source so it uses its own identities.`,
+		}]);
+		expect(result.created).toEqual([]);
+		expect(renameFile).not.toHaveBeenCalled();
+		expect(files.has(OLD_PATH)).toBe(true);
+		expect(files.has(NEW_PATH)).toBe(false);
+		expect(files.size).toBe(1);
+	});
+
 	it('reports ambiguous identity and does not pick a note to move', async () => {
 		const otherPath = 'Mappings/duplicate/edge-1.md';
 		const { app, files, renameFile } = makeApp([OLD_PATH, otherPath]);
@@ -194,10 +269,16 @@ describe('generateFromRecipe identity reconciliation', () => {
 		const result = await generateFromRecipe(app, parsed(), RECIPE, OPTIONS);
 
 		expect(result.success).toBe(false);
-		expect(result.errors).toEqual([{
-			row: 0,
-			message: `Ambiguous identity ${CURIE} claimed by: ${otherPath}, ${OLD_PATH}`,
-		}]);
+		expect(result.errors).toEqual([
+			{
+				row: 0,
+				message: `Ambiguous identity ${CURIE} claimed by: ${otherPath}, ${OLD_PATH}`,
+			},
+			{
+				row: 1,
+				message: `2 legacy crosswalk notes already record ${ROW.subject_id} -> ${ROW.object_id}: ${otherPath}, ${OLD_PATH}. Fix the duplicates, then import again.`,
+			},
+		]);
 		expect(result.created).toEqual([]);
 		expect(renameFile).not.toHaveBeenCalled();
 		expect(files.has(OLD_PATH)).toBe(true);

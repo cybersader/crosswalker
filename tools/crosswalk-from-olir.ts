@@ -43,6 +43,12 @@ import { resolve } from 'node:path';
 import * as XLSX from 'xlsx';
 import { render, type Recipe } from '../src/render';
 import { validateTier1Frontmatter, validateRecipe } from '../src/validation/validator';
+import {
+	CURRENT_CROSSWALK_DERIVATION,
+	SSSOM_CURIE_PREFIX,
+	sssomEdgeCurie,
+	type CrosswalkIdentitySetReference,
+} from '../src/generation/crosswalk-identity';
 
 const DETERMINISTIC_IMPORT_SET_ID = 'iset-b3c4d5';
 const IMPORT_SET_SCHEME = 'endpoint-v1';
@@ -217,6 +223,12 @@ function olirToSssom(row: OlirRow, a: Args): SssomRow | null {
 function main(): void {
 	const a = parseArgs(process.argv.slice(2));
 	const importSetId = importSetIdForRun(a.deterministic);
+	const importSet: CrosswalkIdentitySetReference & { ontology: string } = {
+		id: importSetId,
+		scheme: IMPORT_SET_SCHEME,
+		derivation: CURRENT_CROSSWALK_DERIVATION,
+		ontology: SSSOM_CURIE_PREFIX,
+	};
 
 	// Load + AJV-validate the generic crosswalk-edge recipe (same validator the plugin uses).
 	const recipePath = resolve(import.meta.dir, '../recipes/import/crosswalk-edge.json');
@@ -267,7 +279,7 @@ function main(): void {
 			mapping_set_id: mappingSetId,
 			predicate_modifier: '',
 		};
-		const curie = `xwalk:${slug(sssom.subject_id)}--${slug(sssom.object_id)}`;
+		const curie = `${SSSOM_CURIE_PREFIX}:${sssomEdgeCurie(scope, importSet)}`;
 		const address = render(recipe, { curie, scope });
 
 		// Assemble the note frontmatter; drop empty optional fields; coerce number.
@@ -290,7 +302,7 @@ function main(): void {
 				source_hash: sourceHash,
 			},
 			produced_at: a.deterministic ? DETERMINISTIC_TIMESTAMP : new Date().toISOString(),
-			import_set: { id: importSetId, scheme: IMPORT_SET_SCHEME },
+			import_set: { ...importSet },
 			recipe: { id: recipe.recipe },
 		};
 

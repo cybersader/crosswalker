@@ -40,6 +40,12 @@ import { resolve } from 'node:path';
 import * as XLSX from 'xlsx';
 import { render, type Recipe } from '../src/render';
 import { validateTier1Frontmatter, validateRecipe } from '../src/validation/validator';
+import {
+	CURRENT_CROSSWALK_DERIVATION,
+	SSSOM_CURIE_PREFIX,
+	sssomEdgeCurie,
+	type CrosswalkIdentitySetReference,
+} from '../src/generation/crosswalk-identity';
 
 const DETERMINISTIC_IMPORT_SET_ID = 'iset-c6d7e8';
 const IMPORT_SET_SCHEME = 'endpoint-v1';
@@ -167,6 +173,12 @@ const normKey = (k: string) => k.replace(/\s+/g, ' ').trim();
 function main() {
 	const a = parseArgs(process.argv.slice(2));
 	const importSetId = importSetIdForRun(a.deterministic);
+	const importSet: CrosswalkIdentitySetReference & { ontology: string } = {
+		id: importSetId,
+		scheme: IMPORT_SET_SCHEME,
+		derivation: CURRENT_CROSSWALK_DERIVATION,
+		ontology: SSSOM_CURIE_PREFIX,
+	};
 	const absSource = resolve(a.source);
 	if (!existsSync(absSource)) {
 		console.error(`Source workbook not found: ${absSource}`);
@@ -269,7 +281,7 @@ function main() {
 					mapping_set_id: mappingSetId,
 					predicate_modifier: '',
 				};
-				const curie = `xwalk:${slug(subject_id)}--${slug(object_id)}`;
+				const curie = `${SSSOM_CURIE_PREFIX}:${sssomEdgeCurie(scope, importSet)}`;
 				const address = render(recipe, { curie, scope });
 
 				const fm: Record<string, unknown> = { ...address.frontmatter };
@@ -286,7 +298,7 @@ function main() {
 						source_hash: sourceHash,
 					},
 					produced_at: a.deterministic ? DETERMINISTIC_TIMESTAMP : new Date().toISOString(),
-					import_set: { id: importSetId, scheme: IMPORT_SET_SCHEME },
+					import_set: { ...importSet },
 			recipe: { id: recipe.recipe },
 				};
 
