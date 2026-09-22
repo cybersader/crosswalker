@@ -8,11 +8,16 @@ import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import type { ImportMapping, StructureMapping } from '../src/import/mapping/types';
 import type { ParsedData } from '../src/types/config';
 import type { DebugLog } from '../src/utils/debug';
+import fixture from './fixtures/oscal-mini.json';
 
 const debug = { info() {}, trace() {}, warn() {}, error() {} } as unknown as DebugLog;
 
 interface PrivateWorkbench {
 	renderMatrix(card: HTMLElement, mapping: StructureMapping, mappingIndex: number): void;
+	sampleForLevel(rule: StructureMapping['levels'][number]): string;
+	renderCombinedPreview(card: HTMLElement, mappingIndex: number): void;
+	renderMappingCard(parent: HTMLElement, mapping: StructureMapping, mappingIndex: number): void;
+	expanded: Set<number>;
 }
 
 function installDomHelpers(): void {
@@ -51,9 +56,10 @@ const nested: ImportMapping = {
 	],
 };
 
-function workbench(mapping: ImportMapping): MappingWorkbench {
-	const rows = [{ id: 'p1', title: 'Part one' }];
-	const parsedData: ParsedData = { columns: ['id', 'title'], rows, rowCount: 1 };
+function workbench(
+	mapping: ImportMapping,
+	parsedData: ParsedData = { columns: ['id', 'title'], rows: [{ id: 'p1', title: 'Part one' }], rowCount: 1 },
+): MappingWorkbench {
 	return new MappingWorkbench({
 		parsedData,
 		columnInfos: analyzeColumns(parsedData),
@@ -76,6 +82,7 @@ describe('nested workbench rows', () => {
 	it('renders nested controls, writes through the view model, and hides merge and split', () => {
 		const wb = workbench(nested);
 		const host = renderMatrix(wb);
+		expect(host.querySelectorAll('tr.crosswalker-wb-nest-row')).toHaveLength(3);
 		expect(host.querySelectorAll('[data-nest-control="leaf"]')).toHaveLength(2);
 		expect(host.querySelectorAll('[data-nest-control="identity"]')).toHaveLength(3);
 		expect(host.textContent).not.toContain('Merge');
@@ -83,14 +90,60 @@ describe('nested workbench rows', () => {
 		expect(host.textContent).not.toContain('—');
 
 		const leaf = host.querySelector<HTMLSelectElement>('[aria-label="Own note for control"]')!;
+		expect([...leaf.options].map((option) => option.text)).toEqual([
+			'Yes, as a folder note',
+			'No, folder only',
+		]);
 		leaf.value = 'none';
 		leaf.dispatchEvent(new Event('change'));
 		expect(wb.getMapping().nest?.find((entry) => entry.level === 'control')?.leaf).toBe('none');
 
-		const identity = host.querySelector<HTMLSelectElement>('[aria-label="Named by for part"]')!;
+		const identity = host.querySelector<HTMLSelectElement>('[aria-label="Identified by for part"]')!;
+		expect([...identity.options].map((option) => option.text)).toEqual([
+			'Its own identifier',
+			'Its path from the top level',
+		]);
 		identity.value = 'path';
 		identity.dispatchEvent(new Event('change'));
 		expect(wb.getMapping().nest?.find((entry) => entry.level === 'part')?.identity).toBe('path');
+	});
+
+	it('puts the Depth dial before shape cards and describes nested arrangement controls', () => {
+		const wb = workbench(nested);
+		const privateWorkbench = wb as unknown as PrivateWorkbench;
+		privateWorkbench.expanded.add(0);
+		const host = document.createElement('div');
+		privateWorkbench.renderMappingCard(host, wb.getMapping().mappings[0], 0);
+		const depth = host.querySelector('.crosswalker-wb-depth')!;
+		const shapes = host.querySelector('.crosswalker-wb-shapes')!;
+		expect(depth.compareDocumentPosition(shapes) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+		expect(host.querySelector('.crosswalker-wb-arrange')?.textContent).toBe(
+			'▸ Arrange levels (which get a note, how each is named)',
+		);
+	});
+
+	it('previews every level from the deepest expanded nested row', async () => {
+		const groups = fixture.catalog.groups as unknown as Record<string, unknown>[];
+		const parsedData: ParsedData = {
+			columns: ['id', 'title', 'controls'],
+			rows: groups,
+			rowCount: groups.length,
+			container: { kind: 'json', readDocument: async () => fixture },
+		};
+		const wb = workbench(nested, parsedData);
+		await Promise.resolve();
+		await Promise.resolve();
+		const privateWorkbench = wb as unknown as PrivateWorkbench;
+		const levels = wb.getMapping().mappings[0].levels;
+		expect(levels.map((level) => privateWorkbench.sampleForLevel(level))).toEqual([
+			'ac',
+			'ac-1',
+			'ac-1_smt.md',
+		]);
+		const host = document.createElement('div');
+		privateWorkbench.renderCombinedPreview(host, 0);
+		expect(host.textContent).toContain('ac/ac-1/ac-1_smt.md');
+		expect(host.textContent).not.toContain('cannot preview');
 	});
 
 	it('keeps merge available on a non-nested mapping', () => {

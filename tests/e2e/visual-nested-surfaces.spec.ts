@@ -344,9 +344,12 @@ async function captureRows(
 		const root = document.querySelector(args.wizard);
 		const card = root?.querySelector<HTMLElement>('.crosswalker-wb-mapcard') ?? null;
 		const table = card?.querySelector<HTMLTableElement>('.crosswalker-wb-matrix') ?? null;
-		const rows = Array.from(table?.querySelectorAll<HTMLTableRowElement>('tbody > tr') ?? []).map((row, rowIndex) => {
+		const rows = Array.from(table?.querySelectorAll<HTMLTableRowElement>('tbody > tr:not(.crosswalker-wb-nest-row)') ?? []).map((row, rowIndex) => {
 			const cells = Array.from(row.querySelectorAll<HTMLTableCellElement>(':scope > td'));
-			const nested = cells[0]?.querySelector<HTMLElement>('.crosswalker-wb-nest-controls') ?? null;
+			const nestedRow = row.nextElementSibling?.matches('tr.crosswalker-wb-nest-row')
+				? row.nextElementSibling
+				: null;
+			const nested = nestedRow?.querySelector<HTMLElement>('.crosswalker-wb-nest-controls') ?? null;
 			const leaf = nested?.querySelector<HTMLSelectElement>('select[data-nest-control="leaf"]') ?? null;
 			const identity = nested?.querySelector<HTMLSelectElement>('select[data-nest-control="identity"]') ?? null;
 			const namedCell = cells[3] ?? null;
@@ -495,14 +498,17 @@ async function captureDepth(
 			range.selectNodeContents(hint);
 			return Array.from(range.getClientRects()).map((value) => Math.round(value.top));
 		})();
-		const rows = Array.from(card?.querySelectorAll<HTMLTableRowElement>('.crosswalker-wb-matrix tbody > tr') ?? [])
+		const rows = Array.from(card?.querySelectorAll<HTMLTableRowElement>('.crosswalker-wb-matrix tbody > tr:not(.crosswalker-wb-nest-row)') ?? [])
 			.map((row) => {
 				const cells = Array.from(row.querySelectorAll<HTMLTableCellElement>(':scope > td'));
+				const nestedRow = row.nextElementSibling?.matches('tr.crosswalker-wb-nest-row')
+					? row.nextElementSibling
+					: null;
 				return {
 					levelId: cells[0]?.querySelector('b')?.textContent?.trim() ?? '',
 					destinations: Array.from(cells[2]?.querySelectorAll<HTMLElement>('.crosswalker-wb-chip-dest') ?? [])
 						.map((chip) => chip.textContent?.trim() ?? ''),
-					leafValue: cells[0]?.querySelector<HTMLSelectElement>('select[data-nest-control="leaf"]')?.value ?? null,
+					leafValue: nestedRow?.querySelector<HTMLSelectElement>('select[data-nest-control="leaf"]')?.value ?? null,
 				};
 			});
 		return {

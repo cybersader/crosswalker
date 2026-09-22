@@ -97,6 +97,8 @@ import {
 	type PathTreeNode,
 } from './mapping/view-model';
 import { explainRecipeError } from './mapping/diagnostics';
+import { expandNestedRows } from '../source/nest';
+import { renderTemplate } from '../render/template';
 
 /** Render the provenance badge(s) for a preset/config surface (spec §7j #3). */
 export function renderProvenanceBadge(parent: HTMLElement, prov: Provenance): void {
@@ -314,6 +316,10 @@ export class MappingWorkbench {
 	 * silent (it used to be: the write simply did nothing).
 	 */
 	private blockedCard: { mi: number; primitive: DestinationPrimitive; message: string } | null = null;
+	/** Expanded nested rows used by every worked preview once the async source walk lands. */
+	private expandedRows: Record<string, unknown>[] | null = null;
+	/** Discards an older async expansion when a newer mapping change finishes first. */
+	private expansionVersion = 0;
 
 	// Transient view state (persists across re-renders).
 	private expanded = new Set<number>();
@@ -401,6 +407,7 @@ export class MappingWorkbench {
 				dirty: false,
 			};
 		}
+		this.refreshExpandedRows();
 		opts.debug.info('wizard', 'workbench-init', 'Shape workbench initialized', {
 			detections: this.detections.length,
 			mappings: this.mapping.mappings.length,
@@ -765,6 +772,34 @@ export class MappingWorkbench {
 		}, delay);
 	}
 
+	/**
+	 * Expand eager nested rows for honest samples and combined previews. Joined
+	 * child collections deliberately fall back to the level-0 row here because
+	 * the workbench preview has no secondary-source reader.
+	 */
+	private refreshExpandedRows(): void {
+		const version = ++this.expansionVersion;
+		this.expandedRows = null;
+		const rows = this.opts.parsedData.rows;
+		const nest = this.mapping.nest;
+		if (!nest?.length || !isEagerRows(rows) || rows.length === 0) return;
+
+		void expandNestedRows(
+			rows as Record<string, unknown>[],
+			nest,
+			renderTemplate,
+			{
+				resolve: () => Promise.reject(new Error('Joined levels are not previewed here.')),
+			},
+		).then((expansion) => {
+			if (version !== this.expansionVersion) return;
+			this.expandedRows = expansion.rows;
+			this.scheduleRerender();
+		}).catch(() => {
+			// The eager level-0 row remains the truthful fallback for join-sourced levels.
+		});
+	}
+
 	/** Commit a model change: persist via onChange, then re-render. */
 	private applyChange(delay = 0): void {
 		let regions: RecipeRegions | undefined;
@@ -774,6 +809,7 @@ export class MappingWorkbench {
 			// The preview/generation path surfaces the full blocking diagnostic.
 		}
 		this.recipeDocument = updateRecipeDocumentMapping(this.recipeDocument, this.mapping, regions);
+		this.refreshExpandedRows();
 		this.opts.onChange();
 		this.scheduleRerender(delay);
 	}
@@ -1285,9 +1321,9 @@ export class MappingWorkbench {
 
 		if (!expanded) return;
 
-		// Shape cards.
-		this.renderShapeCards(card, m, mi);
+		// Coarse placement first, then the individual shape cards it rewrites.
 		this.renderDepthDial(card, m, mi);
+		this.renderShapeCards(card, m, mi);
 
 		// Combined preview — one sample row through the whole mix.
 		this.renderCombinedPreview(card, mi);
@@ -1295,7 +1331,10 @@ export class MappingWorkbench {
 		// Arrange levels → the matrix.
 		const arrange = card.createEl('button', {
 			cls: 'crosswalker-wb-arrange',
-			text: (this.matrixOpen.has(mi) ? '▾' : '▸') + ' Arrange levels (combine or drop id levels)',
+			text: (this.matrixOpen.has(mi) ? '▾' : '▸')
+				+ (this.mapping.nest
+					? ' Arrange levels (which get a note, how each is named)'
+					: ' Arrange levels (combine or drop id levels)'),
 		});
 		arrange.addEventListener('click', () => {
 			if (this.matrixOpen.has(mi)) this.matrixOpen.delete(mi);
@@ -1339,12 +1378,23 @@ export class MappingWorkbench {
 			const depth = Number(select.value);
 			if (Number.isInteger(depth)) this.updateFolderDepth(mi, mapping, depth);
 		});
-		const propertyLevels = mapping.levels.filter((level) =>
-			level.destinations.some((destination) => destination.primitive === 'property'),
-		).length;
-		const hint = current === null
-			? 'Custom folder and note arrangement.'
-			: `${current} ${current === 1 ? 'folder' : 'folders'}, then the note; ${propertyLevels} ${propertyLevels === 1 ? 'level' : 'levels'} recorded as properties.`;
+		const names = mapping.levels.map((level) => level.level);
+		const depth = current ?? 0;
+		const folders = names.slice(0, depth).join(' and ');
+		const left = names.slice(depth + 1);
+		let hint: string;
+		if (current === null) {
+			hint = 'Custom arrangement. Pick a depth to reset which levels become folders and which becomes the note.';
+		} else {
+			hint = `${folders ? `Each ${folders} becomes a folder; ` : 'No folders; '}each ${names[depth] ?? names[names.length - 1]} becomes a note`;
+			if (left.length > 0) {
+				hint += this.mapping.nest?.length
+					? `; ${left.join(' and ')} ${left.length === 1 ? 'is' : 'are'} left out of this import.`
+					: `; ${left.join(' and ')} kept as properties.`;
+			} else {
+				hint += '.';
+			}
+		}
 		row.createSpan({ cls: 'crosswalker-wb-depth-hint', text: hint });
 	}
 
@@ -1540,14 +1590,19 @@ export class MappingWorkbench {
 		}
 	}
 
-	/** A real value from the column a mapping reads, for worked examples in hints. */
+	/** A real value from the same row every other worked preview renders. */
 	private firstSampleValue(m: StructureMapping): string | null {
 		const source = m.levels[0]?.source;
-		if (!source) return null;
-		const column = this.firstColumn(source);
-		const info = this.opts.columnInfos.find((c) => c.name === column);
-		const value = info?.sampleValues.find((v) => String(v ?? '').trim() !== '');
-		return value === undefined ? null : String(value);
+		const sample = this.firstRow();
+		if (!source || !sample) return null;
+		const ref = toSourceRefs(source)[0];
+		if (isConstantRef(ref)) return ref.constant;
+		try {
+			const value = renderTemplate(`{${ref.column}|optional}`, sample).trim();
+			return value || null;
+		} catch {
+			return null;
+		}
 	}
 
 	/** Small decorative vault-shape diagrams; labels and state text carry meaning. */
@@ -1934,38 +1989,6 @@ export class MappingWorkbench {
 				}
 			});
 		}
-		if (nestedEntry) {
-			const nestedControls = lvl.createDiv({ cls: 'crosswalker-wb-nest-controls' });
-			if (nestedEntry.children !== undefined) {
-				const ownLabel = nestedControls.createEl('label');
-				ownLabel.createSpan({ text: 'Own note' });
-				const ownSelect = ownLabel.createEl('select', {
-					cls: 'dropdown',
-					attr: { 'aria-label': `Own note for ${rule.level}`, 'data-nest-control': 'leaf' },
-				});
-				ownSelect.createEl('option', { text: 'Folder note', attr: { value: 'folder-note' } });
-				ownSelect.createEl('option', { text: 'Folders only', attr: { value: 'none' } });
-				ownSelect.value = nestedEntry.leaf ?? 'folder-note';
-				ownSelect.addEventListener('change', () => {
-					this.mapping = setNestLeaf(this.mapping, rule.level, ownSelect.value as 'folder-note' | 'none');
-					this.applyChange();
-				});
-			}
-			const identityLabel = nestedControls.createEl('label');
-			identityLabel.createSpan({ text: 'Named by' });
-			const identitySelect = identityLabel.createEl('select', {
-				cls: 'dropdown',
-				attr: { 'aria-label': `Named by for ${rule.level}`, 'data-nest-control': 'identity' },
-			});
-			identitySelect.createEl('option', { text: 'Its own identifier', attr: { value: 'global' } });
-			identitySelect.createEl('option', { text: 'Its place in the hierarchy', attr: { value: 'path' } });
-			identitySelect.value = nestedEntry.identity ?? 'global';
-			identitySelect.addEventListener('change', () => {
-				this.mapping = setNestIdentity(this.mapping, rule.level, identitySelect.value as 'global' | 'path');
-				this.applyChange();
-			});
-		}
-
 		// Sample cell.
 		tr.createEl('td', { cls: 'mono', text: this.sampleForLevel(rule) });
 
@@ -2004,6 +2027,41 @@ export class MappingWorkbench {
 			const next: LevelRule = { ...rule, missing: missSel.value as MissingPolicy };
 			this.updateMapping(mi, this.replaceLevel(m, li, next));
 		});
+
+		if (nestedEntry) {
+			const nestedControls = tbody
+				.createEl('tr', { cls: 'crosswalker-wb-nest-row' })
+				.createEl('td', { attr: { colspan: '5' } })
+				.createDiv({ cls: 'crosswalker-wb-nest-controls' });
+			if (nestedEntry.children !== undefined) {
+				const ownLabel = nestedControls.createEl('label');
+				ownLabel.createSpan({ text: 'Own note' });
+				const ownSelect = ownLabel.createEl('select', {
+					cls: 'dropdown',
+					attr: { 'aria-label': `Own note for ${rule.level}`, 'data-nest-control': 'leaf' },
+				});
+				ownSelect.createEl('option', { text: 'Yes, as a folder note', attr: { value: 'folder-note' } });
+				ownSelect.createEl('option', { text: 'No, folder only', attr: { value: 'none' } });
+				ownSelect.value = nestedEntry.leaf ?? 'folder-note';
+				ownSelect.addEventListener('change', () => {
+					this.mapping = setNestLeaf(this.mapping, rule.level, ownSelect.value as 'folder-note' | 'none');
+					this.applyChange();
+				});
+			}
+			const identityLabel = nestedControls.createEl('label');
+			identityLabel.createSpan({ text: 'Identified by' });
+			const identitySelect = identityLabel.createEl('select', {
+				cls: 'dropdown',
+				attr: { 'aria-label': `Identified by for ${rule.level}`, 'data-nest-control': 'identity' },
+			});
+			identitySelect.createEl('option', { text: 'Its own identifier', attr: { value: 'global' } });
+			identitySelect.createEl('option', { text: 'Its path from the top level', attr: { value: 'path' } });
+			identitySelect.value = nestedEntry.identity ?? 'global';
+			identitySelect.addEventListener('change', () => {
+				this.mapping = setNestIdentity(this.mapping, rule.level, identitySelect.value as 'global' | 'path');
+				this.applyChange();
+			});
+		}
 
 		if (this.splitPanel?.mi === mi && this.splitPanel.li === li) {
 			this.renderSplitPanel(tbody, m, mi, rule, li);
@@ -3136,6 +3194,16 @@ export class MappingWorkbench {
 	private firstRow(): Record<string, unknown> | null {
 		const rows = this.opts.parsedData.rows;
 		if (!isEagerRows(rows) || rows.length === 0) return null;
+		const lastLevel = this.mapping.nest?.[this.mapping.nest.length - 1]?.level;
+		if (lastLevel && this.expandedRows) {
+			const deepest = this.expandedRows.find((row) => {
+				const lineage = row._cw;
+				return typeof lineage === 'object'
+					&& lineage !== null
+					&& (lineage as { level?: unknown }).level === lastLevel;
+			});
+			if (deepest) return deepest;
+		}
 		return rows[0] as Record<string, unknown>;
 	}
 

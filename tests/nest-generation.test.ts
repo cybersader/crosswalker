@@ -11,6 +11,7 @@ import type { ParsedData, SourceContainer } from '../src/types/config';
 import type { StructureMapping } from '../src/import/mapping/types';
 import { setFolderDepth } from '../src/import/mapping/view-model';
 import { toRecipeRegions } from '../src/import/mapping/serialize';
+import { validateRecipe } from '../src/validation/validator';
 
 Object.assign(globalThis, { TextDecoder, TextEncoder });
 
@@ -364,24 +365,24 @@ describe('nested generation', () => {
 		expect(skipped.some((warning) => warning.row === 12)).toBe(true);
 	});
 
-	it('D9 depth one emits group and control notes while recording parts as control properties', async () => {
+	it('N12 depth one leaves nested parts out and emits only group and control notes', async () => {
 		const nest = [
 			{ level: 'group', id: '{id}', children: 'controls', carry: ['title'], leaf: 'folder-note' as const },
-			{ level: 'control', id: '{id}', children: 'parts', carry: ['title', 'parts'], leaf: 'folder-note' as const },
-			{ level: 'part', id: '{id}', leaf: 'none' as const },
+			{ level: 'control', id: '{id}', children: 'parts', carry: ['title'], leaf: 'folder-note' as const },
+			{ level: 'part', id: '{id}' },
 		];
 		const mapping: StructureMapping = {
 			levels: [
 				{ level: 'group', source: { column: '_cw.ancestors.group.id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
 				{ level: 'control', source: { column: '_cw.ancestors.control.id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
-				{ level: 'part', source: { column: '_cw.ancestors.control.parts' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'part', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
 			],
 		};
 		const reshaped = setFolderDepth(mapping, 1, nest);
+		expect(reshaped.mapping.levels[2].destinations).toEqual([]);
+		expect(reshaped.nest?.[2].leaf).toBe('none');
+
 		const regions = toRecipeRegions({ mappings: [reshaped.mapping], nest: reshaped.nest });
-		if (regions.also_emit?.frontmatter?.managed) {
-			regions.also_emit.frontmatter.managed.part = '{_cw.ancestors.control.parts|optional}';
-		}
 		const recipe: Recipe = {
 			recipe: 'test:oscal-mini-depth-one',
 			source: {
@@ -394,22 +395,26 @@ describe('nested generation', () => {
 				also_emit: regions.also_emit,
 			},
 		};
+		const validation = validateRecipe(recipe);
+		expect(validation.errors).toEqual([]);
+		expect(validation.valid).toBe(true);
+
 		const vault = makeApp();
 		const result = await generateFromRecipe(vault.app, await parsed(), recipe, OPTIONS);
 		expect(result.errors).toEqual([]);
+		expect(result.success).toBe(true);
 		expect(result.created).toHaveLength(9);
+		expect(new Set(result.created).size).toBe(9);
+
 		const notes = [...vault.files.values()].map(frontmatter);
-		expect(notes.filter((note) => note.level === 'part')).toHaveLength(0);
-		const controlNotes = notes.filter((note) => Array.isArray(note.part));
-		expect(controlNotes).toHaveLength(6);
-		expect(controlNotes.reduce(
-			(total, note) => total + (Array.isArray(note.part) ? note.part.length : 0),
-			0,
-		)).toBe(12);
 		const claimed = new Set(notes.map((note) => String(note.curie)));
+		const groupIds = fixture.catalog.groups.map((group) => group.id);
+		const controlIds = fixture.catalog.groups.flatMap((group) => group.controls.map((control) => control.id));
 		const partIds = fixture.catalog.groups.flatMap((group) =>
 			group.controls.flatMap((control) => control.parts.map((part) => part.id)),
 		);
+		expect(groupIds.filter((id) => claimed.has(`oscal-mini:${id}`))).toHaveLength(3);
+		expect(controlIds.filter((id) => claimed.has(`oscal-mini:${id}`))).toHaveLength(6);
 		expect(partIds.filter((id) => claimed.has(`oscal-mini:${id}`))).toEqual([]);
 	});
 

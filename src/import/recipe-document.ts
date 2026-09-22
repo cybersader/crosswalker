@@ -402,11 +402,11 @@ export function diagnoseCanonicalRecipe(recipe: CrosswalkerImportRecipe): Recipe
 					));
 				}
 			}
-			if (isLast && entry.leaf !== undefined) {
+			if (isLast && entry.leaf === 'folder-note') {
 				diagnostics.push(blocking(
 					'nest-last-has-leaf',
 					`source.nest.${index}.leaf`,
-					`The last nest level "${entry.level}" is the note itself; leaf applies only to levels that have children.`,
+					`The last nest level "${entry.level}" is the note itself; folder-note applies only to levels that have children.`,
 				));
 			}
 		}

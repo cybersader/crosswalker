@@ -904,7 +904,7 @@ describe('folder depth view model', () => {
 		expect(folderDepthOf(result.mapping)).toBe(0);
 	});
 
-	it('sets nested folder leaves and preserves all non-placing destinations', () => {
+	it('sets nested folder leaves, suppresses demoted rows, and preserves other destinations', () => {
 		const mapping = nestedMapping();
 		const nest = [
 			{ level: 'group', id: '{id}', children: 'controls' },
@@ -914,11 +914,13 @@ describe('folder depth view model', () => {
 		const result = setFolderDepth(mapping, 1, nest);
 		expect(result.mapping.levels[0].destinations).toContainEqual({ primitive: 'folder' });
 		expect(result.mapping.levels[1].destinations).toContainEqual({ primitive: 'name' });
-		expect(result.mapping.levels[2].destinations).toContainEqual({ primitive: 'tag' });
+		expect(result.mapping.levels[2].destinations).toEqual([{ primitive: 'tag' }]);
 		expect(result.nest?.[0].leaf).toBe('folder-note');
-		expect(result.nest?.[1].leaf).toBe('none');
+		expect(result.nest?.[1].leaf).toBeUndefined();
+		expect(result.nest?.[2].leaf).toBe('none');
 		const regions = toRecipeRegions({ mappings: [result.mapping], nest: result.nest });
 		expect(regions.nest?.[1].leaf).toBeUndefined();
+		expect(regions.nest?.[2].leaf).toBe('none');
 		expect(nest[0].leaf).toBeUndefined();
 	});
 

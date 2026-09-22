@@ -123,9 +123,10 @@ export function maxFolderDepthOf(m: StructureMapping): number {
  * Reshape a mapping to exactly `depth` folder levels, immutably:
  *   rows 0..depth-1 gain `folder`, lose `name`;
  *   row depth becomes the leaf: gains `name`, loses `folder`;
- *   rows depth+1..end lose `folder` and `name`, gain `property` (key = the row's level id) when they have no other destination;
+ *   rows depth+1..end lose `folder` and `name`; non-nested rows gain `property` (key = the row's level id) when they have no other destination;
+ *   nested rows below the note also lose `property`, keep any other destinations, and gain `leaf: none` so the source stage does not emit them;
  *   a variadic tail is kept when depth >= levels.length and dropped otherwise, with its folder destination gone.
- * Other destinations on every row are untouched. Nested folder rows gain `leaf: folder-note`; other nested leaf values stay as-is.
+ * Other destinations on every row are untouched. Nested folder rows gain `leaf: folder-note`; the note row has no leaf override.
  * Returns `m` unchanged when depth is out of range or already equals folderDepthOf(m).
  */
 export function setFolderDepth(
@@ -141,6 +142,7 @@ export function setFolderDepth(
 
 	const keepTail = m.tail !== undefined && depth === maximum;
 	const fixedFolderDepth = keepTail ? Math.max(0, m.levels.length - 1) : depth;
+	const nestedLevels = new Set(nest?.map((entry) => entry.level) ?? []);
 	const levels = m.levels.map((level, index) => {
 		const other = level.destinations.filter(
 			(destination) => destination.primitive !== 'folder' && destination.primitive !== 'name',
@@ -150,6 +152,8 @@ export function setFolderDepth(
 			destinations = [...other, { primitive: 'folder' }];
 		} else if (index === fixedFolderDepth) {
 			destinations = [...other, { primitive: 'name' }];
+		} else if (nestedLevels.has(level.level)) {
+			destinations = other.filter((destination) => destination.primitive !== 'property');
 		} else {
 			destinations = other.length > 0
 				? other
@@ -169,12 +173,24 @@ export function setFolderDepth(
 		}
 		: undefined;
 	const mapping = { ...m, levels, ...(tail ? { tail } : { tail: undefined }) };
-	const folderLevels = new Set(levels.slice(0, fixedFolderDepth).map((level) => level.level));
-	const nextNest = nest?.map((entry) =>
-		folderLevels.has(entry.level) && entry.leaf !== 'folder-note'
-			? { ...entry, leaf: 'folder-note' as const }
-			: entry,
-	);
+	const levelIndexes = new Map(levels.map((level, index) => [level.level, index]));
+	const nextNest = nest?.map((entry) => {
+		const index = levelIndexes.get(entry.level);
+		if (index === undefined) return entry;
+		if (index < fixedFolderDepth) {
+			return entry.leaf === 'folder-note'
+				? entry
+				: { ...entry, leaf: 'folder-note' as const };
+		}
+		if (index > fixedFolderDepth) {
+			return entry.leaf === 'none'
+				? entry
+				: { ...entry, leaf: 'none' as const };
+		}
+		if (entry.leaf === undefined) return entry;
+		const { leaf: _leaf, ...noteEntry } = entry;
+		return noteEntry;
+	});
 	return { mapping, nest: nextNest };
 }
 

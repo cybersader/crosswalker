@@ -205,12 +205,16 @@ describe('SchemaVer 1.13.0 source.nest semantic diagnostics', () => {
 		);
 	});
 
-	it('forbids leaf on the last level', () => {
-		const recipe = nestedRecipe();
-		nestEntries(recipe)[2].leaf = 'folder-note';
+	it('allows leaf none on the last level and forbids folder-note there', () => {
+		const suppressed = nestedRecipe();
+		nestEntries(suppressed)[2].leaf = 'none';
+		expect(diagnoseCanonicalRecipe(suppressed).filter((diagnostic) => diagnostic.severity === 'blocking')).toEqual([]);
+
+		const folderNote = nestedRecipe();
+		nestEntries(folderNote)[2].leaf = 'folder-note';
 		expectBlockingMessage(
-			recipe,
-			'The last nest level "part" is the note itself; leaf applies only to levels that have children.',
+			folderNote,
+			'The last nest level "part" is the note itself; folder-note applies only to levels that have children.',
 		);
 	});
 

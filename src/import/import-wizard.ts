@@ -3670,9 +3670,11 @@ export class ImportFlow {
 		parent.createDiv({ cls: 'crosswalker-json-nest-summary', text: summary });
 		const choices = parent.createDiv({ cls: 'crosswalker-json-nest-choices' });
 		const name = `json-nest-${candidate.iterator || 'root'}`;
+		const names = [candidate.name, ...chain.map((entry) => entry.field)];
+		const total = candidate.count + chain.reduce((count, entry) => count + entry.count, 0);
 		for (const option of [
-			{ value: 'nested', label: `Nested (${chain.length + 1} levels)` },
-			{ value: 'flat', label: 'Only this list' },
+			{ value: 'nested', label: `Nested: ${names.join(', ')} (${total} notes)` },
+			{ value: 'flat', label: `Only ${candidate.name} (${candidate.count} notes)` },
 		] as const) {
 			const label = choices.createEl('label');
 			const radio = label.createEl('input', { type: 'radio', attr: { name, value: option.value } });
@@ -3716,12 +3718,13 @@ export class ImportFlow {
 			const intro = container.createEl('div', { cls: 'crosswalker-json-intro' });
 			intro.createEl('div', { text: 'Where are your records?', cls: 'crosswalker-json-intro-title' });
 			intro.createEl('div', {
-				text: 'This file nests its records inside it. Pick the list to import — each item in it becomes one note.',
+				text: 'This file nests its records inside it. Pick the list to import. Each item becomes one note; a list holding records inside it can also bring those in as nested notes.',
 				cls: 'setting-item-description'
 			});
 			const pickList = container.createEl('div', { cls: 'crosswalker-json-picklist' });
 			const renderPicks = () => {
 				pickList.empty();
+				const nestRoot = st.candidates.find((candidate) => candidate.nested?.length);
 				for (const c of st.candidates.slice(0, 6)) {
 					const selected = this.jsonIterator === c.iterator;
 					const card = pickList.createEl('div', {
@@ -3735,7 +3738,7 @@ export class ImportFlow {
 					titleLine.createEl('span', { text: this.recordsLabel(c.count), cls: 'crosswalker-json-count' });
 					this.renderSamplePreview(body, c.sample, c.sampleKeys, c.fieldCount);
 					if (c.label !== c.name) this.renderPathHint(body, c.label);
-					this.renderJsonNestChoice(body, c);
+					if (c === nestRoot) this.renderJsonNestChoice(body, c);
 					card.addEventListener('click', () => {
 						this.setJsonIterator(c.iterator);
 						renderPicks();
@@ -4005,7 +4008,13 @@ export class ImportFlow {
 					skippedNonObjects: jsonResult.skippedNonObjects
 				});
 
-				new Notice(`Parsed ${jsonResult.rowCount} rows with ${jsonResult.columns.length} columns.`);
+				const root = this.jsonStructure?.candidates.find((candidate) => candidate.iterator === this.jsonNest);
+				const chain = root?.nested ?? [];
+				if (root) {
+					new Notice(`Parsed ${root.count + chain.reduce((count, entry) => count + entry.count, 0)} records across ${chain.length + 1} levels: ${root.name} (${root.count}), ${chain.map((entry) => `${entry.field} (${entry.count})`).join(', ')}.`);
+				} else {
+					new Notice(`Parsed ${jsonResult.rowCount} rows with ${jsonResult.columns.length} columns.`);
+				}
 			}
 
 			this.applySmartDefaults();

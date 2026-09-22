@@ -1751,6 +1751,14 @@
 	color: var(--text-faint);
 	font-family: var(--font-monospace);
 }
+.crosswalker-json-nest-summary { margin-top: 6px; font-size: 0.85em; }
+.crosswalker-json-nest-choices {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--cw-s1) var(--cw-s4);
+	margin-top: var(--cw-s1);
+}
+.crosswalker-json-nest-choices label { display: inline-flex; align-items: center; gap: var(--cw-s1); }
 
 /* Reset-imports modal: dim the protected (non-deletable) corpus rows */
 .crosswalker-fixture-protected {
@@ -2162,7 +2170,7 @@
 }
 .crosswalker-wb-depth label { font-weight: 600; }
 .crosswalker-wb-depth select { min-width: 120px; }
-.crosswalker-wb-depth-hint { flex: 1 1 240px; font-size: var(--cw-fs-small); color: var(--text-muted); }
+.crosswalker-wb-depth-hint { flex: 1 1 240px; min-width: 0; font-size: var(--cw-fs-small); line-height: 1.45; color: var(--text-muted); }
 
 .crosswalker-wb-combined { margin: var(--cw-s3) 0; }
 .crosswalker-wb-combined-label { font-size: var(--cw-fs-small); color: var(--text-muted); margin-bottom: var(--cw-s1); }
@@ -2191,6 +2199,14 @@
 	padding: 1px 6px; cursor: pointer; color: var(--text-muted);
 }
 .crosswalker-wb-gestures button:hover { border-color: var(--interactive-accent); color: var(--text-normal); }
+.crosswalker-wb-matrix tr:has(+ .crosswalker-wb-nest-row) td { border-bottom: none; }
+.crosswalker-wb-nest-controls {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--cw-s1) var(--cw-s3);
+	font-size: var(--cw-fs-small);
+}
+.crosswalker-wb-nest-controls label { display: inline-flex; align-items: center; gap: var(--cw-s1); }
 
 /* Inline delimiter-set editor under one matrix row. */
 .crosswalker-wb-split-panel > td {

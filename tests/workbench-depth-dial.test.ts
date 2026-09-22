@@ -88,7 +88,7 @@ describe('workbench Depth dial', () => {
 		]);
 		expect(select.value).toBe('2');
 		expect(host.querySelector('.crosswalker-wb-depth-hint')?.textContent).toBe(
-			'2 folders, then the note; 0 levels recorded as properties.',
+			'Each group and control becomes a folder; each part becomes a note.',
 		);
 	});
 
@@ -101,9 +101,24 @@ describe('workbench Depth dial', () => {
 		const result = wb.getMapping();
 		expect(result.mappings[0].levels[0].destinations).toContainEqual({ primitive: 'folder' });
 		expect(result.mappings[0].levels[1].destinations).toContainEqual({ primitive: 'name' });
-		expect(result.mappings[0].levels[2].destinations).toContainEqual({ primitive: 'property', key: 'part' });
+		expect(result.mappings[0].levels[2].destinations).toEqual([]);
 		expect(result.nest?.[0].leaf).toBe('folder-note');
-		expect(result.nest?.[1].leaf).toBe('folder-note');
+		expect(result.nest?.[1].leaf).toBeUndefined();
+		expect(result.nest?.[2].leaf).toBe('none');
+		expect(renderDepth(wb).querySelector('.crosswalker-wb-depth-hint')?.textContent).toBe(
+			'Each group becomes a folder; each control becomes a note; part is left out of this import.',
+		);
+	});
+
+	it('describes demoted non-nested levels as properties', () => {
+		const mapping = nestedMapping();
+		delete mapping.nest;
+		mapping.mappings[0].levels[1].destinations = [{ primitive: 'name' }];
+		mapping.mappings[0].levels[2].destinations = [{ primitive: 'property', key: 'part' }];
+		const host = renderDepth(workbench(mapping));
+		expect(host.querySelector('.crosswalker-wb-depth-hint')?.textContent).toBe(
+			'Each group becomes a folder; each control becomes a note; part kept as properties.',
+		);
 	});
 
 	it('shows a disabled leading Custom option for a non-simple arrangement', () => {
@@ -114,7 +129,9 @@ describe('workbench Depth dial', () => {
 		expect(select.options[0].text).toBe('Custom');
 		expect(select.options[0].disabled).toBe(true);
 		expect(select.value).toBe('custom');
-		expect(host.textContent).toContain('Custom folder and note arrangement.');
+		expect(host.textContent).toContain(
+			'Custom arrangement. Pick a depth to reset which levels become folders and which becomes the note.',
+		);
 	});
 
 	it('hides the dial on a metadata-only mapping', () => {

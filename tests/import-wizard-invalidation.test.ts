@@ -25,6 +25,26 @@ import fixture from './fixtures/oscal-mini.json';
 type FlowApp = ConstructorParameters<typeof ImportFlow>[0];
 type FlowPlugin = ConstructorParameters<typeof ImportFlow>[1];
 
+function installDomHelpers(): void {
+	Object.assign(HTMLElement.prototype, {
+		empty(this: HTMLElement) { this.replaceChildren(); },
+		createEl(this: HTMLElement, tag: string, options: { cls?: string; text?: string; attr?: Record<string, string>; type?: string; value?: string } = {}) {
+			const element = document.createElement(tag) as HTMLElement & { value?: string; type?: string };
+			if (options.cls) element.className = options.cls;
+			if (options.text !== undefined) element.textContent = options.text;
+			for (const [key, value] of Object.entries(options.attr ?? {})) element.setAttribute(key, value);
+			if (options.type !== undefined) element.type = options.type;
+			if (options.value !== undefined) element.value = options.value;
+			this.appendChild(element);
+			return element;
+		},
+		createDiv(this: HTMLElement, options = {}) { return (this as any).createEl('div', options); },
+		createSpan(this: HTMLElement, options = {}) { return (this as any).createEl('span', options); },
+	});
+}
+
+beforeAll(installDomHelpers);
+
 /** The private parse-derived fields these tests assert on. */
 interface FlowInternals {
 	recognizedMatch: unknown;
@@ -36,6 +56,7 @@ interface FlowInternals {
 	recognizedEdited: boolean;
 	workbench: unknown;
 	curatedDestination: string | null;
+	renderJsonRecordPicker(container: HTMLElement): void;
 }
 
 function makeFlow(): ImportFlow {
@@ -270,6 +291,57 @@ describe('JSON nested-record choice', () => {
 		const resumed = makeFlow();
 		await (resumed as unknown as FlowInternals).hydrateFromDraft(draft);
 		expect(resumed.jsonNest).toBe('$.catalog.groups[*]');
+	});
+
+	it('offers one outcome-labeled nested choice on the root candidate only', () => {
+		const flow = makeFlow();
+		flow.jsonIterator = '$.catalog.groups[*]';
+		flow.jsonNest = '$.catalog.groups[*]';
+		flow.jsonStructure = {
+			rootIsArray: false,
+			rootCount: 0,
+			candidates: [
+				{
+					iterator: '$.catalog.groups[*]',
+					label: 'catalog → groups',
+					name: 'groups',
+					count: 3,
+					sampleKeys: ['id', 'title', 'controls'],
+					fieldCount: 3,
+					sample: [{ key: 'id', value: 'ac' }],
+					looksLikeEdges: false,
+					nested: [
+						{ field: 'controls', count: 6, sampleKeys: ['id'], idKey: 'id' },
+						{ field: 'parts', count: 12, sampleKeys: ['id'], idKey: 'id' },
+					],
+				},
+				{
+					iterator: '$.catalog.groups[*].controls[*]',
+					label: 'catalog → groups → controls',
+					name: 'controls',
+					count: 2,
+					sampleKeys: ['id', 'parts'],
+					fieldCount: 2,
+					sample: [{ key: 'id', value: 'ac-1' }],
+					looksLikeEdges: false,
+					nested: [{ field: 'parts', count: 4, sampleKeys: ['id'], idKey: 'id' }],
+				},
+			],
+		};
+		const host = document.createElement('div');
+		(flow as unknown as FlowInternals).renderJsonRecordPicker(host);
+
+		expect(host.querySelector('.crosswalker-json-intro .setting-item-description')?.textContent).toBe(
+			'This file nests its records inside it. Pick the list to import. Each item becomes one note; a list holding records inside it can also bring those in as nested notes.',
+		);
+		expect(host.querySelectorAll('.crosswalker-json-nest-summary')).toHaveLength(1);
+		expect(host.querySelector('.crosswalker-json-nest-summary')?.textContent).toBe(
+			'Records inside records: groups (3) hold controls (6) hold parts (12).',
+		);
+		expect(Array.from(host.querySelectorAll('.crosswalker-json-nest-choices label')).map((label) => label.textContent)).toEqual([
+			'Nested: groups, controls, parts (21 notes)',
+			'Only groups (3 notes)',
+		]);
 	});
 
 	it('builds a nested mapping only when the explicit choice matches the iterator', () => {
