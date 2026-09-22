@@ -8,6 +8,9 @@ import { generateFromRecipe } from '../src/generation/generation-engine';
 import { computeRecipeHash } from '../src/generation/hash';
 import type { Recipe } from '../src/render';
 import type { ParsedData, SourceContainer } from '../src/types/config';
+import type { StructureMapping } from '../src/import/mapping/types';
+import { setFolderDepth } from '../src/import/mapping/view-model';
+import { toRecipeRegions } from '../src/import/mapping/serialize';
 
 Object.assign(globalThis, { TextDecoder, TextEncoder });
 
@@ -108,8 +111,8 @@ function nestedRecipe(where?: string): Recipe {
 		},
 		target: {
 			layout: [
-				{ level: 'group', mechanism: 'folder', template: '{_cw.ancestors.group.id|optional}' },
-				{ level: 'control', mechanism: 'folder', template: '{_cw.ancestors.control.id|optional}' },
+				{ level: 'group', mechanism: 'folder', template: '{_cw.ancestors.group.id}' },
+				{ level: 'control', mechanism: 'folder', template: '{_cw.ancestors.control.id}' },
 				{ level: 'part', mechanism: 'file', template: '{id}.md' },
 			],
 			also_emit: {
@@ -182,6 +185,11 @@ describe('nested generation', () => {
 		expect(frontmatter(vault.files.get('Out/ac/ac-1/statement.md')!).curie).toBe('oscal-mini:ac/ac-1/statement');
 
 		const set = frontmatter(vault.files.get('Out/ac/ac.md')!)._crosswalker.import_set;
+		expect(set.nest_identity).toEqual({
+			group: 'global',
+			control: 'global',
+			part: 'path',
+		});
 		const expandedGroups = JSON.parse(JSON.stringify(groups)) as Record<string, unknown>[];
 		(expandedGroups[0].controls as Record<string, unknown>[]).push({
 			id: 'ac-3',
@@ -197,6 +205,49 @@ describe('nested generation', () => {
 			expect(frontmatter(vault.files.get(path)!).curie).toBe(curie);
 		}
 		expect(frontmatter(vault.files.get('Out/ac/ac-3/statement.md')!).curie).toBe('oscal-mini:ac/ac-3/statement');
+
+		const beforeFlip = new Map(vault.files);
+		const flipped = nestedRecipe();
+		flipped.source!.nest![2].identity = 'global';
+		const refused = await generateFromRecipe(vault.app, nestedData(expandedGroups), flipped, {
+			...OPTIONS,
+			importSet: { id: set.id, scheme: set.scheme },
+		});
+		expect(refused.success).toBe(false);
+		expect(refused.created).toEqual([]);
+		expect(refused.errors).toContainEqual(expect.objectContaining({
+			message: 'source.nest.2.identity: Level "part" is named by its place in this set; import into a new set to change it.',
+		}));
+		expect(vault.files).toEqual(beforeFlip);
+	});
+
+	it('treats a legacy set with no nested identity pin as global and refuses a path recipe', async () => {
+		const vault = makeApp();
+		vault.files.set('Out/legacy.md', [
+			'---',
+			'curie: oscal-mini:legacy',
+			'_crosswalker:',
+			'  import_set:',
+			'    id: iset-old002',
+			'    scheme: endpoint-v1',
+			'    derivation: declared-facts-v1',
+			'    ontology: oscal-mini',
+			'---',
+			'# Legacy',
+		].join('\n'));
+		const recipe = nestedRecipe();
+		recipe.source!.nest![2].identity = 'path';
+		const before = new Map(vault.files);
+		const result = await generateFromRecipe(vault.app, await parsed(), recipe, {
+			...OPTIONS,
+			importSet: { id: 'iset-old002', scheme: 'endpoint-v1' },
+		});
+		expect(result.success).toBe(false);
+		expect(result.created).toEqual([]);
+		expect(result.errors[0].message).toBe(
+			'source.nest.2.identity: Level "part" is named by its place in this set; import into a new set to change it.',
+		);
+		expect(vault.files).toEqual(before);
 	});
 
 	it('N2b keeps slash-bearing path pieces distinct from hierarchy boundaries and raw tokens', async () => {
@@ -313,6 +364,55 @@ describe('nested generation', () => {
 		expect(skipped.some((warning) => warning.row === 12)).toBe(true);
 	});
 
+	it('D9 depth one emits group and control notes while recording parts as control properties', async () => {
+		const nest = [
+			{ level: 'group', id: '{id}', children: 'controls', carry: ['title'], leaf: 'folder-note' as const },
+			{ level: 'control', id: '{id}', children: 'parts', carry: ['title', 'parts'], leaf: 'folder-note' as const },
+			{ level: 'part', id: '{id}', leaf: 'none' as const },
+		];
+		const mapping: StructureMapping = {
+			levels: [
+				{ level: 'group', source: { column: '_cw.ancestors.group.id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'control', source: { column: '_cw.ancestors.control.id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'part', source: { column: '_cw.ancestors.control.parts' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+			],
+		};
+		const reshaped = setFolderDepth(mapping, 1, nest);
+		const regions = toRecipeRegions({ mappings: [reshaped.mapping], nest: reshaped.nest });
+		if (regions.also_emit?.frontmatter?.managed) {
+			regions.also_emit.frontmatter.managed.part = '{_cw.ancestors.control.parts|optional}';
+		}
+		const recipe: Recipe = {
+			recipe: 'test:oscal-mini-depth-one',
+			source: {
+				ontology: 'oscal-mini',
+				levels: ['group', 'control', 'part'],
+				nest: regions.nest,
+			},
+			target: {
+				layout: regions.layout,
+				also_emit: regions.also_emit,
+			},
+		};
+		const vault = makeApp();
+		const result = await generateFromRecipe(vault.app, await parsed(), recipe, OPTIONS);
+		expect(result.errors).toEqual([]);
+		expect(result.created).toHaveLength(9);
+		const notes = [...vault.files.values()].map(frontmatter);
+		expect(notes.filter((note) => note.level === 'part')).toHaveLength(0);
+		const controlNotes = notes.filter((note) => Array.isArray(note.part));
+		expect(controlNotes).toHaveLength(6);
+		expect(controlNotes.reduce(
+			(total, note) => total + (Array.isArray(note.part) ? note.part.length : 0),
+			0,
+		)).toBe(12);
+		const claimed = new Set(notes.map((note) => String(note.curie)));
+		const partIds = fixture.catalog.groups.flatMap((group) =>
+			group.controls.flatMap((control) => control.parts.map((part) => part.id)),
+		);
+		expect(partIds.filter((id) => claimed.has(`oscal-mini:${id}`))).toEqual([]);
+	});
+
 	it('N10 imports workbook children under controls, warns once for the unparented row, and hashes nest', async () => {
 		const controls = [
 			{ 'Control ID': '1', title: 'Inventory' },
@@ -376,6 +476,16 @@ describe('nested generation', () => {
 		expect(frontmatter(vault.files.get('Out/1/1.md')!)._crosswalker.recipe.hash).toBe(
 			computeRecipeHash(recipe.target, recipe.source),
 		);
+		const set = frontmatter(vault.files.get('Out/1/1.md')!)._crosswalker.import_set;
+		const refresh = await generateFromRecipe(vault.app, data, recipe, {
+			...OPTIONS,
+			curiePrefix: 'cis-mini',
+			sourceFileName: 'cis-mini.xlsx',
+			importSet: { id: set.id, scheme: set.scheme },
+		});
+		expect(refresh.errors).toEqual([]);
+		expect(refresh.orphans).toBeUndefined();
+		expect(vault.renameFile).not.toHaveBeenCalled();
 	});
 
 	it('N6 uses folders only for controls while parts keep their control parent', async () => {

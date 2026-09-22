@@ -34,8 +34,12 @@ import {
 	blockedPlacingToggle,
 	hasPlacingDestination,
 	NO_PLACE_TO_LAND,
+	folderDepthOf,
+	maxFolderDepthOf,
+	setFolderDepth,
 } from '../src/import/mapping/view-model';
 import { explainRecipeError, NOTHING_PLACED_MESSAGE } from '../src/import/mapping/diagnostics';
+import { validateRecipe } from '../src/validation/validator';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -827,6 +831,154 @@ describe('nested mapping view model', () => {
 		expect(leaf.nest?.find((entry) => entry.level === 'control')?.leaf).toBe('none');
 		expect(identity.nest?.find((entry) => entry.level === 'part')?.identity).toBe('path');
 		expect(toRecipeRegions(leaf).nest?.find((entry) => entry.level === 'control')?.leaf).toBe('none');
+	});
+});
+
+describe('folder depth view model', () => {
+	function nestedMapping(): StructureMapping {
+		return {
+			levels: [
+				{ level: 'group', source: { column: 'group' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'control', source: { column: 'control' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'part', source: { column: 'part' }, destinations: [{ primitive: 'name' }, { primitive: 'tag' }], naming: 'part', missing: 'skip', materialize: false },
+			],
+		};
+	}
+
+	function packedFourLevels(): StructureMapping {
+		return {
+			levels: Array.from({ length: 4 }, (_, index) => ({
+				level: `level-${index + 1}`,
+				source: { column: 'packed', part: index },
+				destinations: [{ primitive: index === 3 ? 'name' as const : 'folder' as const }],
+				naming: 'part' as const,
+				missing: 'skip' as const,
+				materialize: false,
+			})),
+		};
+	}
+
+	it('reads fixed depths and rejects custom placing arrangements', () => {
+		const mapping = nestedMapping();
+		expect(folderDepthOf(mapping)).toBe(2);
+		expect(maxFolderDepthOf(mapping)).toBe(2);
+		const custom: StructureMapping = {
+			...mapping,
+			levels: mapping.levels.map((level, index) => index === 2
+				? { ...level, destinations: [{ primitive: 'name' }, { primitive: 'folder' }] }
+				: level),
+		};
+		expect(folderDepthOf(custom)).toBeNull();
+	});
+
+	it('reshapes four packed levels to depth two and depth zero', () => {
+		const mapping = packedFourLevels();
+		expect(folderDepthOf(mapping)).toBe(3);
+		expect(maxFolderDepthOf(mapping)).toBe(3);
+		const depthTwo = setFolderDepth(mapping, 2).mapping;
+		expect(depthTwo.levels[0].destinations).toContainEqual({ primitive: 'folder' });
+		expect(depthTwo.levels[1].destinations).toContainEqual({ primitive: 'folder' });
+		expect(depthTwo.levels[2].destinations).toContainEqual({ primitive: 'name' });
+		expect(depthTwo.levels[3].destinations).toEqual([{ primitive: 'property', key: 'level-4' }]);
+		expect(depthTwo.levels.slice(2).flatMap((level) => level.destinations))
+			.not.toContainEqual({ primitive: 'folder' });
+		const flat = setFolderDepth(mapping, 0).mapping;
+		expect(flat.levels[0].destinations).toContainEqual({ primitive: 'name' });
+		expect(flat.levels.slice(1).map((level) => level.destinations[0])).toEqual([
+			{ primitive: 'property', key: 'level-2' },
+			{ primitive: 'property', key: 'level-3' },
+			{ primitive: 'property', key: 'level-4' },
+		]);
+	});
+
+	it('sets depth zero immutably and records lower levels as properties', () => {
+		const mapping = nestedMapping();
+		const snapshot = JSON.parse(JSON.stringify(mapping));
+		const result = setFolderDepth(mapping, 0);
+		expect(mapping).toEqual(snapshot);
+		expect(result.mapping.levels[0].destinations).toContainEqual({ primitive: 'name' });
+		expect(result.mapping.levels[1].destinations).toEqual([{ primitive: 'property', key: 'control' }]);
+		expect(result.mapping.levels[2].destinations).toEqual([
+			{ primitive: 'tag' },
+		]);
+		expect(folderDepthOf(result.mapping)).toBe(0);
+	});
+
+	it('sets nested folder leaves and preserves all non-placing destinations', () => {
+		const mapping = nestedMapping();
+		const nest = [
+			{ level: 'group', id: '{id}', children: 'controls' },
+			{ level: 'control', id: '{id}', children: 'parts', leaf: 'none' as const },
+			{ level: 'part', id: '{id}' },
+		];
+		const result = setFolderDepth(mapping, 1, nest);
+		expect(result.mapping.levels[0].destinations).toContainEqual({ primitive: 'folder' });
+		expect(result.mapping.levels[1].destinations).toContainEqual({ primitive: 'name' });
+		expect(result.mapping.levels[2].destinations).toContainEqual({ primitive: 'tag' });
+		expect(result.nest?.[0].leaf).toBe('folder-note');
+		expect(result.nest?.[1].leaf).toBe('none');
+		const regions = toRecipeRegions({ mappings: [result.mapping], nest: result.nest });
+		expect(regions.nest?.[1].leaf).toBeUndefined();
+		expect(nest[0].leaf).toBeUndefined();
+	});
+
+	it('round-trips depth two with nested folder-note consistency', () => {
+		const nest = [
+			{ level: 'group', id: '{id}', children: 'controls' },
+			{ level: 'control', id: '{id}', children: 'parts' },
+			{ level: 'part', id: '{id}' },
+		];
+		const flat = setFolderDepth(nestedMapping(), 0).mapping;
+		const changed = setFolderDepth(flat, 2, nest);
+		const regions = toRecipeRegions({ mappings: [changed.mapping], nest: changed.nest });
+		expect(regions.nest?.[0].leaf).toBe('folder-note');
+		expect(regions.nest?.[1].leaf).toBe('folder-note');
+		expect(regions.nest?.[2].leaf).toBeUndefined();
+		const back = fromRegions(regions);
+		expect(folderDepthOf(back.mappings[0])).toBe(2);
+		expect(back.nest).toEqual(regions.nest);
+		const validation = validateRecipe({
+			recipe: 'test:depth-two-round-trip',
+			source: { ontology: 'test', levels: ['group', 'control', 'part'], nest: regions.nest },
+			target: { layout: regions.layout, also_emit: regions.also_emit },
+		});
+		expect(validation.errors).toEqual([]);
+		expect(validation.valid).toBe(true);
+	});
+
+	it('drops a variadic tail below maximum and keeps it as the final folder at maximum', () => {
+		const mapping = nestedMapping();
+		mapping.tail = {
+			source: { column: 'remainder' },
+			destinations: [{ primitive: 'folder' }, { primitive: 'tag' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		};
+		expect(maxFolderDepthOf(mapping)).toBe(3);
+		const shallow = setFolderDepth(mapping, 1).mapping;
+		expect(shallow.tail).toBeUndefined();
+		const deepest = setFolderDepth(mapping, 3).mapping;
+		expect(folderDepthOf(deepest)).toBe(3);
+		expect(deepest.tail?.destinations).toEqual([
+			{ primitive: 'folder' },
+			{ primitive: 'tag' },
+		]);
+		expect(deepest.levels[2].destinations).toContainEqual({ primitive: 'name' });
+	});
+
+	it('keeps a place for notes at every selectable depth', () => {
+		const mapping = nestedMapping();
+		for (let depth = 0; depth <= maxFolderDepthOf(mapping); depth++) {
+			expect(hasPlacingDestination(setFolderDepth(mapping, depth).mapping)).toBe(true);
+		}
+	});
+
+	it('returns the original model for equal and out-of-range depths', () => {
+		const mapping = nestedMapping();
+		expect(setFolderDepth(mapping, 2).mapping).toBe(mapping);
+		expect(setFolderDepth(mapping, -1).mapping).toBe(mapping);
+		expect(setFolderDepth(mapping, 3).mapping).toBe(mapping);
 	});
 });
 

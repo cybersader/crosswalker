@@ -39,6 +39,7 @@ import type {
 } from './types';
 import { destinationRank, toSourceRefs, isConstantRef, DEFAULT_MISSING } from './types';
 import { normalizeFolderSetting } from '../../settings/folder-settings';
+import type { NestedRecordLevel } from '../../types/generated/recipe';
 
 // ============================================================================
 // Shape cards (the coarse, per-mapping summary view — M2)
@@ -88,6 +89,93 @@ function rowsOf(m: StructureMapping): Row[] {
 		rows.push({ kind: 'tail', source: m.tail.source, destinations: m.tail.destinations, isLeaf: false });
 	}
 	return rows;
+}
+
+/** Folder depth of a mapping: the count of leading rows whose destinations include `folder`. Null when the rows are not in the shape "N folders, then a leaf" (e.g. a folder after a name row), so the dial shows "Custom". */
+export function folderDepthOf(m: StructureMapping): number | null {
+	const nameRows = m.levels
+		.map((level, index) => level.destinations.some((d) => d.primitive === 'name') ? index : -1)
+		.filter((index) => index >= 0);
+	if (nameRows.length !== 1) return null;
+	const leafIndex = nameRows[0];
+	for (let index = 0; index < m.levels.length; index++) {
+		const destinations = m.levels[index].destinations;
+		const hasFolder = destinations.some((d) => d.primitive === 'folder');
+		const hasName = destinations.some((d) => d.primitive === 'name');
+		if (index < leafIndex && (!hasFolder || hasName)) return null;
+		if (index === leafIndex && (hasFolder || !hasName)) return null;
+		if (index > leafIndex && (hasFolder || hasName)) return null;
+	}
+	if (!m.tail) return leafIndex;
+	const tailHasFolder = m.tail.destinations.some((d) => d.primitive === 'folder');
+	const tailHasName = m.tail.destinations.some((d) => d.primitive === 'name');
+	return tailHasFolder && !tailHasName && leafIndex === m.levels.length - 1
+		? leafIndex + 1
+		: null;
+}
+
+/** The maximum meaningful depth: the number of level rows (the tail, when present, counts as one more). */
+export function maxFolderDepthOf(m: StructureMapping): number {
+	return Math.max(0, m.levels.length - 1) + (m.tail ? 1 : 0);
+}
+
+/**
+ * Reshape a mapping to exactly `depth` folder levels, immutably:
+ *   rows 0..depth-1 gain `folder`, lose `name`;
+ *   row depth becomes the leaf: gains `name`, loses `folder`;
+ *   rows depth+1..end lose `folder` and `name`, gain `property` (key = the row's level id) when they have no other destination;
+ *   a variadic tail is kept when depth >= levels.length and dropped otherwise, with its folder destination gone.
+ * Other destinations on every row are untouched. Nested folder rows gain `leaf: folder-note`; other nested leaf values stay as-is.
+ * Returns `m` unchanged when depth is out of range or already equals folderDepthOf(m).
+ */
+export function setFolderDepth(
+	m: StructureMapping,
+	depth: number,
+	nest?: NestedRecordLevel[],
+): { mapping: StructureMapping; nest?: NestedRecordLevel[] } {
+	const maximum = maxFolderDepthOf(m);
+	if (!Number.isInteger(depth) || depth < 0 || depth > maximum) {
+		return { mapping: m, nest };
+	}
+	if (folderDepthOf(m) === depth) return { mapping: m, nest };
+
+	const keepTail = m.tail !== undefined && depth === maximum;
+	const fixedFolderDepth = keepTail ? Math.max(0, m.levels.length - 1) : depth;
+	const levels = m.levels.map((level, index) => {
+		const other = level.destinations.filter(
+			(destination) => destination.primitive !== 'folder' && destination.primitive !== 'name',
+		);
+		let destinations: Destination[];
+		if (index < fixedFolderDepth) {
+			destinations = [...other, { primitive: 'folder' }];
+		} else if (index === fixedFolderDepth) {
+			destinations = [...other, { primitive: 'name' }];
+		} else {
+			destinations = other.length > 0
+				? other
+				: [{ primitive: 'property', key: level.level }];
+		}
+		return { ...level, destinations: sortDestinations(destinations) };
+	});
+	const tail = keepTail && m.tail
+		? {
+			...m.tail,
+			destinations: sortDestinations([
+				...m.tail.destinations.filter(
+					(destination) => destination.primitive !== 'folder' && destination.primitive !== 'name',
+				),
+				{ primitive: 'folder' },
+			]),
+		}
+		: undefined;
+	const mapping = { ...m, levels, ...(tail ? { tail } : { tail: undefined }) };
+	const folderLevels = new Set(levels.slice(0, fixedFolderDepth).map((level) => level.level));
+	const nextNest = nest?.map((entry) =>
+		folderLevels.has(entry.level) && entry.leaf !== 'folder-note'
+			? { ...entry, leaf: 'folder-note' as const }
+			: entry,
+	);
+	return { mapping, nest: nextNest };
 }
 
 /**

@@ -147,6 +147,21 @@ describe('expandNestedRows', () => {
 		const result = await expand(groups(), nest);
 		expect(result.rows).toHaveLength(21);
 	});
+
+	it('refuses a reserved _cw field on a child record with its declaration path', async () => {
+		const rows = groups();
+		((rows[0].controls as Row[])[0] as Row)._cw = { source: true };
+		try {
+			await expand(rows);
+			throw new Error('Expected nested expansion to refuse the reserved field.');
+		} catch (error) {
+			const refusal = error as SourceStageError;
+			expect(refusal.declaration).toBe('source.nest.1.children');
+			expect(refusal.message).toBe(
+				'source.nest.1.children: Column "_cw" is reserved for nested-record lineage. Rename it in the source and import again.',
+			);
+		}
+	});
 });
 
 describe('join-sourced nested children', () => {
@@ -231,6 +246,18 @@ describe('join-sourced nested children', () => {
 });
 
 describe('nested source-stage order', () => {
+	it('refuses streamed files with a format-neutral cause and action', async () => {
+		const rows = groups();
+		const streamed: ParsedData = {
+			columns: ['id', 'title', 'controls'],
+			rows: (async function* () { for (const row of rows) yield row; })(),
+			rowCount: -1,
+		};
+		await expect(prepareSourceStage(streamed, { nest: NEST })).rejects.toThrow(
+			'Nested records need the whole source in memory. Import the file without streaming.',
+		);
+	});
+
 	it('expands before where, admits _cw in G2, and preserves children of an excluded parent', async () => {
 		const { stage, out } = await drain(parsed(), {
 			nest: NEST,
@@ -244,7 +271,7 @@ describe('nested source-stage order', () => {
 		for (const row of auControls) {
 			const lineage = row._cw as any;
 			expect(lineage.parent).toBe('au');
-			expect(lineage.ancestors.group).toEqual({});
+			expect(lineage.ancestors.group).toEqual({ id: '', title: '' });
 		}
 	});
 

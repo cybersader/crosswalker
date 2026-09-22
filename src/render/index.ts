@@ -287,17 +287,18 @@ export function render(
 			(entry) => entry.level === activeNestEntry!.level && entry.mechanism === 'file',
 		);
 		if (isNonLeaf && !hasDeclaredFile) {
-			if (activeNestEntry.leaf === 'folder-note' && lastAppliedFolder) {
-				const implicitTemplate = `${lastAppliedFolder.template}.md`;
-				applyFile(address, {
-					level: activeNestEntry.level,
-					mechanism: 'file',
-					template: implicitTemplate,
-				}, identity.scope, report, layoutValues);
+			if (activeNestEntry.leaf === 'folder-note') {
+				if (!lastAppliedFolder || lastAppliedFolder.level !== activeNestEntry.level) {
+					throw new RenderError(
+						`Level "${activeNestEntry.level}" rendered no folder of its own, so it has no folder-note address. Fix its folder template or set leaf to none.`,
+					);
+				}
+				const last = address.primary.path.split('/').pop()!;
+				address.primary.path = `${address.primary.path}/${last}.md`;
 				report?.notes.push({
 					code: 'nest-folder-note-leaf',
 					level: activeNestEntry.level,
-					template: implicitTemplate,
+					template: `${last}.md`,
 					detail: `Nest level "${activeNestEntry.level}" used its declared folder-note leaf.`,
 				});
 			} else if (activeNestEntry.leaf !== 'none') {

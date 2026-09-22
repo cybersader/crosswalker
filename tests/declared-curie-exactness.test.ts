@@ -119,6 +119,36 @@ describe('pathIdentityLocalPart', () => {
 
 	it('does not let a raw slash token collide with an escaped slash', () => {
 		expect(pathIdentityLocalPart(['a--2f--b'])).not.toBe(pathIdentityLocalPart(['a/b']));
+		expect(pathIdentityLocalPart(['a/aa5749660d'])).not.toBe(pathIdentityLocalPart(['a--2f']));
+	});
+
+	it('is injective across random slash and marker-shaped path pieces', () => {
+		let seed = 0x5eed1234;
+		const random = (): number => {
+			seed = (seed * 1664525 + 1013904223) >>> 0;
+			return seed / 0x100000000;
+		};
+		const alphabet = ['a', '/', '-', '2', 'f', '0', '1', '3', '4', '5', '6', '7', '8', '9'];
+		const pieces = Array.from({ length: 200 }, () => {
+			const length = 1 + Math.floor(random() * 12);
+			return Array.from({ length }, () => alphabet[Math.floor(random() * alphabet.length)]).join('');
+		});
+		const paths: string[][] = [];
+		for (let index = 0; index < pieces.length;) {
+			const width = Math.min(1 + Math.floor(random() * 3), pieces.length - index);
+			paths.push(pieces.slice(index, index + width));
+			index += width;
+		}
+		const claims = new Map<string, string>();
+		let collisionCount = 0;
+		for (const path of paths) {
+			const source = JSON.stringify(path);
+			const local = pathIdentityLocalPart(path);
+			const first = claims.get(local);
+			if (first !== undefined && first !== source) collisionCount += 1;
+			else claims.set(local, source);
+		}
+		expect(collisionCount).toBe(0);
 	});
 });
 

@@ -118,6 +118,12 @@ export async function expandNestedRows(
 			ancestors,
 		};
 
+		if ('_cw' in record) {
+			throw new SourceStageError(
+				'Column "_cw" is reserved for nested-record lineage. Rename it in the source and import again.',
+				{ declaration: `source.nest.${levelIndex}.children` },
+			);
+		}
 		const emitted: Row = { ...record, _cw: lineage };
 		if (typeof entry.children === 'string') delete emitted[entry.children];
 		if (entry.leaf !== 'none') rows.push(emitted);

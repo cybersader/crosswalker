@@ -89,6 +89,9 @@ import {
 	buildParentPlacementPreview,
 	shapeCardHint,
 	blockedPlacingToggle,
+	folderDepthOf,
+	maxFolderDepthOf,
+	setFolderDepth,
 	type ShapeCardId,
 	type Provenance,
 	type PathTreeNode,
@@ -791,9 +794,21 @@ export class MappingWorkbench {
 	}
 
 	/** Replace one shape mapping and commit. */
-	private updateMapping(mi: number, next: StructureMapping, delay = 0): void {
+	private updateMapping(
+		mi: number,
+		next: StructureMapping,
+		delay = 0,
+		nestUpdate?: { value: ImportMapping['nest'] },
+	): void {
 		this.replaceMappingAt(mi, next);
+		if (nestUpdate) this.mapping = { ...this.mapping, nest: nestUpdate.value };
 		this.applyChange(delay);
+	}
+
+	/** Apply the Depth dial to both the shape mapping and its nested-source leaves. */
+	private updateFolderDepth(mi: number, mapping: StructureMapping, depth: number): void {
+		const next = setFolderDepth(mapping, depth, this.mapping.nest);
+		this.updateMapping(mi, next.mapping, 0, { value: next.nest });
 	}
 
 	/**
@@ -1272,6 +1287,7 @@ export class MappingWorkbench {
 
 		// Shape cards.
 		this.renderShapeCards(card, m, mi);
+		this.renderDepthDial(card, m, mi);
 
 		// Combined preview — one sample row through the whole mix.
 		this.renderCombinedPreview(card, mi);
@@ -1287,6 +1303,49 @@ export class MappingWorkbench {
 			this.scheduleRerender();
 		});
 		if (this.matrixOpen.has(mi)) this.renderMatrix(card, m, mi);
+	}
+
+	private renderDepthDial(card: HTMLElement, mapping: StructureMapping, mi: number): void {
+		const hasPlacingRow = [...mapping.levels, ...(mapping.tail ? [mapping.tail] : [])]
+			.some((row) => row.destinations.some((destination) =>
+				destination.primitive === 'folder'
+				|| destination.primitive === 'name'
+				|| destination.primitive === 'heading',
+			));
+		if (!hasPlacingRow) return;
+
+		const row = card.createDiv({ cls: 'crosswalker-wb-depth' });
+		row.createEl('label', { text: 'Depth' });
+		const select = row.createEl('select', {
+			cls: 'dropdown',
+			attr: { 'aria-label': 'Depth' },
+		});
+		const current = folderDepthOf(mapping);
+		if (current === null) {
+			select.createEl('option', {
+				text: 'Custom',
+				attr: { value: 'custom', disabled: 'disabled' },
+			});
+		}
+		const maximum = maxFolderDepthOf(mapping);
+		for (let depth = 0; depth <= maximum; depth++) {
+			select.createEl('option', {
+				text: depth === 0 ? 'No folders' : depth === 1 ? '1 folder' : `${depth} folders`,
+				attr: { value: String(depth) },
+			});
+		}
+		select.value = current === null ? 'custom' : String(current);
+		select.addEventListener('change', () => {
+			const depth = Number(select.value);
+			if (Number.isInteger(depth)) this.updateFolderDepth(mi, mapping, depth);
+		});
+		const propertyLevels = mapping.levels.filter((level) =>
+			level.destinations.some((destination) => destination.primitive === 'property'),
+		).length;
+		const hint = current === null
+			? 'Custom folder and note arrangement.'
+			: `${current} ${current === 1 ? 'folder' : 'folders'}, then the note; ${propertyLevels} ${propertyLevels === 1 ? 'level' : 'levels'} recorded as properties.`;
+		row.createSpan({ cls: 'crosswalker-wb-depth-hint', text: hint });
 	}
 
 	private crosswalkDestination(

@@ -101,6 +101,9 @@ export function buildProvenance(input: ProvenanceInput, pluginVersion: string): 
 			// already carry, or the next refresh recognises none of them and writes
 			// the whole framework a second time.
 			...(input.importSet.derivation ? { derivation: input.importSet.derivation } : {}),
+			// Nested level identity is another set-level identity rule. A refresh
+			// re-stamps the map unchanged so an edited recipe cannot re-identify a level.
+			...(input.importSet.nest_identity ? { nest_identity: { ...input.importSet.nest_identity } } : {}),
 		};
 	}
 

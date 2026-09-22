@@ -175,6 +175,67 @@ describe('import-set ownership discovery and selection', () => {
 		expect(resolved.destination).toBe('Frameworks');
 	});
 
+	it('pins nested identity at mint, discovers it, and carries it through refresh', async () => {
+		const nest = [
+			{ level: 'group', id: '{id}', children: 'controls' },
+			{ level: 'control', id: '{id}', identity: 'path' as const },
+		];
+		const empty = mockApp({});
+		await expect(
+			resolveImportSet(empty, 'Frameworks', undefined, undefined, nest),
+		).resolves.toMatchObject({
+			nest_identity: { group: 'global', control: 'path' },
+		});
+
+		const app = mockApp({
+			'Frameworks/A.md': {
+				raw: {
+					id: 'iset-abc123',
+					scheme: 'endpoint-v1',
+					nest_identity: { group: 'global', control: 'path' },
+				},
+			},
+			'Frameworks/B.md': {
+				raw: {
+					id: 'iset-abc123',
+					scheme: 'endpoint-v1',
+					nest_identity: { group: 'global', control: 'path' },
+				},
+			},
+		});
+		const [discovered] = await discoverImportSets(app, 'Frameworks');
+		expect(discovered.nest_identity).toEqual({ group: 'global', control: 'path' });
+		await expect(
+			resolveImportSet(app, 'Frameworks', { id: 'iset-abc123' }),
+		).resolves.toMatchObject({
+			nest_identity: { group: 'global', control: 'path' },
+		});
+	});
+
+	it('refuses an import set whose notes disagree on nested identity', async () => {
+		const app = mockApp({
+			'Frameworks/A.md': {
+				raw: {
+					id: 'iset-abc123',
+					scheme: 'endpoint-v1',
+					nest_identity: { group: 'global', control: 'path' },
+				},
+			},
+			'Frameworks/B.md': {
+				raw: {
+					id: 'iset-abc123',
+					scheme: 'endpoint-v1',
+					nest_identity: { group: 'global', control: 'global' },
+				},
+			},
+		});
+		await expect(discoverImportSets(app, 'Frameworks')).rejects.toMatchObject({
+			name: 'ImportSetProvenanceError',
+			paths: ['Frameworks/A.md', 'Frameworks/B.md'],
+			message: expect.stringContaining('different nested identity rules'),
+		});
+	});
+
 	it('allows explicit empty-set refresh and new-set minting', async () => {
 		const app = mockApp({
 			'Other/A.md': { id: 'iset-abc123', scheme: 'endpoint-v1' },

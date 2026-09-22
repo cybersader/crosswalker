@@ -154,9 +154,8 @@ export function injectiveDeclaredIdLocalPart(raw: string): string {
  */
 export function pathIdentityLocalPart(pieces: readonly string[]): string {
 	return pieces.map((piece) => {
-		const declared = injectiveDeclaredIdLocalPart(piece);
-		const markerReserved = escapeFrom(piece, declared, /$^/g, TOKEN_ESCAPE_MARKER);
-		return markerReserved.replace(/\//g, '--2f--');
+		const slashed = injectiveDeclaredIdLocalPart(piece).replace(/\//g, '--2f--');
+		return escapeFrom(piece, slashed, /$^/g, TOKEN_ESCAPE_MARKER);
 	}).join('/');
 }
 

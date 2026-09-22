@@ -71,6 +71,40 @@ describe('render nested rows', () => {
 		expect(address.primary.path).toBe('ac/ac.md');
 	});
 
+	it('refuses a folder-note level whose own folder template renders empty', () => {
+		const recipe: Recipe = {
+			...RECIPE,
+			target: {
+				...RECIPE.target,
+				layout: [
+					{ level: 'group', mechanism: 'folder', template: '{empty}' },
+					...RECIPE.target.layout.slice(1),
+				],
+			},
+		};
+		expect(() => render(recipe, {
+			curie: 'oscal-mini:ac',
+			scope: { ...scope('group'), empty: '' },
+		})).toThrow(
+			'Level "group" rendered no folder of its own, so it has no folder-note address. Fix its folder template or set leaf to none.',
+		);
+	});
+
+	it('uses the landed folder segment for a directory-prefixed folder-note template', () => {
+		const recipe: Recipe = {
+			...RECIPE,
+			target: {
+				...RECIPE.target,
+				layout: [
+					{ level: 'group', mechanism: 'folder', template: 'Frameworks/{_cw.ancestors.group.id}' },
+					...RECIPE.target.layout.slice(1),
+				],
+			},
+		};
+		const address = render(recipe, { curie: 'oscal-mini:ac', scope: scope('group') });
+		expect(address.primary.path).toBe('Frameworks/ac/ac.md');
+	});
+
 	it('renders every layout entry byte-identically when _cw is absent', () => {
 		const flat: Recipe = {
 			...RECIPE,

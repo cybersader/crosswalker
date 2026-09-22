@@ -2154,6 +2154,16 @@
 .crosswalker-wb-crosswalk-controls label { display: flex; flex-direction: column; gap: var(--cw-s1); font-size: var(--cw-fs-small); }
 .crosswalker-wb-crosswalk-summary { font-size: var(--cw-fs-small); color: var(--text-muted); line-height: 1.45; }
 
+.crosswalker-wb-depth {
+	display: flex; align-items: center; flex-wrap: wrap; gap: var(--cw-s2);
+	margin: var(--cw-s3) 0; padding: var(--cw-s2) var(--cw-s3);
+	border: 1px solid var(--background-modifier-border); border-radius: var(--cw-radius-sm);
+	background: var(--background-secondary);
+}
+.crosswalker-wb-depth label { font-weight: 600; }
+.crosswalker-wb-depth select { min-width: 120px; }
+.crosswalker-wb-depth-hint { flex: 1 1 240px; font-size: var(--cw-fs-small); color: var(--text-muted); }
+
 .crosswalker-wb-combined { margin: var(--cw-s3) 0; }
 .crosswalker-wb-combined-label { font-size: var(--cw-fs-small); color: var(--text-muted); margin-bottom: var(--cw-s1); }
 .crosswalker-wb-mini {

@@ -528,12 +528,24 @@ export async function generateNotes(
 		// Ownership is minted or selected once per run, before any note is written.
 		// Never derive this id from recipe/source/path: all are allowed to change on
 		// a legitimate refresh, while the import set must remain the same.
-		const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId);
+		const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest);
 		if (recipe.source?.nest && derivationOf(importSet) !== 'declared-facts-v1') {
 			result.errors.push({
 				row: 0,
 				message: 'Nested records need the declared-facts identity rule. This import set was minted under filename-stem-v1; import into a new set.',
 				declaration: 'source.nest',
+			});
+			result.success = false;
+			result.duration = Date.now() - startTime;
+			return result;
+		}
+
+		const nestIdentityMismatch = nestedIdentityPinMismatch(recipe.source?.nest, importSet);
+		if (nestIdentityMismatch) {
+			result.errors.push({
+				row: 0,
+				message: nestIdentityMismatch.message,
+				declaration: nestIdentityMismatch.declaration,
 			});
 			result.success = false;
 			result.duration = Date.now() - startTime;
@@ -2833,12 +2845,23 @@ export async function generateFromRecipe(
 	const proposedOntologyId = recipe.source?.ontology ?? recipe.recipe;
 	// Headless imports obey the same destination-discovery rules as the wizard.
 	// Callers can name a wiped/empty set explicitly or force a new mint.
-	const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId);
+	const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest);
 	if (recipe.source?.nest && derivationOf(importSet) !== 'declared-facts-v1') {
 		result.errors.push({
 			row: 0,
 			message: 'Nested records need the declared-facts identity rule. This import set was minted under filename-stem-v1; import into a new set.',
 			declaration: 'source.nest',
+		});
+		result.success = false;
+		result.duration = Date.now() - startTime;
+		return result;
+	}
+	const nestIdentityMismatch = nestedIdentityPinMismatch(recipe.source?.nest, importSet);
+	if (nestIdentityMismatch) {
+		result.errors.push({
+			row: 0,
+			message: nestIdentityMismatch.message,
+			declaration: nestIdentityMismatch.declaration,
 		});
 		result.success = false;
 		result.duration = Date.now() - startTime;
@@ -5509,6 +5532,25 @@ function nestedLineageOf(row: Record<string, unknown>): NestedLineage | null {
 	return { level: lineage.level, path: lineage.path as string[] };
 }
 
+function nestedIdentityPinMismatch(
+	nest: readonly NestedRecordLevel[] | undefined,
+	importSet: ImportSetReference,
+): SourceStageError | null {
+	if (!nest) return null;
+	for (let index = 0; index < nest.length; index++) {
+		const entry = nest[index];
+		const recipeIdentity = entry.identity ?? 'global';
+		const pinnedIdentity = importSet.nest_identity?.[entry.level] ?? 'global';
+		if (recipeIdentity !== pinnedIdentity) {
+			return new SourceStageError(
+				`Level "${entry.level}" is named by its place in this set; import into a new set to change it.`,
+				{ declaration: `source.nest.${index}.identity` },
+			);
+		}
+	}
+	return null;
+}
+
 /** One CURIE derivation used by nested preflight and the row-writing loops. */
 function deriveRowCurie(
 	row: Record<string, unknown>,
@@ -5528,7 +5570,15 @@ function deriveRowCurie(
 			{ declaration: 'source.nest' },
 		);
 	}
-	const localPart = entry.identity === 'path'
+	const recipeIdentity = entry.identity ?? 'global';
+	const pinnedIdentity = importSet?.nest_identity?.[lineage.level] ?? entry.identity ?? 'global';
+	if (recipeIdentity !== pinnedIdentity) {
+		throw new SourceStageError(
+			`Level "${lineage.level}" is named by its place in this set; import into a new set to change it.`,
+			{ declaration: `source.nest.${nest?.indexOf(entry) ?? 0}.identity` },
+		);
+	}
+	const localPart = pinnedIdentity === 'path'
 		? pathIdentityLocalPart(lineage.path)
 		// A nested level declares identity through its id template. The rendered
 		// value is the last lineage piece, even when the source column is named

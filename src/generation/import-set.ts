@@ -12,6 +12,7 @@ import { slugifyForCurie } from './curie';
 import { normalizeFolderSetting } from '../settings/folder-settings';
 import { IDENTITY_SENTINELS } from './legacy-recipe-shim';
 import type { KnownSource } from '../import/vault-source-scan';
+import type { NestedRecordLevel } from '../types/generated/recipe';
 
 export const IMPORT_SET_ID_PATTERN = /^iset-[a-z0-9]{6}$/;
 export const IMPORT_SET_SCHEMES = ['endpoint-v1', 'set-qualified-v1'] as const;
@@ -104,6 +105,19 @@ export interface ImportSetReference {
 	 * recorded state of every set minted before this pin, not a missing answer.
 	 */
 	derivation?: ImportSetDerivation;
+	/**
+	 * AM-27. The identity mode of every nested-record level, pinned when the set
+	 * is minted beside `derivation`.
+	 *
+	 * Failure mode prevented: a refresh reading an edited recipe that changes one
+	 * level from global identity to path identity, or back again. That edit gives
+	 * every note at the level a different CURIE, so the refresh recognises none of
+	 * the notes it owns, writes duplicates, and reports the originals as orphans.
+	 *
+	 * Optional because sets minted before nested identity was pinned carry no map.
+	 * Absence means every level is `global`; a refresh must keep that legacy fact.
+	 */
+	nest_identity?: Record<string, 'global' | 'path'>;
 }
 
 export type ImportSetOption =
@@ -158,6 +172,8 @@ interface ImportSetObservation {
 	ontology: string | null;
 	/** The derivation pinned in this note's import_set block, if any (AM-27). */
 	derivation: string | null;
+	/** Nested level identity modes pinned in this note's import_set block, if any. */
+	nestIdentity: Record<string, 'global' | 'path'> | null;
 	/** Source provenance stamped beside the import-set ownership block. */
 	sourceFile: string | null;
 	sourceHash: string | null;
@@ -384,6 +400,8 @@ export async function resolveImportSet(
 	 * therefore stops recognising the notes it owns.
 	 */
 	proposedOntology?: string,
+	/** Nested identity declarations this run would pin if it mints a new set. */
+	proposedNest?: readonly NestedRecordLevel[],
 ): Promise<ImportSetReference> {
 	// Where this run writes is stamped onto every note it writes. Recorded, not
 	// inferred: without it a later refresh has no way to ask where its own set
@@ -407,6 +425,7 @@ export async function resolveImportSet(
 		id: mintImportSetId(collectKnownIds(app)),
 		scheme,
 		derivation: CURRENT_IMPORT_SET_DERIVATION,
+		...(proposedNest?.length ? { nest_identity: nestIdentityOf(proposedNest) } : {}),
 	});
 
 	if (option === 'new') {
@@ -437,6 +456,7 @@ export async function resolveImportSet(
 					id: existing.id,
 					scheme: existing.scheme,
 					...(existing.derivation ? { derivation: existing.derivation } : {}),
+					...(existing.nest_identity ? { nest_identity: { ...existing.nest_identity } } : {}),
 				},
 				pinnedOntologyOf(existing, proposed),
 			);
@@ -546,6 +566,7 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 		const destination = readString((raw as Record<string, unknown>).destination);
 		const ontology = readString((raw as Record<string, unknown>).ontology);
 		const derivation = readString((raw as Record<string, unknown>).derivation);
+		const nestIdentity = readNestIdentity((raw as Record<string, unknown>).nest_identity, file.path);
 		// Two stamped facts about WHAT produced this note, kept beside the ownership
 		// id so a caller can ask "has this source written here before?" without
 		// re-deriving anything from the note's address. Both are optional: a note
@@ -568,6 +589,7 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 			ontologyPrefix: curiePrefix(readString((fm as Record<string, unknown>).curie)),
 			ontology,
 			derivation,
+			nestIdentity,
 			sourceFile: readString(sourceRecord?.file),
 			sourceHash: readString(sourceRecord?.source_hash),
 			producedAt: readString(provenanceRecord.produced_at),
@@ -618,6 +640,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 		const recorded = recordedDestination(group);
 		const pinnedOntology = agreedOntology(group);
 		const pinnedDerivation = agreedDerivation(id, group);
+		const pinnedNestIdentity = agreedNestIdentity(id, group);
 		sets.push({
 			id,
 			scheme,
@@ -630,6 +653,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 			...(recorded ? { destination: recorded } : {}),
 			...(pinnedOntology ? { ontology: pinnedOntology } : {}),
 			...(pinnedDerivation ? { derivation: pinnedDerivation } : {}),
+			...(pinnedNestIdentity ? { nest_identity: pinnedNestIdentity } : {}),
 		});
 	}
 	sets.sort((a, b) => a.id.localeCompare(b.id));
@@ -684,6 +708,31 @@ function assertImportSetId(id: string): void {
 	if (!IMPORT_SET_ID_PATTERN.test(id)) {
 		throw new Error(`Invalid import set id "${id}": expected iset- followed by 6 lowercase letters or digits.`);
 	}
+}
+
+function nestIdentityOf(nest: readonly NestedRecordLevel[]): Record<string, 'global' | 'path'> {
+	return Object.fromEntries(nest.map((entry) => [entry.level, entry.identity ?? 'global']));
+}
+
+function readNestIdentity(value: unknown, path: string): Record<string, 'global' | 'path'> | null {
+	if (value === undefined) return null;
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw new ImportSetProvenanceError(
+			`Invalid _crosswalker.import_set.nest_identity at ${path}: expected an object of level names to global or path.`,
+			[path],
+		);
+	}
+	const out: Record<string, 'global' | 'path'> = {};
+	for (const [level, identity] of Object.entries(value as Record<string, unknown>)) {
+		if (identity !== 'global' && identity !== 'path') {
+			throw new ImportSetProvenanceError(
+				`Invalid _crosswalker.import_set.nest_identity at ${path}: level ${level} must be global or path.`,
+				[path],
+			);
+		}
+		out[level] = identity;
+	}
+	return out;
 }
 
 function readString(value: unknown): string | null {
@@ -791,6 +840,30 @@ function agreedDerivation(id: string, group: readonly ImportSetObservation[]): I
 		.join(', ');
 	throw new ImportSetProvenanceError(
 		`Import set ${id} records two different identity derivations, so its notes cannot all be recognised by one rule: ${details}. `
+		+ 'Restore the notes that disagree from a backup, or move them out of this folder, then run the import again.',
+		paths,
+	);
+}
+
+function agreedNestIdentity(
+	id: string,
+	group: readonly ImportSetObservation[],
+): Record<string, 'global' | 'path'> | null {
+	const canonical = group.map((entry) => entry.nestIdentity === null
+		? null
+		: JSON.stringify(Object.fromEntries(Object.entries(entry.nestIdentity).sort(([a], [b]) => a.localeCompare(b)))));
+	const distinct = new Set(canonical);
+	if (distinct.size === 1) {
+		const first = group[0].nestIdentity;
+		return first === null ? null : { ...first };
+	}
+	const paths = group.map((entry) => entry.path).sort();
+	const details = group
+		.map((entry) => `${entry.path} (${entry.nestIdentity === null ? 'missing nest_identity' : JSON.stringify(entry.nestIdentity)})`)
+		.sort()
+		.join(', ');
+	throw new ImportSetProvenanceError(
+		`Import set ${id} records different nested identity rules, so its notes cannot all be recognised by one recipe: ${details}. `
 		+ 'Restore the notes that disagree from a backup, or move them out of this folder, then run the import again.',
 		paths,
 	);

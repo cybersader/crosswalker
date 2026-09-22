@@ -218,7 +218,7 @@ export async function prepareSourceStage(
 	if (nest !== undefined) {
 		if (!Array.isArray(parsedData.rows)) {
 			throw new SourceStageError(
-				'Nested records require an eager JSON source in this build. Import a JSON document without streaming.',
+				'Nested records need the whole source in memory. Import the file without streaming.',
 				{ declaration: 'source.nest' },
 			);
 		}
@@ -400,7 +400,12 @@ function omitExcludedAncestorValues(
 		.map((candidate) => candidate.level);
 	if (levels.length === 0) return row;
 	const ancestors = Object.fromEntries(
-		Object.entries(lineage.ancestors).map(([level, values]) => [level, levels.includes(level) ? {} : { ...values }]),
+		Object.entries(lineage.ancestors).map(([level, values]) => [
+			level,
+			levels.includes(level)
+				? Object.fromEntries(Object.keys(values).map((key) => [key, '']))
+				: { ...values },
+		]),
 	);
 	return { ...row, _cw: { ...lineage, ancestors } };
 }
