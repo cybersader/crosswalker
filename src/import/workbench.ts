@@ -76,6 +76,8 @@ import {
 	addDestination,
 	removeDestination,
 	setCrosswalkTarget,
+	setNestLeaf,
+	setNestIdentity,
 	mergeRows,
 	splitRow,
 	splitIntoLevels,
@@ -233,6 +235,8 @@ export interface WorkbenchOptions {
 	 * the recipe author deliberately omitted.
 	 */
 	seedColumnDefaults?: boolean;
+	/** Selected JSON iterator whose child arrays should become nested levels. */
+	jsonNest?: string | null;
 	/**
 	 * Restore the demoted "all columns" destination table from a persisted draft
 	 * (draft resume, M8). When present, this IS the seed — `seedColumnDests()`
@@ -340,7 +344,8 @@ export class MappingWorkbench {
 		// rather than only cosmetically re-marking the badge.
 		this.dismissed = new Set(opts.initialDismissed ?? []);
 		this.columnSig = opts.parsedData.columns.join('|');
-		this.detections = detectStructure(opts.parsedData, opts.columnInfos);
+		this.detections = detectStructure(opts.parsedData, opts.columnInfos, opts.parsedData.container)
+			.filter((detection) => detection.kind !== 'nested-records' || opts.jsonNest === detection.iterator);
 		this.presetId = getBuiltInPreset(opts.defaultPresetId) ? opts.defaultPresetId : 'browsable-framework';
 		const loadedRecipe = opts.initialRecipe
 			? loadRecipeDocument(opts.initialRecipe, {
@@ -1847,15 +1852,16 @@ export class MappingWorkbench {
 		// Level cell — id + merge/split buttons.
 		const lvl = tr.createEl('td');
 		lvl.createEl('b', { text: rule.level });
+		const nestedEntry = this.mapping.nest?.find((entry) => entry.level === rule.level);
 		const gestures = lvl.createDiv({ cls: 'crosswalker-wb-gestures' });
-		if (li < m.levels.length - 1) {
+		if (!nestedEntry && li < m.levels.length - 1) {
 			const mergeBtn = gestures.createEl('button', { text: 'Merge ▾', attr: { title: 'Merge with the next level' } });
 			mergeBtn.addEventListener('click', () => this.updateMapping(mi, mergeRows(m, li)));
 		}
-		if (this.isSplittable(rule.source)) {
+		if (!nestedEntry && this.isSplittable(rule.source)) {
 			const splitBtn = gestures.createEl('button', { text: 'Split', attr: { title: 'Split this merged level back apart' } });
 			splitBtn.addEventListener('click', () => this.updateMapping(mi, splitRow(m, li)));
-		} else if (this.splitPanelColumn(rule)) {
+		} else if (!nestedEntry && this.splitPanelColumn(rule)) {
 			const levelsBtn = gestures.createEl('button', {
 				text: 'Split into levels',
 				attr: { title: 'Split this value into one level per piece' },
@@ -1867,6 +1873,37 @@ export class MappingWorkbench {
 				} else {
 					this.openSplitPanel(mi, li);
 				}
+			});
+		}
+		if (nestedEntry) {
+			const nestedControls = lvl.createDiv({ cls: 'crosswalker-wb-nest-controls' });
+			if (nestedEntry.children !== undefined) {
+				const ownLabel = nestedControls.createEl('label');
+				ownLabel.createSpan({ text: 'Own note' });
+				const ownSelect = ownLabel.createEl('select', {
+					cls: 'dropdown',
+					attr: { 'aria-label': `Own note for ${rule.level}`, 'data-nest-control': 'leaf' },
+				});
+				ownSelect.createEl('option', { text: 'Folder note', attr: { value: 'folder-note' } });
+				ownSelect.createEl('option', { text: 'Folders only', attr: { value: 'none' } });
+				ownSelect.value = nestedEntry.leaf ?? 'folder-note';
+				ownSelect.addEventListener('change', () => {
+					this.mapping = setNestLeaf(this.mapping, rule.level, ownSelect.value as 'folder-note' | 'none');
+					this.applyChange();
+				});
+			}
+			const identityLabel = nestedControls.createEl('label');
+			identityLabel.createSpan({ text: 'Named by' });
+			const identitySelect = identityLabel.createEl('select', {
+				cls: 'dropdown',
+				attr: { 'aria-label': `Named by for ${rule.level}`, 'data-nest-control': 'identity' },
+			});
+			identitySelect.createEl('option', { text: 'Its own identifier', attr: { value: 'global' } });
+			identitySelect.createEl('option', { text: 'Its place in the hierarchy', attr: { value: 'path' } });
+			identitySelect.value = nestedEntry.identity ?? 'global';
+			identitySelect.addEventListener('change', () => {
+				this.mapping = setNestIdentity(this.mapping, rule.level, identitySelect.value as 'global' | 'path');
+				this.applyChange();
 			});
 		}
 
@@ -2810,6 +2847,11 @@ export class MappingWorkbench {
 
 	private detectionColumns(d: Detection): string[] {
 		switch (d.kind) {
+			case 'nested-records': {
+				const columns = ['id', ...d.chain.flatMap((entry) => entry.idKey ? [entry.idKey] : [])];
+				const present = [...new Set(columns)].filter((entry) => this.opts.parsedData.columns.includes(entry));
+				return present.length > 0 ? present : this.opts.parsedData.columns.slice(0, 1);
+			}
 			case 'level-column-chain': return d.columns;
 			case 'edge-file': return [d.subjectColumn, d.objectColumn, ...(d.predicateColumn ? [d.predicateColumn] : [])];
 			default: return 'column' in d ? [d.column] : [];
@@ -2823,6 +2865,7 @@ export class MappingWorkbench {
 	/** Lucide icon id per detection kind (rendered via setIcon — theme-aware). */
 	private badgeIcon(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': return 'layers';
 			case 'packed-hierarchy': return 'layers';
 			case 'level-column-chain': return 'layers';
 			case 'facet-candidate': return 'tag';
@@ -2839,6 +2882,7 @@ export class MappingWorkbench {
 	/** Short one-word chip label per detection kind (spec §7h #2). */
 	private badgeLabel(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': return 'nested';
 			case 'packed-hierarchy': return 'hierarchy';
 			case 'level-column-chain': return 'chain';
 			case 'facet-candidate': return 'facet';
@@ -2854,6 +2898,7 @@ export class MappingWorkbench {
 
 	private badgeTitle(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': return `Records inside records, ${d.proposal.levels.length} levels`;
 			case 'packed-hierarchy': return `Packed hierarchy (${d.classification})`;
 			case 'level-column-chain': return 'Level per column';
 			case 'facet-candidate': return `Facet, ${d.cardinality} values`;
@@ -2869,6 +2914,7 @@ export class MappingWorkbench {
 
 	private evidenceTitle(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': return 'Records inside records';
 			case 'packed-hierarchy': return 'Packed hierarchy';
 			case 'level-column-chain': return 'Hierarchy across columns';
 			case 'facet-candidate': return 'Facet candidate';
@@ -2884,6 +2930,10 @@ export class MappingWorkbench {
 
 	private evidenceNotice(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': {
+				const [first, second, third] = d.proposal.levels;
+				return `Each ${first} holds ${second}${third ? `, and each ${second} holds ${third}` : ''}.`;
+			}
 			case 'packed-hierarchy': return `Values split on "${d.delimiter}" into a ${d.classification} hierarchy.`;
 			case 'level-column-chain': return `Values become more specific across ${d.columns.join(' → ')}.`;
 			case 'facet-candidate': return `A small repeated set of ${d.cardinality} values behaves like labels.`;
@@ -2899,6 +2949,12 @@ export class MappingWorkbench {
 
 	private evidenceCoverage(d: Detection, column: string): string {
 		switch (d.kind) {
+			case 'nested-records': {
+				const receipts = d.chain.map((entry) => `${entry.field}: about ${entry.avgPerParent} per parent`).join('; ');
+				return receipts + (d.chain.some((entry) => entry.repeatsUnderParents)
+					? ' Ids repeat under different parents, so those levels are named by their path.'
+					: '');
+			}
 			case 'packed-hierarchy': return `${Math.round(d.coverage * 100)}% of sampled non-empty values contain the delimiter.`;
 			case 'level-column-chain': {
 				const position = d.columns.indexOf(column);
@@ -2923,6 +2979,7 @@ export class MappingWorkbench {
 
 	private evidenceEffect(d: Detection): string {
 		switch (d.kind) {
+			case 'nested-records': return 'Proposes one level per record type, nested as folders, with the innermost as notes.';
 			case 'packed-hierarchy': return 'Proposes folders and a file name from the hierarchy levels.';
 			case 'level-column-chain': return 'Proposes one hierarchy level for each detected source column.';
 			case 'facet-candidate': return 'Proposes tags from this column when the active preset uses facets.';

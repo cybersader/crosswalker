@@ -42,6 +42,7 @@ export interface WizardDraft {
 	// Source file (re-parsed on resume; the File object isn't serializable)
 	sourceFile: { name: string; vaultPath: string | null } | null;
 	sourceType: 'csv' | 'xlsx' | 'json' | null;
+	jsonNest?: string | null;
 	selectedSheet: string | null;
 	/**
 	 * 0-based header row for workbook sources. Absent on drafts written before

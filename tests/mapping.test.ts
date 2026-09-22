@@ -33,6 +33,8 @@ import { instantiate } from '../src/import/mapping/instantiate';
 import { collectScalarLinkEmissions, toRecipeRegions, fromRegions, fromRecipe } from '../src/import/mapping/serialize';
 import type { RecipeRegions } from '../src/import/mapping/serialize';
 import type { ImportMapping } from '../src/import/mapping/types';
+import { validateRecipe } from '../src/validation/validator';
+import { CURRENT_RECIPE_SPEC } from '../src/import/recipe-document';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -414,6 +416,58 @@ function assertRoundTrip(m: ImportMapping): void {
 }
 
 describe('round-trip law: mapping → regions → mapping', () => {
+	it('N8 round-trips nested lineage sources and source.nest', () => {
+		const mapping: ImportMapping = {
+			mappings: [{ levels: [
+				{ level: 'group', source: { column: '_cw.ancestors.group.id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'control', source: { column: '_cw.ancestors.control.id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'part', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+			] }],
+			nest: [
+				{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note', identity: 'global', carry: ['title'] },
+				{ level: 'control', id: '{id}', children: 'parts', leaf: 'folder-note', identity: 'global', carry: ['title'] },
+				{ level: 'part', id: '{id}', identity: 'global', carry: ['name'] },
+			],
+		};
+		assertRoundTrip(mapping);
+		expect(fromRegions(toRecipeRegions(mapping)).mappings[0].levels[0].source)
+			.toEqual({ column: '_cw.ancestors.group.id' });
+	});
+
+	it('keeps mappings without nest unchanged and omits the region', () => {
+		const mapping: ImportMapping = { mappings: [{ levels: [
+			{ level: 'leaf', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+		] }] };
+		const before = JSON.stringify(mapping);
+		const regions = toRecipeRegions(mapping);
+		expect(regions.nest).toBeUndefined();
+		expect(JSON.stringify(mapping)).toBe(before);
+		expect(fromRegions(regions)).toEqual(mapping);
+	});
+
+	it('drops folder-note leaf when a non-leaf level gains a file name', () => {
+		const mapping: ImportMapping = {
+			mappings: [{ levels: [
+				{ level: 'group', source: { column: '_cw.ancestors.group.id' }, destinations: [{ primitive: 'folder' }, { primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'part', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+			] }],
+			nest: [
+				{ level: 'group', id: '{id}', children: 'parts', leaf: 'folder-note', identity: 'global' },
+				{ level: 'part', id: '{id}', identity: 'global' },
+			],
+		};
+		const regions = toRecipeRegions(mapping);
+		expect(regions.nest?.[0].leaf).toBeUndefined();
+		const { nest, ...target } = regions;
+		const validation = validateRecipe({
+			recipe: 'test:nested-leaf-consistency',
+			spec_version: CURRENT_RECIPE_SPEC,
+			source: { ontology: 'test', levels: ['group', 'part'], nest },
+			target,
+		});
+		expect(validation.valid).toBe(true);
+	});
+
 	it('uniform fixed levels (two folders + a leaf file)', () => {
 		assertRoundTrip({
 			mappings: [

@@ -156,11 +156,18 @@ export function createFreshRecipeDocument(
 	}
 	const levels = unique(regions.layout.map((entry) => entry.level));
 	const ontology = slug(sourceOntology) || 'source';
+	const { nest, ...targetRegions } = regions;
 	const canonical: CrosswalkerImportRecipe = {
 		recipe: `custom-${ontology}`,
 		spec_version: CURRENT_RECIPE_SPEC,
-		source: { ontology, levels: levels as [string, ...string[]] },
-		target: regions as CrosswalkerImportRecipe['target'],
+		source: {
+			ontology,
+			levels: levels as [string, ...string[]],
+			...(nest?.length
+				? { nest: deepClone(nest) as NonNullable<CrosswalkerImportRecipe['source']['nest']> }
+				: {}),
+		},
+		target: targetRegions as CrosswalkerImportRecipe['target'],
 	};
 	return loadRecipeDocument(canonical, { ...options, origin: 'fresh' });
 }
@@ -175,7 +182,10 @@ export function canonicalToMapping(recipe: CrosswalkerImportRecipe): ImportMappi
 			entry.mechanism === 'folder' || entry.mechanism === 'file' || entry.mechanism === 'heading'),
 	};
 	return fromRecipe(
-		{ target: editableTarget as RecipeRegions },
+		{
+			target: editableTarget as RecipeRegions,
+			source: { ...(recipe.source.nest ? { nest: deepClone(recipe.source.nest) } : {}) },
+		},
 		{ preserveCanonicalOrder: true },
 	);
 }
@@ -594,6 +604,10 @@ function patchOwnedRegions(
 	// canonical source declaration synchronized so a legitimate workbench level
 	// edit cannot produce a self-invalid recipe with undeclared levels.
 	patched.source.levels = unique(layout.map((entry) => entry.level)) as [string, ...string[]];
+	if (regions.nest?.length) {
+		patched.source.nest = deepClone(regions.nest) as NonNullable<CrosswalkerImportRecipe['source']['nest']>;
+	}
+	else delete patched.source.nest;
 
 	if (regions.also_emit) {
 		patched.target.also_emit = deepClone(regions.also_emit) as CrosswalkerImportRecipe['target']['also_emit'];
@@ -614,7 +628,7 @@ function referencedColumns(recipe: CrosswalkerImportRecipe): string[] {
 		for (const segment of parseTemplateSegments(template)) {
 			if (segment.kind !== 'interp') continue;
 			const column = interpolationColumn(segment.interp).column;
-			if (column) columns.add(column);
+			if (column && !column.startsWith('_cw.')) columns.add(column);
 		}
 	};
 	for (const entry of recipe.target.layout) collect(entry.template);

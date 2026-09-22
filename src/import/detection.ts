@@ -21,7 +21,7 @@
  * that fixed order.
  */
 
-import type { ParsedData, ColumnInfo } from '../types/config';
+import type { ParsedData, ColumnInfo, SourceContainer } from '../types/config';
 import { isTier1Curie } from '../validation/validator';
 import { isEagerRows } from '../types/config';
 import type { VariadicConfig } from '../render/types';
@@ -121,6 +121,23 @@ export interface DiscriminatorProposal {
  * region per the parity contract (spec §5).
  */
 export type Detection =
+	| {
+			kind: 'nested-records';
+			iterator: string;
+			chain: Array<{
+				field: string;
+				avgPerParent: number;
+				sampleKeys: string[];
+				idKey: string | null;
+				repeatsUnderParents: boolean;
+			}>;
+			sampleValues: string[];
+			proposal: {
+				mechanism: 'nested-levels';
+				levels: string[];
+				identities: Array<'global' | 'path'>;
+			};
+		  }
 	| {
 			kind: 'packed-hierarchy';
 			column: string;
@@ -385,6 +402,145 @@ const BODY_DISTINCTNESS_MIN = 0.7;
 const BODY_SAMPLE_MAXLEN = 160;
 
 // ============================================================================
+// Nested-record detection (Pass 0)
+// ============================================================================
+
+type ObjectRow = Record<string, unknown>;
+
+const isObjectRow = (value: unknown): value is ObjectRow =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+function singularLevelName(value: string, used: Set<string>): string {
+	const base = value.endsWith('s') && value.length > 1 ? value.slice(0, -1) : value;
+	let name = base || 'level';
+	let suffix = 2;
+	while (used.has(name)) name = `${base}${suffix++}`;
+	used.add(name);
+	return name;
+}
+
+function candidateIdKey(groups: ObjectRow[][], field: string): string | null {
+	const singular = field.endsWith('s') && field.length > 1 ? field.slice(0, -1) : field;
+	const candidates = ['id', 'identifier', 'uuid', `${singular}_id`, 'code'];
+	for (const key of candidates) {
+		let saw = false;
+		let valid = true;
+		for (const group of groups) {
+			const values = group.map((row) => row[key]);
+			if (values.some((value) => value === undefined || value === null || String(value).trim() === '')
+				|| new Set(values.map(String)).size !== values.length) {
+				valid = false;
+				break;
+			}
+			if (values.length > 0) saw = true;
+		}
+		if (valid && saw) return key;
+	}
+	return null;
+}
+
+function repeatedAcrossParents(groups: ObjectRow[][], idKey: string | null): boolean {
+	if (!idKey) return false;
+	const owners = new Map<string, number>();
+	for (let parent = 0; parent < groups.length; parent++) {
+		for (const row of groups[parent]) {
+			const value = row[idKey];
+			if (value === undefined || value === null) continue;
+			const key = String(value);
+			const owner = owners.get(key);
+			if (owner !== undefined && owner !== parent) return true;
+			owners.set(key, parent);
+		}
+	}
+	return false;
+}
+
+function detectNestedRecords(
+	data: ParsedData,
+	container?: SourceContainer,
+): Extract<Detection, { kind: 'nested-records' }> | null {
+	if (container?.kind !== 'json' || !isEagerRows(data.rows)) return null;
+	const rootRows = data.rows.filter(isObjectRow).slice(0, 50);
+	if (rootRows.length === 0) return null;
+
+	const chain: Extract<Detection, { kind: 'nested-records' }>['chain'] = [];
+	const pathRows: Array<{ row: ObjectRow; path: string[] }> = rootRows.map((row) => ({ row, path: [] }));
+	let current = pathRows;
+	for (let depth = 0; depth < 4 && current.length > 0; depth++) {
+		const parents = current.slice(0, 50);
+		const fieldOrder: string[] = [];
+		for (const { row } of parents) {
+			for (const key of Object.keys(row)) if (!fieldOrder.includes(key)) fieldOrder.push(key);
+		}
+		const field = fieldOrder.find((key) => {
+			const matches = parents.filter(({ row }) => {
+				const value = row[key];
+				return Array.isArray(value) && value.some(isObjectRow);
+			}).length;
+			return matches / parents.length >= 0.8;
+		});
+		if (!field) break;
+
+		const groups = parents.map(({ row }) => {
+			const value = row[field];
+			return Array.isArray(value) ? value.filter(isObjectRow) : [];
+		});
+		const children = groups.flat();
+		if (children.length === 0) break;
+		const idKey = candidateIdKey(groups, field);
+		chain.push({
+			field,
+			avgPerParent: Number((children.length / parents.length).toFixed(1)),
+			sampleKeys: Object.keys(children[0]).slice(0, 6),
+			idKey,
+			repeatsUnderParents: repeatedAcrossParents(groups, idKey),
+		});
+
+		const next: Array<{ row: ObjectRow; path: string[] }> = [];
+		for (let parent = 0; parent < parents.length; parent++) {
+			const parentId = String(parents[parent].row.id ?? parents[parent].row.identifier ?? parents[parent].row.uuid ?? parents[parent].row.code ?? '?');
+			for (const child of groups[parent]) next.push({ row: child, path: [...parents[parent].path, parentId] });
+		}
+		current = next;
+	}
+	if (chain.length === 0) return null;
+
+	const iterator = (container as SourceContainer & { iterator?: string }).iterator ?? '';
+	const lastIteratorSegment = iterator
+		.replace(/\[\*\]$/u, '')
+		.split('.')
+		.filter(Boolean)
+		.at(-1) ?? 'record';
+	const used = new Set<string>();
+	const levels = [singularLevelName(lastIteratorSegment, used), ...chain.map((entry) => singularLevelName(entry.field, used))];
+	const identities: Array<'global' | 'path'> = ['global', ...chain.map((entry) => entry.repeatsUnderParents ? 'path' as const : 'global' as const)];
+
+	const sampleValues: string[] = [];
+	const collectPaths = (rows: ObjectRow[], depth: number, path: string[]): void => {
+		if (sampleValues.length >= 5) return;
+		const idKey = depth === 0 ? candidateIdKey([rows], lastIteratorSegment) ?? 'id' : chain[depth - 1]?.idKey ?? 'id';
+		for (const row of rows) {
+			const nextPath = [...path, String(row[idKey] ?? '?')];
+			if (depth === chain.length) sampleValues.push(nextPath.join(' / '));
+			else {
+				const value = row[chain[depth].field];
+				if (Array.isArray(value)) collectPaths(value.filter(isObjectRow), depth + 1, nextPath);
+			}
+			if (sampleValues.length >= 5) return;
+		}
+	};
+	collectPaths(rootRows, 0, []);
+
+	return {
+		kind: 'nested-records',
+		iterator,
+		chain,
+		sampleValues,
+		proposal: { mechanism: 'nested-levels', levels, identities },
+	};
+}
+
+// ============================================================================
 // Entry point
 // ============================================================================
 
@@ -402,7 +558,12 @@ const BODY_SAMPLE_MAXLEN = 160;
  * row-type-discriminator, facet, body-candidate, title-candidate, with each
  * pass visiting columns in source order.
  */
-export function detectStructure(data: ParsedData, columns: ColumnInfo[]): Detection[] {
+export function detectStructure(
+	data: ParsedData,
+	columns: ColumnInfo[],
+	container: SourceContainer | undefined = data.container,
+): Detection[] {
+	const nested = detectNestedRecords(data, container);
 	const columnInfo = new Map(columns.map((c) => [c.name, c]));
 	// Materialize normalized non-empty values per column once — every detector
 	// reads from this map so the source is scanned a single time.
@@ -567,6 +728,7 @@ export function detectStructure(data: ParsedData, columns: ColumnInfo[]): Detect
 	}
 
 	return [
+		...(nested ? [nested] : []),
 		...packed,
 		...(chain ? [chain] : []),
 		...(edgeFile ? [edgeFile] : []),

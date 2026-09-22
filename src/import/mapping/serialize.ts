@@ -29,7 +29,7 @@
  */
 
 import type { VariadicConfig } from '../../render/types';
-import type { CrosswalkColumnEntry } from '../../types/generated/recipe';
+import type { CrosswalkColumnEntry, NestedRecordLevel } from '../../types/generated/recipe';
 import type {
 	ImportMapping,
 	StructureMapping,
@@ -101,6 +101,7 @@ export interface AlsoEmit {
 /** The regions `toRecipeRegions` produces / `fromRegions` consumes. */
 export interface RecipeRegions {
 	layout: LayoutEntry[];
+	nest?: NestedRecordLevel[];
 	also_emit?: AlsoEmit;
 	crosswalks?: CrosswalkColumnEntry[];
 	/** Batch enrichment (Pass 1.5). Serializes to recipe target.enrichment. */
@@ -110,6 +111,7 @@ export interface RecipeRegions {
 /** A recipe (structural subset) accepted by `fromRecipe`. */
 export interface RecipeLike {
 	target: RecipeRegions;
+	source?: { nest?: NestedRecordLevel[] };
 }
 
 /** A constant level id for the variadic tail's folder entry (irrelevant to the tail model). */
@@ -267,6 +269,23 @@ export function toRecipeRegions(mapping: ImportMapping): RecipeRegions {
 
 	const also_emit = buildAlsoEmit(tags, aliases, managed, managedLinks, body, mapping.userPreserve);
 	const regions: RecipeRegions = also_emit ? { layout, also_emit } : { layout };
+	if (mapping.nest?.length) {
+		regions.nest = mapping.nest.map((entry) => {
+			const copy: NestedRecordLevel = {
+				...entry,
+				...(entry.carry ? { carry: [...entry.carry] } : {}),
+				...(entry.children && typeof entry.children === 'object'
+					? { children: { ...entry.children } }
+					: {}),
+			};
+			const row = mapping.mappings.flatMap((structure) => structure.levels)
+				.find((level) => level.level === entry.level);
+			if (entry.children !== undefined && row?.destinations.some((destination) => destination.primitive === 'name')) {
+				delete copy.leaf;
+			}
+			return copy;
+		});
+	}
 	if (crosswalks.length > 0) regions.crosswalks = crosswalks;
 	// Enrichment-level wins when set (see the precedence note above); the tail's
 	// placement only fills in when the enrichment block leaves it unspecified.
@@ -536,7 +555,10 @@ export interface FromRegionsOptions {
 
 /** Reconstruct an ImportMapping from a full recipe. */
 export function fromRecipe(recipe: RecipeLike, options: FromRegionsOptions = {}): ImportMapping {
-	return fromRegions(recipe.target, options);
+	return fromRegions(
+		{ ...recipe.target, ...(recipe.source?.nest ? { nest: recipe.source.nest } : {}) },
+		options,
+	);
 }
 
 /**
@@ -680,6 +702,15 @@ export function fromRegions(regions: RecipeRegions, options: FromRegionsOptions 
 	}
 
 	const result: ImportMapping = { mappings };
+	if (regions.nest?.length) {
+		result.nest = regions.nest.map((entry) => ({
+			...entry,
+			...(entry.carry ? { carry: [...entry.carry] } : {}),
+			...(entry.children && typeof entry.children === 'object'
+				? { children: { ...entry.children } }
+				: {}),
+		}));
+	}
 	if (regions.enrichment) result.enrichment = regions.enrichment;
 	// B7 (2026-07-12 pre-merge review): read user_preserve back so the
 	// round-trip law holds — see buildAlsoEmit's write side above.

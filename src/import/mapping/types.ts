@@ -63,6 +63,8 @@
  * `buildAlsoEmit`/`fromRegions`.
  */
 
+import type { NestedRecordLevel } from '../../types/generated/recipe';
+
 // ============================================================================
 // Source references
 // ============================================================================
@@ -380,6 +382,8 @@ export interface Enrichment {
  */
 export interface ImportMapping {
 	mappings: StructureMapping[];
+	/** Source-level nested-record expansion declaration. */
+	nest?: NestedRecordLevel[];
 	/** Row-include predicates. Not serializable yet (lossy TODO). */
 	filters?: RowFilter[];
 	/** Batch-scope enrichment (Pass 1.5). Serializes to recipe `target.enrichment`. */

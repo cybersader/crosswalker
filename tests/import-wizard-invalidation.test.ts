@@ -16,7 +16,11 @@
 
 import { ImportFlow } from '../src/import/import-wizard';
 import { DEFAULT_SETTINGS } from '../src/settings/settings-data';
-import type { ColumnInfo, ParsedData } from '../src/types/config';
+import type { ColumnInfo, ParsedData, SourceContainer } from '../src/types/config';
+import type { WizardDraft } from '../src/import/draft-store';
+import type { MappingWorkbench } from '../src/import/workbench';
+import { analyzeColumns } from '../src/import/parsers/csv-parser';
+import fixture from './fixtures/oscal-mini.json';
 
 type FlowApp = ConstructorParameters<typeof ImportFlow>[0];
 type FlowPlugin = ConstructorParameters<typeof ImportFlow>[1];
@@ -24,6 +28,9 @@ type FlowPlugin = ConstructorParameters<typeof ImportFlow>[1];
 /** The private parse-derived fields these tests assert on. */
 interface FlowInternals {
 	recognizedMatch: unknown;
+	snapshotDraft(): WizardDraft;
+	hydrateFromDraft(draft: WizardDraft): Promise<void>;
+	makeWorkbench(): MappingWorkbench;
 	recognizedDismissed: boolean;
 	recognizedFastPath: boolean;
 	recognizedEdited: boolean;
@@ -208,9 +215,11 @@ describe('Step-1 parse invalidation', () => {
 		const flow = makeFlow();
 		seedParsedState(flow);
 		flow.sourceType = 'json';
+		flow.jsonNest = '$.old[*]';
 		const parse = stubParse(flow, ['ref', 'text']);
 
 		flow.setJsonIterator('$.objects[*]');
+		expect(flow.jsonNest).toBeNull();
 		expectInvalidated(flow);
 		await flow.validateCurrentStep();
 
@@ -247,5 +256,46 @@ describe('Step-1 parse invalidation', () => {
 		expect(flow.xlsxHeaderRow).toBe(2);
 		expect(flow.columnConfigs.get('id')).toEqual({ useAs: 'title', outputKey: 'id' });
 		expect(flow.presetRecipeId).toBe('cri');
+	});
+});
+
+describe('JSON nested-record choice', () => {
+	it('persists jsonNest in a draft and hydrates it', async () => {
+		const source = makeFlow();
+		source.sourceType = 'json';
+		source.jsonNest = '$.catalog.groups[*]';
+		const draft = (source as unknown as FlowInternals).snapshotDraft();
+		expect(draft.jsonNest).toBe('$.catalog.groups[*]');
+
+		const resumed = makeFlow();
+		await (resumed as unknown as FlowInternals).hydrateFromDraft(draft);
+		expect(resumed.jsonNest).toBe('$.catalog.groups[*]');
+	});
+
+	it('builds a nested mapping only when the explicit choice matches the iterator', () => {
+		const groups = fixture.catalog.groups as unknown as Record<string, unknown>[];
+		const container = {
+			kind: 'json',
+			iterator: '$.catalog.groups[*]',
+			readDocument: async () => fixture,
+		} as SourceContainer;
+		const parsedData: ParsedData = {
+			columns: ['id', 'title', 'controls'],
+			rows: groups,
+			rowCount: groups.length,
+			container,
+		};
+
+		const nested = makeFlow();
+		nested.parsedData = parsedData;
+		nested.columnInfos = analyzeColumns(parsedData);
+		nested.jsonNest = '$.catalog.groups[*]';
+		expect((nested as unknown as FlowInternals).makeWorkbench().getMapping().nest).toHaveLength(3);
+
+		const flat = makeFlow();
+		flat.parsedData = parsedData;
+		flat.columnInfos = analyzeColumns(parsedData);
+		flat.jsonNest = null;
+		expect((flat as unknown as FlowInternals).makeWorkbench().getMapping().nest).toBeUndefined();
 	});
 });

@@ -22,6 +22,8 @@ import {
 	toggleDestinationAcrossMapping,
 	addDestination,
 	setCrosswalkTarget,
+	setNestLeaf,
+	setNestIdentity,
 	removeDestination,
 	mergeRows,
 	splitRow,
@@ -787,6 +789,44 @@ describe('preferredParentNote: adaptive default from installed plugins', () => {
 		const r = preferredParentNote(new Set(['dataview', 'templater-obsidian']));
 		expect(r.value).toBe('folder-note');
 		expect(r.reason).toBeUndefined();
+	});
+});
+
+describe('nested mapping view model', () => {
+	const detection: Extract<Detection, { kind: 'nested-records' }> = {
+		kind: 'nested-records',
+		iterator: '$.catalog.groups[*]',
+		chain: [
+			{ field: 'controls', avgPerParent: 2, sampleKeys: ['id', 'title', 'parts'], idKey: 'id', repeatsUnderParents: false },
+			{ field: 'parts', avgPerParent: 2, sampleKeys: ['id', 'name'], idKey: 'id', repeatsUnderParents: false },
+		],
+		sampleValues: ['ac / ac-1 / ac-1_smt'],
+		proposal: { mechanism: 'nested-levels', levels: ['group', 'control', 'part'], identities: ['global', 'global', 'global'] },
+	};
+
+	it('instantiates lineage rows and source.nest', () => {
+		const mapping = instantiate(BROWSABLE_FRAMEWORK, [detection]);
+		expect(mapping.mappings[0].levels.map((level) => level.source)).toEqual([
+			{ column: '_cw.ancestors.group.id' },
+			{ column: '_cw.ancestors.control.id' },
+			{ column: 'id' },
+		]);
+		expect(mapping.nest).toEqual([
+			{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note', identity: 'global', carry: ['title'] },
+			{ level: 'control', id: '{id}', children: 'parts', leaf: 'folder-note', identity: 'global', carry: ['title'] },
+			{ level: 'part', id: '{id}', identity: 'global', carry: ['name'] },
+		]);
+	});
+
+	it('updates leaf and identity immutably', () => {
+		const mapping = instantiate(BROWSABLE_FRAMEWORK, [detection]);
+		const snapshot = JSON.parse(JSON.stringify(mapping));
+		const leaf = setNestLeaf(mapping, 'control', 'none');
+		const identity = setNestIdentity(leaf, 'part', 'path');
+		expect(mapping).toEqual(snapshot);
+		expect(leaf.nest?.find((entry) => entry.level === 'control')?.leaf).toBe('none');
+		expect(identity.nest?.find((entry) => entry.level === 'part')?.identity).toBe('path');
+		expect(toRecipeRegions(leaf).nest?.find((entry) => entry.level === 'control')?.leaf).toBe('none');
 	});
 });
 

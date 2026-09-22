@@ -378,6 +378,28 @@ export function setCrosswalkTarget(
  * `PartRef[]`. Naming flips to `joined`; destinations are the union of both.
  * No-op when `index` is out of range or is the last level. Returns a new mapping.
  */
+export function setNestLeaf(
+	mapping: ImportMapping,
+	level: string,
+	leaf: 'folder-note' | 'none',
+): ImportMapping {
+	return {
+		...mapping,
+		nest: mapping.nest?.map((entry) => entry.level === level ? { ...entry, leaf } : entry),
+	};
+}
+
+export function setNestIdentity(
+	mapping: ImportMapping,
+	level: string,
+	identity: 'global' | 'path',
+): ImportMapping {
+	return {
+		...mapping,
+		nest: mapping.nest?.map((entry) => entry.level === level ? { ...entry, identity } : entry),
+	};
+}
+
 export function mergeRows(m: StructureMapping, index: number): StructureMapping {
 	if (index < 0 || index >= m.levels.length - 1) return m;
 	const a = m.levels[index];

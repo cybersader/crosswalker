@@ -213,6 +213,7 @@ export class ImportFlow {
 	xlsxHeaderRow: number = 0;
 	sheetSuggestion: (WorkbookSuggestion & { overridden: boolean }) | null = null;
 	jsonIterator: string = '';
+	jsonNest: string | null = null;
 	jsonWhere: string = '';
 	/** Detected structure of a selected JSON file (drives the record picker). */
 	jsonStructure: JsonStructure | null = null;
@@ -450,6 +451,7 @@ export class ImportFlow {
 		this.sourceFile = null;
 		this.parsedData = null;
 		this.sourceType = draft.sourceType;
+		this.jsonNest = draft.jsonNest ?? null;
 		this.selectedSheet = draft.selectedSheet;
 		this.xlsxHeaderRow = draft.xlsxHeaderRow ?? 0;
 		this.sheetSuggestion = null;
@@ -731,6 +733,7 @@ export class ImportFlow {
 		this.smartDefaultsApplied = false;
 		this.jsonStructure = null;
 		this.jsonIterator = '';
+		this.jsonNest = null;
 	}
 
 	/**
@@ -825,6 +828,7 @@ export class ImportFlow {
 	setJsonIterator(iterator: string): void {
 		if (iterator === this.jsonIterator) return;
 		this.jsonIterator = iterator;
+		this.jsonNest = null;
 		this.invalidateParse();
 	}
 
@@ -1876,6 +1880,7 @@ export class ImportFlow {
 			recipeOrigin: initialRecipe ? recipeOrigin : undefined,
 			sourceOntology: initialRecipe?.source.ontology ?? this.sourceFile?.name ?? this.parsedData?.sheetName ?? 'source',
 			seedColumnDefaults,
+			jsonNest: this.jsonNest,
 			initialColumnDests,
 			initialDismissed,
 			defaultParentNote: preferredParentNote(enabled),
@@ -2956,6 +2961,7 @@ export class ImportFlow {
 			currentStep: this.currentStep,
 			sourceFile: this.sourceFile ? { name: this.sourceFile.name, vaultPath: this.findVaultPathForSource() } : null,
 			sourceType: this.sourceType,
+			jsonNest: this.jsonNest,
 			selectedSheet: this.selectedSheet,
 			xlsxHeaderRow: this.xlsxHeaderRow,
 			columnInfos: this.columnInfos,
@@ -3651,6 +3657,40 @@ export class ImportFlow {
 	 * chips), a full-width "keep only matching" filter, and the raw path syntax
 	 * tucked under Advanced as the escape hatch.
 	 */
+	private renderJsonNestChoice(
+		parent: HTMLElement,
+		candidate: JsonStructure['candidates'][number],
+	): void {
+		const chain = candidate.nested;
+		if (!chain?.length) return;
+		const summary = chain.reduce(
+			(text, entry) => `${text} hold ${entry.field} (${entry.count})`,
+			`Records inside records: ${candidate.name} (${candidate.count})`,
+		) + '.';
+		parent.createDiv({ cls: 'crosswalker-json-nest-summary', text: summary });
+		const choices = parent.createDiv({ cls: 'crosswalker-json-nest-choices' });
+		const name = `json-nest-${candidate.iterator || 'root'}`;
+		for (const option of [
+			{ value: 'nested', label: `Nested (${chain.length + 1} levels)` },
+			{ value: 'flat', label: 'Only this list' },
+		] as const) {
+			const label = choices.createEl('label');
+			const radio = label.createEl('input', { type: 'radio', attr: { name, value: option.value } });
+			radio.checked = option.value === 'nested'
+				? this.jsonNest === candidate.iterator
+				: this.jsonNest !== candidate.iterator;
+			radio.addEventListener('click', (event) => event.stopPropagation());
+			radio.addEventListener('change', () => {
+				if (!radio.checked) return;
+				if (this.jsonIterator !== candidate.iterator) this.setJsonIterator(candidate.iterator);
+				this.jsonNest = option.value === 'nested' ? candidate.iterator : null;
+				this.workbench = null;
+				this.scheduleDraftSave();
+			});
+			label.createSpan({ text: option.label });
+		}
+	}
+
 	private renderJsonRecordPicker(container: HTMLElement) {
 		const st = this.jsonStructure;
 
@@ -3668,7 +3708,10 @@ export class ImportFlow {
 			const titleLine = body.createEl('div', { cls: 'crosswalker-json-pick-title' });
 			titleLine.createEl('span', { text: 'This whole file is your list of records', cls: 'crosswalker-json-pick-label' });
 			titleLine.createEl('span', { text: this.recordsLabel(st.rootCount), cls: 'crosswalker-json-count' });
-			if (c) this.renderSamplePreview(body, c.sample, c.sampleKeys, c.fieldCount);
+			if (c) {
+				this.renderSamplePreview(body, c.sample, c.sampleKeys, c.fieldCount);
+				this.renderJsonNestChoice(body, c);
+			}
 		} else if (st && st.candidates.length > 0) {
 			const intro = container.createEl('div', { cls: 'crosswalker-json-intro' });
 			intro.createEl('div', { text: 'Where are your records?', cls: 'crosswalker-json-intro-title' });
@@ -3692,6 +3735,7 @@ export class ImportFlow {
 					titleLine.createEl('span', { text: this.recordsLabel(c.count), cls: 'crosswalker-json-count' });
 					this.renderSamplePreview(body, c.sample, c.sampleKeys, c.fieldCount);
 					if (c.label !== c.name) this.renderPathHint(body, c.label);
+					this.renderJsonNestChoice(body, c);
 					card.addEventListener('click', () => {
 						this.setJsonIterator(c.iterator);
 						renderPicks();

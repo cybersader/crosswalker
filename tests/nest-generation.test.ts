@@ -378,6 +378,23 @@ describe('nested generation', () => {
 		);
 	});
 
+	it('N6 uses folders only for controls while parts keep their control parent', async () => {
+		const recipe = nestedRecipe();
+		recipe.source!.nest![1].leaf = 'none';
+		const vault = makeApp();
+		const result = await generateFromRecipe(vault.app, await parsed(), recipe, OPTIONS);
+		expect(result.errors).toEqual([]);
+		expect(result.created).toHaveLength(15);
+		expect(vault.folders.has('Out/ac/ac-1')).toBe(true);
+		expect(vault.folders.has('Out/au/au-2')).toBe(true);
+		expect(vault.folders.has('Out/cm/cm-2')).toBe(true);
+		expect(frontmatter(vault.files.get('Out/ac/ac-1/ac-1_smt.md')!).parent).toBe('[[ac-1]]');
+		const curies = [...vault.files.values()].map((text) => frontmatter(text).curie);
+		expect(curies).not.toContain('oscal-mini:ac-1');
+		expect(curies).not.toContain('oscal-mini:au-2');
+		expect(curies).not.toContain('oscal-mini:cm-2');
+	});
+
 	it('N7 preserves flat one-row-per-level-zero behavior when nest is absent', async () => {
 		const vault = makeApp();
 		const flatRecipe: Recipe = {
