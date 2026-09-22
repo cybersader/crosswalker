@@ -1,6 +1,6 @@
 ---
 title: "The xwalk identity space: frozen as legacy, never migrated"
-description: "Crosswalk edges have been minted under two identity prefixes: the older xwalk: from the bundled OLIR recipe and the headless crosswalk tools, and sssom: from the SSSOM importer and the new crosswalk-column pass. Decision: every new crosswalk edge mints under sssom; existing xwalk notes keep their identities as recorded facts and are never rewritten or stamped in bulk; a same-pair legacy edge is recognized and adopted rather than duplicated. Proposed 2026-09-22 for owner ratification; no code has changed."
+description: "Crosswalk edges have been minted under two identity prefixes: the older xwalk: from the bundled OLIR recipe and the headless crosswalk tools, and sssom: from the SSSOM importer and the new crosswalk-column pass. Decision: every new crosswalk edge mints under sssom; existing xwalk notes keep their identities as recorded facts and are never rewritten or stamped in bulk; a same-pair legacy edge is recognized and adopted rather than duplicated. Ratified by the owner 2026-09-22."
 tags: [decision, identity, crosswalk, sssom, legacy, import-set]
 date: 2026-09-22
 sidebar:
@@ -10,8 +10,8 @@ sidebar:
 
 import { Aside } from '@astrojs/starlight/components';
 
-<Aside type="caution" title="Status">
-Proposed 2026-09-22, awaiting owner ratification. This entry records a decision; it changes no code, recipe, or note. The implementation items in section 5 are not started.
+<Aside type="note" title="Status">
+Ratified by the owner 2026-09-22 (Option B). This entry records the decision; the implementation items in section 5 land separately and are tracked in `CHANGELOG.md` `[Unreleased]`.
 </Aside>
 
 ## 1. In one breath
@@ -60,7 +60,7 @@ The last row is why this is cheap to settle now: the only population at stake is
 4. **Ownership only by explicit refresh.** A legacy mapping folder becomes an owned set only when the user chooses to refresh it. That follows the standing rule that [a refresh is chosen, never guessed](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/). On that refresh the set is pinned to the prefix its notes already carry (`xwalk`), so it matches its own notes and nothing is orphaned.
 5. **The development vault is regenerated, not migrated.** When convenient, our local `_crosswalker/mappings/` data is deleted and re-imported through the plugin. That is a fixture refresh, not a product migration path.
 
-## 5. Follow-up work (not started)
+## 5. Follow-up work
 
 | Item | Where |
 |---|---|
