@@ -15,6 +15,7 @@
 import * as XLSX from 'xlsx';
 import { computeSourceByteDigest } from '../../generation/hash';
 import { ParsedData } from '../../types/config';
+import { assertNoReservedSourceColumn } from '../../source/joins';
 import { PEEK_ROWS, type TablePeek } from './table-peek';
 
 export interface XLSXParseOptions {
@@ -112,6 +113,7 @@ export async function parseXLSXFile(file: File, options: XLSXParseOptions = {}):
 			}
 		}
 	}
+	assertNoReservedSourceColumn(columns);
 
 	return {
 		columns,

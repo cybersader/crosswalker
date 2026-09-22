@@ -24,6 +24,7 @@
 
 import { computeSourceByteDigest } from '../../generation/hash';
 import { ParsedData } from '../../types/config';
+import { assertNoReservedSourceColumn } from '../../source/joins';
 import { jsonToRows } from './json-source-core';
 
 export interface JSONParseOptions {
@@ -60,6 +61,7 @@ export async function parseJSONFile(file: File, options: JSONParseOptions = {}):
 			}
 		}
 	}
+	assertNoReservedSourceColumn(columns);
 
 	return {
 		columns,

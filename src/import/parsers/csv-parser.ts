@@ -8,6 +8,7 @@
 import * as Papa from 'papaparse';
 import { computeSourceByteDigest } from '../../generation/hash';
 import { ParsedData, ColumnInfo } from '../../types/config';
+import { assertNoReservedSourceColumn } from '../../source/joins';
 
 export interface CSVParserOptions {
 	delimiter?: string;       // Auto-detect if not specified
@@ -87,6 +88,7 @@ export async function parseCSV(
 					headers = results.meta.fields;
 				}
 
+				assertNoReservedSourceColumn(headers);
 				resolve({
 					columns: headers,
 					rows: rows,
@@ -193,6 +195,7 @@ export async function parseCSVFile(
 					});
 				}
 
+				assertNoReservedSourceColumn(headers);
 				resolve({
 					columns: headers,
 					rows: rows,

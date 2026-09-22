@@ -35,6 +35,7 @@ export interface ConceptIdentity {
  */
 export type RenderNoteCode =
 	| 'folder-level-skipped' // folder segment rendered empty → level dropped, note lands one level up
+	| 'nest-folder-note-leaf' // non-leaf nested row used its declared implicit folder-note file
 	| 'split-no-delimiter' // split() found no delimiter in the value
 	| 'split-index-missing' // split() index past the number of pieces → empty string
 	| 'part-no-delimiter' // part() found no delimiter-set character in the value (index > 0) → empty string

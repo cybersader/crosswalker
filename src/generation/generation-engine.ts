@@ -93,7 +93,8 @@ import { wrapManagedBody, scanRegions, findSpan, replaceRegion } from './managed
 // so it asks that reader rather than carrying a second copy of the fence rule.
 import { mergeExistingNote, readExistingNote, splitNoteText, ExistingNoteReadError } from './existing-note';
 import type { FacetMembership } from '../import/mapping/facets';
-import type { CrosswalkColumnEntry } from '../types/generated/recipe';
+import type { CrosswalkColumnEntry, NestedRecordLevel } from '../types/generated/recipe';
+import { expandNestedRows } from '../source/nest';
 import { normalizeMappingSetId, normalizePredicateModifierInput } from '../utils/mapping-provenance';
 import {
 	runCrosswalkEdgePass,
@@ -624,7 +625,7 @@ export async function generateNotes(
 		// the eager array case. v0.1.6 (2026-06-13): writes run in a bounded
 		// concurrency pool — the per-row SYNC prefix (render + collision reserve)
 		// runs in order, only the async I/O tail (folder ensure + write) overlaps.
-		const total = parsedData.rowCount > 0 ? parsedData.rowCount : -1;
+		let total = parsedData.rowCount > 0 ? parsedData.rowCount : -1;
 		const ensureFolderOnce = createFolderEnsurer(app);
 		const limit = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
 		let completed = 0;
@@ -649,6 +650,7 @@ export async function generateNotes(
 			});
 			return result;
 		}
+		total = sourceStage.expectedRowCount ?? total;
 		let sourceStageFailure: SourceStageError | null = null;
 		const captureSourceStageFailure = (stageErr: unknown): void => {
 			if (!(stageErr instanceof SourceStageError)) throw stageErr;
@@ -967,7 +969,7 @@ export async function generateNotes(
 				} finally {
 					completed += 1;
 					if (options.onProgress && (completed % 10 === 0 || completed === total)) {
-						options.onProgress(completed, total, `Processing row ${completed}`);
+						options.onProgress(completed, total, `${recipe.source?.nest ? 'Processing record' : 'Processing row'} ${completed}`);
 					}
 				}
 			},
@@ -1085,7 +1087,7 @@ export async function generateNotes(
 		if (sourceStage.active) result.filteredOut = sourceStage.excludedCount;
 
 		const rowCountComplete =
-			parsedData.rowCount < 0 || completed + sourceStage.excludedCount === parsedData.rowCount;
+			parsedData.rowCount < 0 || completed + sourceStage.excludedCount === (sourceStage.expectedRowCount ?? parsedData.rowCount);
 		// AM-7. Record WHETHER detection ran, not just what it found. Absent
 		// `orphans` means both `a complete run found none` and `nobody could
 		// check`, and a caller that cannot tell them apart tells the user their
@@ -2596,18 +2598,26 @@ export function estimateOutput(
 	parsedData: ParsedData,
 	config: Partial<ImportRecipe>
 ): { noteCount: number; folderCount: number; linkCount: number } {
-	// Note count = row count (one note per row)
-	const noteCount = parsedData.rowCount;
-
-	// Estimate folder count based on hierarchy
+	const nest = (config as unknown as { source?: { nest?: NestedRecordLevel[] } }).source?.nest;
+	let estimateRows = Array.isArray(parsedData.rows) ? parsedData.rows : undefined;
+	let noteCount = parsedData.rowCount;
 	let folderCount = 1; // At least the base folder
-	if (config.mapping?.hierarchy && config.mapping.hierarchy.length > 0) {
+
+	if (nest && estimateRows) {
+		const expansion = expandNestedRows(estimateRows, nest, () => 'estimate');
+		const nonLeafLevels = new Set(nest.slice(0, -1).map((entry) => entry.level));
+		noteCount = expansion.rows.length;
+		folderCount = Object.entries(expansion.countsByLevel)
+			.filter(([level]) => nonLeafLevels.has(level))
+			.reduce((sum, [, count]) => sum + count, 0);
+		estimateRows = expansion.rows;
+	} else if (config.mapping?.hierarchy && config.mapping.hierarchy.length > 0 && estimateRows) {
 		// Count unique combinations at each level. estimateOutput is only
 		// called on the eager-array form (wizard preview); streaming sources
 		// don't have a known total ahead of generation.
-		if (Array.isArray(parsedData.rows)) {
+		{
 			const uniqueHierarchies = new Set<string>();
-			for (const row of parsedData.rows) {
+			for (const row of estimateRows) {
 				let path = '';
 				for (const h of config.mapping.hierarchy.sort((a, b) => a.level - b.level)) {
 					const value = row[h.column];
@@ -2623,8 +2633,8 @@ export function estimateOutput(
 
 	// Estimate link count — eager-array path only (wizard preview)
 	let linkCount = 0;
-	if (config.mapping?.links && config.mapping.links.length > 0 && Array.isArray(parsedData.rows)) {
-		for (const row of parsedData.rows) {
+	if (config.mapping?.links && config.mapping.links.length > 0 && estimateRows) {
+		for (const row of estimateRows) {
 			for (const link of config.mapping.links) {
 				const value = row[link.column];
 				if (value) {
@@ -2919,7 +2929,7 @@ export async function generateFromRecipe(
 	// v0.1.4.5: streaming-friendly iteration (array OR AsyncIterable<Row>).
 	// v0.1.6 (2026-06-13): writes run in a bounded concurrency pool; the sync
 	// prefix (render + collision reserve) stays in row order.
-	const total = parsedData.rowCount > 0 ? parsedData.rowCount : -1;
+	let total = parsedData.rowCount > 0 ? parsedData.rowCount : -1;
 	const ensureFolderOnce = createFolderEnsurer(app);
 	const limit = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
 	let completed = 0;
@@ -2931,6 +2941,7 @@ export async function generateFromRecipe(
 	//
 	// Captured through `.catch` rather than by wrapping the row loop in a try
 	// block, so the loop below keeps its indentation and its diff.
+	total = sourceStage.expectedRowCount ?? total;
 	let sourceStageFailure: SourceStageError | null = null;
 	const captureSourceStageFailure = (stageErr: unknown): void => {
 		if (!(stageErr instanceof SourceStageError)) throw stageErr;
@@ -3308,7 +3319,7 @@ export async function generateFromRecipe(
 		} finally {
 			completed += 1;
 			if (options.onProgress && (completed % 10 === 0 || completed === total)) {
-				options.onProgress(completed, total, `Processing row ${completed}`);
+				options.onProgress(completed, total, `${recipe.source?.nest ? 'Processing record' : 'Processing row'} ${completed}`);
 			}
 		}
 		},
@@ -3417,7 +3428,7 @@ export async function generateFromRecipe(
 	// genuine orphan and must be reported as one. `excludedCount` is 0 whenever
 	// no source shaping is declared, leaving this expression exactly as it was.
 	const rowCountComplete =
-		parsedData.rowCount < 0 || completed + sourceStage.excludedCount === parsedData.rowCount;
+		parsedData.rowCount < 0 || completed + sourceStage.excludedCount === (sourceStage.expectedRowCount ?? parsedData.rowCount);
 	// AM-7. Record WHETHER detection ran. An uncomputed orphan count is not
 	// zero, and a surface that renders it as zero says the import is intact
 	// when nothing checked.

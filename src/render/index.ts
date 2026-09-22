@@ -15,6 +15,7 @@
  */
 
 import type { ConceptIdentity, Address, RenderReport, VariadicConfig, LayoutValue } from './types';
+import type { NestedRecordLevel } from '../types/generated/recipe';
 import { renderTemplate, renderTemplateValue, RenderError } from './template';
 import { renderBodyProjection, type BodyProjection } from './body';
 import { applyFolder, applyVariadicFolder } from './mechanisms/folder';
@@ -63,6 +64,7 @@ export interface Recipe {
 		ontology?: string;
 		version?: string;
 		levels?: string[];
+		nest?: NestedRecordLevel[];
 		/**
 		 * Optional JSONata row predicate (schema SchemaVer 1.9.0, Ch 46 source
 		 * contract §3). A row for which it is false never becomes a note. Runs
@@ -208,8 +210,27 @@ export function render(
 		frontmatter: {},
 	};
 
+	// A nested row is placed only by layout entries at or above its declared
+	// level. Rows without `_cw` retain the exact historical full-layout path.
+	const lineageLevel = (identity.scope as { _cw?: { level?: unknown } })._cw?.level;
+	const nest = recipe.source?.nest;
+	let activeNestEntry: NestedRecordLevel | undefined;
+	let applicableLayout = recipe.target.layout;
+	if (typeof lineageLevel === 'string' && nest) {
+		const levelOrder = new Map(nest.map((entry, index) => [entry.level, index]));
+		const currentIndex = levelOrder.get(lineageLevel);
+		if (currentIndex !== undefined) {
+			activeNestEntry = nest[currentIndex];
+			applicableLayout = recipe.target.layout.filter((entry) => {
+				const entryIndex = levelOrder.get(entry.level);
+				return entryIndex === undefined || entryIndex <= currentIndex;
+			});
+		}
+	}
+	let lastAppliedFolder: (typeof recipe.target.layout)[number] | undefined;
+
 	// 1. Walk layout entries in order, dispatching per mechanism
-	for (const entry of recipe.target.layout) {
+	for (const entry of applicableLayout) {
 		// `variadic` is a folder-only knob (heading/tag variants deferred).
 		// Fail fast rather than silently ignore it on any other mechanism.
 		if (entry.variadic && entry.mechanism !== 'folder') {
@@ -219,7 +240,8 @@ export function render(
 		}
 
 		switch (entry.mechanism) {
-			case 'folder':
+			case 'folder': {
+				const pathBefore = address.primary.path;
 				if (entry.variadic) {
 					applyVariadicFolder(
 						address,
@@ -231,7 +253,9 @@ export function render(
 				} else {
 					applyFolder(address, entry as Parameters<typeof applyFolder>[1], identity.scope, report, layoutValues);
 				}
+				if (address.primary.path !== pathBefore) lastAppliedFolder = entry;
 				break;
+			}
 			case 'file':
 				// AM-37: `layoutValues` reaches the file mechanism too. Its template
 				// may render directory prefixes, and a directory nobody recorded a
@@ -253,6 +277,34 @@ export function render(
 					`Unknown mechanism "${entry.mechanism}" at level "${entry.level}". ` +
 						`Allowed: folder, file, heading, tag, wikilink (last two deferred to v0.2).`,
 				);
+		}
+	}
+
+	if (activeNestEntry && nest) {
+		const entryIndex = nest.indexOf(activeNestEntry);
+		const isNonLeaf = entryIndex >= 0 && entryIndex < nest.length - 1;
+		const hasDeclaredFile = applicableLayout.some(
+			(entry) => entry.level === activeNestEntry!.level && entry.mechanism === 'file',
+		);
+		if (isNonLeaf && !hasDeclaredFile) {
+			if (activeNestEntry.leaf === 'folder-note' && lastAppliedFolder) {
+				const implicitTemplate = `${lastAppliedFolder.template}.md`;
+				applyFile(address, {
+					level: activeNestEntry.level,
+					mechanism: 'file',
+					template: implicitTemplate,
+				}, identity.scope, report, layoutValues);
+				report?.notes.push({
+					code: 'nest-folder-note-leaf',
+					level: activeNestEntry.level,
+					template: implicitTemplate,
+					detail: `Nest level "${activeNestEntry.level}" used its declared folder-note leaf.`,
+				});
+			} else if (activeNestEntry.leaf !== 'none') {
+				throw new RenderError(
+					`Level "${activeNestEntry.level}" has children but no note of its own. Add a file entry for it, or set leaf to folder-note or none.`,
+				);
+			}
 		}
 	}
 
@@ -340,7 +392,7 @@ export function render(
 	//    object_id for crosswalks). Tier 1 schema validation enforces the
 	//    kind-specific required-field set + STRM predicate enum at write time.
 	let chosenKind: Tier1Kind = 'concept';
-	for (const entry of recipe.target.layout) {
+	for (const entry of applicableLayout) {
 		if (entry.kind && entry.kind !== 'concept') {
 			chosenKind = entry.kind;
 		}

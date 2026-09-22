@@ -1,0 +1,72 @@
+{
+  "catalog": {
+    "groups": [
+      {
+        "id": "ac",
+        "title": "Access coordination",
+        "controls": [
+          {
+            "id": "ac-1",
+            "title": "Account setup",
+            "parts": [
+              { "id": "ac-1_smt", "name": "Statement", "prose": "Create a synthetic account record. Review the record before activation." },
+              { "id": "ac-1_gdn", "name": "Guidance", "prose": "Use a fictional approval queue. Record the synthetic reviewer decision." }
+            ]
+          },
+          {
+            "id": "ac-2",
+            "title": "Session handling",
+            "parts": [
+              { "id": "ac-2_smt", "name": "Statement", "prose": "Open a synthetic session after approval. Close it after the test interval." },
+              { "id": "ac-2_gdn", "name": "Guidance", "prose": "Choose a short fictional interval. Confirm the sample session closes." }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "au",
+        "title": "Audit utilities",
+        "controls": [
+          {
+            "id": "au-1",
+            "title": "Event capture",
+            "parts": [
+              { "id": "au-1_smt", "name": "Statement", "prose": "Capture a synthetic event. Store only invented identifiers." },
+              { "id": "au-1_gdn", "name": "Guidance", "prose": "Use the sample event stream. Verify the fictional timestamp order." }
+            ]
+          },
+          {
+            "id": "au-2",
+            "title": "Record review",
+            "parts": [
+              { "id": "au-2_smt", "name": "Statement", "prose": "Review a synthetic event record. Mark the invented outcome." },
+              { "id": "au-2_gdn", "name": "Guidance", "prose": "Compare two fictional records. Explain the sample difference." }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "cm",
+        "title": "Change management",
+        "controls": [
+          {
+            "id": "cm-1",
+            "title": "Change request",
+            "parts": [
+              { "id": "cm-1_smt", "name": "Statement", "prose": "Create a synthetic change request. Include an invented reason." },
+              { "id": "cm-1_gdn", "name": "Guidance", "prose": "Route the fictional request for review. Keep the sample scope narrow." }
+            ]
+          },
+          {
+            "id": "cm-2",
+            "title": "Change verification",
+            "parts": [
+              { "id": "cm-2_smt", "name": "Statement", "prose": "Verify a synthetic change result. Record the invented evidence." },
+              { "id": "cm-2_gdn", "name": "Guidance", "prose": "Compare the fictional result with its request. Note any sample mismatch." }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
