@@ -1496,7 +1496,7 @@
 	margin: 8px 0 0;
 }
 .crosswalker-sheet-suggestion {
-	margin: -4px 0 12px;
+	margin: 0 0 8px;
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 }
@@ -2074,7 +2074,7 @@
 
 /* Shape cards use native labeled checkboxes; only the label is a toggle target. */
 .crosswalker-wb-shapes {
-	display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 	gap: var(--cw-s2); margin: var(--cw-s3) 0;
 }
 .crosswalker-wb-shape {
@@ -2090,7 +2090,7 @@
 	box-shadow: inset 0 0 0 1px var(--interactive-accent);
 }
 .crosswalker-wb-shape.is-mixed { border-color: var(--text-warning); }
-.crosswalker-wb-shape-control { display: flex; align-items: center; gap: var(--cw-s2); cursor: pointer; min-width: 0; }
+.crosswalker-wb-shape-control { display: flex; align-items: center; gap: var(--cw-s2); cursor: pointer; min-width: 0; flex-wrap: wrap; }
 .crosswalker-wb-shape-control input { flex: 0 0 auto; }
 .crosswalker-wb-shape-title { font-size: var(--cw-fs-body); font-weight: 600; display: inline-flex; align-items: center; gap: var(--cw-chip-gap); min-width: 0; }
 .crosswalker-wb-shape-state {
@@ -2558,8 +2558,9 @@
 }
 
 /* -- Vault source scan: bounded progress and source-control results -- */
-.crosswalker-scan-modal .modal-content {
-	max-width: min(1100px, 92vw);
+.crosswalker-scan-modal {
+	width: min(1100px, 92vw);
+	max-width: 92vw;
 }
 .crosswalker-scan-body {
 	display: flex;
@@ -2629,7 +2630,6 @@
 	color: var(--text-warning);
 }
 .crosswalker-scan-result {
-	min-width: 13em;
 	font-size: var(--cw-fs-small);
 	color: var(--text-muted);
 }
@@ -2668,8 +2668,14 @@
 	padding: var(--cw-s3) 0 0;
 	border-top: 1px solid var(--background-modifier-border);
 	display: flex;
+	flex-wrap: wrap;
 	justify-content: flex-end;
 	gap: var(--cw-s2);
+}
+.crosswalker-scan-footer-note {
+	flex: 1 1 100%;
+	font-size: var(--cw-fs-small);
+	color: var(--text-muted);
 }
 
 /* -- Overview hub: section cards -- */

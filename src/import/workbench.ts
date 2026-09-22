@@ -157,11 +157,11 @@ const SHAPE_CARD_COPY: Record<ShapeCardId, { icon: string; afford: string; whisp
 };
 
 const CROSSWALK_PREDICATE_LABELS: Record<CrosswalkPredicate, string> = {
-	is_approximate_to: 'Approximately the same as',
-	is_equivalent_to: 'The same as',
-	is_broader_than: 'Broader than',
-	is_narrower_than: 'Narrower than',
-	intersects_with: 'Overlaps with',
+	is_approximate_to: 'Roughly the same requirement',
+	is_equivalent_to: 'Exactly the same requirement',
+	is_broader_than: 'This one is broader',
+	is_narrower_than: 'This one is narrower',
+	intersects_with: 'They partly overlap',
 };
 
 const PREVIEW_ROW_LIMIT = 20;
@@ -1369,7 +1369,7 @@ export class MappingWorkbench {
 			if (needsOntology) {
 				shape.createDiv({
 					cls: 'crosswalker-wb-shape-hint',
-					text: 'Which framework do these ids belong to?',
+					text: 'Pick the framework these ids point to. No crosswalk edges are written for this column until you do.',
 					attr: { id: noteId },
 				});
 			} else if (hint) {
@@ -1395,17 +1395,19 @@ export class MappingWorkbench {
 	): void {
 		const controls = shape.createDiv({ cls: 'crosswalker-wb-crosswalk-controls' });
 		const registry = entriesByOntology(RECIPE_REGISTRY);
+		const sourceOntology = this.recipeDocument.original.source.ontology;
 		const frameworkRow = controls.createEl('label');
-		frameworkRow.createSpan({ text: 'Framework' });
+		frameworkRow.createSpan({ text: 'These ids point to' });
 		const framework = frameworkRow.createEl('select', { cls: 'dropdown' });
 		const placeholder = framework.createEl('option', {
-			text: 'Which framework do these ids belong to?',
+			text: 'Choose a framework',
 			attr: { value: '' },
 		});
 		placeholder.disabled = true;
 		for (const [ontology, entries] of registry) {
+			if (ontology === 'xwalk' || ontology === 'evidence-mappings' || ontology === sourceOntology) continue;
 			framework.createEl('option', {
-				text: `${entries[0].label} (${ontology})`,
+				text: entries[0].label.replace(/\s*\([^)]*\)$/, ''),
 				attr: { value: ontology },
 			});
 		}
@@ -1443,7 +1445,7 @@ export class MappingWorkbench {
 		});
 
 		const predicateRow = controls.createEl('label');
-		predicateRow.createSpan({ text: 'Predicate' });
+		predicateRow.createSpan({ text: 'How they relate' });
 		const predicate = predicateRow.createEl('select', { cls: 'dropdown' });
 		for (const value of CROSSWALK_PREDICATES) {
 			predicate.createEl('option', {
@@ -1458,13 +1460,17 @@ export class MappingWorkbench {
 			}));
 		});
 
-		if (detection) {
-			const ontology = target.destination.toOntology;
-			const registryLabel = ontology ? registry.get(ontology)?.[0]?.label : null;
-			const destinationLabel = registryLabel ?? ontology ?? 'another framework';
-			let hint = `${detection.column} holds ${detection.avgValuesPerCell.toFixed(1)} references per row to ${destinationLabel}`;
-			if (detection.qualifierSample) {
-				hint += ` Notes like ${detection.qualifierSample} are kept as the mapping justification.`;
+		const ontology = target.destination.toOntology;
+		if (ontology) {
+			const column = this.firstColumn(m.levels[target.levelIndex].source);
+			let hint = `${column}: one edge note per reference, filed under _crosswalker/mappings/ and queryable in Bases.`;
+			if (detection) {
+				const registryLabel = registry.get(ontology)?.[0]?.label;
+				const destinationLabel = registryLabel ?? ontology;
+				hint += ` ${detection.column} holds ${detection.avgValuesPerCell.toFixed(1)} references per row to ${destinationLabel}.`;
+				if (detection.qualifierSample) {
+					hint += ` Notes like ${detection.qualifierSample} are kept as the mapping justification.`;
+				}
 			}
 			controls.createDiv({ cls: 'crosswalker-wb-crosswalk-summary', text: hint });
 		}

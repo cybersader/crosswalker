@@ -931,8 +931,8 @@ export class ImportFlow {
 			};
 			const typeMeta: Record<string, { icon: string; how: string }> = {
 				csv: { icon: '🧾', how: 'Each row becomes a note; columns become its properties.' },
-				xlsx: { icon: '📊', how: 'Pick the worksheet that holds your rows — each row becomes a note.' },
-				json: { icon: '🧩', how: 'Crosswalker finds the lists of records inside — pick the one to import; each record becomes a note.' },
+				xlsx: { icon: '📊', how: 'Pick the worksheet that holds your rows. Each row becomes a note.' },
+				json: { icon: '🧩', how: 'Crosswalker finds the lists of records inside. Pick the one to import. Each record becomes a note.' },
 			};
 			const meta = typeMeta[this.sourceType ?? 'csv'] ?? typeMeta.csv;
 			const fileInfo = container.createEl('div', { cls: 'crosswalker-file-card' });
@@ -948,6 +948,23 @@ export class ImportFlow {
 
 			// XLSX: sheet picker + header-row offset (banner rows above the real headers)
 			if (this.sourceType === 'xlsx' && this.availableSheets.length > 0) {
+				if (this.sheetSuggestion) {
+					const suggestion = this.sheetSuggestion;
+					const line = container.createEl('div', { cls: 'crosswalker-sheet-suggestion' });
+					if (!suggestion.overridden) {
+						line.setText(suggestion.confident
+							? `Suggested from ${suggestion.label}: sheet '${suggestion.sheetName}', headers on row ${suggestion.headerRow + 1} as numbered in the spreadsheet. Change either if this is not the file you expect.`
+							: `Possible match ${suggestion.label}: sheet '${suggestion.sheetName}', headers on row ${suggestion.headerRow + 1} as numbered in the spreadsheet. Change either if this is not the file you expect.`);
+					} else {
+						line.appendText(`Using your choice: sheet '${this.selectedSheet ?? ''}', headers on row ${this.xlsxHeaderRow + 1}. Suggested: sheet '${suggestion.sheetName}', row ${suggestion.headerRow + 1}. `);
+						const useSuggestion = line.createEl('button', { text: 'Use suggestion' });
+						useSuggestion.addEventListener('click', () => {
+							this.selectSheet(suggestion.sheetName);
+							this.setHeaderRow(suggestion.headerRow);
+							this.renderStep();
+						});
+					}
+				}
 				new Setting(container)
 					.setName('Sheet')
 					.setDesc('Which worksheet holds the rows to import.')
@@ -964,37 +981,22 @@ export class ImportFlow {
 					});
 				new Setting(container)
 					.setName('Header row')
-					.setDesc('0-based row index of the column headers. Raise it to skip banner rows above them.')
+					// eslint-disable-next-line obsidianmd/ui/sentence-case -- Excel is a proper product name in report-approved copy.
+					.setDesc('The spreadsheet row that holds the column names, as numbered in Excel. Raise it to skip banner rows above them.')
 					.addText((t) => {
-						t.setValue(String(this.xlsxHeaderRow));
+						t.setValue(String(this.xlsxHeaderRow + 1));
 						t.inputEl.type = 'number';
-						t.inputEl.min = '0';
+						t.inputEl.min = '1';
 						t.onChange((v) => {
 							const wasOverridden = this.sheetSuggestion?.overridden ?? null;
-							this.setHeaderRow(v);
-							// The suggestion line under this control changes wording when the
+							this.setHeaderRow(String(Number(v) - 1));
+							// The suggestion line above these controls changes wording when the
 							// override state flips. Re-render only on that flip so typing a
 							// digit does not rebuild Step 1 and steal focus from the input.
 							if (this.sheetSuggestion && this.sheetSuggestion.overridden !== wasOverridden) this.renderStep();
 						});
 					});
-				if (this.sheetSuggestion) {
-					const suggestion = this.sheetSuggestion;
-					const line = container.createEl('div', { cls: 'crosswalker-sheet-suggestion' });
-					if (!suggestion.overridden) {
-						line.setText(suggestion.confident
-							? `Suggested from ${suggestion.label}: sheet '${suggestion.sheetName}', header row ${suggestion.headerRow}. Change either if this is not the file you expect.`
-							: `Possible match ${suggestion.label}: sheet '${suggestion.sheetName}', header row ${suggestion.headerRow}. Change either if this is not the file you expect.`);
-					} else {
-						line.appendText(`Using your choice: sheet '${this.selectedSheet ?? ''}', header row ${this.xlsxHeaderRow}. `);
-						const useSuggestion = line.createEl('button', { text: 'Use suggestion' });
-						useSuggestion.addEventListener('click', () => {
-							this.selectSheet(suggestion.sheetName);
-							this.setHeaderRow(suggestion.headerRow);
-							this.renderStep();
-						});
-					}
-				}
+
 			}
 
 			// JSON: click-to-pick record list (no path syntax required) + an

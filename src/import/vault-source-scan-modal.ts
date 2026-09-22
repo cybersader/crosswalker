@@ -26,7 +26,7 @@ interface WorkspaceActivator {
 }
 
 const SUBTITLE =
-	'Framework exports already in this vault, and what each would become. Open any row in the wizard to decide, column by column, what turns into folders, tags, links, and crosswalk edges.';
+	'Framework exports already in this vault, with the folder each would land in. Open any row in the wizard to decide, column by column, what becomes folders, tags, links, and crosswalk edges.';
 const CAP_NOTICE =
 	'Stopped at 500 files. Move the export files you want into one folder and scan again, or import them one at a time.';
 
@@ -122,7 +122,7 @@ export class VaultSourceScanModal extends Modal {
 		if (!this.bodyEl) return;
 		this.bodyEl.empty();
 		const progress = this.bodyEl.createDiv({ cls: 'crosswalker-scan-progress' });
-		progress.createDiv({ text: `Scanned ${scanned} of ${total} files` });
+		progress.createDiv({ text: total === 0 ? 'Counting files' : `Scanned ${scanned} of ${total} files` });
 		progress.createEl('code', { cls: 'crosswalker-scan-path', text: currentPath });
 		const cancel = progress.createEl('button', { text: 'Cancel' });
 		cancel.addEventListener('click', () => this.controller.abort());
@@ -145,13 +145,13 @@ export class VaultSourceScanModal extends Modal {
 
 		const table = this.bodyEl.createEl('table', { cls: 'crosswalker-scan-table' });
 		const header = table.createEl('thead').createEl('tr');
-		for (const label of ['', 'File', 'Match', 'Source details', 'State', 'Action', 'Result']) {
+		for (const label of ['', 'File', 'Match', 'Will create', 'State', 'Action']) {
 			header.createEl('th', { text: label });
 		}
 		const tbody = table.createEl('tbody');
 		for (const row of report.rows) this.renderRow(tbody, row);
 		if (report.rows.length === 0) {
-			const empty = tbody.createEl('tr').createEl('td', { attr: { colspan: '7' } });
+			const empty = tbody.createEl('tr').createEl('td', { attr: { colspan: '6' } });
 			empty.setText('No recognized framework exports were found. Move an export into the vault and scan again, or open it directly in the wizard.');
 		}
 
@@ -175,15 +175,18 @@ export class VaultSourceScanModal extends Modal {
 		tr.createEl('td', { cls: 'crosswalker-scan-file' }).createEl('code', { text: row.path });
 		const match = tr.createEl('td');
 		match.createDiv({
-			text: `${row.candidate.confident ? 'Looks like' : 'Possible match:'} ${row.candidate.label}`,
+			text: row.candidate.confident
+				? `Looks like ${row.candidate.label}`
+				: `Possible match: ${row.candidate.label} (score ${row.candidate.score} of 100)`,
 		});
-		match.createDiv({ cls: 'crosswalker-scan-score', text: `Score ${row.candidate.score}` });
 
-		const details = tr.createEl('td', { cls: 'crosswalker-scan-details' });
+		const details = tr.createEl('td');
+		details.createDiv({ text: entry.suggestedFolder });
+		const sourceDetails = details.createDiv({ cls: 'crosswalker-scan-details' });
 		if (row.candidate.table !== '' || row.candidate.headerRow > 0) {
-			details.setText(`sheet '${row.candidate.table}', header row ${row.candidate.headerRow}`);
+			sourceDetails.setText(`sheet '${row.candidate.table}', headers on row ${row.candidate.headerRow + 1}`);
 		} else {
-			details.setText('Headers on the first row');
+			sourceDetails.setText('Headers on the first row');
 		}
 
 		const state = tr.createEl('td');
@@ -197,6 +200,7 @@ export class VaultSourceScanModal extends Modal {
 				text: 'Wait for indexing to finish, then scan again.',
 			});
 		}
+		const result = state.createDiv({ cls: 'crosswalker-scan-result' });
 
 		const actionCell = tr.createEl('td');
 		const action = actionCell.createEl('button', { text: this.actionLabel(row) });
@@ -209,7 +213,6 @@ export class VaultSourceScanModal extends Modal {
 			});
 		}
 
-		const result = tr.createEl('td', { cls: 'crosswalker-scan-result' });
 		this.rowControls.push({ row, entry, checkbox, result });
 	}
 
@@ -335,6 +338,10 @@ export class VaultSourceScanModal extends Modal {
 
 	private renderFooter(): void {
 		const footer = this.contentEl.createDiv({ cls: 'crosswalker-modal-footer crosswalker-scan-footer' });
+		footer.createDiv({
+			cls: 'crosswalker-scan-footer-note',
+			text: 'Import selected writes notes now, using each match\'s built-in layout. Create drafts saves the ticked rows to finish later in the wizard; nothing is written yet.',
+		});
 		this.importButton = footer.createEl('button', { cls: 'mod-cta', text: 'Import selected' });
 		this.importButton.addEventListener('click', () => {
 			void this.importSelected();

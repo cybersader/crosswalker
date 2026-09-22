@@ -172,6 +172,31 @@ describe('vault source scan modal', () => {
 		expect(content.textContent).toContain('Looks like NIST CSF 2.0');
 		expect(content.textContent).toContain('Looks like CRI Profile v2.2');
 		expect(content.textContent).toContain('Looks like MITRE ATT&CK techniques');
+		expect([...content.querySelectorAll('th')].map((cell) => cell.textContent)).toEqual([
+			'', 'File', 'Match', 'Will create', 'State', 'Action',
+		]);
+		expect([...content.querySelectorAll('tbody tr')].every((tr) => tr.querySelectorAll('td').length === 6)).toBe(true);
+		expect(content.textContent).toContain('Frameworks/CRI Profile');
+		expect(content.textContent).toContain("sheet 'Profile', headers on row 2");
+		expect(content.textContent).not.toContain('Score 100');
+		expect(content.textContent).toContain(
+			"Import selected writes notes now, using each match's built-in layout. Create drafts saves the ticked rows to finish later in the wizard; nothing is written yet.",
+		);
+	});
+
+	it('folds the score into possible-match labels and omits it for confident matches', async () => {
+		const possible = row('possible.csv', 'nist-csf-2-flat');
+		possible.candidate.confident = false;
+		possible.candidate.score = 47;
+		const { modal, content } = makeModal(report([
+			row('confident.csv', 'nist-csf-2-flat'),
+			possible,
+		]));
+		await priv(modal).scanTask;
+
+		expect(content.textContent).toContain('Looks like NIST CSF 2.0');
+		expect(content.textContent).toContain('Possible match: NIST CSF 2.0 (subcategories) (score 47 of 100)');
+		expect(content.textContent).not.toContain('Score 100');
 	});
 
 	it('imports selected rows serially and stops at the first failure', async () => {
@@ -206,7 +231,10 @@ describe('vault source scan modal', () => {
 		expect(mockedImport).toHaveBeenCalledTimes(2);
 		expect(mockedImport.mock.calls.map((call) => call[2].file.path)).toEqual(['a.csv', 'b.xlsx']);
 		expect(mockedImport.mock.calls.some((call) => call[2].overwriteMode === 'replace')).toBe(false);
-		const results = [...content.querySelectorAll('.crosswalker-scan-result')].map((cell) => cell.textContent);
+		const resultElements = [...content.querySelectorAll<HTMLElement>('.crosswalker-scan-result')];
+		const results = resultElements.map((cell) => cell.textContent);
+		expect(resultElements.map((cell) => [...cell.closest('tr')!.querySelectorAll('td')].indexOf(cell.closest('td')!)))
+			.toEqual([4, 4, 4]);
 		expect(results).toEqual([
 			'Imported 2 notes',
 			'The synthetic source is incomplete. Add the missing column and run the import again.',
@@ -256,7 +284,7 @@ describe('vault source scan modal', () => {
 		const rendered = content.textContent ?? '';
 		expect(rendered).not.toContain('—');
 		expect(rendered).toContain('Sources found in this vault');
-		expect(rendered).toContain('Framework exports already in this vault, and what each would become.');
+		expect(rendered).toContain('Framework exports already in this vault, with the folder each would land in.');
 		expect(rendered).toContain('Import selected');
 		expect(rendered).toContain('Create drafts for selected');
 		expect(rendered).toContain('Open in wizard');

@@ -260,7 +260,8 @@ async function captureScanResults(theme: Theme, width: Width): Promise<JsonRecor
 		const content = root?.querySelector<HTMLElement>('.modal-content') ?? root;
 		const table = root?.querySelector<HTMLTableElement>('.crosswalker-scan-table') ?? null;
 		const rows = Array.from(table?.querySelectorAll('tr') ?? []).map((row, rowIndex) => {
-			const cells = Array.from(row.querySelectorAll('td')).map((cell, cellIndex) => ({
+			const cellElements = Array.from(row.querySelectorAll('td'));
+			const cells = cellElements.map((cell, cellIndex) => ({
 				cellIndex,
 				text: cell.textContent?.trim() ?? '',
 				rect: rect(cell),
@@ -279,6 +280,8 @@ async function captureScanResults(theme: Theme, width: Width): Promise<JsonRecor
 				rowIndex,
 				path: row.querySelector('.crosswalker-scan-file code')?.textContent?.trim() ?? '',
 				state: row.querySelector('.crosswalker-scan-state')?.textContent?.trim() ?? '',
+				resultCellIndex: cellElements.findIndex((cell) => Boolean(cell.querySelector('.crosswalker-scan-result'))),
+				actionCellIndex: cellElements.findIndex((cell) => Boolean(cell.querySelector('button'))),
 				cells,
 				pairIntersections,
 			};
@@ -331,7 +334,13 @@ async function captureScanResults(theme: Theme, width: Width): Promise<JsonRecor
  * not listed) stay as assertions.
  */
 function assertScanResults(observation: JsonRecord): void {
-	const rows = observation.rows as Array<{ pairIntersections: Array<{ intersects: boolean }> }>;
+	const rows = observation.rows as Array<{
+		path: string;
+		resultCellIndex: number;
+		actionCellIndex: number;
+		cells: Array<{ cellIndex: number; text: string }>;
+		pairIntersections: Array<{ intersects: boolean }>;
+	}>;
 	const cellOverlap = rows.some((row) => row.pairIntersections.some((pair) => pair.intersects));
 	const horizontalOverflow = (observation.overflow as JsonRecord | undefined)?.horizontal === true;
 	const findings: string[] = [];
@@ -341,6 +350,11 @@ function assertScanResults(observation: JsonRecord): void {
 	if (findings.length > 0) {
 		console.log(`[reification-surfaces:layout-finding] ${JSON.stringify({ theme: observation.theme, width: observation.width, findings })}`);
 	}
+	const fixtureRows = rows.filter((row) => row.path === CSF_PATH || row.path === CRI_PATH);
+	expect(fixtureRows).toHaveLength(2);
+	expect(fixtureRows.every((row) => row.cells.length === 6)).toBe(true);
+	expect(fixtureRows.every((row) => row.resultCellIndex === 4)).toBe(true);
+	expect(fixtureRows.every((row) => row.actionCellIndex === 5)).toBe(true);
 	expect(observation.notesListed).toBe(false);
 	const states = observation.fixtureStates as Record<string, string>;
 	expect(states[CSF_PATH]).toBe('Not imported');
@@ -485,7 +499,7 @@ function assertSheetSuggestion(observation: JsonRecord, overridden: boolean): vo
 		expect(observation.useSuggestionPresent).toBe(true);
 	} else {
 		expect((observation.sheet as JsonRecord).value).toBe('Structure');
-		expect((observation.headerRow as JsonRecord).value).toBe('1');
+		expect((observation.headerRow as JsonRecord).value).toBe('2');
 	}
 }
 
@@ -496,7 +510,7 @@ async function overrideHeaderRow(): Promise<void> {
 			.find((item) => item.querySelector('.setting-item-name')?.textContent?.trim() === 'Header row');
 		const input = setting?.querySelector<HTMLInputElement>('input');
 		if (!input) return false;
-		input.value = '0';
+		input.value = '1';
 		input.dispatchEvent(new Event('input', { bubbles: true }));
 		input.dispatchEvent(new Event('change', { bubbles: true }));
 		return true;
@@ -571,7 +585,7 @@ async function reachCrosswalkShapes(): Promise<{ cardPresent: boolean; titles: s
 		) ?? null;
 		const titles = cards.map((card) => card.querySelector('.crosswalker-wb-shape-title')?.textContent?.trim() ?? '');
 		const frameworkLabel = Array.from(crosswalk?.querySelectorAll<HTMLLabelElement>('.crosswalker-wb-crosswalk-controls label') ?? [])
-			.find((label) => label.querySelector('span')?.textContent?.trim() === 'Framework');
+			.find((label) => label.querySelector('span')?.textContent?.trim() === 'These ids point to');
 		const framework = frameworkLabel?.querySelector<HTMLSelectElement>('select') ?? null;
 		let clearedForUnnamed = false;
 		if (framework && framework.value !== '') {
@@ -625,8 +639,8 @@ async function captureCrosswalkCard(
 		const labelledSelect = (labelText: string) => labels
 			.find((label) => label.querySelector('span')?.textContent?.trim() === labelText)
 			?.querySelector<HTMLSelectElement>('select') ?? null;
-		const framework = labelledSelect('Framework');
-		const predicate = labelledSelect('Predicate');
+		const framework = labelledSelect('These ids point to');
+		const predicate = labelledSelect('How they relate');
 		const cardRect = rect(card);
 		const controlsRect = rect(controls);
 		const mapCard = card?.closest<HTMLElement>('.crosswalker-wb-mapcard') ?? null;
@@ -673,7 +687,7 @@ async function nameCrosswalkFramework(): Promise<boolean> {
 			candidate.querySelector('.crosswalker-wb-shape-title')?.textContent?.trim() === 'Crosswalks',
 		);
 		const frameworkLabel = Array.from(card?.querySelectorAll<HTMLLabelElement>('.crosswalker-wb-crosswalk-controls label') ?? [])
-			.find((label) => label.querySelector('span')?.textContent?.trim() === 'Framework');
+			.find((label) => label.querySelector('span')?.textContent?.trim() === 'These ids point to');
 		const select = frameworkLabel?.querySelector<HTMLSelectElement>('select');
 		if (!select || !Array.from(select.options).some((option) => option.value === 'nist-csf-2')) return false;
 		select.value = 'nist-csf-2';

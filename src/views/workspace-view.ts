@@ -243,7 +243,7 @@ export class CrosswalkerWorkspaceView extends ItemView {
 			setIcon(ico, 'folder-plus');
 			empty.createDiv({
 				cls: 'crosswalker-workspace-empty-text',
-				text: 'Nothing imported yet. Run "Import structured data" to bring in your first framework.',
+				text: 'Nothing imported yet. Run "Find sources in this vault" to see the framework exports already here, or "Import structured data" to pick a file.',
 			});
 			return;
 		}
