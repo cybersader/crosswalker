@@ -330,6 +330,81 @@ export function diagnoseCanonicalRecipe(recipe: CrosswalkerImportRecipe): Recipe
 			});
 		}
 	}
+
+	const nest = recipe.source.nest;
+	if (nest) {
+		for (const [index, entry] of nest.entries()) {
+			const isLast = index === nest.length - 1;
+			if (!levels.has(entry.level)) {
+				diagnostics.push(blocking(
+					'nest-level-undeclared',
+					`source.nest.${index}.level`,
+					`Nest level "${entry.level}" is not declared in source.levels.`,
+				));
+			}
+			if (!isLast && entry.children === undefined) {
+				diagnostics.push(blocking(
+					'nest-children-missing',
+					`source.nest.${index}.children`,
+					`Nest level "${entry.level}" has no children but is not the last level. Remove it or give it children.`,
+				));
+			}
+			if (isLast && entry.children !== undefined) {
+				diagnostics.push(blocking(
+					'nest-last-has-children',
+					`source.nest.${index}.children`,
+					`The last nest level "${entry.level}" must not declare children.`,
+				));
+			}
+			if (!isLast && typeof entry.children === 'object' && !nest[index + 1].parent_key) {
+				const next = nest[index + 1];
+				diagnostics.push(blocking(
+					'nest-join-parent-key-missing',
+					`source.nest.${index + 1}.parent_key`,
+					`Nest level "${next.level}" is joined from another collection and needs parent_key: the child field that names its parent's id.`,
+				));
+			}
+			if (!isLast && entry.leaf === undefined) {
+				const hasFileEntry = recipe.target.layout.some(
+					(layoutEntry) => layoutEntry.level === entry.level && layoutEntry.mechanism === 'file',
+				);
+				if (!hasFileEntry) {
+					diagnostics.push(blocking(
+						'nest-non-leaf-output-missing',
+						`source.nest.${index}.leaf`,
+						`Level "${entry.level}" has children but no note of its own. Add a file entry for it, or set leaf to folder-note or none.`,
+					));
+				}
+			}
+			if (isLast && entry.leaf !== undefined) {
+				diagnostics.push(blocking(
+					'nest-last-has-leaf',
+					`source.nest.${index}.leaf`,
+					`The last nest level "${entry.level}" is the note itself; leaf applies only to levels that have children.`,
+				));
+			}
+		}
+
+		const nestOrder = new Map(nest.map((entry, index) => [entry.level, index]));
+		const namedLayout = recipe.target.layout
+			.map((entry, index) => ({ entry, index, nestIndex: nestOrder.get(entry.level) }))
+			.filter((item): item is typeof item & { nestIndex: number } => item.nestIndex !== undefined);
+		outer: for (let left = 0; left < namedLayout.length; left++) {
+			for (let right = left + 1; right < namedLayout.length; right++) {
+				const above = namedLayout[left];
+				const below = namedLayout[right];
+				if (above.nestIndex > below.nestIndex) {
+					diagnostics.push(blocking(
+						'nest-layout-order-mismatch',
+						`target.layout.${above.index}.level`,
+						`Layout places level "${above.entry.level}" above "${below.entry.level}", but source.nest declares "${below.entry.level}" as the parent. Reorder the layout to match the nesting.`,
+					));
+					break outer;
+				}
+			}
+		}
+	}
+
 	if (!hasLeaf) {
 		diagnostics.push({
 			code: 'missing-leaf-output',

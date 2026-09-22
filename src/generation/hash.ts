@@ -604,6 +604,7 @@ export interface EffectiveRecipeTarget {
  * recipe declaring neither hashes byte-identically to its pre-1.9.0 self.
  */
 export interface EffectiveRecipeSource {
+	nest?: unknown;
 	where?: unknown;
 	joins?: unknown;
 }
@@ -634,6 +635,8 @@ export interface EffectiveRecipeSource {
  * ...plus the source-shaping declarations of `recipe.source` (SchemaVer
  * 1.9.0, Ch 46 source contract §8):
  *
+ *   - `source.nest` — nested-record expansion. It changes WHICH NOTES EXIST,
+ *                    so it participates under the absent-stays-absent rule.
  *   - `source.where` — the row predicate. It changes WHICH NOTES EXIST, which
  *                    is exactly what this hash is supposed to track.
  *   - `source.joins` — keyed lookup enrichment. It changes what a row IS, so
@@ -681,7 +684,10 @@ export function recipeHashCanonicalInput(target: EffectiveRecipeTarget, source?:
 		// changes WHICH NOTES EXIST, so it must enter the hash — but a recipe
 		// that declares none must hash byte-identically to its pre-1.9.0 self,
 		// down to the canonical string. NEVER `?? null` here.
-		// tests/source-hash-stability.test.ts pins all 13 shipped recipes.
+		// tests/source-hash-stability.test.ts pins all shipped recipes.
+		// Nested expansion changes which notes exist. Keep absence as undefined;
+		// NEVER use `?? null`, so recipes without nest retain their exact hash.
+		source_nest: source?.nest,
 		source_where: source?.where,
 		source_joins: source?.joins,
 	});

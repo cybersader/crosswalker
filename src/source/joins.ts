@@ -83,10 +83,18 @@ export const ALIAS_PATTERN = /^[a-z][a-z0-9_]*$/;
  * generation-engine.ts; `_crosswalker` is the Tier 1 provenance block.
  */
 export const RESERVED_ALIASES: ReadonlySet<string> = new Set([
+	'_cw',
 	'_crosswalker',
 	'_crosswalker_curie_local_part',
 	'curie',
 ]);
+
+/** Refuse a source column that would collide with nested-record lineage. */
+export function assertNoReservedSourceColumn(columns: string[]): void {
+	if (columns.includes('_cw')) {
+		throw new Error('Column "_cw" is reserved for nested-record lineage. Rename it in the source and import again.');
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Prepared join

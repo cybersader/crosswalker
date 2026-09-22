@@ -5,6 +5,10 @@
  */
 
 /**
+ * Workbook or sibling-array: where the next level's records live; joined to this level by the next entry's parent_key.
+ */
+export type SecondaryCollection = SecondarySheet | SecondaryIterator;
+/**
  * Optional JSONata predicate over one source row. A row for which it is false never becomes a note. MUST evaluate to a boolean; anything else is an error naming the row and the expression, never a silent skip. Every field name it references must exist in the source collection, and a predicate that admits zero rows from a non-empty source is an error. Restricted subset: field references, string/number/true/false/null literals, array literals, the operators = != < <= > >= in and or &, and the functions $not $exists $trim $lowercase $uppercase $string $number. Regular expressions, lambdas and dynamic field access are rejected, so an external producer in another language can reimplement the same predicate exactly. Values are compared as the parser produced them (spreadsheet cells are strings), so numeric intent must be explicit: $number(count) > 5. Runs BEFORE identity, CURIE minting, concept_cid and render(). Participates in the recipe hash because it changes which notes exist. Absent means every row becomes a note (behaviour before SchemaVer 1.9.0).
  */
 export type RowPredicate = string;
@@ -15,17 +19,13 @@ export type KeyedLookupEnrichment1 = SingleMatchJoin | MultiMatchJoin;
 /**
  * Where the secondary collection lives, INSIDE THE SAME SOURCE BYTES: another sheet of the same workbook, or a sibling array of the same JSON document. Exactly one of sheet or iterator. A single-collection source such as CSV has no second collection to name and is rejected.
  */
-export type SecondaryCollection = SecondarySheet | SecondaryIterator;
+export type SecondaryCollection1 = SecondarySheet | SecondaryIterator;
 /**
  * With cardinality 'one', optional: narrows the bound object to these fields; omitted binds the whole matched row. With cardinality 'many', REQUIRED and must name exactly one field: the list binds that field's value from each match. A list of objects is deliberately not offered because template path traversal does not lift over arrays, and the template grammar is frozen. Every named field must exist somewhere in the secondary collection.
  *
  * @minItems 1
  */
 export type SelectedSecondaryFields = [string, ...string[]];
-/**
- * Where the secondary collection lives, INSIDE THE SAME SOURCE BYTES: another sheet of the same workbook, or a sibling array of the same JSON document. Exactly one of sheet or iterator. A single-collection source such as CSV has no second collection to name and is rejected.
- */
-export type SecondaryCollection1 = SecondarySheet1 | SecondaryIterator1;
 /**
  * With cardinality 'one', optional: narrows the bound object to these fields; omitted binds the whole matched row. With cardinality 'many', REQUIRED and must name exactly one field: the list binds that field's value from each match. A list of objects is deliberately not offered because template path traversal does not lift over arrays, and the template grammar is frozen. Every named field must exist somewhere in the secondary collection.
  *
@@ -236,6 +236,12 @@ export interface SourceDeclaration {
 	 */
 	levels: [string, ...string[]];
 	detect?: SourceRecognitionHints;
+	/**
+	 * Declares that the primary collection's records own sub-record lists, and that each level should become its own rows. Level 0 is the primary iterator's records. CONTRACT (any producer that follows it hash-matches the plugin): (1) emission is depth-first in document order, parent row before its children, then the next parent; (2) every emitted row carries one reserved key `_cw`, an object with `level` (this level's name), `path` (array of ancestor ids root first, including self), `parent` (the immediate parent's id, or '' at level 0), and `ancestors.<level>.<field>` (the carried fields of each ancestor); (3) identity 'path' joins escaped pieces with '/'; (4) leaf 'folder-note' lands at <folder>/<folder>.md; (5) source.where is evaluated per emitted row after `_cw` is attached and does not cascade from parent to child. The last entry has no children. Participates in the recipe hash because it changes which notes exist.
+	 *
+	 * @minItems 1
+	 */
+	nest?: [NestedRecordLevel, ...NestedRecordLevel[]];
 	where?: RowPredicate;
 	joins?: KeyedLookupEnrichment;
 }
@@ -265,16 +271,34 @@ export interface SourceRecognitionHints {
 	notes?: string;
 }
 /**
- * Optional named secondary collections, each indexed by a key expression, whose matched rows become addressable on the primary row under the alias. The object key IS the alias. An alias never merges into the row's own namespace and never shadows a source column: the row gains exactly one new key, so a joined field is reached by the dotted traversal and ['literal key'] quoting that already exist and the template grammar needs no change. Runs AFTER source.where and BEFORE identity, CURIE minting, concept_cid and render(). Participates in the recipe hash because it changes what a row is and therefore what the notes assert. The primary collection is still consumed row by row; only the secondary collection is held in memory. Absent means no secondary collections (behaviour before SchemaVer 1.9.0).
+ * One level of a nested source. See source.nest.
  */
-export interface KeyedLookupEnrichment {
-	[k: string]: KeyedLookupEnrichment1;
-}
-export interface SingleMatchJoin {
-	from: SecondaryCollection;
-	on: KeyMatch;
-	cardinality: 'one';
-	select?: SelectedSecondaryFields;
+export interface NestedRecordLevel {
+	/**
+	 * Name of this level; must appear in source.levels and be used by target.layout.
+	 */
+	level: string;
+	/**
+	 * R2RML-style template with {var} interpolation. Variables come from the source level scope (e.g., {control.id}, {family.title}, {col}). PATHS: a path is a sequence of segments separated by '.'. A segment is bare (dotted traversal into nested source data, e.g. {external_references.0.external_id}) or QUOTED for a literal key, written ['segment'] (SchemaVer 1.7.0). Quoting is per segment, so it composes with traversal at any depth: {['CRI Profile v2.2 Diagnostic Statement']}, {objects.0.['external-id']}, {['weird.parent'].child.['odd.leaf']}. Inside a quoted segment \' is a literal quote and \\ a backslash. As a compatibility affordance, an all-bare dotted path whose whole raw text is an own key of the row (a dotted CSV/XLSX header) resolves to that column; the quoted form is the normative way to say so, and a competing nested reading is reported rather than silently preferred. FILTERS: lower, upper, title, slug, tagsafe, fs-safe, truncate(N), trim, trim(chars), number, split(delimiter,index), split(delimiter), part(delimiters,index), part(delimiters), prefix(delimiters,index), regex(pattern), reject(pattern), join(separator), wikilink, curie-prefix(prefix), plus first-position optional as a missing-value control. part(delimiters,index) returns the 0-based piece of the trimmed value after splitting on ANY single character of the delimiter set, dropping empty pieces; an index past the last piece yields an empty value with a render note. part(delimiters) produces the list of non-empty trimmed pieces, like split(delimiter). prefix(delimiters,index) returns the original value truncated right after the end of the indexed piece, keeping the original delimiters in the prefix (GV.OC-01.01 with delimiters '.-' and index 2 gives GV.OC-01). {var|optional} resolves a missing/null path to an empty value AT ANY SEGMENT (SchemaVer 1.7.0); ordinary missing variables still fail. {var|optional|curie-prefix(nist)} omits an absent identity and prefixes a present local value. LISTS (SchemaVer 1.7.0): a value may be a list, and every filter maps over it automatically, so {related|optional|split(,)|trim(.)|reject(^\[None\]$)|curie-prefix(nist-800-53)} cleans, drops and prefixes each item. split(delimiter) produces a list; join(separator) consumes one; reject(pattern) drops items; wikilink wraps each item in [[...]]. Items that a filter blanks are elided. A list may land in also_emit.frontmatter.managed (YAML array), managed_links (link array) or a body projection with format 'list'; reaching any text template it is an error naming join. Filter arguments are lexed with balanced parentheses and backslash escapes, so regex(:\s*(.+)$) and regex(A|B) are written as one would write the regex; \) \( \| \, \\ emit the single character and any other backslash pair is passed through intact. Computation beyond filters escapes into the Function primitive (Ch 20).
+	 */
+	id: string;
+	children?: string | SecondaryCollection;
+	/**
+	 * When children came from a join: the child field that holds the parent's id. Required for join-sourced levels; ignored for JSON field children.
+	 */
+	parent_key?: string;
+	/**
+	 * Fields of this level's record that child rows may read under _cw.ancestors.<level>.<field>. Default: the id field only. Keep it short; this is how a part note can name its control's title.
+	 */
+	carry?: string[];
+	/**
+	 * For a NON-leaf level only: how this level's own row becomes a note. 'folder-note': the row renders the layout entries at or above its level and lands as <folder>/<folder>.md. 'none': this level produces folders only and no note of its own (its children still carry _cw.parent naming it). Required on every non-leaf level unless target.layout declares a file entry for that level; a non-leaf level with neither is refused at validation.
+	 */
+	leaf?: 'folder-note' | 'none';
+	/**
+	 * How this level's CURIE local part is formed. 'global': the id template's value as is; use when the id is unique across the whole source (OSCAL control ids). 'path': _cw.path pieces joined with '/', each piece escaped first so the join is injective; use when ids repeat under different parents (a part called 'statement' under every control). Fixed at import-set mint like every identity rule; a refresh cannot flip it.
+	 */
+	identity?: 'global' | 'path';
 }
 export interface SecondarySheet {
 	/**
@@ -301,6 +325,18 @@ export interface SecondaryIterator {
 	where?: string;
 }
 /**
+ * Optional named secondary collections, each indexed by a key expression, whose matched rows become addressable on the primary row under the alias. The object key IS the alias. An alias never merges into the row's own namespace and never shadows a source column: the row gains exactly one new key, so a joined field is reached by the dotted traversal and ['literal key'] quoting that already exist and the template grammar needs no change. Runs AFTER source.where and BEFORE identity, CURIE minting, concept_cid and render(). Participates in the recipe hash because it changes what a row is and therefore what the notes assert. The primary collection is still consumed row by row; only the secondary collection is held in memory. Absent means no secondary collections (behaviour before SchemaVer 1.9.0).
+ */
+export interface KeyedLookupEnrichment {
+	[k: string]: KeyedLookupEnrichment1;
+}
+export interface SingleMatchJoin {
+	from: SecondaryCollection1;
+	on: KeyMatch;
+	cardinality: 'one';
+	select?: SelectedSecondaryFields;
+}
+/**
  * The key both sides are matched on. Both expressions use the same restricted JSONata subset as source.where and are normalized identically (trimmed string coercion, the same coercion the parsers apply to scalar cells). A composite key is written with &, e.g. `source ID` & '|' & `mapping type`. A key expression that yields nothing, or an empty string, or a non-scalar, is an error naming the row: absence of a RELATION is data, absence of the KEY is a defect.
  */
 export interface KeyMatch {
@@ -318,30 +354,6 @@ export interface MultiMatchJoin {
 	on: KeyMatch1;
 	cardinality: 'many';
 	select: SelectedSecondaryFields1;
-}
-export interface SecondarySheet1 {
-	/**
-	 * Name of another sheet in the same workbook.
-	 */
-	sheet: string;
-	/**
-	 * 0-based index of the header row on that sheet, skipping banner rows above it. Sheets in one workbook differ in banner depth. Applies to sheet only; declaring it beside iterator is an error rather than a silently ignored key.
-	 */
-	header_row?: number;
-	/**
-	 * Optional JSONata predicate over the SECONDARY rows, with exactly the contract of source.where: same restricted subset, must return a boolean, every referenced field must exist in the secondary collection, and admitting zero rows is an error. This is how one shared relationship table is narrowed to a single predicate before it is indexed. Fixed depth: there is no nested joins here.
-	 */
-	where?: string;
-}
-export interface SecondaryIterator1 {
-	/**
-	 * Iterator path locating a sibling array of the same JSON document, e.g. $.response.elements.relationships[*]. Same closed grammar as the primary iterator: dotted keys plus [*] fan-out.
-	 */
-	iterator: string;
-	/**
-	 * Optional JSONata predicate over the SECONDARY rows, with exactly the contract of source.where: same restricted subset, must return a boolean, every referenced field must exist in the secondary collection, and admitting zero rows is an error. This is how one shared relationship table is narrowed to a single predicate before it is indexed. Fixed depth: there is no nested joins here.
-	 */
-	where?: string;
 }
 /**
  * The key both sides are matched on. Both expressions use the same restricted JSONata subset as source.where and are normalized identically (trimmed string coercion, the same coercion the parsers apply to scalar cells). A composite key is written with &, e.g. `source ID` & '|' & `mapping type`. A key expression that yields nothing, or an empty string, or a non-scalar, is an error naming the row: absence of a RELATION is data, absence of the KEY is a defect.

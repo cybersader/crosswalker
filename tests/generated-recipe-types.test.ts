@@ -30,6 +30,8 @@ describe('schema-generated recipe type contract', () => {
 			'crosswalks?: [CrosswalkColumnEntry, ...CrosswalkColumnEntry[]]',
 			'export interface CrosswalkColumnEntry',
 			'detect?:',
+			'nest?: [NestedRecordLevel, ...NestedRecordLevel[]]',
+			'export interface NestedRecordLevel',
 			"linkStyle?: 'absolute' | 'shortest'",
 		]) {
 			expect(generated).toContain(field);
