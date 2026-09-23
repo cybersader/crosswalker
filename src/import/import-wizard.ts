@@ -10,6 +10,7 @@ import {
 	summarizeRenderNotes,
 	type RenderReport,
 	type PreviewRowNotes,
+	type Recipe,
 } from '../render';
 import { legacyConfigToRecipe, IDENTITY_SENTINELS, LEGACY_ONTOLOGY_SENTINEL } from '../generation/legacy-recipe-shim';
 import { describeConflict } from '../generation/managed-body';
@@ -53,6 +54,8 @@ import {
 } from './recipe-registry';
 import { discoverImportSets, newSetSchemeFrom, settleVaultIndex, type DiscoveredImportSet, type ImportSetOption } from '../generation/import-set';
 import { suggestWorkbookBinding, type WorkbookSuggestion } from './workbook-suggestion';
+import { refreshRecipeProblem } from './stack/stack-model';
+import { computeRecipeHash } from '../generation/hash';
 
 /**
  * Curated per-import root for a recognized recipe (spec §7m), or `null` when the
@@ -206,6 +209,8 @@ export class ImportFlow {
 	 *  again" affordance from the workspace view's installed-ontologies list,
 	 *  spec §7n item 3). Consumed once, on the first parsed file. */
 	presetRecipeId: string | null = null;
+	/** Row selection handed off by the stack; never written into a bundled recipe. */
+	presetSourceWhere: string | null = null;
 	/** A vault file to pre-select on open (the file-explorer context-menu entry
 	 *  point, "Import into vault with Crosswalker"). Consumed once in `onOpen`:
 	 *  re-parsed automatically and the flow jumps straight to Step 2. */
@@ -2158,6 +2163,18 @@ export class ImportFlow {
 	 * "new set", which is the safe direction: a new set owns nothing and can
 	 * therefore damage nothing.
 	 */
+	/** An untouched nested stack preset must generate from the vetted document, not
+	 * a workbench serialization that can spuriously assign a `-custom` ID. Edits
+	 * still use the workbench and cannot refresh a set owned by another recipe. */
+	private effectiveWorkbenchRecipe(): Recipe {
+		if (this.recognizedFastPath && !this.recognizedEdited &&
+			this.recognizedMatch?.entry.id.endsWith('-nested')) {
+			return this.recognizedMatch.entry.recipe as unknown as Recipe;
+		}
+		if (!this.workbench) throw new Error('Open the mapping workbench before generating.');
+		return this.workbench.buildRecipe();
+	}
+
 	private sourceIdentityKeys(): { recipeId: string | null; ontologyPrefix: string | null } {
 		const none = { recipeId: null, ontologyPrefix: null };
 		if (!this.parsedData) return none;
@@ -2167,7 +2184,7 @@ export class ImportFlow {
 				? this.buildWorkbenchConfig()
 				: buildConfigFromWizardState(this.columnConfigs, this.parsedData.columns, this.appliedConfig?.config?.mapping?.filename);
 			const recipe = workbenchMode && this.workbench
-				? this.workbench.buildRecipe()
+				? this.effectiveWorkbenchRecipe()
 				// AM-1: the SAME source file name generation passes (doGenerate's
 				// `sourceFileName`), so the ontology compared here is the ontology
 				// that will be stamped. Omitting it would compare the sentinel
@@ -2521,6 +2538,17 @@ export class ImportFlow {
 			if (!set) throw new Error('Choose an import set to refresh, or choose to import as a new set.');
 			const problem = this.refreshRootProblem();
 			if (problem) throw new Error(problem);
+			// Existing classic imports use a legacy shim rather than the workbench recipe.
+			// Protect nested stack sets regardless of how the wizard was opened.
+			if (set.recipeIds.some((id) => id === 'nist-800-53-r5-nested' || id === 'cri-profile-v2-2-nested')) {
+				const recipe = this.workbench ? this.effectiveWorkbenchRecipe() : null;
+				const where = this.presetSourceWhere ?? shorthandToSourceExpression(this.jsonWhere);
+				const source = recipe && where ? { ...recipe.source, where } : recipe?.source;
+				const hash = recipe ? computeRecipeHash(recipe.target, source) : undefined;
+				const mismatch = refreshRecipeProblem(
+					recipe?.recipe ?? '', set.recipeIds, hash, set.recipeHashes);
+				if (mismatch) throw new Error(mismatch);
+			}
 			return { id: set.id };
 		}
 
@@ -2723,7 +2751,7 @@ export class ImportFlow {
 		// Keep the effective portable identity machine-readable for diagnostics and
 		// end-to-end fidelity checks without adding unsettled recipe terminology to UI.
 		try {
-			const recipe = this.workbench.buildRecipe();
+			const recipe = this.effectiveWorkbenchRecipe();
 			line.dataset.recipeId = recipe.recipe;
 			if (recipe.metadata?.based_on?.recipe) {
 				line.dataset.recipeBasedOn = recipe.metadata.based_on.recipe;
@@ -4143,7 +4171,7 @@ export class ImportFlow {
 			// message) is caught by the catch block below like any other
 			// generation failure, instead of surfacing as a silent no-op.
 			if (workbenchMode && this.workbench) {
-				options.recipeOverride = this.workbench.buildRecipe();
+				options.recipeOverride = this.effectiveWorkbenchRecipe();
 			}
 			const sectionLevels = options.recipeOverride?.source?.nest
 				?.filter((entry) => entry.leaf === 'section')
@@ -4153,7 +4181,7 @@ export class ImportFlow {
 			// translated run expression across BOTH ordinary and workbench modes; the
 			// engine applies it after resolving the recipe without changing which entry
 			// path owns provenance. Blank input supplies no override.
-			const sourceWhere = shorthandToSourceExpression(this.jsonWhere);
+			const sourceWhere = this.presetSourceWhere ?? shorthandToSourceExpression(this.jsonWhere);
 			if (sourceWhere) options.sourceWhere = sourceWhere;
 
 			// Run generation
@@ -4480,7 +4508,7 @@ export class ImportFlow {
 export class ImportWizardModal extends Modal {
 	private flow: ImportFlow;
 
-	constructor(app: App, plugin: CrosswalkerPlugin, opts?: { presetRecipeId?: string; prefillFile?: TFile; prefillBinding?: PrefillBinding }) {
+	constructor(app: App, plugin: CrosswalkerPlugin, opts?: { presetRecipeId?: string; prefillFile?: TFile; prefillBinding?: PrefillBinding; sourceWhere?: string }) {
 		super(app);
 		// Put workbench-specific shortcuts in a child scope. A child scope is consulted
 		// before its parent, so this wins over Modal's own Escape-to-close binding and
@@ -4504,6 +4532,7 @@ export class ImportWizardModal extends Modal {
 			},
 		});
 		if (opts?.presetRecipeId) this.flow.presetRecipeId = opts.presetRecipeId;
+		if (opts?.sourceWhere) this.flow.presetSourceWhere = opts.sourceWhere;
 		if (opts?.prefillFile) this.flow.pendingPrefill = opts.prefillFile;
 		if (opts?.prefillBinding) this.flow.pendingPrefillBinding = opts.prefillBinding;
 	}

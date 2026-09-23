@@ -537,6 +537,10 @@ export interface GenerationError {
 	row: number;
 	column?: string;
 	message: string;
+	/** Render deviation identity, preserved so callers can distinguish expected trailing levels. */
+	code?: string;
+	level?: string;
+	template?: string;
 	/**
 	 * Recipe declaration path that produced this error, e.g. `source.where`.
 	 * Additive (Ch 46 source contract §7): only source-stage failures set it,

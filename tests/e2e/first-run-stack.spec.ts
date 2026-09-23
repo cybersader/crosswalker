@@ -120,7 +120,7 @@ describe('First run: synthetic framework stack', function () {
 			throw error;
 		}
 		const result = await browser.executeObsidian(({ app }) => {
-			const notes = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('Ontologies/'));
+			const notes = app.vault.getMarkdownFiles().filter((file) => ['Frameworks/NIST 800-53', 'Frameworks/MITRE ATT&CK', 'Frameworks/CRI Profile'].some((root) => file.path.startsWith(root)));
 			return { text: document.querySelector('.crosswalker-stack-modal')?.textContent ?? '',
 				paths: notes.map((file) => file.path) };
 		});
@@ -137,8 +137,16 @@ describe('First run: synthetic framework stack', function () {
 		expect(mappingLinks.filter((edge) => edge.links.length === 1)).toHaveLength(1);
 		expect(result.text).toContain('mapping endpoints could not link');
 		await browser.executeObsidian(async ({ app }) => {
-			const technique = app.vault.getMarkdownFiles().find((file) => file.path.startsWith('Ontologies/') &&
-				app.metadataCache.getFileCache(file)?.frontmatter?.curie === 'mitre-attack:T9999');
+			// Metadata can lag newly written notes. Read the file when its cache is cold;
+			// neither absence nor identity may be inferred from the path alone.
+			let technique;
+			for (const file of app.vault.getMarkdownFiles().filter((note) => ['Frameworks/NIST 800-53', 'Frameworks/MITRE ATT&CK', 'Frameworks/CRI Profile'].some((root) => note.path.startsWith(root)))) {
+				const cached = app.metadataCache.getFileCache(file)?.frontmatter?.curie;
+				if (cached === 'mitre-attack:T9999' || (!cached &&
+					/^curie:\s*["']?mitre-attack:T9999/m.test(await app.vault.read(file)))) {
+					technique = file; break;
+				}
+			}
 			if (!technique) throw new Error('Synthetic technique missing');
 			const folder = technique.path.slice(0, technique.path.lastIndexOf('/'));
 			await app.vault.create(`${folder}/Invented missing technique.md`,
@@ -193,7 +201,7 @@ describe('First run: synthetic framework stack', function () {
 		{ timeout: 60_000, timeoutMsg: 'Second new-set import did not finish' });
 		const second = await browser.executeObsidian(({ app }) => ({
 			text: document.querySelector('.crosswalker-stack-modal')?.textContent ?? '',
-			paths: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('Ontologies/')).map((file) => file.path),
+			paths: app.vault.getMarkdownFiles().filter((file) => ['Frameworks/NIST 800-53', 'Frameworks/MITRE ATT&CK', 'Frameworks/CRI Profile'].some((root) => file.path.startsWith(root))).map((file) => file.path),
 		}));
 		expect(second.text).toContain('5 sets confirmed in the vault');
 		expect(second.paths).toHaveLength(7);

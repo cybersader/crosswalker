@@ -4,6 +4,7 @@ import {
 	CANDIDATE_FLOOR,
 	CONFIDENT_MATCH_THRESHOLD,
 	matchScore,
+	isGenericRecipe,
 	type RecipeRegistryEntry,
 } from './recipe-registry';
 
@@ -122,6 +123,7 @@ export function scoreFilePeeks(
 
 			for (let registryOrder = 0; registryOrder < registry.length; registryOrder++) {
 				const entry = registry[registryOrder];
+				if (!isGenericRecipe(entry)) continue;
 				const score = matchScore(entry, columns);
 				if (score < CANDIDATE_FLOOR) continue;
 				const candidate: RankedCandidate = {

@@ -104,7 +104,9 @@ import cisControlsV8Controls from '../../recipes/import/cis-controls-v8-controls
 import cisControlsV8Flat from '../../recipes/import/cis-controls-v8.json';
 import scf2026Flat from '../../recipes/import/scf-2026-flat.json';
 import nist80053Flat from '../../recipes/import/nist-800-53-flat.json';
+import nist80053Nested from '../../recipes/import/nist-800-53-nested.json';
 import criProfileV22 from '../../recipes/import/cri-profile-v2-2.json';
+import criProfileV22Nested from '../../recipes/import/cri-profile-v2-2-nested.json';
 import crosswalkEdge from '../../recipes/import/crosswalk-edge.json';
 import nistCsf2WithdrawalLineage from '../../recipes/import/nist-csf-2-withdrawal-lineage.json';
 import evidenceJunctionNotes from '../../recipes/starter/evidence-junction-notes.json';
@@ -458,9 +460,37 @@ const DEFAULTS: Record<
 				'800-53 identifiers are family-prefixed (AC-2, AU-3, …); a facet hub per family (derivable via a split filter on `identifier`) would mirror the catalog\'s own structure. Not turned on: this recipe does not yet emit a `family` field at all, only `identifier` and `name`.',
 		},
 	},
+	'nist-800-53-r5-nested': {
+		label: 'NIST 800-53 Rev 5',
+		description: 'Families become folders; controls become folder notes and enhancements become notes.',
+		suggestedFolder: 'Frameworks/NIST 800-53',
+		ontologyAliases: ['800-53', 'SP 800-53', 'NIST 800-53'],
+		idPattern: '^[A-Z]{2}-\\d{1,2}(\\(\\d{1,2}\\))?$',
+		recommendedEnrichment: {
+			childrenLists: false,
+			facetNotes: 'notes',
+			facetField: 'family',
+			rationale:
+				'800-53 identifiers are family-prefixed (AC-2, AU-3, …). The nested recipe emits a family field and family folders, but no family concept notes; facet enrichment remains advisory until family identity and re-import semantics are designed.',
+		},
+	},
 	'cri-profile-v2-2-flat': {
 		label: 'CRI Profile v2.2',
 		description: 'Each CRI Profile statement becomes a note.',
+		suggestedFolder: 'Frameworks/CRI Profile',
+		ontologyAliases: ['CRI Profile', 'CRI'],
+		idPattern: '^[A-Z]{2}\\.[A-Z]{2}-\\d{2}\\.\\d{2}$',
+		recommendedEnrichment: {
+			childrenLists: false,
+			facetNotes: 'notes',
+			facetField: 'level',
+			rationale:
+				'`level` (Function/Category/Diagnostic Statement) already rides along as plain frontmatter and is a clean, small facet. Not turned on: it is not yet an also_emit.tags destination.',
+		},
+	},
+	'cri-profile-v2-2-nested': {
+		label: 'CRI Profile v2.2',
+		description: 'Functions, categories, and subcategories become folder notes; diagnostic statements become notes.',
 		suggestedFolder: 'Frameworks/CRI Profile',
 		ontologyAliases: ['CRI Profile', 'CRI'],
 		idPattern: '^[A-Z]{2}\\.[A-Z]{2}-\\d{2}\\.\\d{2}$',
@@ -569,12 +599,20 @@ const SOURCE_GUIDANCE: Record<
 		},
 		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#secure-controls-framework-20261`,
 	},
+	'nist-800-53-r5-nested': {
+		sourceLink: { label: 'Get SP 800-53 Rev. 5 from NIST', url: 'https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final' },
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#nist-sp-800-53-rev-5`,
+	},
 	'nist-800-53-r5-flat': {
 		sourceLink: {
 			label: 'Get SP 800-53 Rev. 5 from NIST',
 			url: 'https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final',
 		},
 		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#nist-sp-800-53-rev-5`,
+	},
+	'cri-profile-v2-2-nested': {
+		sourceLink: { label: 'Get the CRI Profile from the Cyber Risk Institute', url: 'https://cyberriskinstitute.org/the-profile/', note: 'Free registration required. Crosswalker does not distribute this file.' },
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#cri-profile-v22`,
 	},
 	'cri-profile-v2-2-flat': {
 		sourceLink: {
@@ -664,7 +702,8 @@ function toEntry(raw: unknown): RecipeRegistryEntry {
 		docsUrl: guidance.docsUrl,
 		signatureColumns: signature,
 		requiredColumns: required,
-		...(r.recipe === 'nist-800-53-r5-flat' ? { headerAliases: NIST_CATALOG_HEADER_ALIASES } : {}),
+		...(r.recipe === 'nist-800-53-r5-flat' || r.recipe === 'nist-800-53-r5-nested'
+			? { headerAliases: NIST_CATALOG_HEADER_ALIASES } : {}),
 		structuralDepth,
 		recipe: raw as CrosswalkerImportRecipe,
 	};
@@ -684,7 +723,9 @@ export const RECIPE_REGISTRY: RecipeRegistryEntry[] = [
 	toEntry(cisControlsV8Flat),
 	toEntry(scf2026Flat),
 	toEntry(nist80053Flat),
+	toEntry(nist80053Nested),
 	toEntry(criProfileV22),
+	toEntry(criProfileV22Nested),
 	toEntry(crosswalkEdge),
 	toEntry(nistCsf2WithdrawalLineage),
 	toEntry(evidenceJunctionNotes),
@@ -726,6 +767,14 @@ export function matchScore(
 	return base;
 }
 
+/** Nested variants are chosen by the stack, never proposed for a generic dropped file. */
+const STACK_ONLY_RECIPES = new Set(['nist-800-53-r5-nested', 'cri-profile-v2-2-nested']);
+
+/** Exclude stack-specific variants from every generic source-discovery path. */
+export function isGenericRecipe(entry: RecipeRegistryEntry): boolean {
+	return !STACK_ONLY_RECIPES.has(entry.id);
+}
+
 /**
  * Score every registry entry against the source and return the candidates at or
  * above `CANDIDATE_FLOOR`, best first. Ties break by richer vault structure
@@ -737,7 +786,7 @@ export function findRecognizedRecipes(
 	columns: string[],
 	sampleRows?: Record<string, unknown>[],
 ): RecipeMatch[] {
-	const scored: (RecipeMatch & { order: number })[] = RECIPE_REGISTRY.map((entry, order) => ({
+	const scored: (RecipeMatch & { order: number })[] = RECIPE_REGISTRY.filter(isGenericRecipe).map((entry, order) => ({
 		entry,
 		score: matchScore(entry, columns, sampleRows),
 		order,

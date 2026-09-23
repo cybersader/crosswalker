@@ -788,7 +788,7 @@ export async function generateNotes(
 					if (renderReport.notes.length > 0) {
 						result.warnings ??= [];
 						for (const note of renderReport.notes) {
-							result.warnings.push({ row: rowNum, message: note.detail });
+							result.warnings.push({ row: rowNum, message: note.detail, code: note.code, level: note.level, template: note.template });
 						}
 					}
 
@@ -3321,7 +3321,7 @@ export async function generateFromRecipe(
 			if (renderReport.notes.length > 0) {
 				result.warnings ??= [];
 				for (const note of renderReport.notes) {
-					result.warnings.push({ row: rowNum, message: note.detail });
+					result.warnings.push({ row: rowNum, message: note.detail, code: note.code, level: note.level, template: note.template });
 				}
 			}
 
@@ -3547,7 +3547,7 @@ export async function generateFromRecipe(
 			if (headingReport.notes.length > 0) {
 				result.warnings ??= [];
 				for (const note of headingReport.notes) {
-					result.warnings.push({ row: rowNum, message: note.detail });
+					result.warnings.push({ row: rowNum, message: note.detail, code: note.code, level: note.level, template: note.template });
 				}
 			}
 

@@ -15,6 +15,7 @@ import { importMappingSlots, reconnectMappings, stackMappingDependencies, type C
 import {
 	CONNECTOR_ONTOLOGY, CONNECTOR_REASON, DEFAULT_STACK_SELECTION,
 	activeMappings, checklistPlainText, checklistRows, frameworkChoices, frameworkSlots,
+	stackDetailDescription, slotDetailSummary, stackSourceWhere, stackRecipeHash, refreshRecipeProblem,
 	type StackSelection,
 } from './stack-model';
 
@@ -30,7 +31,7 @@ export class StackSetupModal extends Modal {
 	private busy = false;
 	private error = '';
 	private largeSources = new Set<string>();
-	private completed: { label: string; created: number; setId: string | null; folder: string }[] = [];
+	private completed: { label: string; created: number; setId: string | null; folder: string; warnings: string[] }[] = [];
 	private discoveredSets: number | null = null;
 	private mappingSets: CompletedMapping[] = [];
 	private discoveredCounts = new Map<string, number>();
@@ -117,10 +118,12 @@ export class StackSetupModal extends Modal {
 				copy.createSpan({ cls: 'crosswalker-stack-muted', text: mapping.source });
 			}
 		}
-		new Setting(scroll).setName('Detail').setDesc('Granularity controls are not available in this import yet. Current bundled recipes determine note detail.')
+		new Setting(scroll).setName('Detail').setDesc(stackDetailDescription(this.stackSelection))
 			.addDropdown((dropdown) => dropdown.addOption('max', 'Everything as notes')
 				.addOption('top-levels', 'Notes for top levels only')
-				.setValue(this.stackSelection.detail).setDisabled(true));
+				.setValue(this.stackSelection.detail).onChange((value) => {
+				this.stackSelection.detail = value as StackSelection['detail']; this.render();
+			}));
 		const footer = root.createDiv({ cls: 'crosswalker-stack-footer' });
 		new Setting(footer).addButton((button) => button.setButtonText('Cancel').onClick(() => this.close()))
 			.addButton((button) => button.setButtonText('Next: download checklist').setCta()
@@ -311,7 +314,7 @@ export class StackSetupModal extends Modal {
 			const rootPath = this.destinationFor(fill);
 			const row = scroll.createDiv({ cls: 'crosswalker-stack-result', attr: { 'data-slot': slot.ontology } });
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: slot.entry.label });
-			row.createDiv({ text: `${slot.entry.description} Source: ${fill.source.name}. Lands in ${rootPath}.` });
+			row.createDiv({ text: `${slotDetailSummary(slot, this.stackSelection.detail)} Source: ${fill.source.name}. Lands in ${rootPath}.` });
 			row.createDiv({ cls: 'crosswalker-stack-muted', text: 'Import set: New set' });
 			new Setting(row).addButton((button) => button.setButtonText('Check for refresh').onClick(async () => {
 				const file = this.sourceFiles.get(fill.source.path);
@@ -325,9 +328,21 @@ export class StackSetupModal extends Modal {
 					set.sources.some((source) => source.sourceHash === digest));
 				const offer = row.querySelector('.crosswalker-stack-refresh-offer') ?? row.createDiv({ cls: 'crosswalker-stack-refresh-offer' });
 				if (known.length) {
-					offer.textContent = `Looks like set ${known[0].id}. New set remains selected. Refresh requires choosing that set in Import structured data.`;
-					new Setting(row).addButton((next) => next.setButtonText('Open import wizard to refresh').onClick(() => {
-						this.close(); new ImportWizardModal(this.app, this.plugin).open();
+					const expectedHash = stackRecipeHash(slot, this.stackSelection.detail);
+					const matching = known.find((set) => !refreshRecipeProblem(
+						slot.entry.id, set.recipeIds, expectedHash, set.recipeHashes));
+					const closest = known.find((set) => set.recipeIds.includes(slot.entry.id)) ?? known[0];
+					const mismatch = refreshRecipeProblem(
+						slot.entry.id, closest.recipeIds, expectedHash, closest.recipeHashes);
+					offer.textContent = matching
+						? `Looks like set ${matching.id}. New set remains selected. Refresh requires choosing that set in Import structured data.`
+						: mismatch ?? '';
+					if (matching) new Setting(row).addButton((next) => next.setButtonText('Open import wizard to refresh').onClick(() => {
+						this.close(); new ImportWizardModal(this.app, this.plugin, {
+								presetRecipeId: matching.recipeIds.find((id) => id === slot.entry.id)!, prefillFile: file,
+							sourceWhere: stackSourceWhere(slot.ontology, this.stackSelection.detail),
+							prefillBinding: { sheet: fill.table || null, headerRow: fill.headerRow, iterator: file.extension === 'json' ? fill.table : null },
+						}).open();
 					}));
 				} else offer.textContent = 'No import set with this source fingerprint was found. Import as a new set.';
 			}));
@@ -365,6 +380,7 @@ export class StackSetupModal extends Modal {
 				const outcome = await runRecognizedImport(this.app, this.plugin, {
 					file, entry: slot.entry, table: fill.table, headerRow: fill.headerRow,
 					destination: this.destinationFor(fill),
+					sourceWhere: stackSourceWhere(slot.ontology, this.stackSelection.detail),
 				});
 				if (!outcome.ok || !outcome.importSetId) {
 					this.error = `${slot.entry.label} could not be imported. ${outcome.errors.some((message) => message.includes('still indexing'))
@@ -372,7 +388,7 @@ export class StackSetupModal extends Modal {
 						: 'Check that the file has the expected sheet and columns, and that the destination is writable. Inspect the destination for any notes already created, then try again.'} Remaining frameworks were not started.`;
 					break;
 				}
-				this.completed.push({ label: slot.entry.label, created: outcome.created, setId: outcome.importSetId, folder: outcome.destination });
+				this.completed.push({ label: slot.entry.label, created: outcome.created, setId: outcome.importSetId, folder: outcome.destination, warnings: outcome.warnings });
 				this.plugin.debug.info('stack', 'framework', `Stack framework: ${slot.ontology}`);
 			} catch {
 				this.error = `${slot.entry.label} could not be imported. Check the source and destination, then try again. Remaining frameworks were not started.`;
@@ -409,6 +425,11 @@ export class StackSetupModal extends Modal {
 	private renderComplete(root: HTMLElement): void {
 		root.createEl('h2', { text: 'Framework stack imported' });
 		root.createEl('p', { text: `${this.completed.length} framework sets and ${this.mappingSets.length} mapping sets. ${this.discoveredSets === null ? 'Vault index is still loading; set counts cannot be confirmed yet.' : `${this.discoveredSets} sets confirmed in the vault.`}` });
+		if (this.stackSelection.detail === 'top-levels' && this.completed.some((item) =>
+			item.label === frameworkChoices().find((choice) => choice.ontology === 'nist-800-53')?.label ||
+			item.label === frameworkChoices().find((choice) => choice.ontology === 'cri-profile')?.label)) {
+			root.createEl('p', { text: 'Links to left-out enhancements or diagnostic statements stay unlinked on purpose. Import a new set with everything as notes to create those targets.' });
+		}
 		const scroll = root.createDiv({ cls: 'crosswalker-stack-scroll' });
 		scroll.createEl('h3', { text: 'Frameworks' });
 		for (const item of this.completed) {
@@ -416,6 +437,8 @@ export class StackSetupModal extends Modal {
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: item.label });
 			const count = item.setId ? this.discoveredCounts.get(item.setId) : undefined;
 			row.createDiv({ cls: 'crosswalker-stack-muted', text: `${count ?? 'Count pending'} ${count === 1 ? 'note' : 'notes'} · Set ${item.setId}` });
+			for (const message of item.warnings.slice(0, 5)) row.createDiv({ cls: 'crosswalker-stack-warning', text: `${message}. Check the source row and recipe layout before refreshing.` });
+			if (item.warnings.length > 5) row.createDiv({ cls: 'crosswalker-stack-warning', text: `${item.warnings.length - 5} more warnings. Check the source rows and recipe layout before refreshing.` });
 		}
 		scroll.createEl('h3', { text: 'Mappings' });
 		for (const item of this.mappingSets) {

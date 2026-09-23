@@ -54,10 +54,10 @@ export const SOURCE_EXPRESSION_STACK_DEPTH = 100;
 export const SOURCE_STAGE_BUDGET_MS = 5000;
 
 /**
- * The 7 allowlisted functions (contract §6.2). Deliberately tiny: every
+ * The 8 allowlisted functions (contract §6.2). Deliberately tiny: every
  * construct permitted here is one an external Python producer must match
- * exactly. Note the absences: no regex anywhere ($match/$replace/$contains),
- * because JS-vs-Python regex is where cross-runtime parity dies.
+ * exactly. $contains is restricted to a literal substring (no regex). Regex
+ * functions remain banned because JS-vs-Python regex parity is not guaranteed.
  */
 export const PERMITTED_FUNCTIONS: ReadonlySet<string> = new Set([
 	'not',
@@ -67,6 +67,7 @@ export const PERMITTED_FUNCTIONS: ReadonlySet<string> = new Set([
 	'uppercase',
 	'string',
 	'number',
+	'contains',
 ]);
 
 /** Binary operators the subset admits. */
@@ -202,6 +203,10 @@ export function compileSourceExpression(
 	}
 
 	const references = assertPermittedSubset(expr.ast() as ExprNode, { declaration, expression: text });
+	// JSONata returns undefined for a missing first argument and throws on a number.
+	// Site semantics for this literal-only function are a boolean in both cases.
+	if (text.includes('$contains')) expr.registerFunction('contains',
+		(value: unknown, literal: string) => typeof value === 'string' && value.includes(literal));
 	const budget = options.budget ?? new SourceStageBudget();
 
 	return {
@@ -358,6 +363,11 @@ function assertPermittedSubset(
 				const name = procedure && procedure.type === 'variable' ? String(procedure.value) : undefined;
 				if (!name || !PERMITTED_FUNCTIONS.has(name)) {
 					reject(`the function $${name ?? '<computed>'}`);
+				}
+				// JSONata also accepts a regex as $contains' second argument. Only a
+				// literal substring has portable semantics across producers.
+				if (name === 'contains' && (node.arguments?.length !== 2 || node.arguments[1]?.type !== 'string')) {
+					reject('$contains without a string-literal second argument');
 				}
 				for (const arg of node.arguments ?? []) walk(arg);
 				return;

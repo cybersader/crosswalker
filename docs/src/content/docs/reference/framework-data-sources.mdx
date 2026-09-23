@@ -8,7 +8,7 @@ tags: [frameworks, import-transforms, frameworks-nist, frameworks-mitre]
 
 Crosswalker ships recognized-source imports for the framework files below today. This page is the canonical technical reference for obtaining each source, choosing the matching [recipe](/crosswalker/concepts/terminology/#recipe), selecting the exact worksheet and header row, checking the real record count, and avoiding imports that look successful but are wrong.
 
-**Status last verified:** 2026-08-27 — verified against real imports of each source
+**Status last verified:** 2026-09-23 — nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
 
 The bundled recipes live in the [Crosswalker plugin repository](https://github.com/cybersader/crosswalker/tree/main/recipes/import). Community recipes and contribution guidance live in [crosswalker-recipes](https://github.com/cybersader/crosswalker-recipes). Framework content is not bundled: obtain each source from its publisher and confirm that the publisher's terms fit your use.
 
@@ -35,6 +35,12 @@ The bundled recipes live in the [Crosswalker plugin repository](https://github.c
 | CIS Controls v8.1.2 | Controls workbook | `Controls v8.1.2` | 0 | **171**: 153 safeguards + 18 controls | `cis-controls-v8-flat`, `cis-controls-v8-controls` |
 | CRI Profile v2.2 | Profile workbook | `CRI Profile v2.2 Structure` | **2** | **472**: F 7 / C 28 / S 119 / DS 318 | `cri-profile-v2-2-flat` |
 | Secure Controls Framework 2026.1 | SCF workbook | `SCF 2026.1` | 0 | **1,468 × 369 columns** | `scf-2026-flat` |
+
+## Stack detail variants
+
+The [framework stack](/crosswalker/getting-started/quick-start/) selects `nist-800-53-r5-nested` and `cri-profile-v2-2-nested` for its NIST 800-53 and CRI slots. Ordinary file recognition continues to propose `nist-800-53-r5-flat` and `cri-profile-v2-2-flat`. The nested NIST variant makes family folders, control folder notes, and enhancement notes; family folders have no concept notes, so family-level mapping endpoints remain unresolved pending a separate identity-safe design. The nested CRI variant makes function, category, and subcategory folder notes and diagnostic-statement notes. Both keep their flat counterpart's source binding, frontmatter, and body projections (source: `recipes/import/nist-800-53-nested.json`, `recipes/import/cri-profile-v2-2-nested.json`).
+
+Choose **Notes for top levels only** to omit NIST enhancements and CRI diagnostic statements for that run; ATT&CK and CSF are unchanged. This is a row filter, not a rewrite of the bundled recipes (source: `src/import/stack/stack-model.ts` and `src/import/run-recognized-import.ts`). Switching detail on an existing import set is not supported yet. Start a new set for a different detail level; refresh an existing set only with its recorded recipe.
 
 ## Stack mapping sources
 

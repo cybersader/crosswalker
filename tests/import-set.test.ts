@@ -91,6 +91,19 @@ describe('import-set ownership discovery and selection', () => {
 		expect(app.vault.cachedRead).toHaveBeenCalledTimes(1);
 	});
 
+	it('discovers stamped recipe hashes and withholds an incomplete set hash', async () => {
+		const stamp = (hash?: string) => `---\n_crosswalker:\n  import_set:\n    id: iset-abc123\n    scheme: endpoint-v1\n  recipe:\n    id: cri-profile-v2-2-nested\n${hash ? `    hash: ${hash}\n` : ''}---\n# Generated\n`;
+		const complete = mockApp({}, {
+			'Frameworks/A.md': stamp('sha256-one'),
+			'Frameworks/B.md': stamp('sha256-one'),
+		});
+		await expect(discoverImportSets(complete, 'Frameworks')).resolves.toMatchObject([
+			{ recipeIds: ['cri-profile-v2-2-nested'], recipeHashes: ['sha256-one'] },
+		]);
+		const mixed = mockApp({}, { 'Frameworks/A.md': stamp('sha256-one'), 'Frameworks/B.md': stamp() });
+		expect((await discoverImportSets(mixed, 'Frameworks'))[0].recipeHashes).toBeUndefined();
+	});
+
 	it('mints again on an immediate cache-cold re-import rather than adopting what it finds', async () => {
 		// AM-9: the engine has no opinion about what is in the folder. A caller that
 		// wants the first set refreshed passes its id; passing nothing means mint.

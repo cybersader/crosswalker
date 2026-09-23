@@ -1,5 +1,5 @@
 import { renderPresetGuide, presetGuideEntries } from '../src/import/import-preset-guide';
-import { RECIPE_REGISTRY } from '../src/import/recipe-registry';
+import { isGenericRecipe, RECIPE_REGISTRY } from '../src/import/recipe-registry';
 
 function entry(id: string) {
 	const found = presetGuideEntries().find((candidate) => candidate.id === id);
@@ -10,7 +10,8 @@ function entry(id: string) {
 describe('import preset guide', () => {
 	it('exposes complete, unique, secure guidance metadata in registry order', () => {
 		const entries = presetGuideEntries();
-		expect(entries.length).toBe(RECIPE_REGISTRY.length);
+		expect(entries.length).toBe(RECIPE_REGISTRY.filter(isGenericRecipe).length);
+		expect(entries.some((candidate) => candidate.id.endsWith('-nested'))).toBe(false);
 		expect(new Set(entries.map((candidate) => candidate.id)).size).toBe(entries.length);
 
 		for (const candidate of entries) {
