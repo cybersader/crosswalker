@@ -204,7 +204,7 @@ describe('crosswalk edge pass and generation hook', () => {
 		);
 
 		expect(result.errors).toEqual([]);
-		expect(result.crosswalkEdges).toEqual({ created: 5, sets: [expect.stringMatching(/^iset-/)] });
+		expect(result.crosswalkEdges).toEqual(expect.objectContaining({ created: 5, sets: [expect.stringMatching(/^iset-/)] }));
 		expect(projection).toHaveBeenCalledTimes(1);
 		expect(closure).toHaveBeenCalledWith('cri-profile', 'nist-csf-2');
 
@@ -329,5 +329,35 @@ describe('crosswalk edge pass and generation hook', () => {
 		expect(result.errors).toEqual([]);
 		expect(result.crosswalkEdges).toBeUndefined();
 		expect([...harness.files.keys()]).toEqual(['Frameworks/synthetic-cri/SYN-01.md']);
+	});
+});
+
+describe('P2 endpoint links by concept identity', () => {
+	it('writes folder-qualified links, keeps missing ends, and explicitly refreshes after a framework arrives', async () => {
+		const { app, files } = makeApp();
+		const subject = 'cri-profile:SYN-01';
+		const object = 'nist-csf-2:GV.OC-01';
+		const seed = (path: string, curie: string) => files.set(path,
+			`---\ncurie: ${curie}\n_crosswalker:\n  import_set:\n    id: ${curie.startsWith('cri-profile:') ? 'iset-abcdef' : 'iset-fedcba'}\n    scheme: endpoint-v1\n    ontology: ${curie.split(':')[0]}\n---\n`);
+		seed('Frameworks/cri/Statement.md', subject);
+		const args = {
+			entries: [ENTRY], sourceOntology: 'cri-profile', recipeId: 'synthetic',
+			inputs: [{ curie: subject, row: { 'NIST CSF v2 Mapping': 'GV.OC-01' } }],
+			overwriteMode: 'replace' as const,
+		};
+		const first = await runCrosswalkEdgePass(app, args, debug);
+		expect(first.totalCreated).toBe(1);
+		expect(first.summary.join(' ')).toMatch(/Import nist-csf-2 concepts/);
+		const firstEdge = [...files.entries()].find(([path]) => path.startsWith('_crosswalker/mappings/'))!;
+		expect(frontmatter(firstEdge[1]).subject_note).toBe('[[Frameworks/cri/Statement|Statement]]');
+		expect(frontmatter(firstEdge[1]).object_note).toBeUndefined();
+		expect(firstEdge[1]).toContain('[[Frameworks/cri/Statement|Statement]] is_approximate_to `nist-csf-2:GV.OC-01`');
+		seed('Frameworks/csf/Govern/Outcome.md', object);
+		const refreshed = await runCrosswalkEdgePass(app, args, debug);
+		expect(refreshed.summary).toEqual([]);
+		const newEdge = [...files.entries()].filter(([path]) => path.startsWith('_crosswalker/mappings/')).at(-1)![1];
+		expect(frontmatter(newEdge).object_note).toBe('[[Frameworks/csf/Govern/Outcome|Outcome]]');
+		expect(newEdge).toContain('[[Frameworks/cri/Statement|Statement]] is_approximate_to [[Frameworks/csf/Govern/Outcome|Outcome]]');
+		expect([...files.keys()].filter((path) => path.startsWith('Frameworks/csf/'))).toEqual(['Frameworks/csf/Govern/Outcome.md']);
 	});
 });

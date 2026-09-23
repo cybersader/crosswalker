@@ -4301,7 +4301,7 @@ export class ImportFlow {
 		errors: { row: number; message: string }[];
 		conflicts?: Array<{ path: string; code: string; detail: string }>;
 		filteredOut?: number;
-		crosswalkEdges?: { created: number; sets: string[] };
+		crosswalkEdges?: { created: number; sets: string[]; summary?: string[] };
 		/** Notes the run relocated by identity. Empty unless a root actually moved. */
 		moved?: Array<{ curie: string; from: string; to: string }>;
 		/** Identities this set held that the source no longer produces. */
@@ -4321,6 +4321,9 @@ export class ImportFlow {
 			summary.createEl('p', {
 				text: `Wrote ${result.crosswalkEdges.created} crosswalk edges to ${result.crosswalkEdges.sets.length} mapping sets under _crosswalker/mappings.`,
 			});
+			for (const message of result.crosswalkEdges.summary ?? []) {
+				summary.createEl('p', { text: message, cls: 'mod-warning' });
+			}
 		}
 		if (result.skipped.length > 0) {
 			summary.createEl('p', { text: `⏭️ Skipped: ${result.skipped.length} existing notes` });

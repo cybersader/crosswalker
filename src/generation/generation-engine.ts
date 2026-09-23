@@ -310,6 +310,7 @@ async function applyDeclaredCrosswalks(
 		sets: pass.perEntry
 			.map((entry) => entry.importSetId)
 			.filter((id): id is string => id !== null),
+		summary: pass.summary,
 	};
 	if (pass.errors.length > 0) {
 		result.errors.push(...pass.errors.map((error) => ({ row: -1, message: error.message })));

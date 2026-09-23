@@ -9,6 +9,7 @@ import { SSSOM_CURIE_PREFIX, sssomEdgeCurie, strmToSkos } from '../import/sssom-
 import { assertionBaseKey } from '../utils/mapping-provenance';
 import { discoverImportSets, newSetSchemeFor } from './import-set';
 import { generateFromRecipe } from './generation-engine';
+import { edgeEndpointIndex, resolveEdgeEndpoints, summarizeUnresolvedEndpoints, type UnresolvedEndpoint } from './edge-endpoints';
 
 const DEFAULT_SPLIT = [',', '\n', ';'] as const;
 const DEFAULT_DROP = ['None', 'N/A', '-'] as const;
@@ -42,6 +43,8 @@ export interface CrosswalkEdgePassResult {
 		errors: GenerationError[];
 	}>;
 	totalCreated: number;
+	unresolved: UnresolvedEndpoint[];
+	summary: string[];
 	errors: GenerationError[];
 }
 
@@ -169,6 +172,8 @@ export function buildCrosswalkColumnRecipe(
 						predicate_id: '{predicate_id}',
 						subject_id: '{subject_id}',
 						object_id: '{object_id}',
+						subject_note: '{subject_note|optional}',
+						object_note: '{object_note|optional}',
 						subject_label: '{subject_label}',
 						mapping_justification: '{mapping_justification}',
 						mapping_set_id: '{mapping_set_id}',
@@ -178,6 +183,7 @@ export function buildCrosswalkColumnRecipe(
 					},
 					user_preserve: ['review_status', 'reviewer', '*notes*'],
 				},
+				body: [{ template: '{edge_body}', position: 'append', format: 'text' }],
 			},
 		},
 	};
@@ -189,7 +195,8 @@ export async function runCrosswalkEdgePass(
 	args: CrosswalkEdgePassArgs,
 	debug?: DebugLog,
 ): Promise<CrosswalkEdgePassResult> {
-	const result: CrosswalkEdgePassResult = { perEntry: [], totalCreated: 0, errors: [] };
+	const result: CrosswalkEdgePassResult = { perEntry: [], totalCreated: 0, unresolved: [], summary: [], errors: [] };
+	const { index, unreadable } = await edgeEndpointIndex(app);
 
 	for (const entry of args.entries) {
 		const folder = `_crosswalker/mappings/${args.sourceOntology}-to-${entry.to_ontology}`;
@@ -212,9 +219,14 @@ export async function runCrosswalkEdgePass(
 			continue;
 		}
 
+		const resolvedRows = derived.rows.map((row) => {
+			const resolved = resolveEdgeEndpoints(index, { ...row });
+			result.unresolved.push(...resolved.unresolved);
+			return { ...row, subject_note: resolved.subject_note, object_note: resolved.object_note, edge_body: resolved.edge_body };
+		});
 		const parsedData: ParsedData = {
-			columns: Array.from(new Set(derived.rows.flatMap((row) => Object.keys(row)))),
-			rows: derived.rows,
+			columns: Array.from(new Set(resolvedRows.flatMap((row) => Object.keys(row)))),
+			rows: resolvedRows,
 			rowCount: derived.rows.length,
 		};
 		const importSet = await newSetSchemeFor(app, SSSOM_CURIE_PREFIX);
@@ -280,6 +292,7 @@ export async function runCrosswalkEdgePass(
 		result.errors.push(...generation.errors);
 	}
 
+	result.summary = summarizeUnresolvedEndpoints(result.unresolved, unreadable);
 	return result;
 }
 

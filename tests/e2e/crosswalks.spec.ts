@@ -383,4 +383,73 @@ describe('Crosswalker plugin — v0.1.4 junction notes + crosswalk edges', funct
 		expect(fmAfter.subject_id).toBe('nist-csf:PR.AC-01');
 		expect(fmAfter.kind).toBe('crosswalk-edge');
 	});
+
+	it('links crosswalk-column edges by CURIE, retains missing ends, and links them on explicit re-import', async () => {
+		const base = 'P2-endpoints-crosswalk';
+		const subjectPath = `${base}/source/Nested/Subject.md`;
+		const firstObjectPath = `${base}/target/First.md`;
+		const secondObjectPath = `${base}/target/Deep/Second.md`;
+		const edgeDir = '_crosswalker/mappings/p2source-to-p2target';
+		const sourceRecipe = {
+			recipe: 'p2-column', source: { ontology: 'p2source', levels: ['concept'] },
+			target: {
+				layout: [{ level: 'concept', mechanism: 'file', template: 'Nested/{id}.md' }],
+				crosswalks: [{ column: 'Targets', to_ontology: 'p2target', predicate: 'is_equivalent_to' }],
+		},
+		};
+		const targetRecipe = {
+			recipe: 'p2-target', source: { ontology: 'p2target', levels: ['concept'] },
+			target: { layout: [{ level: 'concept', mechanism: 'file', template: '{id}.md' }] },
+		};
+		const parsedSource = { columns: ['id', 'Targets'], rows: [{ id: 'Subject', Targets: 'First; Second' }], rowCount: 1 };
+		const config = { name: 'synthetic-p2', mapping: { hierarchy: [], frontmatter: [], links: [], body: [], filename: { template: '{id}.md', sanitize: true } } };
+		const options = { basePath: `${base}/source`, overwriteMode: 'replace', createFolders: true, recipeOverride: sourceRecipe, strictValidation: true, sourceFileName: 'synthetic-p2.csv' };
+		const first = await browser.executeObsidian(async ({ app }, args) => {
+			// @ts-expect-error - internal plugin lookup
+			const plugin = app.plugins.plugins['crosswalker'];
+			const target = { ...args.targetRecipe, target: { ...args.targetRecipe.target,
+				layout: [{ level: 'concept', mechanism: 'file', template: 'First.md' }] } };
+			const object = await plugin.runImportFromRecipe({ columns: ['id'], rows: [{ id: 'First' }], rowCount: 1 }, target,
+				{ basePath: `${args.base}/target`, overwriteMode: 'replace', createFolders: true, strictValidation: true });
+			const source = await plugin.runImport(args.parsedSource, args.config, args.options);
+			return { object: object.success, created: source.crosswalkEdges?.created, summary: source.crosswalkEdges?.summary, errors: source.errors };
+		}, { base, targetRecipe, parsedSource, config, options });
+		expect(first.object).toBe(true);
+		expect(first.errors).toEqual([]);
+		expect(first.created).toBe(2);
+		expect(first.summary?.join(' ')).toMatch(/Import p2target concepts/);
+		const firstEdges = await browser.executeObsidian(async ({ app }, dir) => {
+			const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${dir}/`));
+			return Promise.all(files.map(async (file) => ({ path: file.path, body: await app.vault.read(file) })));
+		}, edgeDir);
+		expect(firstEdges).toHaveLength(2);
+		expect(firstEdges.some((e) => e.body.includes(`[[${subjectPath.replace(/\.md$/, '')}|Subject]] is_equivalent_to [[${firstObjectPath.replace(/\.md$/, '')}|First]]`))).toBe(true);
+		expect(firstEdges.some((e) => e.body.includes('`p2target:Second`') && !e.body.includes('object_note:'))).toBe(true);
+		expect(firstEdges.some((e) => e.body.includes('object_note:') && e.body.includes(`[[${firstObjectPath.replace(/\.md$/, '')}|First]]`))).toBe(true);
+		expect(await browser.executeObsidian(({ app }, path) => Boolean(app.vault.getAbstractFileByPath(path)), secondObjectPath)).toBe(false);
+
+		const owner = await readFrontmatterMatching(`${base}/source`, 'Subject');
+		const set = (owner.frontmatter as any)?._crosswalker?.import_set;
+		expect(set?.id).toMatch(/^iset-/);
+		const second = await browser.executeObsidian(async ({ app }, args) => {
+			// @ts-expect-error - internal plugin lookup
+			const plugin = app.plugins.plugins['crosswalker'];
+			const target = { ...args.targetRecipe, target: { ...args.targetRecipe.target,
+				layout: [{ level: 'concept', mechanism: 'file', template: 'Deep/{id}.md' }] } };
+			const object = await plugin.runImportFromRecipe({ columns: ['id'], rows: [{ id: 'Second' }], rowCount: 1 }, target,
+				{ basePath: `${args.base}/target`, overwriteMode: 'replace', createFolders: true, strictValidation: true });
+			const refreshed = await plugin.runImport(args.parsedSource, args.config, { ...args.options, importSet: args.set, overwriteMode: 'skip' });
+			return { object: object.success, created: refreshed.crosswalkEdges?.created, summary: refreshed.crosswalkEdges?.summary, errors: refreshed.errors };
+		}, { base, targetRecipe, parsedSource, config, options, set: { id: set.id, scheme: set.scheme } });
+		expect(second.object).toBe(true);
+		expect(second.errors).toEqual([]);
+		expect(second.created).toBe(2);
+		expect(second.summary).toEqual([]);
+		const refreshedEdges = await browser.executeObsidian(async ({ app }, dir) => {
+			const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${dir}/`));
+			return Promise.all(files.map(async (file) => await app.vault.read(file)));
+		}, edgeDir);
+		expect(refreshedEdges).toHaveLength(4);
+		expect(refreshedEdges.some((body) => body.includes(`[[${subjectPath.replace(/\.md$/, '')}|Subject]] is_equivalent_to [[${secondObjectPath.replace(/\.md$/, '')}|Second]]`))).toBe(true);
+	});
 });

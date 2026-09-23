@@ -305,7 +305,8 @@ describe('a second crosswalk release for the same ontology pair', () => {
 	async function twoReleasesNoClick() {
 		const vault = makeVault();
 		const first = await importThroughTheModal(vault.app, VENDOR_TSV);
-		expect(first.close).toHaveBeenCalledTimes(1);
+		expect(first.close).not.toHaveBeenCalled();
+		expect(first.texts.join(' ')).toMatch(/Import csf concepts/);
 		const before = junctionNotes(vault.files);
 		expect(before.size).toBe(2);
 		vault.modify.mockClear();
@@ -316,7 +317,8 @@ describe('a second crosswalk release for the same ontology pair', () => {
 
 	it('lands in its own set, with nobody having chosen one', async () => {
 		const { vault, before, second } = await twoReleasesNoClick();
-		expect(second.close).toHaveBeenCalledTimes(1);
+		expect(second.close).not.toHaveBeenCalled();
+		expect(second.texts.join(' ')).toMatch(/Import iso27001 concepts/);
 		const sets = await discoverImportSets(vault.app, FOLDER);
 		expect(sets).toHaveLength(2);
 		const firstId = setIdOf([...before.values()][0]);
@@ -350,7 +352,7 @@ describe('a second crosswalk release for the same ontology pair', () => {
 	it('reports no error and no refusal on either run', async () => {
 		const { second } = await twoReleasesNoClick();
 		expect(noticeText()).not.toMatch(/failed|finished with|Ambiguous/);
-		expect(second.texts.filter((line) => /Errors/.test(line))).toEqual([]);
+		expect(second.texts.filter((line) => /Errors/.test(line))).toEqual(['Errors: 0']);
 	});
 });
 

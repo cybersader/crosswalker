@@ -10,6 +10,7 @@ import { CrosswalkerSettingTab } from './settings/settings-tab';
 import { ImportWizardModal } from './import/import-wizard';
 import { RECIPE_REGISTRY } from './import/recipe-registry';
 import { SssomImportModal } from './import/sssom-import-modal';
+import { importSssom, type SssomImportOptions } from './import/sssom-importer';
 import { StackSetupModal } from './import/stack/stack-modal';
 import { VaultSourceScanModal } from './import/vault-source-scan-modal';
 import {
@@ -142,6 +143,10 @@ export default class CrosswalkerPlugin extends Plugin {
 			tier2: { runProjection: this.runProjection, precomputeClosure: this.precomputeClosure },
 		}, this.debug);
 	};
+
+	/** E2E handle for the actual SSSOM importer, without duplicating its TSV parser or recipe in tests. */
+	runSssomImportForE2E = async (tsv: string, options: SssomImportOptions) =>
+		importSssom(this.app, tsv, this.runProjection, this.precomputeClosure, options, this.debug);
 
 	/**
 	 * Tier 2 sidecar handle. Lazily opened on first access (or via
