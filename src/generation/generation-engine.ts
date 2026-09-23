@@ -1025,8 +1025,13 @@ export async function generateNotes(
 
 					// Create or update file
 					if (existingFile instanceof TFile) {
-						await app.vault.modify(existingFile, content);
-						debug?.info('generation', 'file-replaced', `Replaced existing file ${writePath}`, { path: writePath });
+						const changed = await writeMergedNote(app, existingFile, noteData.frontmatter, bodyToWrite);
+						debug?.info(
+							'generation',
+							changed ? 'file-replaced' : 'file-unchanged',
+							changed ? `Replaced existing file ${writePath}` : `Left existing file ${writePath} unchanged`,
+							{ path: writePath },
+						);
 					} else {
 						await app.vault.create(writePath, content);
 						debug?.info('generation', 'file-created', `Created new file ${writePath}`, { path: writePath });
@@ -2757,15 +2762,17 @@ export function buildConfigFromWizardState(
 function estimateJsonNestedRows(
 	rows: Record<string, unknown>[],
 	nest: readonly NestedRecordLevel[],
-): { rows: Record<string, unknown>[]; countsByLevel: Record<string, number> } | null {
+): { rows: Record<string, unknown>[]; countsByLevel: Record<string, number>; sectionCount: number } | null {
 	if (nest.some((entry) => entry.children !== undefined && typeof entry.children !== 'string')) return null;
 	const emitted: Record<string, unknown>[] = [];
 	const countsByLevel: Record<string, number> = {};
+	let sectionCount = 0;
 	const walk = (row: Record<string, unknown>, levelIndex: number): void => {
 		const entry = nest[levelIndex];
 		if (!entry) return;
 		countsByLevel[entry.level] = (countsByLevel[entry.level] ?? 0) + 1;
-		if (entry.leaf !== 'none') emitted.push(row);
+		if (entry.leaf === 'section') sectionCount += 1;
+		else if (entry.leaf !== 'none') emitted.push(row);
 		if (typeof entry.children !== 'string') return;
 		const children = row[entry.children];
 		if (!Array.isArray(children)) return;
@@ -2776,7 +2783,7 @@ function estimateJsonNestedRows(
 		}
 	};
 	for (const row of rows) walk(row, 0);
-	return { rows: emitted, countsByLevel };
+	return { rows: emitted, countsByLevel, sectionCount };
 }
 
 /**
@@ -2785,10 +2792,11 @@ function estimateJsonNestedRows(
 export function estimateOutput(
 	parsedData: ParsedData,
 	config: Partial<ImportRecipe>
-): { noteCount: number; folderCount: number; linkCount: number } {
+): { noteCount: number; sectionCount: number; folderCount: number; linkCount: number } {
 	const nest = (config as unknown as { source?: { nest?: NestedRecordLevel[] } }).source?.nest;
 	let estimateRows = Array.isArray(parsedData.rows) ? parsedData.rows : undefined;
 	let noteCount = parsedData.rowCount;
+	let sectionCount = 0;
 	let folderCount = 1; // At least the base folder
 
 	if (nest && estimateRows) {
@@ -2796,6 +2804,7 @@ export function estimateOutput(
 		if (expansion) {
 			const nonLeafLevels = new Set(nest.slice(0, -1).map((entry) => entry.level));
 			noteCount = expansion.rows.length;
+			sectionCount = expansion.sectionCount;
 			folderCount = Object.entries(expansion.countsByLevel)
 				.filter(([level]) => nonLeafLevels.has(level))
 				.reduce((sum, [, count]) => sum + count, 0);
@@ -2841,7 +2850,7 @@ export function estimateOutput(
 		}
 	}
 
-	return { noteCount, folderCount, linkCount };
+	return { noteCount, sectionCount, folderCount, linkCount };
 }
 
 // ============================================================================
@@ -3573,7 +3582,7 @@ export async function generateFromRecipe(
 			// 10. Write
 			const content = buildNoteContent(frontmatter, body);
 			if (existingFile instanceof TFile) {
-				await app.vault.modify(existingFile, content);
+				await writeMergedNote(app, existingFile, frontmatter, body);
 			} else {
 				await app.vault.create(writePath, content);
 			}
@@ -4234,6 +4243,45 @@ function heldHubProvenance(
 			? preserved
 			: { ...preserved, produced_at: freshProducedAt },
 	};
+}
+
+/** Write a merged generated note only when bytes other than `produced_at` changed. */
+async function writeMergedNote(
+	app: App,
+	file: TFile,
+	frontmatter: Record<string, any>,
+	body: string,
+): Promise<boolean> {
+	let existingFrontmatter: Record<string, unknown>;
+	let onDisk: string;
+	try {
+		const existing = await readExistingNote(app, file);
+		existingFrontmatter = existing.frontmatter;
+		onDisk = await app.vault.read(file);
+	} catch {
+		await app.vault.modify(file, buildNoteContent(frontmatter, body));
+		return true;
+	}
+
+	const recorded = existingFrontmatter._crosswalker;
+	const fresh = frontmatter._crosswalker;
+	const recordedProducedAt = recorded && typeof recorded === 'object' && !Array.isArray(recorded)
+		? (recorded as Record<string, unknown>).produced_at
+		: undefined;
+	frontmatter._crosswalker = (
+		recordedProducedAt !== undefined
+		&& fresh
+		&& typeof fresh === 'object'
+		&& !Array.isArray(fresh)
+	)
+		? { ...(fresh as Record<string, unknown>), produced_at: recordedProducedAt }
+		: fresh;
+	const unchangedCandidate = buildNoteContent(frontmatter, body);
+	if (unchangedCandidate === onDisk) return false;
+
+	frontmatter._crosswalker = fresh;
+	await app.vault.modify(file, buildNoteContent(frontmatter, body));
+	return true;
 }
 
 /**

@@ -124,3 +124,155 @@ describe('render nested rows', () => {
 		expect(render(nestedDeclaration, identity)).toEqual(render(flat, identity));
 	});
 });
+
+const SECTION_RECIPE: Recipe = {
+	recipe: 'test:nested-sections',
+	source: {
+		ontology: 'synthetic',
+		levels: ['group', 'control', 'part'],
+		nest: [
+			{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note' },
+			{ level: 'control', id: '{id}', children: 'parts' },
+			{ level: 'part', id: '{id}', leaf: 'section' },
+		],
+	},
+	target: {
+		layout: [
+			{ level: 'group', mechanism: 'folder', template: '{_cw.ancestors.group.id}' },
+			{ level: 'control', mechanism: 'file', template: '{id}.md' },
+			{ level: 'part', mechanism: 'heading', level_depth: 2, template: '{name|title}' },
+		],
+		also_emit: {
+			body: [
+				{ template: 'Host: {title}', position: 'append' },
+				{ template: '{prose}', position: 'append', level: 'part' },
+			],
+		},
+	},
+};
+
+function sectionHost(parts: Array<Record<string, unknown>>) {
+	return {
+		id: 'c1',
+		title: 'Control one',
+		_cw: {
+			level: 'control',
+			path: ['g1', 'c1'],
+			parent: 'g1',
+			ancestors: {
+				group: { id: 'g1', title: 'Group one' },
+				control: { id: 'c1', title: 'Control one' },
+			},
+			sections: parts,
+		},
+	};
+}
+
+function part(id: string, name: string, prose: string, sections?: Array<Record<string, unknown>>) {
+	return {
+		id,
+		name,
+		prose,
+		_cw: {
+			level: 'part',
+			path: ['g1', 'c1', id],
+			parent: 'c1',
+			ancestors: {
+				group: { id: 'g1', title: 'Group one' },
+				control: { id: 'c1', title: 'Control one' },
+				part: { id },
+			},
+			...(sections ? { sections } : {}),
+		},
+	};
+}
+
+describe('render attached section records', () => {
+	it('B1/B11 renders host projections first, then headings and content in source order', () => {
+		const address = render(SECTION_RECIPE, {
+			curie: 'synthetic:c1',
+			scope: sectionHost([
+				part('p2', 'guidance', 'Consider the other thing.'),
+				part('p1', 'statement', 'Do the thing.'),
+			]),
+		});
+
+		expect(address.primary.anchor).toBeUndefined();
+		expect(address.body).toEqual([
+			{ position: 'append', content: 'Host: Control one' },
+			{ position: 'section', heading: 'Guidance', headingDepth: 2, content: 'Consider the other thing.' },
+			{ position: 'section', heading: 'Statement', headingDepth: 2, content: 'Do the thing.' },
+		]);
+	});
+
+	it('B2 emits no sections for a host without attached records', () => {
+		const address = render(SECTION_RECIPE, { curie: 'synthetic:c3', scope: sectionHost([]) });
+		expect(address.body).toEqual([{ position: 'append', content: 'Host: Control one' }]);
+	});
+
+	it('always emits a heading when scoped content is empty', () => {
+		const address = render(SECTION_RECIPE, {
+			curie: 'synthetic:c1',
+			scope: sectionHost([part('p1', 'statement', '')]),
+		});
+		expect(address.body[1]).toEqual({
+			position: 'section',
+			heading: 'Statement',
+			headingDepth: 2,
+			content: '',
+		});
+	});
+
+	it('uses the heading mechanism exact empty-heading error', () => {
+		expect(() => render(SECTION_RECIPE, {
+			curie: 'synthetic:c1',
+			scope: sectionHost([part('p1', '', 'Body')]),
+		})).toThrow('heading mechanism produced empty heading for level "part". Template: "{name|title}".');
+	});
+
+	it('B9 renders deeper attached section levels depth-first', () => {
+		const recipe: Recipe = {
+			...SECTION_RECIPE,
+			source: {
+				...SECTION_RECIPE.source,
+				levels: ['group', 'control', 'part', 'subpart'],
+				nest: [
+					...SECTION_RECIPE.source!.nest!,
+					{ level: 'subpart', id: '{id}', leaf: 'section' },
+				],
+			},
+			target: {
+				...SECTION_RECIPE.target,
+				layout: [
+					...SECTION_RECIPE.target.layout,
+					{ level: 'subpart', mechanism: 'heading', level_depth: 3, template: '{name|title}' },
+				],
+				also_emit: {
+					body: [
+						...SECTION_RECIPE.target.also_emit!.body!,
+						{ template: '{text}', position: 'append', level: 'subpart' },
+					],
+				},
+			},
+		};
+		const subpart = {
+			id: 'sp1',
+			name: 'detail',
+			text: 'Nested detail.',
+			_cw: {
+				level: 'subpart',
+				path: ['g1', 'c1', 'p1', 'sp1'],
+				parent: 'p1',
+				ancestors: {},
+			},
+		};
+		const address = render(recipe, {
+			curie: 'synthetic:c1',
+			scope: sectionHost([part('p1', 'statement', 'Do the thing.', [subpart])]),
+		});
+		expect(address.body.slice(1)).toEqual([
+			{ position: 'section', heading: 'Statement', headingDepth: 2, content: 'Do the thing.' },
+			{ position: 'section', heading: 'Detail', headingDepth: 3, content: 'Nested detail.' },
+		]);
+	});
+});

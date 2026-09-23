@@ -4,10 +4,10 @@ import type { App } from 'obsidian';
 import { load } from 'js-yaml';
 import fixture from './fixtures/oscal-mini.json';
 import { parseJSONFile } from '../src/import/parsers/json-parser';
-import { generateFromRecipe } from '../src/generation/generation-engine';
+import { estimateOutput, generateFromRecipe } from '../src/generation/generation-engine';
 import { computeRecipeHash } from '../src/generation/hash';
 import type { Recipe } from '../src/render';
-import type { ParsedData, SourceContainer } from '../src/types/config';
+import type { ImportRecipe, ParsedData, SourceContainer } from '../src/types/config';
 import type { StructureMapping } from '../src/import/mapping/types';
 import { setFolderDepth } from '../src/import/mapping/view-model';
 import { toRecipeRegions } from '../src/import/mapping/serialize';
@@ -138,6 +138,112 @@ const OPTIONS = {
 	curieLocalPart: (row: Record<string, unknown>) => String(row.id),
 	sourceFileName: 'oscal-mini.json',
 };
+
+const SECTION_GROUPS = [
+	{
+		id: 'g1',
+		title: 'Group one',
+		controls: [
+			{
+				id: 'c1',
+				title: 'Control one',
+				parts: [
+					{ id: 'p1', name: 'statement', prose: 'Do the thing.' },
+					{ id: 'p2', name: 'guidance', prose: 'Consider the other thing.' },
+				],
+			},
+			{
+				id: 'c2',
+				title: 'Control two',
+				parts: [{ id: 'p3', name: 'statement', prose: 'Do the second thing.' }],
+			},
+		],
+	},
+	{
+		id: 'g2',
+		title: 'Group two',
+		controls: [{ id: 'c3', title: 'Control three', parts: [] }],
+	},
+] as Record<string, unknown>[];
+
+function cloneSectionGroups(): Record<string, unknown>[] {
+	return JSON.parse(JSON.stringify(SECTION_GROUPS)) as Record<string, unknown>[];
+}
+
+function sectionRecipe(where?: string): Recipe {
+	return {
+		recipe: 'test:synthetic-sections',
+		source: {
+			ontology: 'synthetic',
+			levels: ['group', 'control', 'part'],
+			nest: [
+				{ level: 'group', id: '{id}', children: 'controls', carry: ['title'], leaf: 'folder-note' },
+				{ level: 'control', id: '{id}', children: 'parts', carry: ['title'] },
+				{ level: 'part', id: '{id}', leaf: 'section' },
+			],
+			...(where ? { where } : {}),
+		},
+		target: {
+			layout: [
+				{ level: 'group', mechanism: 'folder', template: '{_cw.ancestors.group.id|fs-safe}' },
+				{ level: 'control', mechanism: 'file', template: '{id|fs-safe}.md' },
+				{ level: 'part', mechanism: 'heading', level_depth: 2, template: '{name|title}' },
+			],
+			also_emit: {
+				frontmatter: {
+					managed: {
+						parent: '{_cw.parent|optional|wikilink}',
+						title: '{title|optional}',
+					},
+				},
+				body: [{ template: '{prose}', position: 'append', level: 'part' }],
+			},
+		},
+	};
+}
+
+function partNoteRecipe(): Recipe {
+	return {
+		...sectionRecipe(),
+		recipe: 'test:synthetic-sections',
+		source: {
+			...sectionRecipe().source,
+			nest: [
+				{ level: 'group', id: '{id}', children: 'controls', carry: ['title'], leaf: 'folder-note' },
+				{ level: 'control', id: '{id}', children: 'parts', carry: ['title'], leaf: 'folder-note' },
+				{ level: 'part', id: '{id}' },
+			],
+		},
+		target: {
+			...sectionRecipe().target,
+			layout: [
+				{ level: 'group', mechanism: 'folder', template: '{_cw.ancestors.group.id|fs-safe}' },
+				{ level: 'control', mechanism: 'folder', template: '{_cw.ancestors.control.id|fs-safe}' },
+				{ level: 'part', mechanism: 'file', template: '{id|fs-safe}.md' },
+			],
+			also_emit: {
+				frontmatter: sectionRecipe().target.also_emit!.frontmatter,
+			},
+		},
+	};
+}
+
+const SECTION_OPTIONS = {
+	...OPTIONS,
+	curiePrefix: 'synthetic',
+	sourceFileName: 'synthetic-sections.json',
+};
+
+function noteBody(text: string): string {
+	const normalized = text.replace(/\r\n/g, '\n');
+	const start = normalized.indexOf('<!-- crosswalker:body:start v=1 -->');
+	return start >= 0 ? normalized.slice(start) : '';
+}
+
+function importSetFrom(text: string): { id: string; scheme: string } {
+	const set = frontmatter(text)._crosswalker.import_set;
+	return { id: set.id, scheme: set.scheme };
+}
 
 describe('nested generation', () => {
 	it('N1/D4 emits 21 nested notes with parent links and document provenance', async () => {
@@ -526,5 +632,274 @@ describe('nested generation', () => {
 		for (const text of vault.files.values()) {
 			expect(frontmatter(text)).not.toHaveProperty('_cw');
 		}
+	});
+});
+
+describe('body projection generation', () => {
+	it('B1/B2 creates only host notes and emits exact managed section bytes', async () => {
+		const vault = makeApp();
+		const result = await generateFromRecipe(
+			vault.app,
+			nestedData(cloneSectionGroups()),
+			sectionRecipe(),
+			SECTION_OPTIONS,
+		);
+
+		expect(result.errors).toEqual([]);
+		expect(result.created.sort()).toEqual([
+			'Out/g1/c1.md',
+			'Out/g1/c2.md',
+			'Out/g1/g1.md',
+			'Out/g2/c3.md',
+			'Out/g2/g2.md',
+		]);
+		expect([...vault.files.values()].map((text) => frontmatter(text).curie)).not.toEqual(
+			expect.arrayContaining(['synthetic:p1', 'synthetic:p2', 'synthetic:p3']),
+		);
+		expect(noteBody(vault.files.get('Out/g1/c1.md')!)).toBe([
+			'<!-- crosswalker:body:start v=1 -->',
+			'# Control one',
+			'',
+			'## Statement',
+			'',
+			'Do the thing.',
+			'',
+			'## Guidance',
+			'',
+			'Consider the other thing.',
+			'<!-- crosswalker:body:end -->',
+			'',
+		].join('\n'));
+		expect(noteBody(vault.files.get('Out/g1/c2.md')!)).toContain('## Statement\n\nDo the second thing.');
+		expect(noteBody(vault.files.get('Out/g2/c3.md')!)).toBe([
+			'<!-- crosswalker:body:start v=1 -->',
+			'# Control three',
+			'<!-- crosswalker:body:end -->',
+			'',
+		].join('\n'));
+	});
+
+	it('B3 refreshes unchanged sections byte-identically with no orphans', async () => {
+		const vault = makeApp();
+		await generateFromRecipe(vault.app, nestedData(cloneSectionGroups()), sectionRecipe(), SECTION_OPTIONS);
+		const before = new Map(vault.files);
+		const set = importSetFrom(vault.files.get('Out/g1/g1.md')!);
+
+		const refresh = await generateFromRecipe(
+			vault.app,
+			nestedData(cloneSectionGroups()),
+			sectionRecipe(),
+			{ ...SECTION_OPTIONS, importSet: set },
+		);
+
+		expect(refresh.errors).toEqual([]);
+		expect(refresh.orphansChecked).toBe(true);
+		expect(refresh.orphans).toBeUndefined();
+		expect(vault.files).toEqual(before);
+	});
+
+	it('B4 adds one section, preserves prose outside the region, and changes only its host wording', async () => {
+		const vault = makeApp();
+		await generateFromRecipe(vault.app, nestedData(cloneSectionGroups()), sectionRecipe(), SECTION_OPTIONS);
+		const before = new Map([...vault.files].map(([path, text]) => [path, frontmatter(text)]));
+		const set = importSetFrom(vault.files.get('Out/g1/g1.md')!);
+		vault.files.set('Out/g1/c1.md', `${vault.files.get('Out/g1/c1.md')}My note.\n`);
+		const changed = cloneSectionGroups();
+		const controls = changed[0].controls as Record<string, unknown>[];
+		(controls[0].parts as Record<string, unknown>[]).push({ id: 'p4', name: 'objective', prose: 'Aim.' });
+
+		const refresh = await generateFromRecipe(
+			vault.app,
+			nestedData(changed),
+			sectionRecipe(),
+			{ ...SECTION_OPTIONS, importSet: set },
+		);
+
+		expect(refresh.orphans).toBeUndefined();
+		const c1 = vault.files.get('Out/g1/c1.md')!;
+		expect(c1).toContain('## Objective\n\nAim.\n<!-- crosswalker:body:end -->\nMy note.\n');
+		for (const [path, oldFrontmatter] of before) {
+			const current = frontmatter(vault.files.get(path)!);
+			if (path === 'Out/g1/c1.md') {
+				expect(current._crosswalker.review_cid).not.toBe(oldFrontmatter._crosswalker.review_cid);
+				expect(current._crosswalker.review_groups.wording).not.toBe(oldFrontmatter._crosswalker.review_groups.wording);
+			} else {
+				expect(current._crosswalker.review_cid).toBe(oldFrontmatter._crosswalker.review_cid);
+				expect(current._crosswalker.review_groups.wording).toBe(oldFrontmatter._crosswalker.review_groups.wording);
+			}
+		}
+	});
+
+	it('B5 removes a section without creating an orphan', async () => {
+		const vault = makeApp();
+		await generateFromRecipe(vault.app, nestedData(cloneSectionGroups()), sectionRecipe(), SECTION_OPTIONS);
+		const set = importSetFrom(vault.files.get('Out/g1/g1.md')!);
+		const changed = cloneSectionGroups();
+		const controls = changed[0].controls as Record<string, unknown>[];
+		controls[0].parts = (controls[0].parts as Record<string, unknown>[]).filter((part) => part.id !== 'p2');
+
+		const refresh = await generateFromRecipe(
+			vault.app,
+			nestedData(changed),
+			sectionRecipe(),
+			{ ...SECTION_OPTIONS, importSet: set },
+		);
+
+		expect(refresh.orphansChecked).toBe(true);
+		expect(refresh.orphans).toBeUndefined();
+		expect(vault.files.get('Out/g1/c1.md')).not.toContain('## Guidance');
+	});
+
+	it('B6 rebuilds in-region text and preserves user prose after the managed region', async () => {
+		const vault = makeApp();
+		await generateFromRecipe(vault.app, nestedData(cloneSectionGroups()), sectionRecipe(), SECTION_OPTIONS);
+		const set = importSetFrom(vault.files.get('Out/g1/g1.md')!);
+		const path = 'Out/g1/c1.md';
+		vault.files.set(path, vault.files.get(path)!
+			.replace('Do the thing.', 'User edit inside the region.')
+			.concat('My note.\n'));
+
+		const refresh = await generateFromRecipe(
+			vault.app,
+			nestedData(cloneSectionGroups()),
+			sectionRecipe(),
+			{ ...SECTION_OPTIONS, importSet: set },
+		);
+
+		expect(refresh.conflicts).toBeUndefined();
+		expect(vault.files.get(path)).toContain('Do the thing.');
+		expect(vault.files.get(path)).not.toContain('User edit inside the region.');
+		expect(vault.files.get(path)).toMatch(/<!-- crosswalker:body:end -->\nMy note\.\n$/);
+	});
+
+	it('B7 flips sections to notes under the pinned identity with zero orphans', async () => {
+		const vault = makeApp();
+		await generateFromRecipe(vault.app, nestedData(cloneSectionGroups()), sectionRecipe(), SECTION_OPTIONS);
+		const set = importSetFrom(vault.files.get('Out/g1/g1.md')!);
+
+		const refresh = await generateFromRecipe(
+			vault.app,
+			nestedData(cloneSectionGroups()),
+			partNoteRecipe(),
+			{ ...SECTION_OPTIONS, importSet: set },
+		);
+
+		expect(refresh.errors).toEqual([]);
+		expect(refresh.orphans).toBeUndefined();
+		expect(vault.files.has('Out/g1/c1/c1.md')).toBe(true);
+		expect(noteBody(vault.files.get('Out/g1/c1/c1.md')!)).not.toContain('## Statement');
+		expect(frontmatter(vault.files.get('Out/g1/c1/p1.md')!).curie).toBe('synthetic:p1');
+		expect(frontmatter(vault.files.get('Out/g1/c1/p2.md')!).curie).toBe('synthetic:p2');
+		expect(frontmatter(vault.files.get('Out/g1/c2/p3.md')!).curie).toBe('synthetic:p3');
+	});
+
+	it('B8 flips notes to sections, reports every old part note as an orphan, and keeps each file', async () => {
+		const vault = makeApp();
+		await generateFromRecipe(vault.app, nestedData(cloneSectionGroups()), partNoteRecipe(), SECTION_OPTIONS);
+		const set = importSetFrom(vault.files.get('Out/g1/g1.md')!);
+		const oldPartPaths = ['Out/g1/c1/p1.md', 'Out/g1/c1/p2.md', 'Out/g1/c2/p3.md'];
+		const oldPartBytes = new Map(oldPartPaths.map((path) => [path, vault.files.get(path)!]));
+
+		const refresh = await generateFromRecipe(
+			vault.app,
+			nestedData(cloneSectionGroups()),
+			sectionRecipe(),
+			{ ...SECTION_OPTIONS, importSet: set },
+		);
+
+		expect(refresh.errors).toEqual([]);
+		expect(refresh.orphans).toEqual([
+			{ curie: 'synthetic:p1', path: 'Out/g1/c1/p1.md' },
+			{ curie: 'synthetic:p2', path: 'Out/g1/c1/p2.md' },
+			{ curie: 'synthetic:p3', path: 'Out/g1/c2/p3.md' },
+		]);
+		for (const [path, bytes] of oldPartBytes) expect(vault.files.get(path)).toBe(bytes);
+	});
+
+	it('B9 renders nested section levels depth-first inside the host managed region', async () => {
+		const vault = makeApp();
+		const groups = cloneSectionGroups();
+		const controls = groups[0].controls as Record<string, unknown>[];
+		const parts = controls[0].parts as Record<string, unknown>[];
+		parts[0].subparts = [
+			{ id: 'sp1', name: 'detail one', text: 'First detail.' },
+			{ id: 'sp2', name: 'detail two', text: 'Second detail.' },
+		];
+		const base = sectionRecipe();
+		const recipe: Recipe = {
+			...base,
+			source: {
+				...base.source,
+				levels: ['group', 'control', 'part', 'subpart'],
+				nest: [
+					{ level: 'group', id: '{id}', children: 'controls', carry: ['title'], leaf: 'folder-note' },
+					{ level: 'control', id: '{id}', children: 'parts', carry: ['title'] },
+					{ level: 'part', id: '{id}', children: 'subparts', leaf: 'section' },
+					{ level: 'subpart', id: '{id}', leaf: 'section' },
+				],
+			},
+			target: {
+				...base.target,
+				layout: [
+					...base.target.layout,
+					{ level: 'subpart', mechanism: 'heading', level_depth: 3, template: '{name|title}' },
+				],
+				also_emit: {
+					...base.target.also_emit,
+					body: [
+						...base.target.also_emit!.body!,
+						{ template: '{text}', position: 'append', level: 'subpart' },
+					],
+				},
+			},
+		};
+
+		const result = await generateFromRecipe(vault.app, nestedData(groups), recipe, SECTION_OPTIONS);
+
+		expect(result.errors).toEqual([]);
+		expect(result.created).toHaveLength(5);
+		expect(noteBody(vault.files.get('Out/g1/c1.md')!)).toContain([
+			'## Statement',
+			'',
+			'Do the thing.',
+			'',
+			'### Detail One',
+			'',
+			'First detail.',
+			'',
+			'### Detail Two',
+			'',
+			'Second detail.',
+			'',
+			'## Guidance',
+		].join('\n'));
+	});
+
+	it('B12 excludes a host and all of its attached section content without section warnings', async () => {
+		const vault = makeApp();
+		const result = await generateFromRecipe(
+			vault.app,
+			nestedData(cloneSectionGroups()),
+			sectionRecipe("_cw.level != 'control' or id != 'c1'"),
+			SECTION_OPTIONS,
+		);
+
+		expect(result.errors).toEqual([]);
+		expect(vault.files.has('Out/g1/c1.md')).toBe(false);
+		expect([...vault.files.keys()].sort()).toEqual([
+			'Out/g1/c2.md',
+			'Out/g1/g1.md',
+			'Out/g2/c3.md',
+			'Out/g2/g2.md',
+		]);
+		expect(result.warnings ?? []).not.toEqual(expect.arrayContaining([
+			expect.objectContaining({ message: expect.stringContaining('folder level was skipped') }),
+		]));
+	});
+
+	it('B15 estimates section records separately from note records', () => {
+		const data = nestedData(cloneSectionGroups());
+		const estimate = estimateOutput(data, sectionRecipe() as unknown as Partial<ImportRecipe>);
+		expect(estimate).toMatchObject({ noteCount: 5, sectionCount: 3 });
 	});
 });

@@ -799,11 +799,41 @@ function curiesUnder(files: Map<string, string>, root: string): string[] {
 }
 
 /** Everything the results screen draws for one result, as a user would read it. */
-function renderResults(result: Parameters<ImportFlow['renderGenerationResults']>[0]): string[] {
+function renderResults(
+	result: Parameters<ImportFlow['renderGenerationResults']>[0],
+	sectionLevels: readonly string[] = [],
+): string[] {
 	const { flow, texts } = makeFlow({});
-	flow.renderGenerationResults(result);
+	flow.renderGenerationResults(result, sectionLevels);
 	return texts;
 }
+
+describe('section-fold orphan summary', () => {
+	const result = {
+		success: true,
+		created: [],
+		skipped: [],
+		errors: [],
+		orphansChecked: true,
+		orphans: [
+			{ curie: 'synthetic:p1', path: 'Out/g1/c1/p1.md' },
+			{ curie: 'synthetic:p2', path: 'Out/g1/c1/p2.md' },
+			{ curie: 'synthetic:p3', path: 'Out/g1/c2/p3.md' },
+		],
+	};
+
+	it('B8 names one section level in the conditional sentence', () => {
+		expect(renderResults(result, ['part'])).toContain(
+			'🕳️ Orphans: 3 notes are no longer in the source. They were kept, not deleted. Some may be part notes that this recipe now folds into their parent notes as sections.',
+		);
+	});
+
+	it('names two section levels in nest order with plain-English or', () => {
+		expect(renderResults(result, ['part', 'subpart'])).toContain(
+			'🕳️ Orphans: 3 notes are no longer in the source. They were kept, not deleted. Some may be part or subpart notes that this recipe now folds into their parent notes as sections.',
+		);
+	});
+});
 
 /** Where this flow says the import lands, after it has been allowed to look. */
 async function askWhereItLands(
