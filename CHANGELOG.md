@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Third prerelease preparation, 0.1.2 (2026-09-23)
+
+- Prepared version `0.1.2` as the third BRAT prerelease, carrying the nested records, sections, crosswalk, vault scan, and split-into-levels work below on top of `0.1.1`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.2` entry. The user-facing notes live under `## [0.1.2]` near the end of this file, which is where the release job reads them.
+
 ### Added: nested levels can become sections inside their parent note, and the Depth dial is where you choose it (2026-09-23)
 
 - **Deeper reification now reaches inside the note, and the wizard is where the user controls it.** A nested level's records (a control's statement and guidance parts, for example) can become headings with text inside the parent note instead of notes of their own or nothing. It is the fourth answer to "where does this level go": folder, note, left out, section. Design and rationale: [body projection decision log](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-09-23-body-projection-sections-inside-the-note/). Source: `src/source/nest.ts`, `src/render/index.ts`.
@@ -1559,6 +1563,26 @@ AJV (Ajv2020) + ajv-formats wired into plugin startup; `spec/*.schema.json` comp
 - Ch 26 — Transform engine depth + input formats (resolved 2026-05-05)
 
 ---
+
+## [0.1.2] - 2026-09-23
+
+Third public prerelease. Still intended for early testing in backup or test vaults, not production-critical use.
+
+### What changed since 0.1.1
+
+- **Nested sources import as nested notes.** A JSON file whose records contain lists of sub-records (groups, then controls, then parts) now imports level by level, and the wizard lets you decide which levels become notes.
+- **A Depth control sets how deep the folders go.** One select on the mapping card chooses how many levels become folders, instead of editing each level by hand.
+- **Lower levels can become sections inside a note.** A second select, Below the note, turns a level such as a control's statement and guidance into headings inside the control's note rather than separate notes. The sample preview shows those headings before you generate, and refreshing rebuilds them without touching anything you wrote outside the managed part of the note.
+- **Columns that point at another framework become links between frameworks.** When a column holds references to another framework, the new Crosswalks card lets you name that framework, and the import writes a note for each link.
+- **Find framework files already in your vault.** A scan lists source files it recognizes and opens them straight into the wizard.
+- **Split a packed id into levels.** A column like `AC-2(1)` can be split on separator characters into its levels, and the wizard suggests the split when it spots one.
+- **The wizard suggests the worksheet and header row** for spreadsheets, and saved drafts remember the header row.
+- **Fixes:** changing the sheet or header row after going back now takes effect; adding a mapping by hand keeps the column's levels; shape cards that could not apply now say why instead of doing nothing.
+
+### Requirements
+
+- Obsidian 1.10.0 or newer.
+- Install through BRAT (add `cybersader/crosswalker`) or copy `main.js`, `manifest.json`, and `styles.css` into `.obsidian/plugins/crosswalker/`.
 
 ## [Design phase complete] — 2026-05-04
 
