@@ -154,9 +154,12 @@ export function createFreshRecipeDocument(
 	if (regions.layout.length === 0) {
 		regions.layout.push({ level: 'leaf', mechanism: 'file', template: '{row}.md' });
 	}
-	const levels = unique(regions.layout.map((entry) => entry.level));
-	const ontology = slug(sourceOntology) || 'source';
 	const { nest, ...targetRegions } = regions;
+	const levels = unique([
+		...regions.layout.map((entry) => entry.level),
+		...(nest?.map((entry) => entry.level) ?? []),
+	]);
+	const ontology = slug(sourceOntology) || 'source';
 	const canonical: CrosswalkerImportRecipe = {
 		recipe: `custom-${ontology}`,
 		spec_version: CURRENT_RECIPE_SPEC,
@@ -703,10 +706,12 @@ function patchOwnedRegions(
 		if (leaf) leaf.kind = originalLeafKind;
 	}
 	patched.target.layout = layout;
-	// Layout level ids are editor-owned alongside the layout itself. Keep the
-	// canonical source declaration synchronized so a legitimate workbench level
-	// edit cannot produce a self-invalid recipe with undeclared levels.
-	patched.source.levels = unique(layout.map((entry) => entry.level)) as [string, ...string[]];
+	// Layout and nested source level ids are editor-owned together. Keep the
+	// canonical declaration synchronized even when a left-out nested level has no layout entry.
+	patched.source.levels = unique([
+		...layout.map((entry) => entry.level),
+		...(regions.nest?.map((entry) => entry.level) ?? []),
+	]) as [string, ...string[]];
 	if (regions.nest?.length) {
 		patched.source.nest = deepClone(regions.nest) as NonNullable<CrosswalkerImportRecipe['source']['nest']>;
 	}

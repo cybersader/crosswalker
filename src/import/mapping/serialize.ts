@@ -74,6 +74,7 @@ export type BodyProjectionSpec =
 	| {
 			template: string;
 			position?: 'append';
+			level?: string;
 			format?: 'text' | 'code' | 'quote' | 'list';
 			omit_if_empty?: boolean;
 	  }
@@ -374,6 +375,7 @@ function emitLevel(
 					pushOrdered(body, {
 						template: name,
 						position: 'append',
+						...(dest.level ? { level: dest.level } : {}),
 						...(dest.format ? { format: dest.format } : {}),
 						...(dest.omitIfEmpty !== undefined ? { omit_if_empty: dest.omitIfEmpty } : {}),
 					}, dest.canonicalOrder);
@@ -592,7 +594,11 @@ export function fromRegions(regions: RecipeRegions, options: FromRegionsOptions 
 			entry.mechanism === 'folder'
 				? { primitive: 'folder' }
 				: entry.mechanism === 'heading'
-					? { primitive: 'heading', hostRule: 'root', depth: entry.level_depth ?? 1 }
+					? {
+						primitive: 'heading',
+						hostRule: headingHostRule(entry.level, regions),
+						depth: entry.level_depth ?? 1,
+					}
 					: { primitive: 'name' };
 		const rule = makeLevel(entry.level, parsed, [dest]);
 		structuralLevels.push(rule);
@@ -670,6 +676,7 @@ export function fromRegions(regions: RecipeRegions, options: FromRegionsOptions 
 				attach(parsed, {
 					primitive: 'body',
 					position: 'append',
+					...(projection.level ? { level: projection.level } : {}),
 					...(projection.format ? { format: projection.format } : {}),
 					...(projection.omit_if_empty !== undefined ? { omitIfEmpty: projection.omit_if_empty } : {}),
 					...(options.preserveCanonicalOrder ? { canonicalOrder } : {}),
@@ -717,6 +724,19 @@ export function fromRegions(regions: RecipeRegions, options: FromRegionsOptions 
 	const userPreserve = regions.also_emit?.frontmatter?.user_preserve;
 	if (userPreserve && userPreserve.length > 0) result.userPreserve = userPreserve;
 	return result;
+}
+
+/** Recover the note-bearing ancestor for a section heading; ordinary headings keep the legacy root host. */
+function headingHostRule(level: string, regions: RecipeRegions): string {
+	const nest = regions.nest;
+	const index = nest?.findIndex((entry) => entry.level === level) ?? -1;
+	if (!nest || index < 0 || nest[index].leaf !== 'section') return 'root';
+	for (let ancestor = index - 1; ancestor >= 0; ancestor--) {
+		const ancestorLevel = nest[ancestor].level;
+		const layout = regions.layout.find((entry) => entry.level === ancestorLevel);
+		if (layout?.mechanism === 'file' || nest[ancestor].leaf === 'folder-note') return ancestorLevel;
+	}
+	return 'root';
 }
 
 /** Turn a parsed source + destinations into a LevelRule with default policies. */

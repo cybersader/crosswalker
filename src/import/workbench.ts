@@ -77,6 +77,7 @@ import {
 	removeDestination,
 	setCrosswalkTarget,
 	setNestLeaf,
+	setSectionText,
 	setNestIdentity,
 	mergeRows,
 	splitRow,
@@ -318,6 +319,8 @@ export class MappingWorkbench {
 	private blockedCard: { mi: number; primitive: DestinationPrimitive; message: string } | null = null;
 	/** Expanded nested rows used by every worked preview once the async source walk lands. */
 	private expandedRows: Record<string, unknown>[] | null = null;
+	/** Record totals by nested level, used for the live notes/sections evidence line. */
+	private countsByLevel: Record<string, number> | null = null;
 	/** Discards an older async expansion when a newer mapping change finishes first. */
 	private expansionVersion = 0;
 
@@ -338,7 +341,13 @@ export class MappingWorkbench {
 	 * workbench; re-render closes it unless the same row is still open.
 	 */
 	private splitPanel: { mi: number; li: number } | null = null;
-	private selectedNoteRow = 0;
+	/**
+	 * Preview note the user picked in the tree, or null for the default: the
+	 * first note at the note level. Nested imports expand parent folder notes
+	 * first (a group's `ac/ac.md`), and those usually carry no properties or
+	 * body, so defaulting to index 0 showed an empty sample note.
+	 */
+	private selectedNoteRow: number | null = null;
 	/** Source visibility is transient to this workbench instance, never persisted. */
 	private sourceCollapsed = false;
 	private readonly sourceRegionId = `crosswalker-source-${++workbenchInstanceCounter}`;
@@ -485,7 +494,7 @@ export class MappingWorkbench {
 		for (const detection of this.activeDetections()) {
 			if (detection.kind === 'body-candidate') bodyCandidates.add(detection.column);
 		}
-		let primaryBodyUsed = body.some((entry) => entry.position !== 'section');
+		let primaryBodyUsed = body.some((entry) => entry.position !== 'section' && entry.level === undefined);
 
 		for (const [col, dest] of this.columnDests) {
 			if (dest === 'skip') continue;
@@ -579,6 +588,7 @@ export class MappingWorkbench {
 			|| Object.keys(managedLinks).length
 			|| userPreserve.length;
 		const regions: RecipeRegions = hasAlsoEmit ? { layout, also_emit: alsoEmit } : { layout };
+		if (base.nest) regions.nest = base.nest;
 		if (base.crosswalks) regions.crosswalks = base.crosswalks;
 		// §7o root cause: toRecipeRegions(this.mapping) computes `base.enrichment`
 		// (Pass 1.5 batch enrichment — children lists, facet hubs, edge stats), but
@@ -586,6 +596,26 @@ export class MappingWorkbench {
 		// enrichment never reached generation on the workbench path. Carry it through.
 		if (base.enrichment) regions.enrichment = base.enrichment;
 		return regions;
+	}
+
+	/** A complete in-memory recipe for live preview, including left-out nest declarations. */
+	private buildPreviewRecipe(): Recipe {
+		// Nested expanded rows intentionally omit child collections and top-level-only
+		// columns. Preview the coherent mapping model itself so demoted source-column
+		// defaults cannot make every child row fail before its attached sections render.
+		const regions = this.mapping.nest?.length
+			? toRecipeRegions(this.mapping)
+			: this.buildFinalRegions();
+		const { nest, ...target } = regions;
+		const levels = Array.from(new Set([
+			...target.layout.map((entry) => entry.level),
+			...(nest?.map((entry) => entry.level) ?? []),
+		]));
+		return {
+			recipe: 'wb-preview',
+			...(nest?.length ? { source: { levels, nest } } : {}),
+			target: target as Recipe['target'],
+		};
 	}
 
 	/** A full canonical Recipe for render() / generation. */
@@ -780,6 +810,7 @@ export class MappingWorkbench {
 	private refreshExpandedRows(): void {
 		const version = ++this.expansionVersion;
 		this.expandedRows = null;
+		this.countsByLevel = null;
 		const rows = this.opts.parsedData.rows;
 		const nest = this.mapping.nest;
 		if (!nest?.length || !isEagerRows(rows) || rows.length === 0) return;
@@ -794,6 +825,7 @@ export class MappingWorkbench {
 		).then((expansion) => {
 			if (version !== this.expansionVersion) return;
 			this.expandedRows = expansion.rows;
+			this.countsByLevel = expansion.countsByLevel;
 			this.scheduleRerender();
 		}).catch(() => {
 			// The eager level-0 row remains the truthful fallback for join-sourced levels.
@@ -841,10 +873,28 @@ export class MappingWorkbench {
 		this.applyChange(delay);
 	}
 
-	/** Apply the Depth dial to both the shape mapping and its nested-source leaves. */
-	private updateFolderDepth(mi: number, mapping: StructureMapping, depth: number): void {
-		const next = setFolderDepth(mapping, depth, this.mapping.nest);
-		this.updateMapping(mi, next.mapping, 0, { value: next.nest });
+	/** Apply the Depth dial and below-note placement through one model change. */
+	private updateFolderDepth(
+		mi: number,
+		mapping: StructureMapping,
+		depth: number,
+		below: 'none' | 'section' = 'none',
+	): void {
+		const next = setFolderDepth(mapping, depth, this.mapping.nest, below);
+		this.replaceMappingAt(mi, next.mapping);
+		this.mapping = { ...this.mapping, nest: next.nest };
+		const belowLevels = next.mapping.levels.slice(depth + 1).map((level) => level.level);
+		for (const level of belowLevels) {
+			this.mapping = setNestLeaf(this.mapping, level, below);
+			if (below === 'section' && !this.sectionTextColumn(level)) {
+				const column = this.defaultSectionTextColumn(level);
+				if (column) this.mapping = setSectionText(this.mapping, level, column);
+			}
+		}
+		for (const { level } of next.mapping.levels.slice(0, depth + 1)) {
+			this.mapping = setSectionText(this.mapping, level, '');
+		}
+		this.applyChange();
 	}
 
 	/**
@@ -1374,28 +1424,157 @@ export class MappingWorkbench {
 			});
 		}
 		select.value = current === null ? 'custom' : String(current);
-		select.addEventListener('change', () => {
-			const depth = Number(select.value);
-			if (Number.isInteger(depth)) this.updateFolderDepth(mi, mapping, depth);
-		});
 		const names = mapping.levels.map((level) => level.level);
 		const depth = current ?? 0;
+		const belowLevels = current === null ? [] : names.slice(depth + 1);
+		const firstBelow = belowLevels[0];
+		const belowValue: 'none' | 'section' = firstBelow
+			&& this.mapping.nest?.find((entry) => entry.level === firstBelow)?.leaf === 'section'
+			? 'section'
+			: 'none';
+		select.addEventListener('change', () => {
+			const selectedDepth = Number(select.value);
+			if (Number.isInteger(selectedDepth)) this.updateFolderDepth(mi, mapping, selectedDepth, belowValue);
+		});
+
+		if (this.mapping.nest?.length && belowLevels.length > 0) {
+			row.createEl('label', { text: 'Below the note' });
+			const belowSelect = row.createEl('select', {
+				cls: 'dropdown',
+				attr: { 'aria-label': 'Below the note', 'data-nest-control': 'below-note' },
+			});
+			belowSelect.createEl('option', { text: 'Left out', attr: { value: 'none' } });
+			belowSelect.createEl('option', {
+				text: `Sections inside each ${names[depth]} note`,
+				attr: { value: 'section' },
+			});
+			belowSelect.value = belowValue;
+			belowSelect.addEventListener('change', () => {
+				this.updateFolderDepth(mi, mapping, depth, belowSelect.value as 'none' | 'section');
+			});
+		}
+
 		const folders = names.slice(0, depth).join(' and ');
-		const left = names.slice(depth + 1);
 		let hint: string;
 		if (current === null) {
 			hint = 'Custom arrangement. Pick a depth to reset which levels become folders and which becomes the note.';
 		} else {
 			hint = `${folders ? `Each ${folders} becomes a folder; ` : 'No folders; '}each ${names[depth] ?? names[names.length - 1]} becomes a note`;
-			if (left.length > 0) {
+			if (belowLevels.length > 0) {
 				hint += this.mapping.nest?.length
-					? `; ${left.join(' and ')} ${left.length === 1 ? 'is' : 'are'} left out of this import.`
-					: `; ${left.join(' and ')} kept as properties.`;
+					? this.belowNoteHint(belowLevels, names[depth])
+					: `; ${belowLevels.join(' and ')} kept as properties.`;
 			} else {
 				hint += '.';
 			}
 		}
 		row.createSpan({ cls: 'crosswalker-wb-depth-hint', text: hint });
+		if (belowValue === 'section') {
+			row.createSpan({
+				cls: 'crosswalker-wb-depth-hint crosswalker-wb-section-refresh-hint',
+				text: 'Sections are rebuilt on every refresh. Write your own notes below the managed region.',
+			});
+		}
+		const counts = this.sectionCountsText();
+		if (counts) row.createSpan({ cls: 'crosswalker-wb-depth-counts', attr: { 'data-depth-counts': 'sections' }, text: counts });
+	}
+
+	private belowNoteHint(levels: string[], noteLevel: string): string {
+		const nest = this.mapping.nest ?? [];
+		const leaves = levels.map((level) => nest.find((entry) => entry.level === level)?.leaf ?? 'none');
+		if (!leaves.includes('section')) {
+			return `; ${levels.join(' and ')} ${levels.length === 1 ? 'is' : 'are'} left out of this import.`;
+		}
+		let hint = '';
+		let parent = noteLevel;
+		let parentIsSection = false;
+		for (let index = 0; index < levels.length; index++) {
+			const level = levels[index];
+			if (leaves[index] === 'section') {
+				hint += parentIsSection
+					? `; each ${level} becomes a section inside it`
+					: `; each ${level} becomes a section inside its ${parent} note`;
+				parentIsSection = true;
+			} else {
+				hint += `; ${level} is left out of this import`;
+				parentIsSection = false;
+			}
+			parent = level;
+		}
+		return `${hint}.`;
+	}
+
+	private sectionCountsText(): string | null {
+		if (!this.countsByLevel || !this.mapping.nest?.some((entry) => entry.leaf === 'section')) return null;
+		let notes = 0;
+		let sections = 0;
+		for (const entry of this.mapping.nest) {
+			const count = this.countsByLevel[entry.level] ?? 0;
+			if (entry.leaf === 'section') sections += count;
+			else if (entry.leaf !== 'none') notes += count;
+		}
+		return `${notes.toLocaleString()} notes, ${sections.toLocaleString()} sections`;
+	}
+
+	private sectionTextColumn(level: string): string | null {
+		for (const mapping of this.mapping.mappings) {
+			for (const rule of mapping.levels) {
+				if (rule.destinations.some((destination) =>
+					destination.primitive === 'body' && destination.level === level,
+				)) return this.firstColumn(rule.source);
+			}
+		}
+		return null;
+	}
+
+	private sectionKeys(level: string): string[] {
+		const nested = this.detections.find(
+			(detection): detection is Extract<Detection, { kind: 'nested-records' }> => detection.kind === 'nested-records',
+		);
+		const levelIndex = nested?.proposal.levels.indexOf(level) ?? -1;
+		const detected = levelIndex > 0 ? nested?.chain[levelIndex - 1]?.sampleKeys ?? [] : [];
+		const fallback = Object.keys(this.firstNestedRecord(level) ?? {}).filter((key) => key !== '_cw');
+		const headingColumns = new Set(
+			this.mapping.mappings.flatMap((mapping) => mapping.levels)
+				.filter((rule) => rule.level === level)
+				.flatMap((rule) => toSourceRefs(rule.source))
+				.flatMap((ref) => isConstantRef(ref) ? [] : [ref.column]),
+		);
+		const childCollection = this.mapping.nest?.find((entry) => entry.level === level)?.children;
+		return [...new Set(detected.length > 0 ? detected : fallback)]
+			.filter((key) => !headingColumns.has(key) && key !== childCollection);
+	}
+
+	private defaultSectionTextColumn(level: string): string | null {
+		const keys = this.sectionKeys(level);
+		for (const preferred of ['prose', 'text', 'description', 'statement', 'body', 'content']) {
+			if (keys.includes(preferred)) return preferred;
+		}
+		const sample = this.firstNestedRecord(level);
+		return keys.find((key) => typeof sample?.[key] === 'string') ?? null;
+	}
+
+	private firstNestedRecord(level: string): Record<string, unknown> | null {
+		const visit = (row: Record<string, unknown>): Record<string, unknown> | null => {
+			const lineage = row._cw;
+			if (typeof lineage === 'object' && lineage !== null) {
+				if ((lineage as { level?: unknown }).level === level) return row;
+				const sections = (lineage as { sections?: unknown }).sections;
+				if (Array.isArray(sections)) {
+					for (const section of sections) {
+						if (typeof section !== 'object' || section === null) continue;
+						const found = visit(section as Record<string, unknown>);
+						if (found) return found;
+					}
+				}
+			}
+			return null;
+		};
+		for (const row of this.expandedRows ?? []) {
+			const found = visit(row);
+			if (found) return found;
+		}
+		return null;
 	}
 
 	private crosswalkDestination(
@@ -1659,8 +1838,8 @@ export class MappingWorkbench {
 			return;
 		}
 		try {
-			const recipe: Recipe = { recipe: 'wb-mix', target: toRecipeRegions({ mappings: [this.mapping.mappings[mi]] }) as Recipe['target'] };
-			const address = render(recipe, { curie: 'preview:1', scope: sample });
+			if (!this.mapping.mappings[mi]) throw new Error('Mapping is no longer available.');
+			const address = render(this.buildPreviewRecipe(), { curie: 'preview:1', scope: sample });
 			pre.setText(this.describeAddress(address));
 		} catch (err) {
 			pre.setText(`(cannot preview: ${err instanceof Error ? err.message : String(err)})`);
@@ -2033,7 +2212,8 @@ export class MappingWorkbench {
 				.createEl('tr', { cls: 'crosswalker-wb-nest-row' })
 				.createEl('td', { attr: { colspan: '5' } })
 				.createDiv({ cls: 'crosswalker-wb-nest-controls' });
-			if (nestedEntry.children !== undefined) {
+			const noteIndex = folderDepthOf(m);
+			if (nestedEntry.children !== undefined && (noteIndex === null || li < noteIndex)) {
 				const ownLabel = nestedControls.createEl('label');
 				ownLabel.createSpan({ text: 'Own note' });
 				const ownSelect = ownLabel.createEl('select', {
@@ -2047,6 +2227,62 @@ export class MappingWorkbench {
 					this.mapping = setNestLeaf(this.mapping, rule.level, ownSelect.value as 'folder-note' | 'none');
 					this.applyChange();
 				});
+			}
+			if (noteIndex !== null && li > noteIndex) {
+				const parentLevel = m.levels[li - 1]?.level ?? m.levels[noteIndex]?.level ?? 'parent';
+				const parentLeaf = this.mapping.nest?.find((entry) => entry.level === parentLevel)?.leaf;
+				const placementLabel = nestedControls.createEl('label');
+				placementLabel.createSpan({ text: 'Placement' });
+				const placementSelect = placementLabel.createEl('select', {
+					cls: 'dropdown',
+					attr: { 'aria-label': `Placement for ${rule.level}`, 'data-nest-control': 'placement' },
+				});
+				placementSelect.createEl('option', { text: 'Left out', attr: { value: 'none' } });
+				placementSelect.createEl('option', {
+					text: parentLeaf === 'section'
+						? `Sections inside each ${parentLevel} section`
+						: `Sections inside each ${parentLevel} note`,
+					attr: { value: 'section' },
+				});
+				placementSelect.value = nestedEntry.leaf === 'section' ? 'section' : 'none';
+				if (parentLeaf === 'none') {
+					placementSelect.disabled = true;
+					placementSelect.title = `Left out because ${parentLevel} is left out. Set ${parentLevel} to sections first.`;
+				}
+				placementSelect.addEventListener('change', () => {
+					const leaf = placementSelect.value as 'none' | 'section';
+					this.mapping = setNestLeaf(this.mapping, rule.level, leaf);
+					if (leaf === 'section' && !this.sectionTextColumn(rule.level)) {
+						const column = this.defaultSectionTextColumn(rule.level);
+						if (column) this.mapping = setSectionText(this.mapping, rule.level, column);
+					}
+					this.applyChange();
+				});
+				if (nestedEntry.leaf === 'section') {
+					const textLabel = nestedControls.createEl('label');
+					textLabel.createSpan({ text: 'Section text' });
+					const textSelect = textLabel.createEl('select', {
+						cls: 'dropdown',
+						attr: { 'aria-label': `Section text for ${rule.level}`, 'data-nest-control': 'section-text' },
+					});
+					const keys = this.sectionKeys(rule.level);
+					for (const key of keys) textSelect.createEl('option', { text: key, attr: { value: key } });
+					textSelect.value = this.sectionTextColumn(rule.level) ?? '';
+					if (keys.length === 0) textSelect.disabled = true;
+					textSelect.addEventListener('change', () => {
+						this.mapping = setSectionText(this.mapping, rule.level, textSelect.value);
+						this.applyChange();
+					});
+					if (!this.sectionTextColumn(rule.level)) {
+						nestedControls.createSpan({
+							cls: 'crosswalker-wb-nest-warning',
+							attr: { 'data-nest-warning': 'section-text' },
+							text: keys.length > 0
+								? `Pick a field under Section text so each ${rule.level} section has content.`
+								: `No text fields were found on ${rule.level} records. Set Placement to Left out.`,
+						});
+					}
+				}
 			}
 			const identityLabel = nestedControls.createEl('label');
 			identityLabel.createSpan({ text: 'Identified by' });
@@ -2569,7 +2805,9 @@ export class MappingWorkbench {
 
 		// One selected note. Default selection = the first file (spec §7j #4).
 		const addrs = preview.addresses;
-		if (addrs.length) this.selectedNoteRow = Math.min(this.selectedNoteRow, addrs.length - 1);
+		const selected = addrs.length
+			? Math.min(this.selectedNoteRow ?? this.defaultPreviewNoteIndex(addrs), addrs.length - 1)
+			: 0;
 
 		// Tree + rendered note. Wrapped together so wide viewports (spec §7n item
 		// 2 — "generous" preview rail, tree and note side by side) can lay them out
@@ -2583,7 +2821,7 @@ export class MappingWorkbench {
 			const row = tree.createDiv({
 				cls: 'crosswalker-wb-tree-row'
 					+ (node.isFile ? ' is-file' : '')
-					+ (node.isFile && node.addrIndex === this.selectedNoteRow ? ' is-selected' : ''),
+					+ (node.isFile && node.addrIndex === selected ? ' is-selected' : ''),
 			});
 			row.style.paddingLeft = `${node.depth * 14}px`;
 			wbIcon(row, node.isFile ? 'file' : 'folder', 'crosswalker-wb-tree-ico');
@@ -2596,11 +2834,17 @@ export class MappingWorkbench {
 		if (addrs.length > TREE_ROW_LIMIT) tree.createDiv({ cls: 'crosswalker-wb-tree-row crosswalker-muted', text: '… and more' });
 
 		if (addrs.length) {
-			const note = treenote.createDiv({ cls: 'crosswalker-wb-note' });
+			const note = treenote.createDiv({ cls: 'crosswalker-wb-note', attr: { 'data-preview-note': 'sample' } });
 			const noteTitle = note.createDiv({ cls: 'crosswalker-wb-note-title' });
 			wbIcon(noteTitle, 'file-text');
-			noteTitle.createSpan({ text: this.basename(addrs[this.selectedNoteRow].address.primary.path) });
-			note.createEl('pre', { cls: 'crosswalker-wb-mini', text: this.describeFrontmatter(addrs[this.selectedNoteRow].address) });
+			noteTitle.createSpan({ text: this.basename(addrs[selected].address.primary.path) });
+			const address = addrs[selected].address;
+			const content = [this.describeFrontmatter(address), this.describeBody(address)].filter(Boolean).join('\n\n');
+			note.createEl('pre', {
+				cls: 'crosswalker-wb-mini' + (content ? '' : ' crosswalker-muted'),
+				attr: { 'data-preview-content': 'sample-note' },
+				text: content || 'No properties or body text on this note yet.',
+			});
 		}
 
 		// Deviation banner (reuses the render report summary).
@@ -2615,6 +2859,26 @@ export class MappingWorkbench {
 		// that produces zero connections is never silent (spec §7k).
 		const stats = this.connectionStats();
 		if (stats) rail.createDiv({ cls: 'crosswalker-wb-connection-stats', text: stats });
+	}
+
+	/**
+	 * Default sample note: the first preview address rendered from a row at the
+	 * note level (the level whose destination is a file name), matching
+	 * `firstRow()`. Falls back to the first address.
+	 */
+	private defaultPreviewNoteIndex(addrs: { row: number; address: Address }[]): number {
+		if (!this.mapping.nest?.length || !this.expandedRows) return 0;
+		const noteLevel = this.mapping.mappings.flatMap((mapping) => mapping.levels)
+			.find((level) => level.destinations.some((destination) => destination.primitive === 'name'))?.level;
+		if (!noteLevel) return 0;
+		const rows = this.expandedRows;
+		const index = addrs.findIndex((entry) => {
+			const lineage = rows[entry.row - 1]?._cw;
+			return typeof lineage === 'object'
+				&& lineage !== null
+				&& (lineage as { level?: unknown }).level === noteLevel;
+		});
+		return index >= 0 ? index : 0;
 	}
 
 	/**
@@ -2633,6 +2897,8 @@ export class MappingWorkbench {
 		let recipe: Recipe;
 		try {
 			recipe = this.buildRecipe();
+			// Expanded nested rows need the model-only recipe after the canonical guard succeeds.
+			if (this.mapping.nest?.length) recipe = this.buildPreviewRecipe();
 		} catch (err) {
 			this.previewError = err instanceof Error ? err.message : String(err);
 			return null;
@@ -2640,7 +2906,8 @@ export class MappingWorkbench {
 		this.previewError = null;
 		const addresses: { row: number; address: Address }[] = [];
 		const perRow: PreviewRowNotes[] = [];
-		rows.slice(0, PREVIEW_ROW_LIMIT).forEach((row, i) => {
+		const previewRows = this.mapping.nest?.length && this.expandedRows ? this.expandedRows : rows;
+		previewRows.slice(0, PREVIEW_ROW_LIMIT).forEach((row, i) => {
 			const rowNum = i + 1;
 			const report: RenderReport = { notes: [] };
 			try {
@@ -2651,7 +2918,10 @@ export class MappingWorkbench {
 				// A bad row surfaces at generate time; skip it in the live preview.
 			}
 		});
-		return { addresses, perRow, total: this.opts.parsedData.rowCount || rows.length };
+		const total = this.mapping.nest?.length && this.expandedRows
+			? this.expandedRows.length
+			: (this.opts.parsedData.rowCount || rows.length);
+		return { addresses, perRow, total };
 	}
 
 	// =========================================================================
@@ -3194,15 +3464,16 @@ export class MappingWorkbench {
 	private firstRow(): Record<string, unknown> | null {
 		const rows = this.opts.parsedData.rows;
 		if (!isEagerRows(rows) || rows.length === 0) return null;
-		const lastLevel = this.mapping.nest?.[this.mapping.nest.length - 1]?.level;
-		if (lastLevel && this.expandedRows) {
-			const deepest = this.expandedRows.find((row) => {
+		const noteLevel = this.mapping.mappings.flatMap((mapping) => mapping.levels)
+			.find((level) => level.destinations.some((destination) => destination.primitive === 'name'))?.level;
+		if (noteLevel && this.expandedRows) {
+			const note = this.expandedRows.find((row) => {
 				const lineage = row._cw;
 				return typeof lineage === 'object'
 					&& lineage !== null
-					&& (lineage as { level?: unknown }).level === lastLevel;
+					&& (lineage as { level?: unknown }).level === noteLevel;
 			});
-			if (deepest) return deepest;
+			if (note) return note;
 		}
 		return rows[0] as Record<string, unknown>;
 	}
@@ -3212,7 +3483,17 @@ export class MappingWorkbench {
 		lines.push(this.withBase(a.primary.path));
 		const fm = this.describeFrontmatter(a);
 		if (fm.trim()) lines.push(fm);
+		const body = this.describeBody(a);
+		if (body) lines.push(body);
 		return lines.join('\n');
+	}
+
+	private describeBody(a: Address): string {
+		return a.body.map((region) => {
+			if (region.position === 'append') return region.content;
+			const heading = `${'#'.repeat(region.headingDepth ?? 2)} ${region.heading ?? ''}`;
+			return region.content ? `${heading}\n\n${region.content}` : heading;
+		}).join('\n\n');
 	}
 
 	private describeFrontmatter(a: Address): string {

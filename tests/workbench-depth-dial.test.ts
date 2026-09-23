@@ -8,11 +8,13 @@ import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import type { ImportMapping, StructureMapping } from '../src/import/mapping/types';
 import type { ParsedData } from '../src/types/config';
 import type { DebugLog } from '../src/utils/debug';
+import fixture from './fixtures/oscal-mini.json';
 
 const debug = { info() {}, trace() {}, warn() {}, error() {} } as unknown as DebugLog;
 
 interface PrivateWorkbench {
 	renderDepthDial(card: HTMLElement, mapping: StructureMapping, mappingIndex: number): void;
+	renderCombinedPreview(card: HTMLElement, mappingIndex: number): void;
 }
 
 function installDomHelpers(): void {
@@ -67,6 +69,41 @@ function workbench(mapping: ImportMapping): MappingWorkbench {
 	});
 }
 
+function sectionReadyMapping(): ImportMapping {
+	return {
+		mappings: [{ levels: [
+			{ level: 'group', source: { column: '_cw.ancestors.group.id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+			{ level: 'control', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+			{ level: 'part', source: { column: 'name' }, destinations: [], naming: 'part', missing: 'skip', materialize: false },
+		] }],
+		nest: [
+			{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note', carry: ['title'] },
+			{ level: 'control', id: '{id}', children: 'parts', carry: ['title'] },
+			{ level: 'part', id: '{id}', leaf: 'none', carry: ['name'] },
+		],
+	};
+}
+
+function sectionWorkbench(mapping: ImportMapping): MappingWorkbench {
+	const groups = fixture.catalog.groups as unknown as Record<string, unknown>[];
+	const parsedData: ParsedData = {
+		columns: ['id', 'title', 'controls'],
+		rows: groups,
+		rowCount: groups.length,
+		container: { kind: 'json', readDocument: async () => fixture },
+	};
+	return new MappingWorkbench({
+		parsedData,
+		columnInfos: analyzeColumns(parsedData),
+		outputPath: 'Out',
+		debug,
+		defaultPresetId: 'browsable-framework',
+		initialMapping: mapping,
+		jsonNest: '',
+		onChange: () => {},
+	});
+}
+
 function renderDepth(wb: MappingWorkbench): HTMLElement {
 	const host = document.createElement('div');
 	const mapping = wb.getMapping().mappings[0];
@@ -108,6 +145,69 @@ describe('workbench Depth dial', () => {
 		expect(renderDepth(wb).querySelector('.crosswalker-wb-depth-hint')?.textContent).toBe(
 			'Each group becomes a folder; each control becomes a note; part is left out of this import.',
 		);
+	});
+
+	it('adds the Below the note stop, defaults section text, previews sections, and restores Left out (B14, U1)', async () => {
+		const initial = sectionReadyMapping();
+		const wb = sectionWorkbench(initial);
+		await Promise.resolve();
+		await Promise.resolve();
+		let host = renderDepth(wb);
+		const below = host.querySelector<HTMLSelectElement>('[data-nest-control="below-note"]')!;
+		expect(host.querySelectorAll('label')[1]?.textContent).toBe('Below the note');
+		expect([...below.options].map((option) => option.text)).toEqual([
+			'Left out',
+			'Sections inside each control note',
+		]);
+		expect(below.value).toBe('none');
+		expect(host.querySelector('.crosswalker-wb-depth-hint')?.textContent).toBe(
+			'Each group becomes a folder; each control becomes a note; part is left out of this import.',
+		);
+
+		below.value = 'section';
+		below.dispatchEvent(new Event('change'));
+		await Promise.resolve();
+		await Promise.resolve();
+		const sectioned = wb.getMapping();
+		expect(sectioned.nest?.find((entry) => entry.level === 'part')?.leaf).toBe('section');
+		expect(sectioned.mappings[0].levels[2].destinations).toContainEqual({
+			primitive: 'heading',
+			hostRule: 'control',
+			depth: 2,
+		});
+		expect(sectioned.mappings.flatMap((mapping) => mapping.levels)
+			.find((level) => level.source && JSON.stringify(level.source) === JSON.stringify({ column: 'prose' }))
+			?.destinations).toContainEqual({ primitive: 'body', position: 'append', level: 'part' });
+
+		host = renderDepth(wb);
+		expect(host.querySelector('.crosswalker-wb-depth-hint')?.textContent).toBe(
+			'Each group becomes a folder; each control becomes a note; each part becomes a section inside its control note.',
+		);
+		expect(host.querySelector('.crosswalker-wb-section-refresh-hint')?.textContent).toBe(
+			'Sections are rebuilt on every refresh. Write your own notes below the managed region.',
+		);
+		expect(host.querySelector('[data-depth-counts="sections"]')?.textContent).toBe('9 notes, 12 sections');
+		expect(host.textContent).not.toContain('—');
+
+		const preview = document.createElement('div');
+		(wb as unknown as PrivateWorkbench).renderCombinedPreview(preview, 0);
+		expect(preview.textContent).toContain('## Statement');
+		expect(preview.textContent).toContain('Create a synthetic account record.');
+
+		const deeper = host.querySelector<HTMLSelectElement>('select[aria-label="Depth"]')!;
+		deeper.value = '2';
+		deeper.dispatchEvent(new Event('change'));
+		expect(wb.getRecipeDocument().diagnostics.filter((diagnostic) => diagnostic.severity === 'blocking')).toEqual([]);
+		expect(wb.getMapping().mappings.flatMap((mapping) => mapping.levels)
+			.flatMap((level) => level.destinations)
+			.filter((destination) => destination.primitive === 'body' && destination.level !== undefined))
+			.toEqual([]);
+
+		host = renderDepth(wb);
+		const backToOne = host.querySelector<HTMLSelectElement>('select[aria-label="Depth"]')!;
+		backToOne.value = '1';
+		backToOne.dispatchEvent(new Event('change'));
+		expect(wb.getMapping()).toEqual(initial);
 	});
 
 	it('describes demoted non-nested levels as properties', () => {

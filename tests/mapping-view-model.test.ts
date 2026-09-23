@@ -23,6 +23,7 @@ import {
 	addDestination,
 	setCrosswalkTarget,
 	setNestLeaf,
+	setSectionText,
 	setNestIdentity,
 	removeDestination,
 	mergeRows,
@@ -981,6 +982,105 @@ describe('folder depth view model', () => {
 		expect(setFolderDepth(mapping, 2).mapping).toBe(mapping);
 		expect(setFolderDepth(mapping, -1).mapping).toBe(mapping);
 		expect(setFolderDepth(mapping, 3).mapping).toBe(mapping);
+	});
+
+	it('preserves non-nested heading rows when the selected depth is unchanged', () => {
+		const mapping: StructureMapping = { levels: [
+			{ level: 'group', source: { column: 'group' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+			{ level: 'control', source: { column: 'control' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+			{ level: 'details', source: { column: 'details' }, destinations: [{ primitive: 'heading', hostRule: 'root', depth: 2 }], naming: 'part', missing: 'skip', materialize: false },
+		] };
+
+		const result = setFolderDepth(mapping, 1);
+		expect(result.mapping).toBe(mapping);
+		expect(result.mapping).toEqual(mapping);
+	});
+
+	it('assigns section headings below the note and restores the legacy left-out result (B14)', () => {
+		const mapping = nestedMapping();
+		const nest = [
+			{ level: 'group', id: '{id}', children: 'controls' },
+			{ level: 'control', id: '{id}', children: 'parts' },
+			{ level: 'part', id: '{id}' },
+		];
+		const sectioned = setFolderDepth(mapping, 1, nest, 'section');
+		expect(sectioned.nest?.map((entry) => entry.leaf)).toEqual(['folder-note', undefined, 'section']);
+		expect(sectioned.mapping.levels[2].destinations).toEqual([
+			{ primitive: 'heading', hostRule: 'control', depth: 2 },
+			{ primitive: 'tag' },
+		]);
+		const leftOut = setFolderDepth(sectioned.mapping, 1, sectioned.nest, 'none');
+		const legacy = setFolderDepth(mapping, 1, nest);
+		expect(leftOut).toEqual(legacy);
+	});
+
+	it('cascades left out through deeper sections and removes their scoped body projections', () => {
+		const mapping: ImportMapping = {
+			mappings: [{ levels: [
+				{ level: 'group', source: { column: 'id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'control', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'part', source: { column: 'name' }, destinations: [{ primitive: 'heading', hostRule: 'control', depth: 2 }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'subpart', source: { column: 'label' }, destinations: [{ primitive: 'heading', hostRule: 'control', depth: 3 }], naming: 'part', missing: 'skip', materialize: false },
+			] }, { levels: [
+				{ level: 'prose', source: { column: 'prose' }, destinations: [{ primitive: 'body', position: 'append', level: 'part' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'text', source: { column: 'text' }, destinations: [{ primitive: 'body', position: 'append', level: 'subpart' }], naming: 'part', missing: 'skip', materialize: false },
+			] }],
+			nest: [
+				{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note' },
+				{ level: 'control', id: '{id}', children: 'parts' },
+				{ level: 'part', id: '{id}', children: 'subparts', leaf: 'section' },
+				{ level: 'subpart', id: '{id}', leaf: 'section' },
+			],
+		};
+		const leftOut = setNestLeaf(mapping, 'part', 'none');
+		expect(leftOut.nest?.slice(2).map((entry) => entry.leaf)).toEqual(['none', 'none']);
+		expect(leftOut.mappings.flatMap((structure) => structure.levels)
+			.flatMap((level) => level.destinations)
+			.filter((destination) => destination.primitive === 'heading' || destination.primitive === 'body'))
+			.toEqual([]);
+	});
+
+	it('creates and replaces a level-scoped body mapping', () => {
+		const mapping: ImportMapping = { mappings: [nestedMapping()] };
+		const prose = setSectionText(mapping, 'part', 'prose');
+		expect(prose.mappings[1].levels[0]).toEqual({
+			level: 'prose',
+			source: { column: 'prose' },
+			destinations: [{ primitive: 'body', position: 'append', level: 'part' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		});
+		const text = setSectionText(prose, 'part', 'text');
+		expect(text.mappings).toHaveLength(2);
+		expect(text.mappings[1].levels[0].source).toEqual({ column: 'text' });
+	});
+
+	it('keeps a section body projection off structural rules that read the same column', () => {
+		const mapping: ImportMapping = {
+			mappings: [{ levels: [
+				{ level: 'group', source: { column: 'id' }, destinations: [{ primitive: 'folder' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'control', source: { column: 'id' }, destinations: [{ primitive: 'name' }], naming: 'part', missing: 'skip', materialize: false },
+				{ level: 'part', source: { column: 'name' }, destinations: [{ primitive: 'heading', hostRule: 'control', depth: 2 }], naming: 'part', missing: 'skip', materialize: false },
+			] }],
+			nest: [
+				{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note' },
+				{ level: 'control', id: '{id}', children: 'parts' },
+				{ level: 'part', id: '{id}', leaf: 'section' },
+			],
+		};
+
+		const result = setSectionText(mapping, 'part', 'id');
+		expect(result.mappings[0].levels.flatMap((rule) => rule.destinations)
+			.filter((destination) => destination.primitive === 'body')).toEqual([]);
+		expect(result.mappings[1].levels[0]).toEqual({
+			level: 'id',
+			source: { column: 'id' },
+			destinations: [{ primitive: 'body', position: 'append', level: 'part' }],
+			naming: 'part',
+			missing: 'skip',
+			materialize: false,
+		});
 	});
 });
 
