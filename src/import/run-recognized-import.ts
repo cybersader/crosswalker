@@ -1,13 +1,14 @@
 import { App, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../main';
 import { generateNotes } from '../generation/generation-engine';
+import type { Recipe } from '../render';
 import {
 	discoverImportSets,
 	newSetSchemeFor,
 	settleVaultIndex,
 } from '../generation/import-set';
 import { outputRootPath } from '../settings/folder-settings';
-import type { ImportRecipe, ParsedData } from '../types/config';
+import type { GenerationError, ImportRecipe, ParsedData } from '../types/config';
 import { recognizedDestination } from './import-wizard';
 import { MappingWorkbench } from './workbench';
 import { analyzeColumns, parseCSVFile, shouldUseStreaming } from './parsers/csv-parser';
@@ -22,6 +23,8 @@ export interface RecognizedImportRequest {
 	headerRow: number;
 	destination?: string;
 	overwriteMode?: 'skip' | 'replace' | 'error';
+	/** A run-scoped row predicate; the canonical bundled recipe is never mutated. */
+	sourceWhere?: string;
 	onProgress?: (current: number, total: number, message: string) => void;
 }
 
@@ -33,6 +36,7 @@ export interface RecognizedImportOutcome {
 	skipped: number;
 	crosswalkEdges?: number;
 	errors: string[];
+	warnings: string[];
 	parsedRowCount: number;
 }
 
@@ -82,6 +86,38 @@ function generationErrors(errors: readonly { row: number; message: string }[]): 
 	);
 }
 
+/** Only CRI rows that stop at a declared upper level may skip a suffix of folders.
+ * Keep a skipped middle folder, an unexpected level, and every other render note visible. */
+export function visibleGenerationWarnings(
+	warnings: readonly GenerationError[], entry: RecipeRegistryEntry, rows: ParsedData['rows'],
+): string[] {
+	if (entry.id !== 'cri-profile-v2-2-nested' || !Array.isArray(rows)) {
+		return warnings.map((warning) => `Row ${warning.row}: ${warning.message}`);
+	}
+	const folders = entry.recipe.target.layout.filter((level) => level.mechanism === 'folder');
+	const byRow = new Map<number, GenerationError[]>();
+	for (const warning of warnings) byRow.set(warning.row, [...(byRow.get(warning.row) ?? []), warning]);
+	const expectedTrailing = new Map<number, Set<string>>();
+	for (const [rowNumber, notes] of byRow) {
+		const level = rows[rowNumber - 1]?.Level;
+		const start = level === 'F' ? 1 : level === 'C' ? 2 : folders.length;
+		if (start >= folders.length) continue;
+		const tail = folders.slice(start);
+		if (tail.every((folder) =>
+			notes.some((note) => note.code === 'prefix-index-missing' && note.template === folder.template) &&
+			notes.some((note) => note.code === 'folder-level-skipped' && note.template === folder.template && note.level === folder.level)) &&
+			!folders.slice(0, start).some((folder) => notes.some((note) =>
+				note.code === 'folder-level-skipped' && note.level === folder.level))) {
+			expectedTrailing.set(rowNumber, new Set(tail.map((folder) => folder.template)));
+		}
+	}
+	return warnings.filter((warning) => {
+		const trailing = expectedTrailing.get(warning.row);
+		return !trailing || !warning.template || !trailing.has(warning.template) ||
+			(warning.code !== 'prefix-index-missing' && warning.code !== 'folder-level-skipped');
+	}).map((warning) => `Row ${warning.row}: ${warning.message}`);
+}
+
 async function importSetIdFromCreatedNotes(
 	app: App,
 	destination: string,
@@ -107,6 +143,7 @@ export async function runRecognizedImport(
 		created: 0,
 		skipped: 0,
 		errors: [],
+		warnings: [],
 		parsedRowCount: 0,
 	};
 
@@ -139,7 +176,10 @@ export async function runRecognizedImport(
 			seedColumnDefaults: false,
 			onChange: () => {},
 		});
-		const recipeOverride = workbench.buildRecipe();
+		// This path has no mapping editor: use the vetted recipe as the authority.
+		// Re-serializing the workbench can fork a nested recipe to `-custom`
+		// even when nobody edited it, losing the ID needed for safe refresh.
+		const recipeOverride = req.entry.recipe as unknown as Recipe;
 		const config = buildRecognizedImportConfig(workbench);
 		const importSet = await newSetSchemeFor(app, req.entry.ontology);
 		const result = await generateNotes(
@@ -153,6 +193,7 @@ export async function runRecognizedImport(
 				createFolders: true,
 				sourceFileName: req.file.name,
 				recipeOverride,
+				sourceWhere: req.sourceWhere,
 				tier2: {
 					runProjection: plugin.runProjection,
 					precomputeClosure: plugin.precomputeClosure,
@@ -177,6 +218,7 @@ export async function runRecognizedImport(
 			skipped: result.skipped.length,
 			...(result.crosswalkEdges ? { crosswalkEdges: result.crosswalkEdges.created } : {}),
 			errors,
+			warnings: visibleGenerationWarnings(result.warnings ?? [], req.entry, parsedData.rows),
 			parsedRowCount: parsedData.rowCount,
 		};
 	} catch (error) {

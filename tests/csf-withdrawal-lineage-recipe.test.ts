@@ -16,8 +16,8 @@
  *
  *   1. One source row renders exactly one note, so a 1-to-5 withdrawal marker
  *      cannot become 5 edge notes without a producer that multiplies rows.
- *   2. `source.where` has no substring test, so the '[Withdrawn:' marker cannot
- *      be matched at the point where rows are selected.
+ *   2. `source.where` can now check literal substrings but still cannot
+ *      multiply a row into one edge per successor; this recipe needs a producer.
  */
 
 import { readFileSync } from 'fs';
@@ -218,11 +218,17 @@ describe('the grammar limits this recipe is designed around', () => {
 		expect(Object.keys(address.primary)).not.toContain('paths');
 	});
 
+	it('source.where accepts a literal substring without regex', async () => {
+		const stage = await prepareSourceStage(parsed, { where: "$contains(Subcategory, '[Withdrawn')" });
+		expect(stage.active).toBe(true);
+	});
+
 	it.each([
-		"$contains(Subcategory, '[Withdrawn')",
+		'$contains(Subcategory, /Withdrawn/)',
+		'$contains(Subcategory, marker)',
 		'$match(Subcategory, /Withdrawn/)',
 		"$substring(Subcategory, 0, 10) = '[Withdrawn'",
-	])('source.where rejects %s at preflight, so the marker cannot be tested there', async (where) => {
+	])('source.where rejects %s at preflight', async (where) => {
 		await expect(prepareSourceStage(parsed, { where })).rejects.toBeInstanceOf(SourceStageError);
 	});
 

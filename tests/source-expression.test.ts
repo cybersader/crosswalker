@@ -182,6 +182,29 @@ describe('B8 and §6.2 — the permitted subset', () => {
 	});
 });
 
+describe('literal-only $contains predicate', () => {
+	it('returns false for absent or numeric first arguments and accepts join-key declarations', async () => {
+		const missing = compileSourceExpression("$contains(identifier, '(')", { declaration: 'source.where' });
+		expect(await missing.evaluate({}, 1)).toBe(false);
+		expect(await missing.evaluate({ identifier: 7 }, 2)).toBe(false);
+		const join = compileSourceExpression("$contains(identifier, '(')", { declaration: 'source.joins.aux.on.primary' });
+		expect(await join.evaluate({ identifier: 'ZZ-1(1)' }, 1)).toBe(true);
+	});
+
+	it('accepts substring matching with a string-literal pattern', async () => {
+		const predicate = compileSourceExpression("$not($contains(identifier, '('))", WHERE);
+		expect(predicate.references).toEqual(['identifier']);
+		expect(await predicate.evaluate({ identifier: 'ZZ-1' }, 1)).toBe(true);
+		expect(await predicate.evaluate({ identifier: 'ZZ-1(2)' }, 2)).toBe(false);
+	});
+
+	it.each(["$contains(identifier, pattern)", '$contains(identifier, /\\(/)', '$contains(identifier)', "$contains(identifier, '(' & 'x')"])(
+		'refuses dynamic, regex, or arity-incorrect pattern %s', (expression) => {
+			expect(compileError(expression).message).toContain('does not permit');
+		},
+	);
+});
+
 describe('G2 — reference collection and preflight', () => {
 	it('collects the ROOT of each path, in first-appearance order', () => {
 		const compiled = compileSourceExpression(

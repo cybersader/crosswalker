@@ -89,6 +89,14 @@ describe('source-expression conformance suite', () => {
 			return;
 		}
 
+		if (testCase.expect.kind === 'site_value') {
+			it('evaluates to the pinned site-policy value', async () => {
+				const expression = compileSourceExpression(testCase.expression, { declaration: 'source.where' });
+				expect(await expression.evaluate(input)).toEqual(testCase.expect.value);
+			});
+			return;
+		}
+
 		if (testCase.expect.kind === 'parse_error') {
 			it('does not parse', () => {
 				let code: string | undefined;

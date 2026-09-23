@@ -1,0 +1,77 @@
+{
+  "$comment": "PURPOSE AND SHAPE: This recipe projects stable identity and short queryable facets into properties. SOURCE BINDING: the CRI Profile workbook sheet 'CRI Profile v2.2 Structure', header row index 2 (row 0 is a banner, row 1 is blank; at index 1 every column parses as __EMPTY and every row fails on {Profile Id} -- the row COUNT is still 472 either way, which is what makes the wrong index easy to miss). That sheet carries all four profile levels in one table (Level F=Function, C=Category, S=Subcategory, DS=Diagnostic Statement), which is why the layout is flat and one note is emitted per row. PROPERTIES: profile_id and outline_id are the source's own identifiers; level is the source's level code; function and category are split out of the Function / Category / Subcategory path so Bases can group by them without parsing a string; tier_1 through tier_4 are the assessment-applicability facets (Yes/No, blank on the 154 non-DS rows, which the engine omits rather than writing an empty key); sector is a literal constant marking this as a financial-services profile. Only identity and short enumerable facets are in properties: long prose in the property panel is unreadable, awkward to escape in YAML, and invisible to body search. RIGHTS: RESTRICTED. The CRI Profile workbook is licensed CC BY-NC-ND and is held local-only under a gitignored Frameworks/ directory. Recipe only: no generated output, no sample notes, and no prose excerpts from this source may be committed or screenshotted. A recipe is a method (column mappings and templates, no framework prose), so this file is publishable while the corpus is not. Corpus provenance and rights posture: https://cybersader.github.io/crosswalker/reference/framework-corpus/. BODY: the Diagnostic Statement cell verbatim as a '## Diagnostic statement' section, populated on all 472 rows (median 204 characters, maximum 593). This column is the one that carries the substance of the framework, and until 2026-08-26 it was unreachable: its name contains dots ('CRI Profile v2.2 Diagnostic Statement') and the template grammar split every variable path on '.' unconditionally, so the reference resolved as a two-step traversal and threw RenderError on every row, leaving all 472 notes bodyless. The grammar now has segment-level literal-key quoting, so the column is addressed as {['CRI Profile v2.2 Diagnostic Statement']}. The quoted form is used deliberately even though the resolver's exact-key step would also resolve the bare name: quoting states which reading was meant and keeps resolving if this scope ever gains a nested object that shadows the key. HEADING: target.auto_heading names the Function / Category / Subcategory path. Without it the two generation paths disagree once a body exists — the recipe path derives its H1 from the title property (the path) and the wizard path derives it from the leaf filename template (the Profile Id), so the same import would open with a descriptive line or with a restatement of the filename depending on which path ran. Naming the heading explicitly makes both paths emit the same first line, and spends it on something the filename does not already say. CLOSED 2026-09-21: 'NIST CSF v2 Mapping' is declared under target.crosswalks and reifies to crosswalk-edge notes under _crosswalker/mappings/cri-profile-to-nist-csf-2 in their own import set; the qualifier text ('(CRI Modified)', '(CRI Addition)') is kept verbatim as mapping_justification and never parsed. KNOWN GAP 3 — 'Financial Services Mapping References' remains out: its targets are regulatory documents, not an imported ontology. KNOWN GAP 4 — subcategory is deliberately not split out of the path as a third facet; on the 35 F and C rows the path has no third segment, and the information is already carried by the Subcategory row's own Profile Id. KNOWN GAP 5 — the richer per-statement prose in this workbook (Diagnostic Statement Name, Response Guidance, Examples of Effective Evidence packages, Profile Subject Tags) lives on the separate 'CRI Profile v2.2 Assessment' sheet, whose 318 rows are the DS subset only. Pulling it in would change which notes exist, which is out of scope for a content-only sprint; it is the natural next slice, as a companion recipe or an enrichment pass. STACK VARIANT: the same source binding, crosswalk, body and rights posture as the flat recipe. Folder levels derive from Profile Id; trailing levels absent on F/C/S rows are expected and skipped.",
+  "recipe": "cri-profile-v2-2-nested",
+  "source": {
+    "ontology": "cri-profile",
+    "levels": [
+      "function",
+      "category",
+      "subcategory",
+      "statement"
+    ]
+  },
+  "target": {
+    "auto_heading": "{CRI Profile Function / Category / Subcategory}",
+    "crosswalks": [
+      {
+        "column": "NIST CSF v2 Mapping",
+        "to_ontology": "nist-csf-2",
+        "predicate": "is_approximate_to",
+        "qualifier": "keep-as-justification"
+      }
+    ],
+    "layout": [
+      {
+        "level": "function",
+        "mechanism": "folder",
+        "template": "{Profile Id|prefix(.-,0)}"
+      },
+      {
+        "level": "category",
+        "mechanism": "folder",
+        "template": "{Profile Id|prefix(.-,1)}"
+      },
+      {
+        "level": "subcategory",
+        "mechanism": "folder",
+        "template": "{Profile Id|prefix(.-,2)}"
+      },
+      {
+        "level": "statement",
+        "mechanism": "file",
+        "template": "{Profile Id|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "frontmatter": {
+        "managed": {
+          "title": "{CRI Profile Function / Category / Subcategory}",
+          "profile_id": "{Profile Id}",
+          "level": "{Level}",
+          "outline_id": "{Outline Id}",
+          "function": "{CRI Profile Function / Category / Subcategory|split(/,0)}",
+          "category": "{CRI Profile Function / Category / Subcategory|split(/,1)}",
+          "tier_1": "{Tier-1|trim}",
+          "tier_2": "{Tier-2|trim}",
+          "tier_3": "{Tier-3|trim}",
+          "tier_4": "{Tier-4|trim}",
+          "sector": "financial-services"
+        },
+        "user_preserve": [
+          "reviewer",
+          "status",
+          "notes"
+        ]
+      },
+      "body": [
+        {
+          "template": "{['CRI Profile v2.2 Diagnostic Statement']|trim}",
+          "position": "section",
+          "heading": "Diagnostic statement",
+          "heading_depth": 2,
+          "format": "text"
+        }
+      ]
+    }
+  }
+}

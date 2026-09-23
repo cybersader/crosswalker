@@ -146,6 +146,8 @@ export interface DiscoveredImportSet extends ImportSetReference {
 	 * asking ("has this source written here before?").
 	 */
 	recipeIds: string[];
+	/** Recipe hashes stamped by owned notes. An ambiguous or absent hash blocks stack refresh. */
+	recipeHashes?: string[];
 	/**
 	 * Every distinct ontology prefix (the part of a note's `curie` before the
 	 * colon) stamped on this set's notes, sorted. The second half of the same
@@ -167,6 +169,7 @@ interface ImportSetObservation {
 	path: string;
 	destination: string | null;
 	recipeId: string | null;
+	recipeHash: string | null;
 	ontologyPrefix: string | null;
 	/** The ontology pinned in this note's import_set block, if any (AM-6). */
 	ontology: string | null;
@@ -586,6 +589,8 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 			path: file.path,
 			destination,
 			recipeId,
+			recipeHash: recipeBlock && typeof recipeBlock === 'object'
+				? readString((recipeBlock as Record<string, unknown>).hash) : null,
 			ontologyPrefix: curiePrefix(readString((fm as Record<string, unknown>).curie)),
 			ontology,
 			derivation,
@@ -648,6 +653,8 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 			paths,
 			root: resolveSetRoot(recorded, paths),
 			recipeIds: distinctSorted(group.map((entry) => entry.recipeId)),
+			...(group.every((entry) => entry.recipeHash)
+				? { recipeHashes: distinctSorted(group.map((entry) => entry.recipeHash)) } : {}),
 			ontologyPrefixes: distinctSorted(group.map((entry) => entry.ontologyPrefix)),
 			sources: sourceObservations(group),
 			...(recorded ? { destination: recorded } : {}),

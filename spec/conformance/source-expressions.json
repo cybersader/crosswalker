@@ -1,5 +1,5 @@
 {
-	"$comment": "Conformance cases for the Crosswalker source-expression subset (Ch 46 source contract §6.2, §10 D1-D6). Engine-agnostic DATA: no TypeScript, no test-framework matchers, so a jsonata-python port can run it unchanged. expect.kind is one of: value | undefined | parse_error | eval_error | rejected_by_subset. 'value'/'undefined'/'eval_error' describe ENGINE semantics (what JSONata itself does). 'rejected_by_subset' describes SITE POLICY (what the permitted subset admits) and is checked without evaluating.",
+	"$comment": "Conformance cases for the Crosswalker source-expression subset (Ch 46 source contract §6.2, §10 D1-D6). Engine-agnostic DATA: no TypeScript, no test-framework matchers, so a jsonata-python port can run it unchanged. expect.kind is one of: value | undefined | parse_error | eval_error | site_value | rejected_by_subset. 'value'/'undefined'/'eval_error' describe ENGINE semantics (what JSONata itself does); 'site_value' describes the site's portable evaluation semantics. 'rejected_by_subset' describes SITE POLICY (what the permitted subset admits) and is checked without evaluating.",
 	"spec_version": "1.9.0",
 	"engine": { "package": "jsonata", "minimum_version": "2.2.1", "measured_against": "2.2.2" },
 	"inputs": {
@@ -9,7 +9,8 @@
 		"cis_safeguard": { "CIS Control": "1 ", "CIS Safeguard": " 1.1 ", "Title": "Establish and Maintain Detailed Asset Inventory" },
 		"cprt_sort": { "element_identifier": "sort-3", "element_type": "sort", "title": "" },
 		"cprt_subcategory": { "element_identifier": "GV.OC-01", "element_type": "subcategory", "title": "" },
-		"nested": { "id": "T1548", "Name": "Abuse Elevation Control Mechanism", "count": "7", "meta": { "tier": "2" } }
+		"nested": { "id": "T1548", "Name": "Abuse Elevation Control Mechanism", "count": "7", "meta": { "tier": "2" } },
+		"contains_number": { "Name": 7 }
 	},
 	"cases": [
 		{
@@ -255,8 +256,28 @@
 			"expect": { "kind": "rejected_by_subset" }
 		},
 		{
-			"id": "rejected-function-contains",
+			"id": "accepted-literal-contains",
 			"expression": "$contains(Name, 'Abuse')",
+			"input": "nested",
+			"expect": { "kind": "value", "value": true }
+		},
+		{
+			"id": "contains-missing-field-false",
+			"$comment": "Site semantics: JSONata returns undefined for missing first arguments; the guarded source-expression evaluator normalizes this to false. G2 separately rejects references missing from an entire collection.",
+			"expression": "$contains(Name, 'Abuse')",
+			"input": "csf_banner",
+			"expect": { "kind": "site_value", "value": false }
+		},
+		{
+			"id": "contains-numeric-field-false",
+			"$comment": "Site semantics: JSONata throws for a number; the guarded evaluator returns false.",
+			"expression": "$contains(Name, '7')",
+			"input": "contains_number",
+			"expect": { "kind": "site_value", "value": false }
+		},
+		{
+			"id": "rejected-dynamic-contains",
+			"expression": "$contains(Name, count)",
 			"input": "nested",
 			"expect": { "kind": "rejected_by_subset" }
 		},

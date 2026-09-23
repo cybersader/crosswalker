@@ -10,6 +10,7 @@ import { RECIPE_REGISTRY } from '../src/import/recipe-registry';
 import {
 	buildRecognizedImportConfig,
 	runRecognizedImport,
+	visibleGenerationWarnings,
 } from '../src/import/run-recognized-import';
 import type { DebugLog } from '../src/utils/debug';
 
@@ -41,6 +42,8 @@ Object.assign(globalThis, { TextDecoder, TextEncoder, File: ByteFile });
 
 const ENTRY = RECIPE_REGISTRY.find((entry) => entry.id === 'nist-csf-2-flat')!;
 const CRI_ENTRY = RECIPE_REGISTRY.find((entry) => entry.id === 'cri-profile-v2-2-flat')!;
+const NIST_NESTED = RECIPE_REGISTRY.find((entry) => entry.id === 'nist-800-53-r5-nested')!;
+const CRI_NESTED = RECIPE_REGISTRY.find((entry) => entry.id === 'cri-profile-v2-2-nested')!;
 const CSV = [
 	'Subcategory,Implementation Examples',
 	'GV.AA-01: Synthetic outcome one,Synthetic example one',
@@ -147,6 +150,62 @@ function expectedConfig() {
 }
 
 describe('runRecognizedImport', () => {
+	it('hides only expected trailing CRI folder skips, while keeping skipped middle levels and other warnings', () => {
+		const layout = CRI_NESTED.recipe.target.layout;
+		const category = layout[1];
+		const subcategory = layout[2];
+		const pair = (row: number, folder: typeof category) => [
+			{ row, code: 'prefix-index-missing', template: folder.template, message: 'Missing prefix piece' },
+			{ row, code: 'folder-level-skipped', template: folder.template, level: folder.level, message: 'Folder skipped' },
+		];
+		const warnings = [
+			...pair(1, category), ...pair(1, subcategory),
+			...pair(2, category), // middle skipped while later level exists: do not hide
+			{ row: 2, code: 'other', message: 'Unexpected source shape' },
+		];
+		expect(visibleGenerationWarnings(warnings, CRI_NESTED, [{ Level: 'F' }, { Level: 'F' }]))
+			.toEqual(['Row 2: Missing prefix piece', 'Row 2: Folder skipped', 'Row 2: Unexpected source shape']);
+		expect(visibleGenerationWarnings(warnings, NIST_NESTED, [{ Level: 'F' }, { Level: 'F' }])).toHaveLength(7);
+	});
+	it('filters nested NIST enhancements per run, preserving the bundled recipe', async () => {
+		const rows = [
+			'identifier,name,control_text,discussion,related',
+			'ZZ-1,Invented control,Invented body,,',
+			'ZZ-1(1),Invented enhancement,Invented body,,',
+		].join('\n');
+		const harness = makeApp('Incoming/invented-nist.csv', rows);
+		const result = await runRecognizedImport(harness.app, plugin(), {
+			file: harness.source, entry: NIST_NESTED, table: '', headerRow: 0,
+			sourceWhere: "$not($contains(identifier, '('))",
+		});
+		expect(result.ok).toBe(true);
+		expect(result.created).toBe(1);
+		expect([...harness.files.keys()]).toEqual([expect.stringMatching(/ZZ\/ZZ-1\/ZZ-1\.md$/)]);
+		expect(parsedFrontmatter([...harness.files.values()][0])._crosswalker).toMatchObject({ recipe: { id: NIST_NESTED.id } });
+		expect(NIST_NESTED.recipe.source).not.toHaveProperty('where');
+	});
+
+	it('filters nested CRI diagnostic statements per run and keeps upper-level notes', async () => {
+		const columns = CRI_NESTED.signatureColumns;
+		const records = [['GV', 'F'], ['GV.OC', 'C'], ['GV.OC-01', 'S'], ['GV.OC-01.01', 'DS']];
+		const values = records.map(([id, level]) => Object.fromEntries(columns.map((key) => [key,
+			key === 'Profile Id' ? id : key === 'Level' ? level : key === 'CRI Profile Function / Category / Subcategory'
+				? 'Invented / Category / Subcategory' : key === 'CRI Profile v2.2 Diagnostic Statement' ? 'Invented statement' : ''])));
+		const csv = [columns.join(','), ...values.map((row) => columns.map((key) => `"${String(row[key]).replaceAll('"', '""')}"`).join(','))].join('\n');
+		const harness = makeApp('Incoming/invented-cri.csv', csv);
+		const result = await runRecognizedImport(harness.app, plugin(), {
+			file: harness.source, entry: CRI_NESTED, table: '', headerRow: 0,
+			sourceWhere: "Level != 'DS'",
+		});
+		expect(result.ok).toBe(true);
+		expect(result.created).toBe(3);
+		expect(result.warnings).toEqual([]);
+		expect([...harness.files.keys()].some((file) => file.endsWith('GV.OC-01.01.md'))).toBe(false);
+		expect([...harness.files.values()].map((text) => (parsedFrontmatter(text)._crosswalker as { recipe: { id: string } }).recipe.id))
+			.toEqual([CRI_NESTED.id, CRI_NESTED.id, CRI_NESTED.id]);
+		expect(CRI_NESTED.recipe.source).not.toHaveProperty('where');
+	});
+
 	it('matches direct generation, mints a fresh set, and uses the recognized destination', async () => {
 		const encoded = new TextEncoder().encode(CSV);
 		const sourceBytes = new Uint8Array(encoded.byteLength + 3);
@@ -181,7 +240,7 @@ describe('runRecognizedImport', () => {
 				overwriteMode: 'error',
 				createFolders: true,
 				sourceFileName: 'csf.csv',
-				recipeOverride: workbench.buildRecipe(),
+				recipeOverride: ENTRY.recipe,
 				strictValidation: true,
 			},
 			debug,
@@ -273,6 +332,7 @@ describe('runRecognizedImport', () => {
 			created: 0,
 			skipped: 0,
 			errors: ['Vault is still indexing. Wait a moment and run the import again.'],
+			warnings: [],
 			parsedRowCount: 0,
 		});
 		expect(harness.files).toEqual(before);

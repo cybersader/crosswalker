@@ -179,7 +179,7 @@ describe('SchemaVer 1.14.0 body projection schema', () => {
 
 	it('records the additive 1.14.0 schema history', () => {
 		const schema = JSON.parse(readFileSync('spec/recipe.schema.json', 'utf8')) as { $comment: string };
-		expect(schema.$comment).toContain('SchemaVer 1.15.0');
+		expect(schema.$comment).toContain('SchemaVer 1.16.0');
 		expect(schema.$comment).toContain('1.14.0 (2026-09-22)');
 		expect(schema.$comment).toContain("nest_level.leaf gains 'section'");
 		expect(schema.$comment).toContain('body_entry (append) gains optional level');

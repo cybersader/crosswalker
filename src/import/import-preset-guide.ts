@@ -1,8 +1,8 @@
-import { RECIPE_REGISTRY, type RecipeRegistryEntry } from './recipe-registry';
+import { isGenericRecipe, RECIPE_REGISTRY, type RecipeRegistryEntry } from './recipe-registry';
 
 /** Return built-in presets in the registry's deterministic display order. */
 export function presetGuideEntries(): ReadonlyArray<RecipeRegistryEntry> {
-	return RECIPE_REGISTRY;
+	return RECIPE_REGISTRY.filter(isGenericRecipe);
 }
 
 function externalLink(className: string, label: string, url: string): HTMLAnchorElement {
