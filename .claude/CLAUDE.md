@@ -111,7 +111,7 @@ The canonical project KB is the docs site. For an agent new to the project:
 | **Pattern A test-vault structure** — repo root has src/ + docs/ + spec/ + test-vault/ as siblings; build outputs into `test-vault/.obsidian/plugins/crosswalker/` | Confirmed 2026-05-04 |
 | **Plugin ships only `main.js + manifest.json + styles.css`** — `tools/`, `spec/`, KB don't bloat releases | Confirmed 2026-05-04 |
 | **Manual testing entry point** — `TEST_HANDS_ON_TOUR.md` at repo root is the master surface-coverage checklist (supersedes per-phase TEST_*.md guides for full passes) | Added 2026-06-12 |
-| **Screenshot Obsidian UI yourself — it IS automatable here** — real Obsidian runs via wdio + X11 (`DISPLAY=:0 bun run e2e -- --spec tests/e2e/visual-*.spec.ts` → PNGs in `test-screenshots/`, readable by agents; native Xwayland on Fedora since 2026-08-19, formerly WSLg). Visual-verify rendering with a screenshot before claiming "can't render headlessly" or asking the user to eyeball. Never conclude Obsidian can't be screenshotted. | Memory: `reference_obsidian_screenshots_via_wdio.md`; `testing-patterns` skill |
+| **Screenshot Obsidian UI yourself — it IS automatable here** — real Obsidian runs via wdio + X11 (`bun run e2e:xvfb -- --spec tests/e2e/visual-*.spec.ts`; private Xvfb display since 2026-09-23 because `DISPLAY=:0` hangs on screenshots when the monitors sleep → PNGs in `test-screenshots/`, readable by agents; native Xwayland on Fedora since 2026-08-19, formerly WSLg). Visual-verify rendering with a screenshot before claiming "can't render headlessly" or asking the user to eyeball. Never conclude Obsidian can't be screenshotted. | Memory: `reference_obsidian_screenshots_via_wdio.md`; `testing-patterns` skill |
 
 ## Model tiering & delegation (how to spend the main session)
 
@@ -179,7 +179,7 @@ independent tools, three defaults, three incidents.
 |---|---|
 | bun / node / git / gh (authed) / tailscale / zellij | ✅ all installed and working |
 | **WSL jest workaround is RETIRED** — `bun run test` and bare `jest` work natively; do not tell subagents to use `node node_modules/jest/bin/jest.js` anymore | Confirmed 2026-08-19 |
-| e2e screenshots run against native Xwayland `DISPLAY=:0` (no WSLg anymore); Obsidian + chromedriver already cached linux-x64 in `.obsidian-cache/` | Confirmed 2026-08-19 |
+| e2e screenshots run on a private Xvfb display via `bun run e2e:xvfb` (2026-09-23; native Xwayland `DISPLAY=:0` hangs when monitors are off); Obsidian + chromedriver already cached linux-x64 in `.obsidian-cache/` | Confirmed 2026-08-19 |
 | `docs/astro.config.mjs` polling watcher removed (was a WSL-inotify workaround; native ext4 inotify is reliable) | ✅ done 2026-08-19 |
 | `docs/node_modules` clean-reinstalled from the lockfile; win32 optional-dep leftovers gone | ✅ done 2026-08-19 |
 | `portagenty` IS installed — the binary is `pa` (built from source, symlinked in `~/.local/bin`), not `portagenty`. Workspace file: `crosswalker-obsidian-plugin.portagenty.toml` (sessions: shell, plugin-dev, docs-dev, docs-share, test-watch) | ✅ verified 2026-08-19 |

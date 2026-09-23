@@ -51,12 +51,14 @@ Convention: `tests/e2e/<feature>.spec.ts`. **Every v0.1 milestone gets at least 
 
 ### Visual verification (screenshots) — `visual-*.spec.ts`
 
-**This is how you confirm something *renders correctly* (a pivot heatmap, a modal, a Bases view, an embed) — by looking at it yourself, not by asking the user.** Real Obsidian runs here via WSLg.
+**This is how you confirm something *renders correctly* (a pivot heatmap, a modal, a Bases view, an embed) — by looking at it yourself, not by asking the user.** Real Obsidian runs here on a private Xvfb display.
 
 ```bash
-DISPLAY=:0 bun run e2e -- --spec tests/e2e/visual-<name>.spec.ts
+bun run e2e:xvfb -- --spec tests/e2e/visual-<name>.spec.ts
 # → PNGs in test-screenshots/ ; Read them directly to inspect rendering
 ```
+
+Use `e2e:xvfb`, not `DISPLAY=:0`. On the desktop session (KDE Wayland + Xwayland) KWin stops delivering frames when the monitors are powered off (`dpms=Off`), so every `saveScreenshot` fails with `Timed out receiving message from renderer`. The private Xvfb display does not depend on monitor power, occlusion, or the owner's desktop, and it keeps test windows off their screen. Verified 2026-09-23.
 
 Spec shape (copy `tests/e2e/visual-control-lens.spec.ts` or `visual-config-browser.spec.ts`):
 
@@ -75,7 +77,7 @@ await browser.saveScreenshot(path.join(OUT, 'name.png'));
 ```
 
 Gotchas:
-- Prefix the run with `DISPLAY=:0` (WSLg X socket at `/tmp/.X11-unix/X0`); a fresh shell shows `DISPLAY` unset but the display is live.
+- Run through `bun run e2e:xvfb` (wraps `xvfb-run` and unsets `WAYLAND_DISPLAY`). `DISPLAY=:0` still works while the monitors are awake but is not reliable for agents.
 - **Do not call `browser.setWindowSize()` / `maximizeWindow()`** — this Electron/CDP rejects `window/rect` (`Browser.getWindowForTarget wasn't found`) and fails the hook. Screenshot at default size.
 - For a Markdown note's embeds (`![[x.base]]`), switch the leaf to preview mode via `leaf.view.setState({...st, mode:'preview'})` before the screenshot.
 - A fast *data-only* sanity check (are the numbers right / are two views different data?) is to compute the grid from `test-vault/_crosswalker/mappings/<pair>/*.md` frontmatter — but that does **not** replace a screenshot for "does it look right."
@@ -159,7 +161,8 @@ await expect(modal).toExist();
 | `Expected: "test-vault"` `Received: "test-vault-skBTQt"` | wdio-obsidian-service sandboxes the vault with random suffix | Match by prefix: `expect(name).toMatch(/^test-vault/)` |
 | `bun run e2e` hangs forever | Obsidian binary download in progress | First run downloads ~150 MB; subsequent runs use cache |
 | `app.plugins.plugins` TypeScript error | Internal Obsidian API not in `@types/obsidian` | Use `// @ts-expect-error` comment; documented in `obsidian-typings` |
-| `bun run e2e` fails with a display error on WSL | `DISPLAY` unset in the shell | **WSLg provides the display — just prefix `DISPLAY=:0`** (socket at `/tmp/.X11-unix/X0`). Do NOT conclude "can't run Obsidian here." CI-only headless via `xvfb-run` is a separate, later concern. |
+| `bun run e2e` fails with a display error | `DISPLAY` unset in the shell | Use `bun run e2e:xvfb`, which brings its own display. Do NOT conclude "can't run Obsidian here." |
+| `saveScreenshot` fails with `Timed out receiving message from renderer` (even on specs that passed before) | Monitors powered off; KWin stops frame delivery to Xwayland clients | Use `bun run e2e:xvfb`. Confirm with `kscreen-doctor -o` or DRM `dpms` status |
 | `window/rect` / `Browser.getWindowForTarget wasn't found` | `setWindowSize`/`maximizeWindow` unsupported by this Electron/CDP | Remove the resize call; screenshot at default window size |
 | Plugin changes not reflected in test | `onPrepare` ran build before edits | Either re-run `bun run e2e` or save+restart watch with `bun run dev` |
 | `goroutines deadlock` in build output mid-run | Orphaned esbuild-service process from a prior crashed run | `onPrepare`'s build-with-retry (see [Harness hygiene](#harness-hygiene-added-2026-07-11)) auto-detects and retries once; if it still fails, manually check `ps aux \| grep esbuild` for leftovers matching this repo's path |
