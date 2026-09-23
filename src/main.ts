@@ -10,6 +10,7 @@ import { CrosswalkerSettingTab } from './settings/settings-tab';
 import { ImportWizardModal } from './import/import-wizard';
 import { RECIPE_REGISTRY } from './import/recipe-registry';
 import { SssomImportModal } from './import/sssom-import-modal';
+import { StackSetupModal } from './import/stack/stack-modal';
 import { VaultSourceScanModal } from './import/vault-source-scan-modal';
 import {
 	ExportFolderPickerModal,
@@ -318,6 +319,12 @@ export default class CrosswalkerPlugin extends Plugin {
 			callback: () => {
 				new ImportWizardModal(this.app, this).open();
 			}
+		});
+
+		this.addCommand({
+			id: 'set-up-framework-stack',
+			name: 'Set up a framework stack',
+			callback: () => new StackSetupModal(this.app).open(),
 		});
 
 		this.addCommand({

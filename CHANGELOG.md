@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: framework stack picker and download checklist (2026-09-23)
+
+- A new **Set up a framework stack** command and launchpad entry lets a team choose bundled frameworks and see the connecting mappings before downloading any files. Choosing CRI Profile and NIST 800-53 auto-adds NIST CSF 2.0 as an untickable connector; optional CRI mapping workbooks remain off by default. The second screen gives publisher links, expected file types, licence and ATT&CK release notes, and a plain-text checklist copy. Adding files and importing are explicitly unavailable until the next phase. Source: `src/import/stack/`, `src/import/recipe-registry.ts`.
+
 ### Fixed: nested JSON import follows the real child level, so OSCAL catalogs nest as groups, controls, and enhancements (2026-09-23)
 
 - `nestedChain` in `src/import/parsers/json-parser.ts` picked the first record list, in key order, of the first sampled record. On the NIST SP 800-53 Rev 5 OSCAL catalog that meant descending into `params` instead of `controls`, and a first control with no enhancements (AC-1) hid the enhancement level entirely. It now gathers candidate lists across all sampled records and prefers the one whose items look like their parent (key-set overlap), then one with ids, then the larger. Checked against the real catalog: groups (20), controls, enhancements, then parts. Shipped in 0.1.2 with the bug; the fix lands in the next prerelease.

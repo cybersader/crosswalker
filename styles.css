@@ -3147,3 +3147,55 @@
 	background: rgba(124, 92, 255, 0.10);
 	border-radius: 4px;
 }
+
+/* Framework stack setup: two compact, scrollable screens at desktop and narrow widths. */
+.crosswalker-stack-modal {
+	width: min(760px, 96vw);
+	max-height: min(860px, 94vh);
+}
+.crosswalker-stack-modal .modal-content.crosswalker-stack-content {
+	display: flex;
+	flex-direction: column;
+	height: min(840px, 92vh);
+	max-height: min(840px, 92vh);
+	min-width: 0;
+	overflow: hidden;
+}
+.crosswalker-stack-content > h2 { margin: 0 36px 8px 0; }
+.crosswalker-stack-content > p { margin: 0 0 12px; color: var(--text-muted); }
+.crosswalker-stack-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 6px 12px 0; }
+.crosswalker-stack-scroll h3 { margin: 14px 0 8px; font-size: var(--font-ui-medium); }
+.crosswalker-stack-choice,
+.crosswalker-stack-connection,
+.crosswalker-stack-checklist-row {
+	display: flex;
+	gap: 12px;
+	align-items: flex-start;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	min-width: 0;
+}
+.crosswalker-stack-choice { cursor: pointer; }
+.crosswalker-stack-choice:hover { background: var(--background-modifier-hover); }
+.crosswalker-stack-choice.is-connector { border-left: 3px solid var(--interactive-accent); background: var(--background-secondary); }
+.crosswalker-stack-choice input { flex: 0 0 auto; margin: 4px 0 0; }
+.crosswalker-stack-choice-copy, .crosswalker-stack-checklist-body { display: grid; gap: 3px; min-width: 0; flex: 1 1 auto; }
+.crosswalker-stack-choice-title { font-weight: 600; overflow-wrap: anywhere; }
+.crosswalker-stack-muted { color: var(--text-muted); font-size: var(--font-ui-small); overflow-wrap: anywhere; }
+.crosswalker-stack-connection { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.crosswalker-stack-connection > :last-child:nth-child(3) { grid-column: 2; }
+.crosswalker-stack-warning { border-left: 3px solid var(--text-warning); padding: 8px 12px; background: var(--background-secondary); }
+.crosswalker-stack-checklist-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) minmax(100px, 150px); align-items: start; }
+.crosswalker-stack-number { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.crosswalker-stack-publisher { overflow-wrap: anywhere; }
+.crosswalker-stack-footer { flex: 0 0 auto; border-top: 1px solid var(--background-modifier-border); padding-top: 8px; }
+.crosswalker-stack-footer .setting-item { border: 0; padding: 4px 0; }
+.crosswalker-stack-footer .setting-item-control { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; width: 100%; }
+.crosswalker-stack-footer > .crosswalker-stack-muted { text-align: right; margin: 4px 0; }
+@media (max-width: 640px) {
+	.crosswalker-stack-modal { width: min(640px, 96vw); }
+	.crosswalker-stack-checklist-row { grid-template-columns: 24px minmax(0, 1fr); }
+	.crosswalker-stack-checklist-row > :last-child { grid-column: 2; }
+	.crosswalker-stack-connection { grid-template-columns: minmax(0, 1fr); }
+	.crosswalker-stack-connection > :last-child:nth-child(3) { grid-column: 1; }
+}
