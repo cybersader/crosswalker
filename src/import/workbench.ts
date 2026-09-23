@@ -77,6 +77,7 @@ import {
 	removeDestination,
 	setCrosswalkTarget,
 	setNestLeaf,
+	setSectionHeading,
 	setSectionText,
 	setNestIdentity,
 	mergeRows,
@@ -321,6 +322,8 @@ export class MappingWorkbench {
 	private expandedRows: Record<string, unknown>[] | null = null;
 	/** Record totals by nested level, used for the live notes/sections evidence line. */
 	private countsByLevel: Record<string, number> | null = null;
+	/** Section heading fields already chosen in this session, including loaded explicit choices. */
+	private sectionHeadingChoices = new Map<string, string>();
 	/** Discards an older async expansion when a newer mapping change finishes first. */
 	private expansionVersion = 0;
 
@@ -378,6 +381,7 @@ export class MappingWorkbench {
 		// A resumed legacy draft may still supply only the mapping.
 		this.mapping = opts.initialMapping
 			?? (loadedRecipe?.ok ? loadedRecipe.document.mapping : instantiate(this.currentPreset(), this.activeDetections()));
+		this.rememberSectionHeadingChoices();
 		// Vault defaults + adaptive parent_note only apply to a FRESH instantiation.
 		if (!opts.initialMapping && !opts.initialRecipe) this.applyDefaultsOverlay();
 		// M8: a restored columnDests snapshot IS the seed — never re-run the
@@ -886,9 +890,12 @@ export class MappingWorkbench {
 		const belowLevels = next.mapping.levels.slice(depth + 1).map((level) => level.level);
 		for (const level of belowLevels) {
 			this.mapping = setNestLeaf(this.mapping, level, below);
-			if (below === 'section' && !this.sectionTextColumn(level)) {
-				const column = this.defaultSectionTextColumn(level);
-				if (column) this.mapping = setSectionText(this.mapping, level, column);
+			if (below === 'section') {
+				this.applySectionHeadingChoice(level);
+				if (!this.sectionTextColumn(level)) {
+					const column = this.defaultSectionTextColumn(level);
+					if (column) this.mapping = setSectionText(this.mapping, level, column);
+				}
 			}
 		}
 		for (const { level } of next.mapping.levels.slice(0, depth + 1)) {
@@ -1527,28 +1534,75 @@ export class MappingWorkbench {
 		return null;
 	}
 
-	private sectionKeys(level: string): string[] {
+	private sectionHeadingColumn(level: string): string | null {
+		for (const mapping of this.mapping.mappings) {
+			for (const rule of mapping.levels) {
+				if (rule.level === level && rule.destinations.some((destination) => destination.primitive === 'heading')) {
+					return this.firstColumn(rule.source);
+				}
+			}
+		}
+		return null;
+	}
+
+	private rememberSectionHeadingChoices(): void {
+		for (const entry of this.mapping.nest ?? []) {
+			const column = this.sectionHeadingColumn(entry.level);
+			if (column) this.sectionHeadingChoices.set(entry.level, column);
+		}
+	}
+
+	private applySectionHeadingChoice(level: string): void {
+		const column = this.sectionHeadingChoices.get(level) ?? this.defaultSectionHeadingColumn(level);
+		if (!column) return;
+		this.mapping = setSectionHeading(this.mapping, level, column);
+		this.sectionHeadingChoices.set(level, column);
+	}
+
+	private sectionRecordKeys(level: string): string[] {
 		const nested = this.detections.find(
 			(detection): detection is Extract<Detection, { kind: 'nested-records' }> => detection.kind === 'nested-records',
 		);
 		const levelIndex = nested?.proposal.levels.indexOf(level) ?? -1;
 		const detected = levelIndex > 0 ? nested?.chain[levelIndex - 1]?.sampleKeys ?? [] : [];
 		const fallback = Object.keys(this.firstNestedRecord(level) ?? {}).filter((key) => key !== '_cw');
+		const childCollection = this.mapping.nest?.find((entry) => entry.level === level)?.children;
+		return [...new Set(detected.length > 0 ? detected : fallback)]
+			.filter((key) => key !== childCollection);
+	}
+
+	private sectionKeys(level: string): string[] {
 		const headingColumns = new Set(
 			this.mapping.mappings.flatMap((mapping) => mapping.levels)
 				.filter((rule) => rule.level === level)
 				.flatMap((rule) => toSourceRefs(rule.source))
-				.flatMap((ref) => isConstantRef(ref) ? [] : [ref.column]),
+				.flatMap((ref) => isConstantRef(ref) ? [] : [ref.column.toLocaleLowerCase()]),
 		);
-		const childCollection = this.mapping.nest?.find((entry) => entry.level === level)?.children;
-		return [...new Set(detected.length > 0 ? detected : fallback)]
-			.filter((key) => !headingColumns.has(key) && key !== childCollection);
+		return this.sectionRecordKeys(level)
+			.filter((key) => !headingColumns.has(key.toLocaleLowerCase()));
+	}
+
+	private defaultSectionHeadingColumn(level: string): string | null {
+		const keys = this.sectionRecordKeys(level);
+		for (const preferred of ['title', 'label', 'name']) {
+			const match = keys.find((key) => key.toLocaleLowerCase() === preferred);
+			if (match) return match;
+		}
+		const identityTemplate = this.mapping.nest?.find((entry) => entry.level === level)?.id;
+		const currentRule = this.mapping.mappings.flatMap((mapping) => mapping.levels)
+			.find((rule) => rule.level === level);
+		const identityColumn = identityTemplate?.match(/^\{([^}|]+)(?:\|[^}]*)?\}$/u)?.[1]
+			?? (currentRule ? this.firstColumn(currentRule.source) : null);
+		return identityColumn
+			? keys.find((key) => key.toLocaleLowerCase() === identityColumn.toLocaleLowerCase()) ?? null
+			: null;
 	}
 
 	private defaultSectionTextColumn(level: string): string | null {
 		const keys = this.sectionKeys(level);
 		for (const preferred of ['prose', 'text', 'description', 'statement', 'body', 'content']) {
-			if (keys.includes(preferred)) return preferred;
+			const match = keys.find((key) => key.toLocaleLowerCase() === preferred);
+			if (match) return match;
 		}
 		const sample = this.firstNestedRecord(level);
 		return keys.find((key) => typeof sample?.[key] === 'string') ?? null;
@@ -2252,9 +2306,12 @@ export class MappingWorkbench {
 				placementSelect.addEventListener('change', () => {
 					const leaf = placementSelect.value as 'none' | 'section';
 					this.mapping = setNestLeaf(this.mapping, rule.level, leaf);
-					if (leaf === 'section' && !this.sectionTextColumn(rule.level)) {
-						const column = this.defaultSectionTextColumn(rule.level);
-						if (column) this.mapping = setSectionText(this.mapping, rule.level, column);
+					if (leaf === 'section') {
+						this.applySectionHeadingChoice(rule.level);
+						if (!this.sectionTextColumn(rule.level)) {
+							const column = this.defaultSectionTextColumn(rule.level);
+							if (column) this.mapping = setSectionText(this.mapping, rule.level, column);
+						}
 					}
 					this.applyChange();
 				});
@@ -2958,6 +3015,8 @@ export class MappingWorkbench {
 	private reinstantiate(): void {
 		const previousEnrichment = this.mapping.enrichment;
 		this.mapping = instantiate(this.currentPreset(), this.activeDetections());
+		this.sectionHeadingChoices.clear();
+		this.rememberSectionHeadingChoices();
 		// Same fresh-instantiation rules as the constructor: a preset switch (or
 		// an evidence dismiss/use) re-derives the mapping from scratch, so vault
 		// defaults + the adaptive parent_note fallback re-apply here too.

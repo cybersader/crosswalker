@@ -549,6 +549,28 @@ export function setNestLeaf(
 	return { ...mapping, mappings, nest: nextNest };
 }
 
+/** Choose the source field rendered by one nested section level's heading. */
+export function setSectionHeading(
+	mapping: ImportMapping,
+	level: string,
+	column: string,
+): ImportMapping {
+	let changed = false;
+	const mappings = mapping.mappings.map((structure) => ({
+		...structure,
+		levels: structure.levels.map((rule) => {
+			if (
+				rule.level !== level
+				|| !rule.destinations.some((destination) => destination.primitive === 'heading')
+				|| sourceReadsColumn(rule.source, column)
+			) return rule;
+			changed = true;
+			return { ...rule, source: { column } };
+		}),
+	}));
+	return changed ? { ...mapping, mappings } : mapping;
+}
+
 /** Route one nested level's section text through a level-scoped append projection. */
 export function setSectionText(
 	mapping: ImportMapping,

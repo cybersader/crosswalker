@@ -116,6 +116,49 @@ function renderMatrix(wb: MappingWorkbench): HTMLElement {
 	return host;
 }
 
+function sectionHeadingWorkbench(
+	record: Record<string, unknown>,
+	mapping: ImportMapping = sectionReadyMapping(),
+): MappingWorkbench {
+	mapping.mappings[0].levels[2].source = { column: 'id' };
+	const wb = workbench(mapping);
+	const privateWorkbench = wb as unknown as PrivateWorkbench;
+	privateWorkbench.detections = [{
+		kind: 'nested-records',
+		iterator: '$.groups[*]',
+		chain: [
+			{ field: 'controls', avgPerParent: 1, sampleKeys: ['id', 'parts'], idKey: 'id', repeatsUnderParents: false },
+			{ field: 'parts', avgPerParent: 1, sampleKeys: Object.keys(record), idKey: 'id', repeatsUnderParents: false },
+		],
+		sampleValues: ['g1 / c1 / p1'],
+		proposal: { mechanism: 'nested-levels', levels: ['group', 'control', 'part'], identities: ['global', 'global', 'global'] },
+	}];
+	privateWorkbench.expandedRows = [{ ...record, _cw: { level: 'part' } }];
+	return wb;
+}
+
+function choosePartSections(wb: MappingWorkbench): void {
+	const placement = renderMatrix(wb).querySelector<HTMLSelectElement>('[aria-label="Placement for part"]')!;
+	placement.value = 'section';
+	placement.dispatchEvent(new Event('change'));
+}
+
+function sectionHeadingSource(wb: MappingWorkbench): string | undefined {
+	const source = wb.getMapping().mappings.flatMap((mapping) => mapping.levels)
+		.find((rule) => rule.level === 'part'
+			&& rule.destinations.some((destination) => destination.primitive === 'heading'))
+		?.source;
+	return source && !Array.isArray(source) && 'column' in source ? source.column : undefined;
+}
+
+function sectionTextSource(wb: MappingWorkbench): string | undefined {
+	const source = wb.getMapping().mappings.flatMap((mapping) => mapping.levels)
+		.find((rule) => rule.destinations.some((destination) =>
+			destination.primitive === 'body' && destination.level === 'part'))
+		?.source;
+	return source && !Array.isArray(source) && 'column' in source ? source.column : undefined;
+}
+
 describe('nested workbench rows', () => {
 	it('renders nested controls, writes through the view model, and hides merge and split', () => {
 		const wb = workbench(nested);
@@ -181,6 +224,44 @@ describe('nested workbench rows', () => {
 				&& level.destinations.some((destination) => destination.primitive === 'body'))
 			?.destinations).toContainEqual({ primitive: 'body', position: 'append', level: 'part' });
 		expect(host.textContent).not.toContain('—');
+	});
+
+	it('prefers title over name and id for a new section heading, case-insensitively', () => {
+		const wb = sectionHeadingWorkbench({ id: 'p1', name: 'Statement', TITLE: 'Readable title', text: 'Body' });
+		choosePartSections(wb);
+
+		expect(sectionHeadingSource(wb)).toBe('TITLE');
+		expect(sectionTextSource(wb)).toBe('text');
+	});
+
+	it('uses name for a new section heading when title and label are absent', () => {
+		const wb = sectionHeadingWorkbench({ id: 'p1', NaMe: 'Statement', text: 'Body' });
+		choosePartSections(wb);
+
+		expect(sectionHeadingSource(wb)).toBe('NaMe');
+		expect(sectionTextSource(wb)).toBe('text');
+	});
+
+	it('falls back to the identity field for a new section heading', () => {
+		const wb = sectionHeadingWorkbench({ Id: 'p1', text: 'Body' });
+		choosePartSections(wb);
+
+		expect(sectionHeadingSource(wb)).toBe('Id');
+		expect(sectionTextSource(wb)).toBe('text');
+	});
+
+	it('preserves an explicit section heading field across placement toggles', () => {
+		const mapping = sectionOnlyMapping();
+		mapping.mappings[0].levels[2].source = { column: 'id' };
+		const wb = sectionHeadingWorkbench({ id: 'p1', title: 'Readable title', text: 'Body' }, mapping);
+		let placement = renderMatrix(wb).querySelector<HTMLSelectElement>('[aria-label="Placement for part"]')!;
+		placement.value = 'none';
+		placement.dispatchEvent(new Event('change'));
+		placement = renderMatrix(wb).querySelector<HTMLSelectElement>('[aria-label="Placement for part"]')!;
+		placement.value = 'section';
+		placement.dispatchEvent(new Event('change'));
+
+		expect(sectionHeadingSource(wb)).toBe('id');
 	});
 
 	it('disables a child section when its parent is left out', () => {
