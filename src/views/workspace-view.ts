@@ -186,7 +186,7 @@ export class CrosswalkerWorkspaceView extends ItemView {
 		});
 
 		this.launchButton(row, 'layers', 'Set up a framework stack', false, () => {
-			new StackSetupModal(this.app).open();
+			new StackSetupModal(this.app, this.plugin).open();
 		});
 
 		this.launchButton(row, 'search', 'Find sources in this vault', false, () => {

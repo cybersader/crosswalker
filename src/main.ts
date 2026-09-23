@@ -324,7 +324,7 @@ export default class CrosswalkerPlugin extends Plugin {
 		this.addCommand({
 			id: 'set-up-framework-stack',
 			name: 'Set up a framework stack',
-			callback: () => new StackSetupModal(this.app).open(),
+			callback: () => new StackSetupModal(this.app, this).open(),
 		});
 
 		this.addCommand({

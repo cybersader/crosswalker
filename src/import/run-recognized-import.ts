@@ -13,7 +13,7 @@ import { MappingWorkbench } from './workbench';
 import { analyzeColumns, parseCSVFile, shouldUseStreaming } from './parsers/csv-parser';
 import { parseJSONFile } from './parsers/json-parser';
 import { parseXLSXFile } from './parsers/xlsx-parser';
-import type { RecipeRegistryEntry } from './recipe-registry';
+import { applyHeaderAliases, type RecipeRegistryEntry } from './recipe-registry';
 
 export interface RecognizedImportRequest {
 	file: TFile;
@@ -67,6 +67,7 @@ async function parseRecognizedSource(file: File, request: RecognizedImportReques
 		case 'tsv':
 			return parseCSVFile(file, { streaming: shouldUseStreaming(file) });
 		case 'xlsx':
+		case 'xls':
 			return parseXLSXFile(file, { sheet: request.table, headerRow: request.headerRow });
 		case 'json':
 			return parseJSONFile(file, { iterator: request.table || undefined });
@@ -116,7 +117,7 @@ export async function runRecognizedImport(
 	let parsedData: ParsedData;
 	try {
 		const sourceFile = await sourceFileFromVault(app, req.file);
-		parsedData = await parseRecognizedSource(sourceFile, req);
+		parsedData = applyHeaderAliases(await parseRecognizedSource(sourceFile, req), req.entry);
 	} catch (error) {
 		const cause = error instanceof Error ? error.message : String(error);
 		return {

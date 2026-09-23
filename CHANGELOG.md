@@ -8,9 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: stack file recognition and framework import (2026-09-23)
+
+- The framework stack setup now accepts source files or scans a vault folder, recognizes publisher-shaped workbook sheets and headers against framework slots, and flags an ATT&CK STIX bundle as the wrong export. Partial matches stay unfilled until the user explicitly chooses them. The review screen shows each framework's destination and defaults every run to a new import set; an existing source fingerprint can be checked for a refresh offer but never preselects it. Import runs framework slots sequentially through the recognized import path and stops at the first failure. Mapping rows remain pending for a later delivery. NIST catalog workbook display-header aliases are registry data, with canonical keys provided to its bundled recipe at import time. Source: `src/import/stack/`, `src/import/recipe-registry.ts`.
+
 ### Added: framework stack picker and download checklist (2026-09-23)
 
-- A new **Set up a framework stack** command and launchpad entry lets a team choose bundled frameworks and see the connecting mappings before downloading any files. Choosing CRI Profile and NIST 800-53 auto-adds NIST CSF 2.0 as an untickable connector; optional CRI mapping workbooks remain off by default. The second screen gives publisher links, expected file types, licence and ATT&CK release notes, and a plain-text checklist copy. Adding files and importing are explicitly unavailable until the next phase. Source: `src/import/stack/`, `src/import/recipe-registry.ts`.
+- A new **Set up a framework stack** command and launchpad entry lets a team choose bundled frameworks and see the connecting mappings before downloading any files. Choosing CRI Profile and NIST 800-53 auto-adds NIST CSF 2.0 as an untickable connector; optional CRI mapping workbooks remain off by default. The second screen gives publisher links, expected file types, licence and ATT&CK release notes, and a plain-text checklist copy. The picker and checklist landed before the file-recognition and framework-import screens described above. Source: `src/import/stack/`, `src/import/recipe-registry.ts`.
 
 ### Fixed: nested JSON import follows the real child level, so OSCAL catalogs nest as groups, controls, and enhancements (2026-09-23)
 

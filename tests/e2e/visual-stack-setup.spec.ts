@@ -38,7 +38,7 @@ describe('Visual — framework stack setup', function () {
 				disabled: (Array.from(document.querySelectorAll('.crosswalker-stack-footer button'))
 					.find((button) => button.textContent?.includes('Next: add the files')) as HTMLButtonElement | undefined)?.disabled,
 			}));
-			expect(checklist).toEqual({ rows: 7, links: 5, disabled: true });
+			expect(checklist).toEqual({ rows: 7, links: 5, disabled: false });
 			await browser.saveScreenshot(path.join(OUT, `visual-stack-02-checklist-${theme}.png`));
 			await browser.executeObsidian(() => { const modal = document.querySelector<HTMLElement>('.crosswalker-stack-modal'); if (modal) modal.style.width = '640px'; });
 			await browser.saveScreenshot(path.join(OUT, `visual-stack-02-checklist-${theme}-640.png`));
