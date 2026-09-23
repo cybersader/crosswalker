@@ -90,6 +90,7 @@
  */
 
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
+import type { ParsedData } from '../types/config';
 import { canonicalToMapping } from './recipe-document';
 import { interpolationColumn, parseTemplateSegments } from '../render/template';
 import type { ImportMapping } from './mapping/types';
@@ -184,6 +185,8 @@ export interface RecipeRegistryEntry {
 	requiredColumns: string[];
 	/** Count of folder/heading layout entries — the recipe's nesting depth (tiebreak). */
 	structuralDepth: number;
+	/** Published display headers mapped to canonical recipe columns. */
+	headerAliases?: Record<string, string[]>;
 	/** The complete canonical recipe. Never trim this to workbench-only regions. */
 	recipe: CrosswalkerImportRecipe;
 }
@@ -592,6 +595,44 @@ const SOURCE_GUIDANCE: Record<
 	},
 };
 
+/** NIST catalog workbook display headers mapped to the recipe's canonical source keys. */
+export const NIST_CATALOG_HEADER_ALIASES: Record<string, string[]> = {
+	identifier: ['Control Identifier', 'Control ID'],
+	name: ['Control (or Enhancement) Name', 'Control Name', 'Control or Enhancement Name'],
+	control_text: ['Control Text'],
+	discussion: ['Discussion'],
+	related: ['Related Controls', 'Related Control'],
+};
+
+/** Registry aliases are opt-in for stack recognition, not global CSV auto-recognition. */
+export function canonicalHeaderColumns(columns: string[], entry: RecipeRegistryEntry): string[] {
+	const have = new Set(columns.map((column) => column.trim().toLowerCase()));
+	return [...columns, ...Object.entries(entry.headerAliases ?? {}).flatMap(([canonical, aliases]) =>
+		!columns.includes(canonical) && aliases.some((alias) => have.has(alias.toLowerCase()))
+			? [canonical] : [])];
+}
+
+/** Preserve source columns while adding canonical keys consumed by recipe templates. */
+export function applyHeaderAliases<T extends ParsedData>(data: T, entry: RecipeRegistryEntry): T {
+	if (!entry.headerAliases) return data;
+	const lookup = new Map(data.columns.map((column) => [column.trim().toLowerCase(), column]));
+	const chosen = Object.entries(entry.headerAliases).flatMap(([canonical, aliases]) => {
+		if (data.columns.includes(canonical)) return [];
+		const actual = aliases.map((alias) => lookup.get(alias.toLowerCase())).find(Boolean);
+		return actual ? [{ canonical, actual }] : [];
+	});
+	if (!chosen.length) return data;
+	const mapRow = (row: Record<string, any>): Record<string, any> => {
+		const mapped = { ...row };
+		for (const { canonical, actual } of chosen) mapped[canonical] = row[actual] ?? '';
+		return mapped;
+	};
+	const rows = Array.isArray(data.rows) ? data.rows.map(mapRow) : (async function* () {
+		for await (const row of data.rows) yield mapRow(row);
+	})();
+	return { ...data, columns: [...data.columns, ...chosen.map(({ canonical }) => canonical)], rows };
+}
+
 /** Build a registry entry from a bundled raw recipe. */
 function toEntry(raw: unknown): RecipeRegistryEntry {
 	const r = raw as RawRecipe;
@@ -621,6 +662,7 @@ function toEntry(raw: unknown): RecipeRegistryEntry {
 		docsUrl: guidance.docsUrl,
 		signatureColumns: signature,
 		requiredColumns: required,
+		...(r.recipe === 'nist-800-53-r5-flat' ? { headerAliases: NIST_CATALOG_HEADER_ALIASES } : {}),
 		structuralDepth,
 		recipe: raw as CrosswalkerImportRecipe,
 	};

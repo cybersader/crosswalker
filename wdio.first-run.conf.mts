@@ -14,7 +14,7 @@ const baseCapabilities = baseConfig.capabilities as WebdriverIO.Capabilities[];
 
 export const config: Options.Testrunner = {
 	...baseConfig,
-	specs: ['./tests/e2e/first-run.spec.ts'],
+	specs: ['./tests/e2e/first-run.spec.ts', './tests/e2e/first-run-stack.spec.ts'],
 	// The base config excludes this spec, because in the shared seeded vault it
 	// tests the opposite of what it is for. This is the config that owns it, so
 	// the inherited exclusion has to be cleared or there is nothing left to run.

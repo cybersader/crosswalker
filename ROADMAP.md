@@ -207,6 +207,7 @@ Server-tier deployment options for users who genuinely need a shared multi-team 
 - [ ] Custom migration transforms (inline → named → custom scripts)
 - [ ] AI-assisted transforms (LLM property mapping, like Obsidian web clipper AI templates)
 - [ ] Extended graph support (DAGs, hypergraphs)
+- [ ] Mobile Obsidian preview (exploratory) — drive and capture Obsidian's mobile layout the way the desktop harness already screenshots desktop Obsidian; agents verify mobile rendering, and phone visitors (even in a browser) see the mobile layout. Open issues: mobile is Capacitor not Electron (emulation approximates layout only), real devices need an Android emulator plus Appium, streaming Obsidian to visitors raises licence and hosting questions. Raised 2026-09-23
 - [ ] Community plugin submission
 - [ ] Spec publication (StewardshipProfile taxonomy + structural diff engine)
 

@@ -3186,6 +3186,12 @@
 .crosswalker-stack-connection > :last-child:nth-child(3) { grid-column: 2; }
 .crosswalker-stack-warning { border-left: 3px solid var(--text-warning); padding: 8px 12px; background: var(--background-secondary); }
 .crosswalker-stack-checklist-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) minmax(100px, 150px); align-items: start; }
+.crosswalker-stack-drop { border: 1px dashed var(--background-modifier-border); background: var(--background-secondary); border-radius: 8px; padding: 16px; margin: 8px 0; text-align: center; }
+.crosswalker-stack-drop.is-dragging { border-color: var(--interactive-accent); }
+.crosswalker-stack-drop input { max-width: 100%; font-size: var(--font-ui-small); }
+.crosswalker-stack-result { border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 10px 12px; margin: 8px 0; display: grid; gap: 5px; overflow-wrap: anywhere; }
+.crosswalker-stack-result .setting-item { border: 0; padding: 2px 0; }
+.crosswalker-stack-refresh-offer { color: var(--text-muted); font-size: var(--font-ui-small); }
 .crosswalker-stack-number { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .crosswalker-stack-publisher { overflow-wrap: anywhere; }
 .crosswalker-stack-footer { flex: 0 0 auto; border-top: 1px solid var(--background-modifier-border); padding-top: 8px; }
