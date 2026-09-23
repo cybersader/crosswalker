@@ -135,6 +135,18 @@ describe('importSssom — happy path with real fixture', () => {
 	});
 });
 
+describe('importSssom — publisher ID-only mapping rows', () => {
+	it('renders a row without optional labels or confidence, including endpoint identity', async () => {
+		const { app, written } = makeMockApp();
+		const result = await importSssom(app,
+			'subject_id\tpredicate_id\tobject_id\tmapping_justification\nfoo:Alpha\tskos:relatedMatch\tbar:Beta\tsynthetic',
+			null, null, { runTier2Projection: false, importSet: 'new-set-qualified' });
+		expect(result.generation?.success).toBe(true);
+		expect(result.generation?.created).toHaveLength(1);
+		expect([...written.values()][0]).toContain('foo:Alpha');
+	});
+});
+
 describe('importSssom — SKOS→STRM direction convention', () => {
 	// Pins the direction semantics (fixed 2026-06-12 — the original map inverted SKOS).
 	// Per the SKOS spec, `A skos:broadMatch B` states B is the BROADER concept (A ⊂ B),
@@ -142,8 +154,7 @@ describe('importSssom — SKOS→STRM direction convention', () => {
 	// re-inverted the map — see SKOS_TO_STRM in src/import/sssom-importer.ts AND its
 	// mirror in tools/crosswalk-from-olir.ts (keep both in sync).
 	it('broadMatch → is_narrower_than, narrowMatch → is_broader_than', async () => {
-		// NOTE: the synthetic recipe requires subject_label/object_label/
-		// mapping_justification/confidence — rows missing any of them fail render().
+		// Optional labels and confidence now fall back for publisher ID-only rows.
 		const tsv = `subject_id\tsubject_label\tpredicate_id\tobject_id\tobject_label\tmapping_justification\tconfidence
 nist:AC-1\tPolicy\tskos:broadMatch\tiso:A.1\tGovernance\tsemapv:ManualMappingCuration\t0.9
 nist:AC-2\tAccounts\tskos:narrowMatch\tiso:A.2\tIdentity\tsemapv:ManualMappingCuration\t0.9`;

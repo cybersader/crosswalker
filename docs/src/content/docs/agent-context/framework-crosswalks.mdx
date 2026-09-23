@@ -1,116 +1,38 @@
 ---
 title: Framework crosswalks
-description: How frameworks map to each other — specific crosswalk tables, column mapping strategies, and matching methods.
+description: How Crosswalker imports publisher mappings and links their endpoints to framework notes.
 tags: [frameworks-mapping, evidence-mapping-links]
 ---
 
-:::note
-For the canonical definition of **crosswalk** (and how it differs from an **evidence link**), see the [terminology page](/crosswalker/concepts/terminology/#core-terms). For the edge vocabulary and metadata envelope Crosswalker commits to for crosswalk edges, see [STRM](/crosswalker/reference/registry/strm/) + [SSSOM](/crosswalker/reference/registry/sssom/). For the formal architectural pattern (pivot / interlingua / hub-and-spoke), see [schema matching](/crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach).
-:::
+A [crosswalk](/crosswalker/concepts/terminology/#core-terms) is a publisher assertion between two framework concepts. Crosswalker writes it as an edge note: the two CURIE identities remain queryable, while managed wikilinks make both endpoint notes visible in the Obsidian graph. The edge is kept even when one endpoint has not been imported. See [SSSOM](/crosswalker/reference/registry/sssom/) for the interchange format and [STRM](/crosswalker/reference/registry/strm/) for the relationship vocabulary.
 
-This page documents the **specific framework-to-framework crosswalks** Crosswalker's Python tool already implements — source/target pairs, match columns, and matching strategies. A practical reference rather than a conceptual introduction.
+**Status last verified:** 2026-09-23 — verified against `src/import/stack/stack-run.ts`, `mapping-readers.ts`, `src/import/sssom-importer.ts`, `src/generation/edge-endpoints.ts`, and `src/import/recipe-registry.ts`.
 
-## Supported framework crosswalks
+## Mapping paths available now
 
-The Python tool (`frameworks_to_obsidian.py`) implements these cross-framework mappings:
+| Connection | Source and import path | Relationship handling |
+|---|---|---|
+| CRI Profile to NIST CSF 2.0 | The CRI workbook's declared crosswalk column is emitted as edge notes during the CRI framework import. No second mapping file is needed. | The recipe declares its predicate; qualifiers are retained as justification. |
+| NIST CSF 2.0 to NIST 800-53 | The stack ships a public-domain NIST-derived SSSOM TSV dated 2026-05-04; a recognized OLIR workbook can be used instead. | OLIR `equal`, `subset of`, `superset of`, and `intersects with` become SKOS predicates; unknown relationships become related matches. |
+| CRI Profile to NIST 800-53 | Optional local CRI OLIR-shaped workbook; never bundled. Its published Focal/Reference direction is reversed when the slot asks for CRI to 800-53, including broad/narrow relation direction. | NIST identifiers are de-padded only on the NIST side. |
+| NIST 800-53 to MITRE ATT&CK | Local CTID Mappings Explorer JSON `mapping_objects`; never bundled. The stack expects ATT&CK release 16.1. | `capability_id` identifies the NIST subject; `attack_object_id` identifies the ATT&CK object. `mitigates` and unspecified types become an overlapping relationship, not an exact match. |
 
-### CRI Profile v2.0 ↔ NIST CSF 2.0
+The workbook reader uses formatted Excel text, so numeric-looking identifiers are not silently changed by number parsing. NIST 800-53 IDs use their unpadded canonical form (`AC-2`, `AC-2(1)`); CSF and CRI identifiers retain their zeros. Family-level IDs remain valid mapping assertions, but a family without its own imported concept note has no endpoint wikilink.
 
-| Source | Target | Match Column | Match Type |
-|--------|--------|-------------|-----------|
-| CRI Diagnostic Statement | CSF Subcategory | CSF reference column | Array contains |
+## Import order and reconnection
 
-The CRI Community Profile is a meta-framework designed for financial institutions that maps to multiple standards. Its "CRI Profile v2.0 Structure" sheet provides the primary mapping.
+**Set up a framework stack** imports framework slots first and mapping slots second. Each mapping import creates its own import set and runs through the same SSSOM importer that builds edge notes elsewhere in the plugin. The completion screen counts notes by the discovered import sets and lists unresolved endpoints with an action. **Reconnect mappings** explicitly refreshes the mapping set IDs recorded during this run; it does not guess a target from a filename or framework label. If a set is gone, reimport that publisher file as a new set. The current run record lives in the open setup modal, not a durable installed-stack registry; persistence is future work.
 
-### NIST 800-53 ↔ MITRE ATT&CK
+A missing endpoint is not evidence that the assertion is false. It can mean the corresponding framework was not imported at that detail, or two notes claim the same identity. Crosswalker does not fabricate a concept to fill the link. Import the missing concepts or resolve duplicate identities and then explicitly reconnect the mapping. See [framework versioning](/crosswalker/concepts/framework-versioning/) for why releases need separate provenance, and [data sources](/crosswalker/reference/framework-data-sources/) for acquisition and licence guidance.
 
-| Source | Target | Match Column | Match Type |
-|--------|--------|-------------|-----------|
-| 800-53 Control | ATT&CK Technique | Mapping spreadsheet | Exact match |
+## Outside the current stack
 
-Uses the Center for Threat-Informed Defense's [Mappings Explorer](https://center-for-threat-informed-defense.github.io/mappings-explorer/external/) as the authoritative source.
+ATT&CK to D3FEND and CSF to CIS appear in publisher mapping catalogs but are not stack mapping slots today. The old `frameworks_to_obsidian.py` tool and its exact-match/regex table are retired; neither describes the plugin's current mapping behavior. The in-repository headless OLIR and melt converters remain available separately for local corpus work; stack users do not need to run them.
 
-### MITRE ATT&CK ↔ D3FEND
+## Related
 
-| Source | Target | Match Column | Match Type |
-|--------|--------|-------------|-----------|
-| ATT&CK Technique | D3FEND Countermeasure | D3FEND mapping data | Regex |
-
-D3FEND provides defensive countermeasures mapped to ATT&CK techniques.
-
-### NIST CSF 2.0 ↔ CIS Controls v8
-
-| Source | Target | Match Column | Match Type |
-|--------|--------|-------------|-----------|
-| CSF Subcategory | CIS Safeguard | CIS mapping spreadsheet | Array contains |
-
-## Matching methods
-
-### Exact match
-Column value in source must exactly equal a value in target. Used when both frameworks use standardized IDs.
-
-### Array contains
-Source column contains a comma-separated list; check if any item matches the target ID. Common when frameworks list multiple related controls.
-
-### Regex
-Pattern-based matching for complex ID formats. Used for NIST control enhancements like `AC-2(1)` where parenthetical notation needs special handling.
-
-## Column mapping challenges
-
-### Common pitfalls
-
-| Issue | Example | Solution |
-|-------|---------|----------|
-| Merged cells | CRI Profile Excel has merged category rows | Forward-fill blank cells (`hierarchical_ffill()`) |
-| Inconsistent IDs | "AC-2" vs "AC-02" vs "AC 2" | Regex normalization before matching |
-| Multi-value cells | "AC-1, AC-2, AC-3" in one cell | Split into array, match each |
-| Sheet structure | Multiple sheets per framework | Merge relevant sheets by primary key |
-| Encoding issues | Special characters in control names | UTF-8 normalization |
-
-### Data format expectations
-
-| Framework | ID Format | Hierarchy | Sheets |
-|-----------|----------|-----------|--------|
-| NIST 800-53 | `AC-2`, `AC-2(1)` | Family → Control → Enhancement | Controls, Assessment |
-| NIST CSF 2.0 | `PR.AC-01` | Function → Category → Subcategory | Core |
-| CIS v8 | `1.1` | Control → Safeguard | Controls, IG mapping |
-| MITRE ATT&CK | `T1059`, `T1059.001` | Tactic → Technique → Sub-technique | Enterprise matrix |
-| CRI Profile | Diagnostic statement text | Function → Category → Subcategory → Statement | Structure, Mappings |
-
-## NIST mapping resources
-
-### OLIR (Online Informative References)
-NIST's [National Online Informative References Program](https://csrc.nist.gov/projects/olir/informative-reference-catalog) provides official crosswalks between frameworks. These are the authoritative mapping source.
-
-### OSCAL (Open Security Controls Assessment Language)
-Machine-readable framework data in JSON/XML format. Resources:
-- [OSCAL concepts](https://pages.nist.gov/OSCAL/resources/concepts/layer/)
-- [OSCAL viewer](https://viewer.oscal.io/)
-- [NIST OSCAL registry](https://pages.nist.gov/OSCAL/)
-- [awesome-oscal](https://github.com/oscal-club/awesome-oscal)
-
-### NIST CPRT (Cybersecurity and Privacy Reference Tool)
-Interactive tool for browsing CSF 2.0 with informative references: [CPRT Filters](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters)
-
-## Crosswalk staleness
-
-A critical problem: crosswalks become stale when either framework updates. See [framework versioning](/crosswalker/concepts/framework-versioning/) for how each framework handles changes.
-
-### The OLIR maintenance problem
-NIST's [OLIR program](https://csrc.nist.gov/projects/olir/informative-reference-catalog) is submission-based — the submitting organization maintains their mappings. There's no automatic mechanism to flag stale crosswalks. High-profile crosswalks (CSF↔800-53) get updated eventually, but on NIST's timeline.
-
-### The pivot solution
-The [Secure Controls Framework (SCF)](https://securecontrolsframework.com/) solves this with a [meta-framework / interlingua approach](/crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach) — mapping 175+ frameworks through a single hub. When one framework updates, only one mapping needs updating, and the change propagates to all others.
-
-### Detection strategies
-See [data model resilience](/crosswalker/agent-context/data-model-resilience/) for proposed detection mechanisms: source hash comparison, version tracking in `_crosswalker` metadata, and [machine-readable changelog ingestion](/crosswalker/concepts/framework-versioning/#the-framework-changelog-concept).
-
-## Implementation in Crosswalker
-
-The Crosswalker plugin currently imports individual frameworks. Cross-framework linking is planned — it will:
-1. Import framework A with Crosswalker
-2. Import framework B
-3. Use a crosswalk config to generate typed links between matching nodes
-4. Links carry metadata about the mapping relationship (exact, partial, related)
-
-The [ontology evolution](/crosswalker/concepts/ontology-evolution/) problem means these links need version awareness — see [open questions](/crosswalker/agent-context/open-questions/#data-model-resilience) for unresolved design decisions.
+- [Terminology](/crosswalker/concepts/terminology/)
+- [Schema matching and pivots](/crosswalker/concepts/schema-matching/)
+- [Framework data sources](/crosswalker/reference/framework-data-sources/)
+- [SSSOM](/crosswalker/reference/registry/sssom/)
+- [STRM](/crosswalker/reference/registry/strm/)

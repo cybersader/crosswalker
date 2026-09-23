@@ -11,6 +11,7 @@ import { peekXLSXBytes } from '../parsers/xlsx-parser';
 import { peekCSV, peekJSON } from '../vault-source-scan';
 import { LARGE_FILE_BYTES } from '../vault-source-scan-runner';
 import { recognizeStackSources, type StackCandidate, type StackRecognition, type StackSource } from './stack-recognize';
+import { importMappingSlots, reconnectMappings, stackMappingDependencies, type CompletedMapping } from './stack-run';
 import {
 	CONNECTOR_ONTOLOGY, CONNECTOR_REASON, DEFAULT_STACK_SELECTION,
 	activeMappings, checklistPlainText, checklistRows, frameworkChoices, frameworkSlots,
@@ -29,8 +30,10 @@ export class StackSetupModal extends Modal {
 	private busy = false;
 	private error = '';
 	private largeSources = new Set<string>();
-	private completed: { label: string; created: number; setId: string | null }[] = [];
+	private completed: { label: string; created: number; setId: string | null; folder: string }[] = [];
 	private discoveredSets: number | null = null;
+	private mappingSets: CompletedMapping[] = [];
+	private discoveredCounts = new Map<string, number>();
 
 	constructor(app: App, private plugin: CrosswalkerPlugin) {
 		super(app);
@@ -162,7 +165,7 @@ export class StackSetupModal extends Modal {
 	}
 
 	private refreshRecognition(): void {
-		this.recognition = recognizeStackSources(this.sourceViews, frameworkSlots(this.stackSelection));
+		this.recognition = recognizeStackSources(this.sourceViews, frameworkSlots(this.stackSelection), undefined, this.stackSelection);
 		this.render();
 	}
 
@@ -275,9 +278,11 @@ export class StackSetupModal extends Modal {
 		for (const mapping of activeMappings(this.stackSelection)) {
 			const row = scroll.createDiv({ cls: 'crosswalker-stack-result', attr: { 'data-mapping': mapping.id } });
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: mapping.label });
-			row.createDiv({ cls: 'crosswalker-stack-muted', text: mapping.kind === 'built-in' ? 'Ready (built in)' :
+			const mappingFile = this.recognition.mappingFills.find((fill) => fill.mapping.id === mapping.id);
+			row.createDiv({ cls: 'crosswalker-stack-muted', text: mappingFile ? `${mappingFile.source.name} · Ready (${mappingFile.table})` :
+				mapping.kind === 'built-in' ? 'Ready (built in)' :
 				mapping.kind === 'from-slot' && this.recognition.fills.some((fill) => fill.slot.ontology === mapping.from)
-					? 'Ready (from framework file)' : 'Not imported yet' });
+					? 'Ready (from framework file)' : 'Missing mapping file' });
 		}
 		const footer = root.createDiv({ cls: 'crosswalker-stack-footer' });
 		new Setting(footer).addButton((button) => button.setButtonText('Back').onClick(() => { this.screen = 'checklist'; this.render(); }))
@@ -298,7 +303,7 @@ export class StackSetupModal extends Modal {
 
 	private renderReview(root: HTMLElement): void {
 		root.createEl('h2', { text: 'Review before import' });
-		root.createEl('p', { text: 'Each framework gets its own new import set and destination. Mapping imports are not part of this run.' });
+		root.createEl('p', { text: 'Frameworks import first, followed by each ready mapping. Every mapping gets a new import set. Missing mapping files stop the run before import.' });
 		const scroll = root.createDiv({ cls: 'crosswalker-stack-scroll' });
 		for (const slot of frameworkSlots(this.stackSelection)) {
 			const fill = this.recognition.fills.find((item) => item.slot.ontology === slot.ontology);
@@ -330,10 +335,11 @@ export class StackSetupModal extends Modal {
 		for (const mapping of activeMappings(this.stackSelection)) {
 			const row = scroll.createDiv({ cls: 'crosswalker-stack-result', attr: { 'data-mapping': mapping.id } });
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: mapping.label });
-			row.createDiv({ cls: 'crosswalker-stack-muted', text: mapping.kind === 'built-in' || mapping.kind === 'from-slot' ? 'Ready' : 'Not imported yet' });
+			row.createDiv({ cls: 'crosswalker-stack-muted', text: mapping.kind === 'built-in' || mapping.kind === 'from-slot' || this.recognition.mappingFills.some((fill) => fill.mapping.id === mapping.id)
+				? 'Ready' : 'Missing mapping file. Add the publisher export before importing.' });
 		}
 		if (this.error) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: this.error });
-		if (this.completed.length) scroll.createDiv({ text: `${this.completed.length} framework sets imported. Other slots have not been imported yet.` });
+		if (this.completed.length) scroll.createDiv({ text: `${this.completed.length} framework sets imported. Remaining mappings will run next.` });
 		const footer = root.createDiv({ cls: 'crosswalker-stack-footer' });
 		new Setting(footer).addButton((button) => button.setButtonText('Back').setDisabled(this.busy)
 			.onClick(() => { this.screen = 'recognize'; this.render(); }))
@@ -342,6 +348,13 @@ export class StackSetupModal extends Modal {
 	}
 
 	private async importFrameworks(): Promise<void> {
+		const missing = activeMappings(this.stackSelection).find((mapping) => mapping.kind === 'download' &&
+			!this.mappingSets.some((item) => item.id === mapping.id) &&
+			!this.recognition.mappingFills.some((fill) => fill.mapping.id === mapping.id && this.sourceFiles.has(fill.source.path)));
+		if (missing) {
+			this.error = `${missing.label} has no recognized source file. Add the publisher mapping export before importing the frameworks.`;
+			this.render(); return;
+		}
 		this.busy = true; this.error = ''; this.render();
 		for (const slot of frameworkSlots(this.stackSelection)) {
 			if (this.completed.some((item) => item.label === slot.entry.label)) continue;
@@ -359,20 +372,34 @@ export class StackSetupModal extends Modal {
 						: 'Check that the file has the expected sheet and columns, and that the destination is writable. Inspect the destination for any notes already created, then try again.'} Remaining frameworks were not started.`;
 					break;
 				}
-				this.completed.push({ label: slot.entry.label, created: outcome.created, setId: outcome.importSetId });
+				this.completed.push({ label: slot.entry.label, created: outcome.created, setId: outcome.importSetId, folder: outcome.destination });
+				this.plugin.debug.info('stack', 'framework', `Stack framework: ${slot.ontology}`);
 			} catch {
 				this.error = `${slot.entry.label} could not be imported. Check the source and destination, then try again. Remaining frameworks were not started.`;
 				break;
 			}
 			this.render();
 		}
+		if (!this.error) {
+			try {
+				this.mappingSets = await importMappingSlots(activeMappings(this.stackSelection), this.recognition.mappingFills,
+					this.sourceFiles, { ...stackMappingDependencies(this.app, this.plugin),
+						onCompleted: (record) => { this.mappingSets.push(record); } }, this.mappingSets);
+			} catch (err) {
+				this.error = err instanceof Error ? err.message : 'A mapping import stopped. Check the mapping file and vault permissions, then try again.';
+			}
+		}
 		this.busy = false;
 		if (!this.error) {
-			const ids = new Set(this.completed.map((item) => item.setId));
+			const ids = new Set([...this.completed.map((item) => item.setId), ...this.mappingSets.map((item) => item.setId)]);
 			try {
-				if (await settleVaultIndex(this.app) === 0) {
-					this.discoveredSets = (await discoverImportSets(this.app)).filter((set) => ids.has(set.id)).length;
-				}
+				// Scoped discovery reads freshly written notes when metadata indexing lags.
+				const roots = new Set([...this.completed.map((item) => item.folder), ...this.mappingSets.map((item) => item.folder)]);
+				const discovered = (await Promise.all([...roots].map((folder) => discoverImportSets(this.app, folder))))
+					.flat().filter((set) => ids.has(set.id));
+				const byId = new Map(discovered.map((set) => [set.id, set.noteCount]));
+				this.discoveredSets = byId.size === ids.size ? byId.size : null;
+				this.discoveredCounts = byId;
 			} catch { this.discoveredSets = null; }
 			this.screen = 'complete';
 		}
@@ -380,10 +407,38 @@ export class StackSetupModal extends Modal {
 	}
 
 	private renderComplete(root: HTMLElement): void {
-		root.createEl('h2', { text: 'Frameworks imported' });
-		root.createEl('p', { text: `${this.completed.length} framework sets, ${this.completed.reduce((sum, item) => sum + item.created, 0)} notes. ${this.discoveredSets === null ? 'Checking vault index.' : `${this.discoveredSets} sets found in the vault.`} Mapping files have not been imported yet.` });
+		root.createEl('h2', { text: 'Framework stack imported' });
+		root.createEl('p', { text: `${this.completed.length} framework sets and ${this.mappingSets.length} mapping sets. ${this.discoveredSets === null ? 'Vault index is still loading; set counts cannot be confirmed yet.' : `${this.discoveredSets} sets confirmed in the vault.`}` });
 		const scroll = root.createDiv({ cls: 'crosswalker-stack-scroll' });
-		for (const item of this.completed) scroll.createDiv({ text: `${item.label}: ${item.created} notes, new set ${item.setId}` });
-		new Setting(root.createDiv({ cls: 'crosswalker-stack-footer' })).addButton((button) => button.setButtonText('Done').onClick(() => this.close()));
+		scroll.createEl('h3', { text: 'Frameworks' });
+		for (const item of this.completed) {
+			const row = scroll.createDiv({ cls: 'crosswalker-stack-result' });
+			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: item.label });
+			const count = item.setId ? this.discoveredCounts.get(item.setId) : undefined;
+			row.createDiv({ cls: 'crosswalker-stack-muted', text: `${count ?? 'Count pending'} ${count === 1 ? 'note' : 'notes'} · Set ${item.setId}` });
+		}
+		scroll.createEl('h3', { text: 'Mappings' });
+		for (const item of this.mappingSets) {
+			const row = scroll.createDiv({ cls: 'crosswalker-stack-result' });
+			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: item.label });
+			const count = this.discoveredCounts.get(item.setId) ?? item.noteCount;
+			row.createDiv({ cls: 'crosswalker-stack-muted', text: `${count} edge ${count === 1 ? 'note' : 'notes'} · Set ${item.setId}` });
+			for (const message of item.unresolved) row.createDiv({ cls: 'crosswalker-stack-warning', text: message });
+		}
+		if (this.error) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: this.error });
+		new Setting(root.createDiv({ cls: 'crosswalker-stack-footer' }))
+			.addButton((button) => button.setButtonText('Reconnect mappings').setDisabled(this.busy || !this.mappingSets.length)
+				.onClick(async () => {
+					this.busy = true; this.error = ''; this.render();
+					try {
+						this.mappingSets = await reconnectMappings(this.mappingSets, stackMappingDependencies(this.app, this.plugin));
+						const sets = await discoverImportSets(this.app);
+						this.discoveredCounts = new Map(sets.map((set) => [set.id, set.noteCount]));
+					} catch (err) {
+						this.error = err instanceof Error ? err.message : 'Mappings could not reconnect. Check the source files and vault permissions, then try again.';
+					}
+					this.busy = false; this.render();
+				}))
+			.addButton((button) => button.setButtonText('Done').onClick(() => this.close()));
 	}
 }

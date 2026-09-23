@@ -36,6 +36,16 @@ The bundled recipes live in the [Crosswalker plugin repository](https://github.c
 | CRI Profile v2.2 | Profile workbook | `CRI Profile v2.2 Structure` | **2** | **472**: F 7 / C 28 / S 119 / DS 318 | `cri-profile-v2-2-flat` |
 | Secure Controls Framework 2026.1 | SCF workbook | `SCF 2026.1` | 0 | **1,468 × 369 columns** | `scf-2026-flat` |
 
+## Stack mapping sources
+
+| Connection | Acquire and recognize | Locality and release |
+|---|---|---|
+| NIST CSF 2.0 to NIST 800-53 | Public-domain NIST OLIR-derived SSSOM mapping included with the plugin; a publisher OLIR workbook with `Focal Document Element` / `Reference Document Element` headers can be selected as a replacement. | Bundled copy has mapping date 2026-05-04. Compare a newer [NIST crosswalk release](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters) before refreshing it. |
+| NIST 800-53 to MITRE ATT&CK | Download the `*_json.json` CTID Mappings Explorer bundle from the [publisher](https://center-for-threat-informed-defense.github.io/mappings-explorer/). Its `mapping_objects` entries have `capability_id`, `attack_object_id`, and `mapping_type`; do not use a Navigator layer or STIX bundle in this slot. | Local only. Current stack expects ATT&CK 16.1, shown in the checklist; check the JSON metadata's `attack_version` before using another release. |
+| CRI Profile to NIST 800-53 | Optional publisher OLIR-shaped CRI mapping workbook with Focal/Reference columns. | Local only; check CRI licence terms for the exact use. |
+
+The [framework crosswalk guide](/crosswalker/agent-context/framework-crosswalks/) describes how the plugin converts these files into linked edge notes. No CTID or CRI mapping rows ship in the bundle.
+
 ## Licence posture
 
 This is a practical pointer, not legal advice and not a replacement for the publisher's terms. Importing a file for your own use, redistributing the source, and sharing generated notes are different acts. Confirm the terms for the exact version, fields, audience, and use involved.

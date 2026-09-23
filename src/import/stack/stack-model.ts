@@ -58,7 +58,7 @@ export function frameworkSlots(
 		.map((entry) => ({ ontology: entry.ontology, entry, role: chosen.has(entry.ontology) ? 'chosen' : 'connector' }));
 }
 
-export function activeMappings(selection: StackSelection, slots = frameworkSlots(selection)): MappingPreset[] {
+export function activeMappings(selection: StackSelection, slots: readonly FrameworkSlot[] = frameworkSlots(selection)): MappingPreset[] {
 	const available = new Set(slots.map((slot) => slot.ontology));
 	return MAPPING_PRESETS.filter((mapping) => available.has(mapping.from) && available.has(mapping.to)
 		&& (!mapping.optional || selection.optionalMappings.includes(mapping.id)));

@@ -5,7 +5,8 @@ import {
 } from '../recipe-registry';
 import type { TablePeek } from '../parsers/table-peek';
 import { suggestWorkbookBinding } from '../workbook-suggestion';
-import type { FrameworkSlot } from './stack-model';
+import { activeMappings, type FrameworkSlot, type StackSelection } from './stack-model';
+import type { MappingPreset } from '../recipe-registry';
 
 export interface StackSource { path: string; name: string; peeks: TablePeek[] }
 export interface StackCandidate {
@@ -17,7 +18,9 @@ export interface StackCandidate {
 	matched: number;
 	expected: number;
 }
+export interface MappingCandidate { source: StackSource; mapping: MappingPreset; table: string; headerRow: number }
 export interface StackRecognition {
+	mappingFills: MappingCandidate[];
 	fills: StackCandidate[];
 	mightMatch: StackCandidate[];
 	ambiguities: { source: StackSource; candidates: StackCandidate[]; message: string }[];
@@ -61,13 +64,43 @@ function bestForSlot(source: StackSource, slot: FrameworkSlot): StackCandidate |
 	return candidate;
 }
 
+function recognizeMappingSource(source: StackSource, mappings: readonly MappingPreset[]): MappingCandidate | null {
+	const name = source.name.toLowerCase();
+	for (const peek of source.peeks) {
+		if (peek.table === '$.mapping_objects[*]' && /\.json$/i.test(name) &&
+			peek.rows.some((row) => ['capability_id', 'attack_object_id', 'mapping_type'].every((key) => row.includes(key)))) {
+			const id = /cri|profile/.test(name) ? 'cri-attack' : '80053-attack';
+			const mapping = mappings.find((item) => item.id === id);
+			if (mapping) return { source, mapping, table: peek.table, headerRow: 0 };
+		}
+		if (!/\.xlsx?$/i.test(name)) continue;
+		for (let headerRow = 0; headerRow < Math.min(peek.rows.length, 9); headerRow++) {
+			const headers = peek.rows[headerRow].map(norm);
+			if (!headers.includes('focal document element') || !headers.includes('reference document element')) continue;
+			const id = /cri|profile/.test(name) ? 'cri-80053' : /csf|cybersecurity.framework/i.test(name) ? 'csf-80053' : null;
+			const mapping = mappings.find((item) => item.id === id);
+			if (mapping) return { source, mapping, table: peek.table, headerRow };
+		}
+	}
+	return null;
+}
+
 /** A hint only breaks ties; it cannot admit a file missing a required column. */
 export function recognizeStackSources(
 	sources: readonly StackSource[], slots: readonly FrameworkSlot[],
 	registry: readonly RecipeRegistryEntry[] = RECIPE_REGISTRY,
+	selection?: StackSelection,
 ): StackRecognition {
-	const result: StackRecognition = { fills: [], mightMatch: [], ambiguities: [], wrongFiles: [], notInStack: [] };
+	const result: StackRecognition = { mappingFills: [], fills: [], mightMatch: [], ambiguities: [], wrongFiles: [], notInStack: [] };
+	const mappings = selection ? activeMappings(selection, slots).filter((mapping) => mapping.kind === 'download' || mapping.kind === 'built-in') : [];
 	for (const source of sources) {
+		const mapping = recognizeMappingSource(source, mappings);
+		if (mapping) {
+			if (result.mappingFills.some((item) => item.mapping.id === mapping.mapping.id)) {
+				result.wrongFiles.push({ source, slot: null, message: `${mapping.mapping.label} already has a mapping file. Keep one publisher export and try again.` });
+			} else result.mappingFills.push(mapping);
+			continue;
+		}
 		const scored = slots.map((slot) => bestForSlot(source, slot)).filter((candidate): candidate is StackCandidate => !!candidate)
 			.sort((a, b) => b.score - a.score || b.expected - a.expected);
 		const best = scored[0];
@@ -83,7 +116,7 @@ export function recognizeStackSources(
 			peek.rows.some((row) => row.some((cell) => /focal.document|reference.document/i.test(cell)))) &&
 			slots.some((slot) => slot.ontology === 'nist-csf-2')) {
 			result.wrongFiles.push({ source, slot: null, message:
-				'This is an OLIR mapping workbook, not a framework catalog. The stack already includes the built-in CSF 2.0 to 800-53 mapping, so this file is not needed.' });
+				'This is an OLIR mapping workbook, not a framework catalog. Choose the matching mapping slot in the picker, or use a filename identifying the mapped frameworks and try again.' });
 			continue;
 		}
 		const cri = slots.find((slot) => slot.ontology === 'cri-profile');

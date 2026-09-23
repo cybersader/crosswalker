@@ -225,6 +225,11 @@ async function runImportSssom(
 		// several sets in one import is expected rather than a collision.
 		return {
 			...prepared.record,
+			// Publisher crosswalks often carry identifiers only; optional labels must
+			// still render as identifiers instead of aborting the entire import.
+			subject_label: prepared.record.subject_label || prepared.record.subject_id,
+			object_label: prepared.record.object_label || prepared.record.object_id,
+			confidence: prepared.record.confidence ?? '',
 			subject_note: resolved.subject_note,
 			object_note: resolved.object_note,
 			edge_body: resolved.edge_body,

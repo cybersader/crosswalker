@@ -55,13 +55,22 @@ describe('stack recognition over synthetic source headers', () => {
 		expect(measured.fills).toHaveLength(0);
 	});
 
-	it('names CIS change logs and OLIR mapping workbooks as wrong inputs', () => {
+	it('recognizes publisher mapping files in mapping slots and names unrelated OLIR input', () => {
 		const cisSlot = frameworkSlots({ ...selection, chosen: ['cis-v8'] })[0];
 		const cis = recognizeStackSources([source('cis.xlsx', ['Safeguard', 'Title'], 'Change Log')], [cisSlot]);
 		expect(cis.wrongFiles[0].message).toContain('Choose the workbook sheet that lists safeguards');
 		const csfSlot = frameworkSlots({ ...selection, chosen: ['nist-csf-2'] })[0];
 		const olir = recognizeStackSources([source('crosswalk.xlsx', ['Focal Document', 'Reference Document'], 'Mappings')], [csfSlot]);
 		expect(olir.wrongFiles[0].message).toContain('OLIR mapping workbook');
+		const selected: StackSelection = { ...selection, connectorExcluded: false, optionalMappings: ['cri-80053'] };
+		const chosenSlots = frameworkSlots(selected);
+		const found = recognizeStackSources([
+			source('Cybersecurity_Framework_v2-0_Concept_Crosswalk_800-53.xlsx', ['Focal Document Element', 'Reference Document Element'], 'Mappings'),
+			source('CRI-Profile-to-SP-800-53.xlsx', ['Focal Document Element', 'Reference Document Element'], 'Mappings'),
+			source('nist_800_53-rev5_attack-16.1-enterprise_json.json', ['capability_id', 'attack_object_id', 'mapping_type'], '$.mapping_objects[*]'),
+		], chosenSlots, RECIPE_REGISTRY, selected);
+		expect(found.mappingFills.map((item) => item.mapping.id).sort()).toEqual(['80053-attack', 'cri-80053', 'csf-80053']);
+		expect(found.wrongFiles).toHaveLength(0);
 	});
 
 	it('fills a CIS workbook that also carries a Change Log sheet', () => {
