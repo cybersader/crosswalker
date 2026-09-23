@@ -1,0 +1,61 @@
+---
+title: "Body projection: a nested level can become sections inside its parent note"
+description: "Decision record for SchemaVer 1.14.0. A nest level may declare leaf: section, so its records render as headings with text inside the nearest note instead of as notes of their own. Sections are content, never concepts: no note, CURIE, provenance, Tier 2 row, or orphan tracking. The Depth dial gains a Below the note stop to choose it."
+tags: [decision, schema, nest, body, reification, workbench]
+date: 2026-09-23
+sidebar:
+  label: "09-23 · Body projection: sections inside the note"
+  order: -20260923
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="note" title="Status">
+Decided and implemented on branch `feat/body-projection` in four waves (schema and validation, render, workbench, docs). The owner accepted the three open recommendations on 2026-09-22. Delivery detail lives in `CHANGELOG.md` `[Unreleased]`; the machine contract is [schema spec §4.16](/crosswalker/agent-context/v0-1-schema-spec/#nest-section).
+</Aside>
+
+## 1. In one breath
+
+A nested source such as a catalog of groups, controls, and control parts could already become nested notes, or leave the deepest level out. What it could not do is the shape most readers want: one note per control with its statement and guidance as headings inside it. [Body projection](/crosswalker/concepts/terminology/#section-record) (plain: writing a nested level as sections of its parent note) adds that as a fourth answer to "where does this level go": folder, note, left out, **section**. It is deeper [reification](/crosswalker/concepts/terminology/#reification) plus user control over it during import, set from the same Depth dial, not a row-by-row editing surface.
+
+## 2. Example
+
+Synthetic source: group `g1`, control `c1`, parts `statement` ("Do the thing.") and `guidance` ("Consider the other thing."). Before, the choices were `g1/c1/p1.md` and `g1/c1/p2.md`, or no parts at all. Now `g1/c1.md` carries `## Statement` and `## Guidance` inside its managed body, and no part note is written.
+
+## 3. Decisions
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | **The schema cut is `leaf: section` on the nest level plus an optional `level` on append body entries.** Heading text and depth come from the level's existing `heading` layout entry | `leaf` already decides whether a level's records are emitted, and the Depth dial already owns `leaf`. A layout-only rule ("a heading entry below a file entry means sections") would make the source stage read the layout and would silently change older non-nested recipes that already carry such entries. Three declarations stay separate: `nest.leaf` says whether records become notes, `layout` says where they land, `also_emit.body` says what content they carry |
+| 2 | **No sixth mechanism.** Sections render through the `heading` mechanism into the existing section body-region type | The [closed recipe grammar](/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/) of five layout mechanisms is a settled commitment. The heading mechanism had grammar with no runtime for nested sources; this gives it one |
+| 3 | **A section is content of its host concept, not a concept.** No note, CURIE, provenance, Tier 2 row, or orphan entry | [Identity, never path](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/): a heading anchor is a file plus a heading, which is a path. A section never claims an identity, so adding or removing one changes only the host body and cannot orphan anything |
+| 4 | **One managed body region.** Host H1, then the host's own projections, then sections depth-first in source order | Managed body regions already keep every byte outside the region on refresh. A second or nested region is a corruption case today, so sections go inside the existing one. Source order is the only deterministic order without a new setting |
+| 5 | **Every attached record gets a heading, even with empty content** (owner-accepted) | The note should say honestly how many records exist. `omit_if_empty` governs content only |
+| 6 | **Section text is one field per level in the wizard** (owner-accepted) | Covers catalog-shaped sources. A section body built from several fields stays recipe-only for this version |
+| 7 | **`leaf` may flip on refresh; identity rules do not.** Section to note mints under the scheme [pinned at import-set mint](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/). Note to section reports the old notes as orphans, keeps them, and never deletes them | `leaf` is a shape choice. Deleting stays the user's action. The summary sentence names the folded levels for the whole recipe rather than attributing each orphan (owner-accepted; per-orphan attribution would need the set to record each note's level) |
+| 8 | **Section fields count toward the host's `wording` review group** | A changed part is a change to its control's wording, so it belongs in that control's review queue ([Challenge 43 groups](/crosswalker/agent-context/v0-1-schema-spec/#_crosswalker-provenance-block)) |
+
+## 4. What this leaves out
+
+| Not in this version | Reason |
+|---|---|
+| `source.where` over section records | They are host content, and the where stage runs over emitted rows |
+| Sub-headings inside a projected section | Content shape, not placement; waits for a real source that needs it |
+| Sections interleaved with the host's own projections, or a chosen order | Source order is the only deterministic order without a new setting |
+| Folding levels of a non-nested, level-column source | Those rows are emitted one per row; grouping rows by host needs its own design |
+| Section frontmatter, tags, links, crosswalks | A section has no frontmatter |
+
+## 5. Follow-up
+
+| Item | Where |
+|---|---|
+| Real-Obsidian visual capture of the dial at sections with a sample preview open | `tests/e2e/visual-body-projection.spec.ts` |
+| Decide which milestone page tracks nested records and body projection; neither the 1.13.0 nor the 1.14.0 work has a milestone status cell | [milestones hub](/crosswalker/reference/roadmap/milestones/) |
+
+## Related
+
+- Machine contract: [schema spec §4.16, `leaf: section`](/crosswalker/agent-context/v0-1-schema-spec/#nest-section), and the predecessor [§4.15, `source.nest[]`](/crosswalker/agent-context/v0-1-schema-spec/#source-nest)
+- Terms: [section record](/crosswalker/concepts/terminology/#section-record), [nested record level](/crosswalker/concepts/terminology/#nested-record-level), [reification](/crosswalker/concepts/terminology/#reification), [import set](/crosswalker/concepts/terminology/#import-set)
+- Framing: [deeper reification and import control synthesis](/crosswalker/agent-context/zz-log/2026-09-21-deep-reification-and-import-control-synthesis/)
+- Rules applied: [import set = ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/), [re-import is identity reconciliation](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/), [target-structure synthesis (closed grammar)](/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/)
+- Pillars: [vision](/crosswalker/agent-context/vision/), [what makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/)

@@ -13,7 +13,7 @@ tags: [schema, foundation, v0-1, architecture]
 
 **Scoped addendum, 2026-09-07** — one subsection only. `source_ref` and its `source_hash` property were re-checked field by field against `spec/tier1.schema.json § $defs.provenance_block.properties.source_ref` (unchanged: five optional properties, `minProperties: 1`, `source_hash` still a plain unpatterned string) and against `buildSourceRef()` in `src/generation/provenance.ts` (unchanged: conditional emission, omitted when falsy). The new runtime producer was read in `src/import/parsers/xlsx-parser.ts` and `src/generation/hash.ts` on the local working tree. **Producer status at the time of writing:** uncommitted, unmerged, unreleased, and partially verified — see the status callout in that subsection. No other section of this page was re-verified on this date, and the lines below stand unchanged.
 
-**Status last verified:** 2026-09-22 (second pass, after the Depth select and the last-level `leaf: none` rule; wizard labels read from a real-Obsidian run of `tests/e2e/visual-nested-surfaces.spec.ts`). §4.15 (`source.nest`, SchemaVer 1.13.0) was checked against `spec/recipe.schema.json` `$defs/nest_level`, `source.nest`, and the `$comment` history; `recipeHashCanonicalInput()` in `src/generation/hash.ts`; `src/source/nest.ts`; `src/render/index.ts`; and `pathIdentityLocalPart()` in `src/generation/curie.ts`. Earlier: 2026-09-21. §4.13 and §4.14 (SchemaVer 1.12.0) were checked against `spec/recipe.schema.json` `$defs/crosswalk_entry`, `source.detect`, and the `$comment` history; `recipeHashCanonicalInput()` in `src/generation/hash.ts`; `src/generation/crosswalk-edge-pass.ts`; and the bundled `recipes/import/cri-profile-v2-2.json`. Earlier: 2026-09-15. §4.12 (`part` / `prefix` delimiter-set filters, SchemaVer 1.11.0) was checked against the `$defs/template` description and `$comment` line in `spec/recipe.schema.json`, the `FILTERS` table in `src/render/template.ts`, and `LevelRule.delimiters` in `src/import/mapping/types.ts`. Earlier: 2026-09-06. The recipe-document digest additions were checked field by field against the local working tree: both new `recipe_document_digest` definitions and reference locations in [`spec/tier1.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/tier1.schema.json) and [`spec/recipe.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/recipe.schema.json), the helper and the reduced effective-target input in `src/generation/hash.ts`, `normalizeRecipe()` and the fork branch in `src/import/recipe-document.ts`, and the generated `RecipeAncestryReference`. That work has since passed independent verification (full unit suite, golden tests, lint, build, `codegen --check`, fixture no-drift, and all six static gates; detail in [CHANGELOG.md, Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present)) and remains unmerged and unreleased. The rest of the page retains its 2026-08-31 field-by-field verification against those two schemas and `src/tier2/schema.sql`.
+**Status last verified:** 2026-09-23 for §4.16 (`leaf: section` and the body-entry `level`, SchemaVer 1.14.0), checked field by field against `spec/recipe.schema.json` `$defs/nest_level.leaf`, `$defs/body_entry` (append variant), `source.properties.nest.description` rule (6), and the `$comment` history; the nine section diagnostics in `src/import/recipe-document.ts`; `renderAttachedSections` in `src/render/index.ts`; the `wording` group walk in `src/generation/hash.ts`; the orphan sentence in `src/import/import-wizard.ts`; and the workbench labels in `src/import/workbench.ts`. The §4.15 limits sentence now points to §4.16. Earlier: 2026-09-22 (second pass, after the Depth select and the last-level `leaf: none` rule; wizard labels read from a real-Obsidian run of `tests/e2e/visual-nested-surfaces.spec.ts`). §4.15 (`source.nest`, SchemaVer 1.13.0) was checked against `spec/recipe.schema.json` `$defs/nest_level`, `source.nest`, and the `$comment` history; `recipeHashCanonicalInput()` in `src/generation/hash.ts`; `src/source/nest.ts`; `src/render/index.ts`; and `pathIdentityLocalPart()` in `src/generation/curie.ts`. Earlier: 2026-09-21. §4.13 and §4.14 (SchemaVer 1.12.0) were checked against `spec/recipe.schema.json` `$defs/crosswalk_entry`, `source.detect`, and the `$comment` history; `recipeHashCanonicalInput()` in `src/generation/hash.ts`; `src/generation/crosswalk-edge-pass.ts`; and the bundled `recipes/import/cri-profile-v2-2.json`. Earlier: 2026-09-15. §4.12 (`part` / `prefix` delimiter-set filters, SchemaVer 1.11.0) was checked against the `$defs/template` description and `$comment` line in `spec/recipe.schema.json`, the `FILTERS` table in `src/render/template.ts`, and `LevelRule.delimiters` in `src/import/mapping/types.ts`. Earlier: 2026-09-06. The recipe-document digest additions were checked field by field against the local working tree: both new `recipe_document_digest` definitions and reference locations in [`spec/tier1.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/tier1.schema.json) and [`spec/recipe.schema.json`](https://github.com/cybersader/crosswalker/blob/main/spec/recipe.schema.json), the helper and the reduced effective-target input in `src/generation/hash.ts`, `normalizeRecipe()` and the fork branch in `src/import/recipe-document.ts`, and the generated `RecipeAncestryReference`. That work has since passed independent verification (full unit suite, golden tests, lint, build, `codegen --check`, fixture no-drift, and all six static gates; detail in [CHANGELOG.md, Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present)) and remains unmerged and unreleased. The rest of the page retains its 2026-08-31 field-by-field verification against those two schemas and `src/tier2/schema.sql`.
 
 The machine-readable contracts and canonical SQL remain authoritative. Sections §3 and §7 below summarize the shipped shapes. Historical TypeScript/YAML sketches are labeled as history and must not be used as implementation contracts.
 
@@ -909,9 +909,99 @@ For group `ac`, control `ac-1`, and part `ac-1_smt`, the three row addresses are
 
 **Hash and source namespace.** `source.nest` participates in `computeRecipeHash()` because it changes which notes exist. Absence stays absent instead of becoming `null`, so every recipe without `nest` keeps its previous canonical input and hash byte for byte (source: `src/generation/hash.ts § recipeHashCanonicalInput`). A source column literally named `_cw` is refused with `Column "_cw" is reserved for nested-record lineage. Rename it in the source and import again.` because `_cw` belongs to the producer contract (source: `src/source/joins.ts § assertNoReservedSourceColumn`).
 
-**Limits.** JSON-field nesting requires an eager source; a streamed source with `nest` is refused with an action to import without streaming (source: `src/source/index.ts`). A join-backed nested import previews the primary row count until generation reads the secondary collection and computes the exact emitted count. Wizard detection stops at four levels, so deeper nesting is outside this build's stated scope. Recursive shapes are walked only to the depth explicitly declared in `source.nest` (source: `src/import/detection.ts`, `src/source/nest.ts`). The deferred capability remains plain: parts as sections under their control is not a layout shape and is not in this build.
+**Limits.** JSON-field nesting requires an eager source; a streamed source with `nest` is refused with an action to import without streaming (source: `src/source/index.ts`). A join-backed nested import previews the primary row count until generation reads the secondary collection and computes the exact emitted count. Wizard detection stops at four levels, so deeper nesting is outside this build's stated scope. Recursive shapes are walked only to the depth explicitly declared in `source.nest` (source: `src/import/detection.ts`, `src/source/nest.ts`). Folding a nested level into its parent note as sections was deferred here and is now specified in [§4.16](#nest-section).
 
 **Backward compatibility**: purely additive (SchemaVer ADDITION). Recipes without `source.nest` validate, generate, and hash unchanged. Spec URI did NOT bump.
+
+<span id="nest-section"></span>
+
+### §4.16 `nest_level.leaf: section` and level-scoped body projections (added 2026-09-22, SchemaVer 1.14.0; additive)
+
+Deeper [reification](/crosswalker/concepts/terminology/#reification), and user control over it during import, now reach inside the note: a nested level's records can become [**sections**](/crosswalker/concepts/terminology/#section-record) (plain: headings with text inside their parent's note) instead of notes of their own or nothing at all. This is **body projection** of a nested level. It is the fourth answer to "where does this level go" (folder, note, left out, section), and it uses the existing `heading` layout mechanism: the closed grammar of five mechanisms is unchanged (source: `spec/recipe.schema.json § $defs/mechanism`).
+
+**Fields.** Two optional additions, nothing else (source: `spec/recipe.schema.json`):
+
+| Path | Contract |
+|---|---|
+| `$defs/nest_level.leaf` | Enum gains `section`, so it reads `folder-note`, `none`, `section`. A `section` level's records are not emitted as rows; each is attached to its nearest emitted ancestor's row under `_cw.sections` in document order and rendered as a heading region inside that ancestor's managed body. Heading text and depth come from that level's layout `heading` entry (`template`, `level_depth`); content comes from body projections declared with `level: <this level>`. Legal on any level whose parent is a note or a section level; never on level 0. |
+| `$defs/body_entry` (append variant) | New optional `level` (non-empty string). Restricts the projection to the records of one nest level that declares `leaf: section`; it renders once per attached record, against that record's scope, under its heading. Absent: the projection applies to every emitted row as before. The `section` variant of `body_entry` does not take `level`. |
+
+The producer contract in `source.properties.nest.description` gains rule (6), stated in the schema as:
+
+```text
+(6) a record at a level whose leaf is 'section' is not emitted as a row; it is attached to its nearest emitted ancestor under _cw.sections in document order, and rendered inside that ancestor's managed body region, after the ancestor's own body projections, as one heading region per record (heading text from that level's layout heading entry, depth from its level_depth, content from body projections declared with that level), with section levels below a section level rendered depth-first as deeper headings.
+```
+
+The schema's contract text also carries rule (5b), on blanking carried fields of an ancestor that `source.where` excluded, which the five-rule quote in [§4.15](#source-nest) predates.
+
+**Identity: a section is content, not a concept.** A section record gets no note, no CURIE, no `_crosswalker` provenance, no Tier 2 row, and no orphan tracking (source: `src/generation/generation-engine.ts`). Crosswalker never treats `[[note#Heading]]` as an identity, because that is a path; Obsidian users may still link to the heading. A section never claims a CURIE, so adding or removing one changes only its host's body and cannot create an orphan. Its fields do count toward the host's `wording` [review group](/crosswalker/agent-context/v0-1-schema-spec/#_crosswalker-provenance-block), so a changed part marks its control note for wording review (source: `src/generation/hash.ts`). Section levels are pinned at [import-set](/crosswalker/concepts/terminology/#import-set) mint like every nest level (source: `tests/import-set.test.ts`).
+
+**Body layout.** Everything lands inside the one managed body region; there is no second region and no nesting of regions (source: `src/generation/managed-body.ts`). Order inside the region: the host's H1, the host's own unscoped body projections in declared order, then sections depth-first in source order. There is no sorting and no interleaving. Every attached record gets a heading even when all of its content is empty, so the note is honest about how many records exist; `omit_if_empty` governs content only. Heading depth is the heading entry's `level_depth`; the workbench assigns 2 to the first section level below the note and one deeper per nested section level, which reads `##`, `###` under the automatic H1 (source: `src/import/mapping/view-model.ts`, `src/render/index.ts § renderAttachedSections`). Unscoped body projections never apply to section records, and level-scoped projections never apply to emitted rows.
+
+**Worked example (synthetic).** Group `g1`, control `c1` with parts `p1` (`name: statement`) and `p2` (`name: guidance`):
+
+```jsonc
+"source": { "ontology": "oscal-mini", "levels": ["group", "control", "part"],
+  "nest": [
+    { "level": "group",   "id": "{id}", "children": "controls", "carry": ["title"], "leaf": "folder-note" },
+    { "level": "control", "id": "{id}", "children": "parts",    "carry": ["title"] },
+    { "level": "part",    "id": "{id}", "leaf": "section" } ] },
+"target": {
+  "layout": [
+    { "level": "group",   "mechanism": "folder",  "template": "{_cw.ancestors.group.id|fs-safe}" },
+    { "level": "control", "mechanism": "file",    "template": "{id|fs-safe}.md" },
+    { "level": "part",    "mechanism": "heading", "level_depth": 2, "template": "{name|title}" } ],
+  "also_emit": {
+    "body": [ { "template": "{prose}", "position": "append", "level": "part" } ] } }
+```
+
+`g1/c1.md` then carries this body region, and no part note is written (source: `tests/nest-generation.test.ts`):
+
+```text
+<!-- crosswalker:body:start v=1 -->
+# Control one
+
+## Statement
+
+Do the thing.
+
+## Guidance
+
+Consider the other thing.
+<!-- crosswalker:body:end -->
+```
+
+**Refresh.** On replace, only the managed region is rebuilt; prose outside it survives byte for byte, and prose typed inside it (under a section heading) is overwritten, as the region contract always said (source: `src/generation/existing-note.ts`). A refresh that changes nothing but `produced_at` leaves the note untouched. `leaf` is a shape choice, not an identity rule, so a refresh may flip it:
+
+| Flip | Result |
+|---|---|
+| section to note | That level's rows are emitted and mint CURIEs under the identity scheme pinned at mint; the host region is rebuilt without the sections; zero orphans. |
+| note to section | The run claims no CURIE at that level, so the notes written earlier are reported by the existing orphan pass, kept on disk, and never deleted. The wizard adds: `Some may be <levels> notes that this recipe now folds into their parent notes as sections.` with every section level named in nest order (source: `src/import/import-wizard.ts`). |
+| `none` to section, or back | Host body rebuilt; no identity effect. |
+
+**Diagnostics.** Nine codes: eight blocking and one warning (source: `src/import/recipe-document.ts`):
+
+| Code | Severity | Condition |
+|---|---|---|
+| `nest-section-on-root` | blocking | `leaf: section` on the first nest level |
+| `nest-section-parent-not-note` | blocking | the level above has `leaf: none` |
+| `nest-section-no-heading-entry` | blocking | `target.layout` has no `heading` entry for the level |
+| `nest-section-has-file-entry` | blocking | the level also has a `file` or `folder` layout entry |
+| `nest-section-heading-kind` | blocking | the level's heading entry declares a `kind` other than `concept` |
+| `nest-section-depth-order` | blocking | a section level under a section level does not have a strictly deeper `level_depth` |
+| `nest-section-child-is-note` | blocking | a level below a section level has `leaf: folder-note` or a `file` entry |
+| `body-level-not-section` | blocking | a body entry's `level` names a level that does not declare `leaf: section` |
+| `nest-section-no-body` | warning | a section level has no body projection with its `level`; headings render with no content |
+
+`level_depth` above 6 is refused by the schema itself (source: `spec/recipe.schema.json § $defs/level_depth`).
+
+**Wizard control surface.** The Depth row gains **Below the note**, shown only on nested sources with a level below the note, with **Left out** or **Sections inside each &lt;note level&gt; note**. With sections chosen, the hint names each placement (for example `each part becomes a section inside its control note`) and adds `Sections are rebuilt on every refresh. Write your own notes below the managed region.` Each nested row below the note has a **Placement** select (**Left out**, or **Sections inside each &lt;parent&gt; note**) and, when set to sections, a **Section text** select choosing the field projected under each heading. The counts read `<n> notes, <m> sections`, and the sample preview opens on the first note-level row so the section headings are visible (source: `src/import/workbench.ts`).
+
+**Hash.** No hash code changed: `leaf` sits inside `source.nest`, the heading entry inside `target.layout`, and `level` inside `also_emit.body`, all already in `recipeHashCanonicalInput()` (source: `src/generation/hash.ts`).
+
+**Out of scope for this version.** `source.where` over section records, sub-headings inside a projected section, user-chosen section order, folding levels of a non-nested (level-column) source, and section-level frontmatter, tags, links, or crosswalks. See the [body projection decision log](/crosswalker/agent-context/zz-log/2026-09-23-body-projection-sections-inside-the-note/).
+
+**Backward compatibility**: purely additive (SchemaVer ADDITION). Recipes without `leaf: section` or a body `level` validate, generate, and hash unchanged. Spec URI did NOT bump.
 
 ## §5 Historical junction-note design sketch
 
