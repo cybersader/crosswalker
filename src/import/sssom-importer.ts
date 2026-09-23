@@ -30,6 +30,7 @@
 import type { App } from 'obsidian';
 import type { ParsedData, GenerationResult } from '../types/config';
 import { generateFromRecipe } from '../generation/generation-engine';
+import { edgeEndpointIndex, resolveEdgeEndpoints, summarizeUnresolvedEndpoints, type UnresolvedEndpoint } from '../generation/edge-endpoints';
 import type { Recipe } from '../render';
 import type { CrosswalkPredicate } from './mapping/types';
 import type { DebugLog } from '../utils/debug';
@@ -80,6 +81,8 @@ export interface SssomImportResult {
 	target: string | null;
 	folder: string | null;
 	skipped?: 'parse-error' | 'no-rows';
+	unresolved: UnresolvedEndpoint[];
+	summary: string[];
 }
 
 /**
@@ -128,6 +131,8 @@ async function runImportSssom(
 		source: null,
 		target: null,
 		folder: null,
+		unresolved: [],
+		summary: [],
 	};
 
 	// ----- Phase 1: Parse -----
@@ -208,7 +213,10 @@ async function runImportSssom(
 		group.forEach((prepared, index) => occurrenceByIndex.set(prepared.index, index + 1));
 	}
 
+	const { index: endpointIndex, unreadable } = await edgeEndpointIndex(app);
 	const rowsForRecipe = preparedRows.map((prepared) => {
+		const resolved = resolveEdgeEndpoints(endpointIndex, { ...prepared.record, predicate_id: prepared.strm });
+		result.unresolved.push(...resolved.unresolved);
 		const occurrence = occurrenceByIndex.get(prepared.index)!;
 		// Shared pair root, as before P3. A per-mapping-set subfolder would change
 		// where existing notes live, and relocating them is only safe while their
@@ -217,6 +225,9 @@ async function runImportSssom(
 		// several sets in one import is expected rather than a collision.
 		return {
 			...prepared.record,
+			subject_note: resolved.subject_note,
+			object_note: resolved.object_note,
+			edge_body: resolved.edge_body,
 			sssom_predicate: prepared.sssomPred,
 			predicate_id: prepared.strm,
 			mapping_provider: normalizeOptionalString(prepared.record.mapping_provider)
@@ -241,6 +252,7 @@ async function runImportSssom(
 		rowCount: parsed.rows.length,
 	});
 
+	result.summary = summarizeUnresolvedEndpoints(result.unresolved, unreadable);
 	const recipe = buildSyntheticRecipe(source, target);
 	const generatedColumns = [
 		'sssom_predicate',
@@ -344,6 +356,8 @@ function buildSyntheticRecipe(source: string, target: string): Recipe {
 						predicate_id: '{predicate_id}',
 						subject_id: '{subject_id}',
 						object_id: '{object_id}',
+						subject_note: '{subject_note|optional}',
+						object_note: '{object_note|optional}',
 						subject_label: '{subject_label}',
 						object_label: '{object_label}',
 						mapping_justification: '{mapping_justification}',
@@ -362,6 +376,7 @@ function buildSyntheticRecipe(source: string, target: string): Recipe {
 					},
 					user_preserve: ['review_status', 'reviewer', '*notes*'],
 				},
+				body: [{ template: '{edge_body}', position: 'append', format: 'text' }],
 			},
 		},
 	};

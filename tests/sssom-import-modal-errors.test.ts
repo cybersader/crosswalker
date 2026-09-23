@@ -241,13 +241,13 @@ describe('an identity collision reached through the SSSOM importer', () => {
 		expect(collision[0]).toMatch(/^Row \d+: /);
 	});
 
-	it('closes quietly on the same run without the collision, which is the control', async () => {
+	it('reports missing concept endpoints without calling them generation errors, which is the control', async () => {
 		// Without this, every assertion above is satisfied by a modal that draws an
 		// error screen unconditionally.
 		const { texts, close } = await importThroughTheModal(false);
-		expect(close).toHaveBeenCalledTimes(1);
-		expect(texts.filter((line) => /Errors|Ambiguous/.test(line))).toEqual([]);
+		expect(close).not.toHaveBeenCalled();
+		expect(texts.join(' ')).toMatch(/Import csf concepts/);
+		expect(texts.filter((line) => /Ambiguous identity/.test(line))).toEqual([]);
 		expect(noticeText()).not.toMatch(/finished with|failed:/);
-		expect(noticeText()).toContain(`junction notes created under ${FOLDER}`);
 	});
 });

@@ -16,6 +16,8 @@
           "subject_id": "{subject_id}",
           "predicate_id": "{strm_predicate}",
           "object_id": "{object_id}",
+          "subject_note": "{subject_note|optional}",
+          "object_note": "{object_note|optional}",
           "mapping_set_id": "{mapping_set_id}",
           "predicate_modifier": "{predicate_modifier}",
           "subject_group": "{subject_group}",

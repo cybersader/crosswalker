@@ -4,15 +4,14 @@
  * Verifies the SSSOM TSV import end-to-end against real Obsidian:
  *   1. Command 'crosswalker:import-sssom' is registered
  *   2. plugin.precomputeClosure handle is exposed
- *   3. Direct importSssom call (bypassing modal) round-trips:
- *      TSV string → 11 junction notes → mappings table populated → closure cache populated
+ *   3. Legacy synthetic-recipe fixture creates 5 edge notes and populates
+ *      mappings and closure tables; a separate P2 case calls the actual importer.
  *   4. STRM normalization happens (skos:closeMatch → is_approximate_to)
  *   5. Original SKOS predicate preserved as sssom_predicate frontmatter
- *   6. Idempotent re-import produces same junction-note count
+ *   6. Actual importer resolves concept links and explicitly refreshes a missing end
  *
- * The modal UX itself is covered manually in TEST_PHASE2_SSSOM_IMPORT.md
- * Scenarios 1+5; this E2E exercises the import logic without driving the modal
- * (faster + more deterministic than UI automation).
+ * The modal UX is not exercised by this spec; the P2 case uses the plugin's
+ * E2E importer handle to avoid duplicating importer logic in its assertions.
  */
 
 import { browser } from '@wdio/globals';
@@ -282,4 +281,57 @@ describe('Crosswalker plugin — v0.1.6 Phase 2 SSSOM import (E2E)', function ()
 		});
 		expect(cached).toBeGreaterThan(0);
 	});
+
+	it('the real SSSOM importer retains a missing end and fills it on explicit mapping refresh', async () => {
+		const pair = '_crosswalker/mappings/p2ssrc-to-p2sdst';
+		const tsv = [
+			'# subject_source: "p2ssrc"', '# object_source: "p2sdst"',
+			'subject_id\tsubject_label\tpredicate_id\tobject_id\tobject_label\tmapping_justification\tconfidence',
+			'p2ssrc:Alpha\tAlpha\tskos:exactMatch\tp2sdst:Beta\tBeta\tsynthetic\t0.9',
+		].join('\n');
+		const seed = async (ontology: string, id: string, basePath: string, template: string) =>
+			browser.executeObsidian(async ({ app }, args) => {
+				// @ts-expect-error - internal plugin lookup
+				const plugin = app.plugins.plugins['crosswalker'];
+				return plugin.runImportFromRecipe(
+					{ columns: ['id'], rows: [{ id: args.id }], rowCount: 1 },
+					{ recipe: 'p2-sssom-concept', source: { ontology: args.ontology, levels: ['concept'] },
+						target: { layout: [{ level: 'concept', mechanism: 'file', template: args.template }] } },
+					{ basePath: args.basePath, overwriteMode: 'replace', createFolders: true, strictValidation: true },
+				);
+			}, { ontology, id, basePath, template });
+		expect((await seed('p2ssrc', 'Alpha', 'P2-sssom/source', 'Deep/{id}.md')).success).toBe(true);
+		const importMapping = async (options: Record<string, unknown>) =>
+			browser.executeObsidian(async ({ app }, args) => {
+				// @ts-expect-error - internal plugin lookup
+				const plugin = app.plugins.plugins['crosswalker'];
+				const result = await plugin.runSssomImportForE2E(args.tsv, { ...args.options, runTier2Projection: false });
+				return { success: result.generation?.success, created: result.generation?.created,
+					errors: result.generation?.errors, summary: result.summary };
+			}, { tsv, options });
+		const first = await importMapping({ overwriteMode: 'replace' });
+		expect(first.success).toBe(true);
+		expect(first.created).toHaveLength(1);
+		expect(first.summary.join(' ')).toMatch(/Import p2sdst concepts/);
+		const edge = await readFrontmatterMatching(pair, '.md');
+		expect(edge.path).toBeTruthy();
+		expect(edge.frontmatter?.subject_note).toBe('[[P2-sssom/source/Deep/Alpha|Alpha]]');
+		expect(edge.frontmatter?.object_note).toBeUndefined();
+		const readEdge = (p: string) => browser.executeObsidian(async ({ app }, filePath) =>
+			app.vault.read(app.vault.getAbstractFileByPath(filePath) as any), p);
+		expect(await readEdge(edge.path!)).toContain('[[P2-sssom/source/Deep/Alpha|Alpha]] is_equivalent_to `p2sdst:Beta`');
+		expect((await seed('p2sdst', 'Beta', 'P2-sssom/target', 'Nested/{id}.md')).success).toBe(true);
+		const set = (edge.frontmatter as any)._crosswalker.import_set;
+		const refreshed = await importMapping({ importSet: { id: set.id, scheme: set.scheme }, overwriteMode: 'replace' });
+		expect(refreshed.success).toBe(true);
+		expect(refreshed.errors).toEqual([]);
+		expect(refreshed.summary).toEqual([]);
+		const after = await readFrontmatterMatching(pair, '.md');
+		expect(after.path).toBe(edge.path);
+		expect(after.frontmatter?.object_note).toBe('[[P2-sssom/target/Nested/Beta|Beta]]');
+		expect(await readEdge(after.path!)).toContain('[[P2-sssom/source/Deep/Alpha|Alpha]] is_equivalent_to [[P2-sssom/target/Nested/Beta|Beta]]');
+		expect(await browser.executeObsidian(({ app }, folder) =>
+			app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${folder}/`)).length, pair)).toBe(1);
+	});
+
 });

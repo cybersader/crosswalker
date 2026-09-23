@@ -55,6 +55,7 @@ function makeMockApp(): { app: App; written: Map<string, string>; folders: Set<s
 				written.set(file.path, content);
 			},
 			read: async (file: any) => written.get(file.path) ?? '',
+			cachedRead: async (file: any) => written.get(file.path) ?? '',
 			createFolder: async (p: string) => {
 				folders.add(p);
 			},
@@ -416,3 +417,39 @@ subject_id	predicate_id	object_id	mapping_set_id	subject_label	object_label	mapp
 // nothing), so this is left as a written gap rather than a green assertion.
 // Reopening it is a product decision, not a test one.
 // ---------------------------------------------------------------------------
+
+describe('P2 SSSOM endpoint link projection', () => {
+	const tsv = 'subject_id\tsubject_label\tpredicate_id\tobject_id\tobject_label\tmapping_justification\tconfidence\nalpha:A\tAlpha\tskos:exactMatch\tbeta:B\tBeta\tSynthetic\t1';
+	it('links both concept identities regardless of their filenames', async () => {
+		const { app, written } = makeMockApp();
+		const seed = (path: string, curie: string) => written.set(path,
+			`---\ncurie: ${curie}\n_crosswalker:\n  import_set:\n    id: iset-abcdef\n---\n`);
+		seed('One/First.md', 'alpha:A');
+		seed('Two/Nested/Second.md', 'beta:B');
+		const result = await importSssom(app, tsv, null, null, { runTier2Projection: false });
+		expect(result.summary).toEqual([]);
+		expect(result.generation?.created).toHaveLength(1);
+		const edge = [...written.entries()].find(([path]) => path.startsWith('_crosswalker/mappings/'))![1];
+		expect(edge).toContain('[[One/First|First]] is_equivalent_to [[Two/Nested/Second|Second]]');
+		expect(edge).toContain('subject_note:');
+		expect(edge).toContain('object_note:');
+	});
+	it('keeps the edge when one end is absent, then a chosen refresh fills it without orphans', async () => {
+		const { app, written } = makeMockApp();
+		written.set('One/First.md', '---\ncurie: alpha:A\n_crosswalker:\n  import_set:\n    id: iset-abcdef\n---\n');
+		const first = await importSssom(app, tsv, null, null, { runTier2Projection: false });
+		expect(first.generation?.created).toHaveLength(1);
+		expect(first.summary.join(' ')).toMatch(/Import beta concepts/);
+		const edgePath = first.generation!.created[0];
+		expect(written.get(edgePath)).toContain('[[One/First|First]] is_equivalent_to `beta:B`');
+		expect(written.get(edgePath)).not.toContain('object_note:');
+		written.set('Two/Second.md', '---\ncurie: beta:B\n_crosswalker:\n  import_set:\n    id: iset-abcdef\n---\n');
+		const fm = parseYaml(written.get(edgePath)!.match(/^---\n([\s\S]*?)\n---/)![1]) as any;
+		const refreshed = await importSssom(app, tsv, null, null, {
+			runTier2Projection: false, importSet: fm._crosswalker.import_set, overwriteMode: 'replace',
+		});
+		expect(refreshed.summary).toEqual([]);
+		expect(refreshed.generation?.orphans).toBeUndefined();
+		expect(written.get(edgePath)).toContain('[[One/First|First]] is_equivalent_to [[Two/Second|Second]]');
+	});
+});

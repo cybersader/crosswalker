@@ -301,7 +301,9 @@ function deriveSignature(raw: RawRecipe): { signature: string[]; required: strin
 		for (const [key, tmpl] of Object.entries(managed)) {
 			// Generation supplies these optional provenance defaults; their absence
 			// must not prevent recognition of legacy crosswalk source columns.
-			if (key === 'mapping_set_id' || key === 'predicate_modifier') continue;
+			// Edge endpoint links are vault-derived, not source-file columns.
+			if (key === 'mapping_set_id' || key === 'predicate_modifier'
+				|| (raw.recipe === 'olir-crosswalk-edge' && (key === 'subject_note' || key === 'object_note'))) continue;
 			for (const c of templateColumns(tmpl)) signature.add(c);
 		}
 		const managedLinks = emit.frontmatter?.managed_links ?? {};

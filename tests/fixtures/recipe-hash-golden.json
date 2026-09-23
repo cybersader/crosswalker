@@ -2,7 +2,7 @@
 	"recipes/import/cis-controls-v8-controls.json": "sha256-b6bdc91fed6c09df042347322becf03e91cb0043e5680c0003fec5daef640f3b",
 	"recipes/import/cis-controls-v8.json": "sha256-6767c47f675f9d29e83ec410984dfaa102662cbea06672f0454b818541114c81",
 	"recipes/import/cri-profile-v2-2.json": "sha256-84e795b6529a60615e9183f9e63aac43a991bc8f5a0f4b430ed80413bf7deaf7",
-	"recipes/import/crosswalk-edge.json": "sha256-4113d90f01abed83495d478263a3a9df355214e7d2405015be8df285894e223c",
+	"recipes/import/crosswalk-edge.json": "sha256-ed118a182cc003be1a967274eaf3741d3699513c516cb8732c09b487cf93d142",
 	"recipes/import/mitre-attack-technique.json": "sha256-783ed87b9755e382df830414eac17d5c484d594a40f56f9e665385e902cd1bb6",
 	"recipes/import/nist-800-53-flat.json": "sha256-9cfdedc9bcbaccc48f9b62d75f3f239ae76b8a9f6a9e3b756680ab31075d324c",
 	"recipes/import/nist-csf-2-cprt-hierarchical.json": "sha256-b22583e579e56e82f01055ed527bf359fe00a64b8503278e82cf3c9ba70fa076",

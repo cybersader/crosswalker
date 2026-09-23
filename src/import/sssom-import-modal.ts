@@ -490,6 +490,10 @@ export class SssomImportModal extends Modal {
 				return;
 			}
 
+			if (result.summary.length > 0) {
+				this.renderImportErrors(gen, result.folder, result.summary);
+				return;
+			}
 			new Notice(
 				`SSSOM import: ${gen.created.length} junction notes created under ${result.folder}`,
 				8000,
@@ -510,7 +514,7 @@ export class SssomImportModal extends Modal {
 	 * Notice truncates, expires, and cannot be scrolled, so a run with twenty
 	 * refusals reached the user as one line and then vanished.
 	 */
-	private renderImportErrors(gen: GenerationResult, folder: string | null | undefined): void {
+	private renderImportErrors(gen: GenerationResult, folder: string | null | undefined, unresolved: string[] = []): void {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.createEl('h2', { text: 'SSSOM import results' });
@@ -523,8 +527,9 @@ export class SssomImportModal extends Modal {
 			summary.createEl('p', { text: `Skipped: ${gen.skipped.length} existing notes` });
 		}
 		summary.createEl('p', { text: `Errors: ${gen.errors.length}`, cls: 'mod-warning' });
+		for (const message of unresolved) summary.createEl('p', { text: message, cls: 'mod-warning' });
 
-		contentEl.createEl('h4', { text: 'Errors' });
+		if (gen.errors.length > 0) contentEl.createEl('h4', { text: 'Errors' });
 		const list = contentEl.createDiv({ cls: 'crosswalker-error-list' });
 		for (const error of gen.errors.slice(0, 20)) {
 			list.createEl('p', { text: formatGenerationError(error), cls: 'crosswalker-error-item' });
