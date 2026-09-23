@@ -21,6 +21,7 @@ import { ImportFlow, type ImportFlowHost, type PrefillBinding } from '../import/
 import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { renderPresetGuide } from '../import/import-preset-guide';
 import { VaultSourceScanModal } from '../import/vault-source-scan-modal';
+import { StackSetupModal } from '../import/stack/stack-modal';
 import {
 	deriveInstalledOntologies,
 	findRecipeForOntologyIdentity,
@@ -182,6 +183,10 @@ export class CrosswalkerWorkspaceView extends ItemView {
 		// action opens the wide in-tab experience, not the modal.
 		this.launchButton(row, 'download', 'Import structured data', true, () => {
 			this.startFlow();
+		});
+
+		this.launchButton(row, 'layers', 'Set up a framework stack', false, () => {
+			new StackSetupModal(this.app).open();
 		});
 
 		this.launchButton(row, 'search', 'Find sources in this vault', false, () => {

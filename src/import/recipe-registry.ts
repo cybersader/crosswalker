@@ -755,3 +755,68 @@ export function summarizeRecipeShapes(entry: RecipeRegistryEntry): string[] {
 	}
 	return shapes;
 }
+
+/** Setup-only composition data. No mapping file is imported until a later phase. */
+export const ATTACK_MAPPING_RELEASE = '16.1';
+
+export interface MappingPreset {
+	id: string;
+	label: string;
+	from: string;
+	to: string;
+	kind: 'from-slot' | 'built-in' | 'download';
+	optional?: boolean;
+	defaultSelected: boolean;
+	source: string;
+	expectedFile: string;
+	publisherLink?: { label: string; url: string };
+	/** Provenance/refresh landing page, never shown as a download for built-in data. */
+	refreshSource?: { label: string; url: string };
+	licenceNote?: string;
+	versionNote?: string;
+}
+
+export const MAPPING_PRESETS: readonly MappingPreset[] = [
+	{
+		id: 'cri-csf', label: 'CRI Profile to NIST CSF 2.0', from: 'cri-profile', to: 'nist-csf-2',
+		kind: 'from-slot', defaultSelected: true, source: 'Comes from the CRI Profile workbook.',
+		expectedFile: 'From the CRI Profile file',
+		licenceNote: 'CRI registration and licence terms apply. Crosswalker does not distribute this file.',
+	},
+	{
+		id: 'csf-80053', label: 'NIST CSF 2.0 to NIST 800-53', from: 'nist-csf-2', to: 'nist-800-53',
+		kind: 'built-in', defaultSelected: true, source: 'Built in. No download needed.',
+		expectedFile: 'No download needed',
+		versionNote: 'Derived from NIST OLIR data dated 2026-05-04. Refresh source: NIST Concept Crosswalk.',
+		refreshSource: { label: 'NIST Concept Crosswalk', url: 'https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters' },
+	},
+	{
+		id: 'cri-80053', label: 'CRI Profile to NIST 800-53 (direct)', from: 'cri-profile', to: 'nist-800-53',
+		kind: 'download', optional: true, defaultSelected: false,
+		source: 'Optional CRI mapping workbook. Local use only.', expectedFile: 'CRI mapping workbook',
+		publisherLink: { label: 'Cyber Risk Institute', url: 'https://cyberriskinstitute.org/the-profile/' },
+		licenceNote: 'CRI licence terms apply. Use locally; Crosswalker does not distribute this file.',
+	},
+	{
+		id: '80053-attack', label: 'NIST 800-53 to MITRE ATT&CK', from: 'nist-800-53', to: 'mitre-attack',
+		kind: 'download', defaultSelected: true, source: 'CTID Mappings Explorer download.',
+		expectedFile: 'CTID mapping file',
+		publisherLink: { label: 'CTID Mappings Explorer', url: 'https://center-for-threat-informed-defense.github.io/mappings-explorer/' },
+		versionNote: `Mappings cover ATT&CK release ${ATTACK_MAPPING_RELEASE}.`,
+	},
+	{
+		id: 'cri-attack', label: 'CRI Profile to MITRE ATT&CK', from: 'cri-profile', to: 'mitre-attack',
+		kind: 'download', optional: true, defaultSelected: false,
+		source: 'Optional CRI mapping workbook. Local use only.', expectedFile: 'CRI ATT&CK mapping workbook',
+		publisherLink: { label: 'Cyber Risk Institute', url: 'https://cyberriskinstitute.org/the-profile/' },
+		licenceNote: 'CRI licence terms apply. Use locally; Crosswalker does not distribute this file.',
+	},
+];
+
+export const STACK_PRESETS = [
+	{
+		id: 'financial-services-threat-informed', label: 'Financial services, threat-informed',
+		frameworks: ['cri-profile', 'mitre-attack', 'nist-800-53'] as readonly string[],
+		detail: 'max' as const,
+	},
+] as const;
