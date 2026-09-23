@@ -15,7 +15,9 @@ Make the portable parts of the import/export chain explicit without collapsing d
 
 ## Status
 
-🚧 In progress (started 2026-07-12) — exporter first slice ✅; ImportRecipe fidelity foundation ✅ 2026-07-21. Remaining scope is the reusable-configuration library lifecycle, separate source/run binding + full-source replay proofs, and the minimal MappingSet portability envelope. Delivery detail lives only in `CHANGELOG.md` `[Unreleased]`.
+🚧 In progress (started 2026-07-12) — exporter first slice ✅; ImportRecipe fidelity foundation ✅ 2026-07-21. Remaining scope is the reusable-configuration library lifecycle, separate source/run binding + full-source replay proofs, and the minimal MappingSet portability envelope. Delivery detail lives only in `CHANGELOG.md` `[Unreleased]`. This milestone also tracks nested source records (SchemaVer 1.13.0) and [body projection](/crosswalker/agent-context/zz-log/2026-09-23-body-projection-sections-inside-the-note/) (1.14.0), assigned 2026-09-23; both are on `feat/body-projection`, unmerged.
+
+**Scoped addendum, 2026-09-23** — the Status paragraph and the nested-records scope bullet only. Nested records and body projection were assigned to this milestone; no status symbol, checkbox or success criterion changed.
 
 **Scoped addendum, 2026-09-09** — the Track 2 paragraph below only, re-checked against the targeted real-Obsidian acceptance run of `tests/e2e/visual-wizard-formats.spec.ts` and its independent evidence review. **No status cell, checkbox or success criterion changed** — a passing targeted runtime acceptance on unmerged branch work satisfies none of them, and the source-byte-hash clause still asks for a hash recorded in a run binding that does not exist. No other section of this page was re-verified on this date.
 
@@ -37,6 +39,7 @@ Make the portable parts of the import/export chain explicit without collapsing d
 - CSV exporter — any generated framework folder back to a spreadsheet (scope addition, delivered 2026-07-12 ahead of plan)
 - Reusable-configuration library lifecycle — canonical ImportRecipe save/open/browse/inspect/export/delete under `_crosswalker/recipes/import/`
 - Separate source/run binding — recipe reference + recipe hash, exact source-byte hash, parser selectors, destination, and bound parameters; source drift is diagnosed before replay
+- Nested source records and body projection — nested levels become folders, notes, sections inside the parent note, or are left out, set from the Depth dial ([decision log](/crosswalker/agent-context/zz-log/2026-09-23-body-projection-sections-inside-the-note/))
 - Minimal MappingSet portability envelope — stable set identity/version, participants, membership/integrity, provenance/license, canonical SSSOM/STRM round-trip, and inspect/export UI
 - Command palette entries: "Crosswalker: Export STRM TSV", "Export OSCAL JSON" (only after target shape settles), "Export SSSOM TSV"
 - Roundtrip test: STRM TSV → import → STRM TSV produces identical bytes (deterministic)

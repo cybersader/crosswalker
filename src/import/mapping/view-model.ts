@@ -133,19 +133,22 @@ export function setFolderDepth(
 	m: StructureMapping,
 	depth: number,
 	nest?: NestedRecordLevel[],
+	below: 'none' | 'section' = 'none',
 ): { mapping: StructureMapping; nest?: NestedRecordLevel[] } {
 	const maximum = maxFolderDepthOf(m);
 	if (!Number.isInteger(depth) || depth < 0 || depth > maximum) {
 		return { mapping: m, nest };
 	}
-	if (folderDepthOf(m) === depth) return { mapping: m, nest };
 
 	const keepTail = m.tail !== undefined && depth === maximum;
 	const fixedFolderDepth = keepTail ? Math.max(0, m.levels.length - 1) : depth;
 	const nestedLevels = new Set(nest?.map((entry) => entry.level) ?? []);
+	const noteLevel = m.levels[fixedFolderDepth]?.level ?? 'root';
 	const levels = m.levels.map((level, index) => {
 		const other = level.destinations.filter(
-			(destination) => destination.primitive !== 'folder' && destination.primitive !== 'name',
+			(destination) => destination.primitive !== 'folder'
+				&& destination.primitive !== 'name'
+				&& (destination.primitive !== 'heading' || !nestedLevels.has(level.level)),
 		);
 		let destinations: Destination[];
 		if (index < fixedFolderDepth) {
@@ -154,6 +157,13 @@ export function setFolderDepth(
 			destinations = [...other, { primitive: 'name' }];
 		} else if (nestedLevels.has(level.level)) {
 			destinations = other.filter((destination) => destination.primitive !== 'property');
+			if (below === 'section') {
+				destinations.push({
+					primitive: 'heading',
+					hostRule: noteLevel,
+					depth: 1 + index - fixedFolderDepth,
+				});
+			}
 		} else {
 			destinations = other.length > 0
 				? other
@@ -183,15 +193,18 @@ export function setFolderDepth(
 				: { ...entry, leaf: 'folder-note' as const };
 		}
 		if (index > fixedFolderDepth) {
-			return entry.leaf === 'none'
+			return entry.leaf === below
 				? entry
-				: { ...entry, leaf: 'none' as const };
+				: { ...entry, leaf: below };
 		}
 		if (entry.leaf === undefined) return entry;
 		const { leaf: _leaf, ...noteEntry } = entry;
 		return noteEntry;
 	});
-	return { mapping, nest: nextNest };
+	const sameDepth = folderDepthOf(m) === depth;
+	const sameNest = structuralEqual(nest, nextNest);
+	const sameLevels = structuralEqual(m.levels, levels) && structuralEqual(m.tail, tail);
+	return sameDepth && sameNest && sameLevels ? { mapping: m, nest } : { mapping, nest: nextNest };
 }
 
 /**
@@ -485,12 +498,156 @@ export function setCrosswalkTarget(
 export function setNestLeaf(
 	mapping: ImportMapping,
 	level: string,
-	leaf: 'folder-note' | 'none',
+	leaf: 'folder-note' | 'none' | 'section',
 ): ImportMapping {
-	return {
-		...mapping,
-		nest: mapping.nest?.map((entry) => entry.level === level ? { ...entry, leaf } : entry),
-	};
+	const nest = mapping.nest;
+	const index = nest?.findIndex((entry) => entry.level === level) ?? -1;
+	if (!nest || index < 0) return mapping;
+
+	const affected = new Set<string>([level]);
+	const nextNest = nest.map((entry, entryIndex) => {
+		if (entryIndex === index) return { ...entry, leaf };
+		if (leaf === 'none' && entryIndex > index && entry.leaf === 'section') {
+			affected.add(entry.level);
+			return { ...entry, leaf: 'none' as const };
+		}
+		return entry;
+	});
+
+	let mappings = mapping.mappings.map((structure) => ({
+		...structure,
+		levels: structure.levels.map((rule) => ({
+			...rule,
+			destinations: rule.destinations.filter((destination) =>
+				destination.primitive !== 'heading' || !affected.has(rule.level),
+			),
+		})),
+	}));
+	if (leaf === 'none') {
+		const nestedLevels = new Set(nextNest.map((entry) => entry.level));
+		mappings = mappings.map((structure) => ({
+			...structure,
+			levels: structure.levels.map((rule) => ({
+				...rule,
+				destinations: rule.destinations.filter((destination) =>
+					destination.primitive !== 'body' || destination.level === undefined || !affected.has(destination.level),
+				),
+			})).filter((rule) => rule.destinations.length > 0 || nestedLevels.has(rule.level)),
+		})).filter((structure) => structure.levels.length > 0 || structure.tail !== undefined);
+	}
+	if (leaf === 'section') {
+		const heading = sectionHeadingDestination({ ...mapping, mappings, nest: nextNest }, index);
+		if (heading) {
+			mappings = mappings.map((structure) => ({
+				...structure,
+				levels: structure.levels.map((rule) => rule.level === level
+					? { ...rule, destinations: sortDestinations([...rule.destinations, heading]) }
+					: rule),
+			}));
+		}
+	}
+	return { ...mapping, mappings, nest: nextNest };
+}
+
+/** Choose the source field rendered by one nested section level's heading. */
+export function setSectionHeading(
+	mapping: ImportMapping,
+	level: string,
+	column: string,
+): ImportMapping {
+	let changed = false;
+	const mappings = mapping.mappings.map((structure) => ({
+		...structure,
+		levels: structure.levels.map((rule) => {
+			if (
+				rule.level !== level
+				|| !rule.destinations.some((destination) => destination.primitive === 'heading')
+				|| sourceReadsColumn(rule.source, column)
+			) return rule;
+			changed = true;
+			return { ...rule, source: { column } };
+		}),
+	}));
+	return changed ? { ...mapping, mappings } : mapping;
+}
+
+/** Route one nested level's section text through a level-scoped append projection. */
+export function setSectionText(
+	mapping: ImportMapping,
+	level: string,
+	column: string,
+): ImportMapping {
+	const nestedLevels = new Set(mapping.nest?.map((entry) => entry.level) ?? []);
+	const cleared = mapping.mappings.map((structure) => ({
+		...structure,
+		levels: structure.levels.map((rule) => ({
+			...rule,
+			destinations: rule.destinations.filter((destination) =>
+				destination.primitive !== 'body' || destination.level !== level,
+			),
+		})).filter((rule) => rule.destinations.length > 0 || nestedLevels.has(rule.level)),
+	})).filter((structure) => structure.levels.length > 0 || structure.tail !== undefined);
+	if (!column) return { ...mapping, mappings: cleared };
+
+	let attached = false;
+	const mappings = cleared.map((structure) => ({
+		...structure,
+		levels: structure.levels.map((rule) => {
+			if (
+				attached
+				|| !sourceReadsColumn(rule.source, column)
+				|| rule.destinations.some((destination) =>
+					destination.primitive === 'folder'
+					|| destination.primitive === 'name'
+					|| destination.primitive === 'heading',
+				)
+			) return rule;
+			attached = true;
+			return {
+				...rule,
+				destinations: sortDestinations([
+					...rule.destinations,
+					{ primitive: 'body', position: 'append', level },
+				]),
+			};
+		}),
+	}));
+	if (!attached) {
+		mappings.push({
+			levels: [{
+				level: column,
+				source: { column },
+				destinations: [{ primitive: 'body', position: 'append', level }],
+				naming: 'part',
+				missing: DEFAULT_MISSING,
+				materialize: false,
+			}],
+		});
+	}
+	return { ...mapping, mappings };
+}
+
+function sectionHeadingDestination(
+	mapping: ImportMapping,
+	nestIndex: number,
+): Extract<Destination, { primitive: 'heading' }> | null {
+	const nest = mapping.nest;
+	if (!nest || nestIndex <= 0) return null;
+	const parent = nest[nestIndex - 1];
+	const parentRule = mapping.mappings.flatMap((structure) => structure.levels)
+		.find((rule) => rule.level === parent.level);
+	const parentHeading = parentRule?.destinations.find(
+		(destination): destination is Extract<Destination, { primitive: 'heading' }> => destination.primitive === 'heading',
+	);
+	if (parent.leaf === 'section' && parentHeading) {
+		return { primitive: 'heading', hostRule: parentHeading.hostRule, depth: parentHeading.depth + 1 };
+	}
+	return { primitive: 'heading', hostRule: parent.level, depth: 2 };
+}
+
+function sourceReadsColumn(source: LevelSource, column: string): boolean {
+	const refs = toSourceRefs(source);
+	return refs.length === 1 && !isConstantRef(refs[0]) && refs[0].column === column && refs[0].part === undefined;
 }
 
 export function setNestIdentity(

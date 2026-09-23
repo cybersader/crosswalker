@@ -7,6 +7,8 @@ export type BodyProjection =
 	| {
 			template: string;
 			position?: 'append';
+			/** Restrict this append projection to attached records at one section level. */
+			level?: string;
 			format?: BodyFormat;
 			omit_if_empty?: boolean;
 	  }

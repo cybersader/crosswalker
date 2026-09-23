@@ -241,6 +241,8 @@ export type Destination =
 			headingDepth?: 1 | 2 | 3 | 4 | 5 | 6;
 			format?: 'text' | 'code' | 'quote' | 'list';
 			omitIfEmpty?: boolean;
+			/** Restricts an append projection to attached records from one section nest level. */
+			level?: string;
 			/** Legacy transforms have no portable recipe surface and block patching. */
 			transform?: string;
 			/** Internal canonical array position retained across workbench projection. */

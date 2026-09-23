@@ -175,6 +175,13 @@ export interface ImportFlowHost {
 	exitLabel?: string;
 }
 
+function joinWithOr(values: readonly string[]): string {
+	if (values.length === 0) return '';
+	if (values.length === 1) return values[0];
+	if (values.length === 2) return `${values[0]} or ${values[1]}`;
+	return `${values.slice(0, -1).join(', ')}, or ${values[values.length - 1]}`;
+}
+
 /**
  * Import Flow — the full multi-step (soon: multi-zone) import experience.
  *
@@ -4138,6 +4145,9 @@ export class ImportFlow {
 			if (workbenchMode && this.workbench) {
 				options.recipeOverride = this.workbench.buildRecipe();
 			}
+			const sectionLevels = options.recipeOverride?.source?.nest
+				?.filter((entry) => entry.leaf === 'section')
+				.map((entry) => entry.level) ?? [];
 
 			// The UI keeps its comma shorthand. GenerationOptions carries the one
 			// translated run expression across BOTH ordinary and workbench modes; the
@@ -4252,7 +4262,7 @@ export class ImportFlow {
 				// AM-7 joins AM-4 here: a run that could not check for orphans has
 				// something to explain, and the notice already points at this screen.
 				if (result.errors.length > 0 || needsResults) {
-					this.renderGenerationResults(result);
+					this.renderGenerationResults(result, sectionLevels);
 					return;
 				}
 
@@ -4267,7 +4277,7 @@ export class ImportFlow {
 				new Notice(`⚠️ Generation completed with errors:\n${errorSummary}`, 10000);
 
 				// Render results in modal
-				this.renderGenerationResults(result);
+				this.renderGenerationResults(result, sectionLevels);
 			}
 
 		} catch (error) {
@@ -4298,7 +4308,7 @@ export class ImportFlow {
 		orphans?: Array<{ curie: string; path: string }>;
 		/** AM-7. False when orphan detection was suppressed, so `no orphans` is never printed for a run that never looked. */
 		orphansChecked?: boolean;
-	}) {
+	}, sectionLevels: readonly string[] = []) {
 		const contentEl = this.host.containerEl;
 		contentEl.empty();
 
@@ -4361,8 +4371,11 @@ export class ImportFlow {
 				text: 'Orphans: not checked. This run could not confirm it read the whole source, so it cannot say whether any notes are missing.',
 			});
 		} else if (orphans.length > 0) {
+			const sectionHint = sectionLevels.length > 0
+				? ` Some may be ${joinWithOr(sectionLevels)} notes that this recipe now folds into their parent notes as sections.`
+				: '';
 			summary.createEl('p', {
-				text: `🕳️ Orphans: ${orphans.length} ${orphans.length === 1 ? 'note is' : 'notes are'} no longer in the source. They were kept, not deleted.`,
+				text: `🕳️ Orphans: ${orphans.length} ${orphans.length === 1 ? 'note is' : 'notes are'} no longer in the source. They were kept, not deleted.${sectionHint}`,
 			});
 		}
 		// A conflict carries the same weight as an error on this screen. A note

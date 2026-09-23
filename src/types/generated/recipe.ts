@@ -237,7 +237,7 @@ export interface SourceDeclaration {
 	levels: [string, ...string[]];
 	detect?: SourceRecognitionHints;
 	/**
-	 * Declares that the primary collection's records own sub-record lists, and that each level should become its own rows. Level 0 is the primary iterator's records. CONTRACT (any producer that follows it hash-matches the plugin): (1) emission is depth-first in document order, parent row before its children, then the next parent; a `leaf: none` row is not emitted; its children still carry `_cw.parent`; (2) every emitted row carries one reserved key `_cw`, an object with `level` (this level's name), `path` (array of ancestor ids root first, including self), `parent` (the immediate parent's id, or '' at level 0), and `ancestors.<level>.<field>` (the carried fields of each ancestor AND of this row's own level); (3) identity 'path' joins escaped pieces with '/'; (4) leaf 'folder-note' lands at <folder>/<folder>.md; (5) source.where is evaluated per emitted row after `_cw` is attached and does not cascade from parent to child; (5b) when source.where excludes a parent, every carried field of that excluded ancestor is blanked to '' on admitted descendants so its folder level renders empty and records folder-level-skipped. The last entry has no children. Participates in the recipe hash because it changes which notes exist.
+	 * Declares that the primary collection's records own sub-record lists, and that each level should become its own rows. Level 0 is the primary iterator's records. CONTRACT (any producer that follows it hash-matches the plugin): (1) emission is depth-first in document order, parent row before its children, then the next parent; a `leaf: none` row is not emitted; its children still carry `_cw.parent`; (2) every emitted row carries one reserved key `_cw`, an object with `level` (this level's name), `path` (array of ancestor ids root first, including self), `parent` (the immediate parent's id, or '' at level 0), and `ancestors.<level>.<field>` (the carried fields of each ancestor AND of this row's own level); (3) identity 'path' joins escaped pieces with '/'; (4) leaf 'folder-note' lands at <folder>/<folder>.md; (5) source.where is evaluated per emitted row after `_cw` is attached and does not cascade from parent to child; (5b) when source.where excludes a parent, every carried field of that excluded ancestor is blanked to '' on admitted descendants so its folder level renders empty and records folder-level-skipped; (6) a record at a level whose leaf is 'section' is not emitted as a row; it is attached to its nearest emitted ancestor under _cw.sections in document order, and rendered inside that ancestor's managed body region, after the ancestor's own body projections, as one heading region per record (heading text from that level's layout heading entry, depth from its level_depth, content from body projections declared with that level), with section levels below a section level rendered depth-first as deeper headings. The last entry has no children. Participates in the recipe hash because it changes which notes exist.
 	 *
 	 * @minItems 1
 	 */
@@ -292,9 +292,9 @@ export interface NestedRecordLevel {
 	 */
 	carry?: string[];
 	/**
-	 * For a NON-leaf level only: how this level's own row becomes a note. 'folder-note': the row renders the layout entries at or above its level and lands as <folder>/<folder>.md. 'none': this level produces folders only and no note of its own (its children still carry _cw.parent naming it). Required on every non-leaf level unless target.layout declares a file entry for that level; a non-leaf level with neither is refused at validation.
+	 * How this level's own record is emitted. 'folder-note': the row renders the layout entries at or above its level and lands as <folder>/<folder>.md. 'none': this level produces no row or note of its own (its children still carry _cw.parent naming it). 'section': this level's records are not emitted as rows; each is attached to its nearest emitted ancestor's row under _cw.sections (document order) and rendered as a heading region inside that ancestor's managed body, using this level's layout heading entry for heading text and depth and the body projections declared with level: <this level> for content. Legal on any level whose parent is a note or a section level; never on level 0. Required on every non-leaf level unless target.layout declares a file entry for that level; a non-leaf level with neither is refused at validation.
 	 */
-	leaf?: 'folder-note' | 'none';
+	leaf?: 'folder-note' | 'none' | 'section';
 	/**
 	 * How this level's CURIE local part is formed. 'global': the id template's value as is; use when the id is unique across the whole source (OSCAL control ids). 'path': _cw.path pieces joined with '/', each piece escaped first so the join is injective; use when ids repeat under different parents (a part called 'statement' under every control). Fixed at import-set mint like every identity rule; a refresh cannot flip it.
 	 */
@@ -545,6 +545,10 @@ export interface AppendBodyProjection {
 	 * When true (default), omit the region if the rendered template is empty.
 	 */
 	omit_if_empty?: boolean;
+	/**
+	 * Restricts this projection to the records of one nest level that declares leaf: section; rendered once per attached record, against that record's scope, under its heading. Absent: applies to every emitted row as before.
+	 */
+	level?: string;
 }
 export interface SectionBodyProjection {
 	template: Template;

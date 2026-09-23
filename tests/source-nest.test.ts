@@ -25,6 +25,26 @@ const NEST: NestedRecordLevel[] = [
 ];
 
 const groups = (): Row[] => JSON.parse(JSON.stringify(fixture.catalog.groups)) as Row[];
+const sectionGroups = (): Row[] => [{
+	id: 'g1',
+	title: 'Group one',
+	controls: [
+		{
+			id: 'c1',
+			title: 'Control one',
+			parts: [
+				{ id: 'p1', name: 'statement', prose: 'Do the thing.' },
+				{ id: 'p2', name: 'guidance', prose: 'Consider the other thing.' },
+			],
+		},
+		{ id: 'c2', title: 'Control two', parts: [] },
+	],
+}];
+const SECTION_NEST: NestedRecordLevel[] = [
+	{ level: 'group', id: '{id}', children: 'controls', leaf: 'folder-note' },
+	{ level: 'control', id: '{id}', children: 'parts' },
+	{ level: 'part', id: '{id}', leaf: 'section' },
+];
 const unavailableSecondary = {
 	resolve: async () => { throw new Error('No secondary collection expected in this test.'); },
 };
@@ -161,6 +181,62 @@ describe('expandNestedRows', () => {
 				'source.nest.1.children: Column "_cw" is reserved for nested-record lineage. Rename it in the source and import again.',
 			);
 		}
+	});
+	it('attaches section records to their nearest emitted ancestor in document order', async () => {
+		const result = await expandNestedRows(
+			sectionGroups(), SECTION_NEST, renderTemplate, unavailableSecondary,
+		);
+		expect(result.rows.map((row) => row.id)).toEqual(['g1', 'c1', 'c2']);
+		expect(result.countsByLevel).toEqual({ group: 1, control: 2, part: 2 });
+		const control = result.rows.find((row) => row.id === 'c1')!;
+		const sections = (control._cw as any).sections as Row[];
+		expect(sections.map((row) => row.id)).toEqual(['p1', 'p2']);
+		expect(sections[0]).toMatchObject({
+			id: 'p1',
+			name: 'statement',
+			prose: 'Do the thing.',
+		});
+		expect((sections[0]._cw as any)).toMatchObject({
+			level: 'part',
+			path: ['g1', 'c1', 'p1'],
+			parent: 'c1',
+		});
+		expect(result.rows.some((row) => row.id === 'p1' || row.id === 'p2')).toBe(false);
+		expect(result.rows.find((row) => row.id === 'c2')!._cw).not.toHaveProperty('sections');
+	});
+
+	it('preserves reordered section document order without sorting', async () => {
+		const rows = sectionGroups();
+		const controls = rows[0].controls as Row[];
+		(controls[0].parts as Row[]).reverse();
+		const result = await expandNestedRows(rows, SECTION_NEST, renderTemplate, unavailableSecondary);
+		const control = result.rows.find((row) => row.id === 'c1')!;
+		expect(((control._cw as any).sections as Row[]).map((row) => row.id)).toEqual(['p2', 'p1']);
+	});
+
+	it('nests a section level under its immediate section parent', async () => {
+		const rows = sectionGroups();
+		const controls = rows[0].controls as Row[];
+		const parts = controls[0].parts as Row[];
+		parts[0].subparts = [
+			{ id: 's1', text: 'First detail.' },
+			{ id: 's2', text: 'Second detail.' },
+		];
+		parts[1].subparts = [{ id: 's3', text: 'Third detail.' }];
+		const nest: NestedRecordLevel[] = [
+			SECTION_NEST[0],
+			SECTION_NEST[1],
+			{ ...SECTION_NEST[2], children: 'subparts' },
+			{ level: 'subpart', id: '{id}', leaf: 'section' },
+		];
+		const result = await expandNestedRows(rows, nest, renderTemplate, unavailableSecondary);
+		expect(result.rows.map((row) => row.id)).toEqual(['g1', 'c1', 'c2']);
+		expect(result.countsByLevel).toEqual({ group: 1, control: 2, part: 2, subpart: 3 });
+		const control = result.rows.find((row) => row.id === 'c1')!;
+		const attachedParts = (control._cw as any).sections as Row[];
+		expect(((attachedParts[0]._cw as any).sections as Row[]).map((row) => row.id)).toEqual(['s1', 's2']);
+		expect(((attachedParts[1]._cw as any).sections as Row[]).map((row) => row.id)).toEqual(['s3']);
+		expect(result.rows.some((row) => ['p1', 'p2', 's1', 's2', 's3'].includes(String(row.id)))).toBe(false);
 	});
 });
 

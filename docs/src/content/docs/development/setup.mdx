@@ -121,6 +121,7 @@ These all work standalone if you prefer not to use the orchestrator:
 | `bun run lint` | ESLint with obsidian-plugin rules (required for community plugin submission) |
 | `bun run lint:fix` | Auto-fix lint issues |
 | `bun run e2e` | Plugin E2E tests (WebdriverIO, requires Obsidian) |
+| `bun run e2e:xvfb` | Same E2E suite on a private virtual display (Xvfb). Use for screenshot specs; it keeps working when the monitors sleep |
 | **Orchestrator** (interactive menu wraps the workflows below) | |
 | `bun run serve` | Interactive 8-mode menu — docs dev, plugin watch, parallel both, tunnel sharing, tests, MDX check |
 | `bun run serve:docs` | Shortcut: docs Astro dev server (mode 1) |

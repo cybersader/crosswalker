@@ -2187,7 +2187,12 @@
 }
 .crosswalker-wb-arrange:hover { text-decoration: underline; }
 
-.crosswalker-wb-matrix-wrap { overflow-x: auto; margin-top: var(--cw-s2); }
+.crosswalker-wb-matrix-wrap {
+	overflow-x: auto; margin-top: var(--cw-s2);
+	/* Query container so full-width rows (nest controls) can size to the
+	   visible scrollport instead of the table's scrolled width. */
+	container-type: inline-size; container-name: cw-matrix;
+}
 .crosswalker-wb-matrix { width: 100%; border-collapse: collapse; font-size: var(--cw-fs-small); }
 .crosswalker-wb-matrix th { text-align: left; font-size: var(--cw-fs-eyebrow); text-transform: uppercase; letter-spacing: var(--cw-track-eyebrow); color: var(--text-faint); border-bottom: 1px solid var(--background-modifier-border); padding: var(--cw-s2) var(--cw-s2); }
 .crosswalker-wb-matrix td { padding: var(--cw-s2); border-bottom: 1px solid var(--background-modifier-border); vertical-align: top; }
@@ -2200,13 +2205,25 @@
 }
 .crosswalker-wb-gestures button:hover { border-color: var(--interactive-accent); color: var(--text-normal); }
 .crosswalker-wb-matrix tr:has(+ .crosswalker-wb-nest-row) td { border-bottom: none; }
+/* The nest row spans the whole table, which scrolls horizontally inside
+   .crosswalker-wb-matrix-wrap when the level columns are wider than the card
+   (the three-column workbench leaves the mapping canvas narrow). Without a
+   bound, the controls wrapped to the full table width and sat past the card's
+   visible edge. Size them to the visible scrollport (100cqi of the wrap,
+   less the cell's padding) and pin them to its left edge, so they stay in view
+   and never widen the table themselves. */
 .crosswalker-wb-nest-controls {
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--cw-s1) var(--cw-s3);
 	font-size: var(--cw-fs-small);
+	box-sizing: border-box;
+	width: calc(100cqi - 2 * var(--cw-s2));
+	position: sticky;
+	left: var(--cw-s2);
 }
-.crosswalker-wb-nest-controls label { display: inline-flex; align-items: center; gap: var(--cw-s1); }
+.crosswalker-wb-nest-controls label { display: inline-flex; align-items: center; gap: var(--cw-s1); min-width: 0; max-width: 100%; }
+.crosswalker-wb-nest-controls select { min-width: 0; max-width: 100%; }
 
 /* Inline delimiter-set editor under one matrix row. */
 .crosswalker-wb-split-panel > td {

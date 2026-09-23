@@ -363,11 +363,16 @@ export function render(
 		}
 		if (alsoEmit.body) {
 			for (const projection of alsoEmit.body) {
+				// A level-scoped projection belongs to attached section records only.
+				// Unscoped entries retain their historical emitted-row behaviour.
+				if ('level' in projection && projection.level !== undefined) continue;
 				const region = renderBodyProjection(projection, identity.scope, report);
 				if (region) address.body.push(region);
 			}
 		}
 	}
+
+	renderAttachedSections(recipe, identity.scope, address, report);
 
 	// 3. Compute wikilinkTarget — Pass-1 absolute form (full vault path
 	//    minus .md extension, plus heading anchor if present).
@@ -403,6 +408,84 @@ export function render(
 	}
 
 	return address;
+}
+
+/**
+ * Render attached nested records as heading regions inside their host note.
+ * The source stage owns attachment; render() only turns that deterministic tree
+ * into the existing ordered body-region type.
+ */
+function renderAttachedSections(
+	recipe: Recipe,
+	hostScope: ConceptIdentity['scope'],
+	address: Address,
+	report?: RenderReport,
+): void {
+	const body = recipe.target.also_emit?.body ?? [];
+
+	const visit = (record: ConceptIdentity['scope']): void => {
+		const lineage = sectionLineage(record);
+		if (!lineage || typeof lineage.level !== 'string') return;
+
+		const headingEntry = recipe.target.layout.find(
+			(entry) => entry.level === lineage.level && entry.mechanism === 'heading',
+		);
+		if (!headingEntry) {
+			throw new RenderError(
+				`Section level "${lineage.level}" has no heading layout entry. Validate the recipe before rendering.`,
+			);
+		}
+
+		// Reuse the heading mechanism's validation and exact error text without
+		// changing the host note's anchor. The temporary address is discarded.
+		const headingAddress: Address = {
+			primary: { path: '' },
+			wikilinkTarget: '',
+			tags: [],
+			aliases: [],
+			body: [],
+			frontmatter: {},
+		};
+		applyHeading(
+			headingAddress,
+			headingEntry as Parameters<typeof applyHeading>[1],
+			record,
+			report,
+		);
+
+		const content: string[] = [];
+		for (const projection of body) {
+			if (!('level' in projection) || projection.level !== lineage.level) continue;
+			const region = renderBodyProjection(projection, record, report);
+			if (region) content.push(region.content);
+		}
+
+		address.body.push({
+			position: 'section',
+			heading: headingAddress.primary.anchor!,
+			headingDepth: headingEntry.level_depth as 1 | 2 | 3 | 4 | 5 | 6,
+			content: content.join('\n\n'),
+		});
+
+		for (const child of sectionRecords(record)) visit(child);
+	};
+
+	for (const section of sectionRecords(hostScope)) visit(section);
+}
+
+function sectionLineage(scope: ConceptIdentity['scope']): { level?: unknown; sections?: unknown } | null {
+	const candidate = scope._cw;
+	return candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate)
+		? candidate as { level?: unknown; sections?: unknown }
+		: null;
+}
+
+function sectionRecords(scope: ConceptIdentity['scope']): ConceptIdentity['scope'][] {
+	const sections = sectionLineage(scope)?.sections;
+	if (!Array.isArray(sections)) return [];
+	return sections.filter(
+		(record): record is ConceptIdentity['scope'] => record !== null && typeof record === 'object' && !Array.isArray(record),
+	);
 }
 
 /** Default list delimiters for a `managed_links` split (comma + semicolon). */

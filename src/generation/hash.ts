@@ -503,6 +503,66 @@ function selectedReviewValues(
 	};
 }
 
+/** Attached section records at one declared level, with their paths in the host scope. */
+function attachedSectionScopes(
+	scope: Record<string, unknown>,
+	level: string,
+): Array<{ scope: Record<string, unknown>; path: string[] }> {
+	const out: Array<{ scope: Record<string, unknown>; path: string[] }> = [];
+	const visit = (owner: Record<string, unknown>, ownerPath: string[]): void => {
+		const lineage = owner._cw;
+		if (!lineage || typeof lineage !== 'object' || Array.isArray(lineage)) return;
+		const sections = (lineage as Record<string, unknown>).sections;
+		if (!Array.isArray(sections)) return;
+		for (let index = 0; index < sections.length; index++) {
+			const record = sections[index];
+			if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+			const recordScope = record as Record<string, unknown>;
+			const recordPath = [...ownerPath, '_cw', 'sections', String(index)];
+			const recordLineage = recordScope._cw;
+			if (
+				recordLineage
+				&& typeof recordLineage === 'object'
+				&& !Array.isArray(recordLineage)
+				&& (recordLineage as Record<string, unknown>).level === level
+			) {
+				out.push({ scope: recordScope, path: recordPath });
+			}
+			visit(recordScope, recordPath);
+		}
+	};
+	visit(scope, []);
+	return out;
+}
+
+/** Body projections with `level` consume fields from attached section scopes. */
+function selectedBodyReviewValues(
+	entries: NonNullable<Recipe['target']['also_emit']>['body'],
+	scope: Record<string, unknown>,
+): { values: Array<{ path: string[]; value: unknown }>; paths: string[][] } {
+	const selected = new Map<string, ResolvedReviewPath>();
+	for (const entry of entries ?? []) {
+		const interpolations = reviewInterpolations([entry.template]);
+		const level = 'level' in entry ? entry.level : undefined;
+		const candidates = level === undefined
+			? [{ scope, path: [] as string[] }]
+			: attachedSectionScopes(scope, level);
+		for (const candidate of candidates) {
+			for (const interp of interpolations) {
+				const resolved = resolveReviewPath(interp, candidate.scope);
+				const path = [...candidate.path, ...resolved.path];
+				const key = canonicalStringify(path);
+				selected.set(key, { key, path, value: resolved.value });
+			}
+		}
+	}
+	const ordered = [...selected.values()].sort((a, b) => a.key.localeCompare(b.key));
+	return {
+		values: ordered.map(({ path, value }) => ({ path, value: normalizeForReview(value) })),
+		paths: ordered.map(({ path }) => path),
+	};
+}
+
 function cloneForHousekeeping(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(cloneForHousekeeping);
 	if (value !== null && typeof value === 'object') {
@@ -549,7 +609,7 @@ export function computeReviewGroupCids(
 	record: ConceptIdentityRecord,
 	recipe: Pick<Recipe, 'target'>,
 ): ReviewGroupCids {
-	const wordingTemplates = (recipe.target.also_emit?.body ?? []).map((entry) => entry.template);
+	const bodyEntries = recipe.target.also_emit?.body ?? [];
 	const managed = recipe.target.also_emit?.frontmatter?.managed ?? {};
 	const managedLinks = recipe.target.also_emit?.frontmatter?.managed_links ?? {};
 	const scopeTemplates = [
@@ -557,7 +617,7 @@ export function computeReviewGroupCids(
 		...Object.values(managedLinks).map((entry) => entry.template),
 	];
 
-	const wording = selectedReviewValues(reviewInterpolations(wordingTemplates), record.scope);
+	const wording = selectedBodyReviewValues(bodyEntries, record.scope);
 	const scope = selectedReviewValues(reviewInterpolations(scopeTemplates), record.scope);
 	const housekeepingScope = cloneForHousekeeping(record.scope) as Record<string, unknown>;
 	const consumed = new Map<string, string[]>();

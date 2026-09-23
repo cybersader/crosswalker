@@ -154,9 +154,12 @@ export function createFreshRecipeDocument(
 	if (regions.layout.length === 0) {
 		regions.layout.push({ level: 'leaf', mechanism: 'file', template: '{row}.md' });
 	}
-	const levels = unique(regions.layout.map((entry) => entry.level));
-	const ontology = slug(sourceOntology) || 'source';
 	const { nest, ...targetRegions } = regions;
+	const levels = unique([
+		...regions.layout.map((entry) => entry.level),
+		...(nest?.map((entry) => entry.level) ?? []),
+	]);
+	const ontology = slug(sourceOntology) || 'source';
 	const canonical: CrosswalkerImportRecipe = {
 		recipe: `custom-${ontology}`,
 		spec_version: CURRENT_RECIPE_SPEC,
@@ -342,9 +345,15 @@ export function diagnoseCanonicalRecipe(recipe: CrosswalkerImportRecipe): Recipe
 	}
 
 	const nest = recipe.source.nest;
+	const sectionLevels = new Set<string>();
+	for (const entry of nest ?? []) {
+		if (entry.leaf === 'section') sectionLevels.add(entry.level);
+	}
 	if (nest) {
 		for (const [index, entry] of nest.entries()) {
 			const isLast = index === nest.length - 1;
+			const levelLayout = recipe.target.layout.filter((layoutEntry) => layoutEntry.level === entry.level);
+			const headingEntry = levelLayout.find((layoutEntry) => layoutEntry.mechanism === 'heading');
 			const parentKey = (entry as { parent_key?: unknown }).parent_key;
 			if (parentKey !== undefined && typeof parentKey !== 'string') {
 				diagnostics.push(blocking(
@@ -409,6 +418,93 @@ export function diagnoseCanonicalRecipe(recipe: CrosswalkerImportRecipe): Recipe
 					`The last nest level "${entry.level}" is the note itself; folder-note applies only to levels that have children.`,
 				));
 			}
+
+			if (entry.leaf === 'section') {
+				const parent = nest[index - 1];
+				if (!parent) {
+					diagnostics.push(blocking(
+						'nest-section-on-root',
+						`source.nest.${index}.leaf`,
+						`Level "${entry.level}" is the top level and has no parent note to become sections in. Set leaf to folder-note or none.`,
+					));
+				} else if (parent.leaf === 'none') {
+					diagnostics.push(blocking(
+						'nest-section-parent-not-note',
+						`source.nest.${index}.leaf`,
+						`Level "${entry.level}" cannot become sections because "${parent.level}" has no note of its own. Give "${parent.level}" a note or leave "${entry.level}" out.`,
+					));
+				}
+
+				if (!headingEntry) {
+					diagnostics.push(blocking(
+						'nest-section-no-heading-entry',
+						`target.layout`,
+						`Level "${entry.level}" becomes sections but target.layout has no heading entry for it. Add a heading entry for "${entry.level}" below the note's file entry.`,
+					));
+				}
+
+				const conflictingEntry = levelLayout.find(
+					(layoutEntry) => layoutEntry.mechanism === 'file' || layoutEntry.mechanism === 'folder',
+				);
+				if (conflictingEntry) {
+					diagnostics.push(blocking(
+						'nest-section-has-file-entry',
+						`target.layout`,
+						`Level "${entry.level}" becomes sections, so it cannot also have a ${conflictingEntry.mechanism} entry. Remove that entry or set leaf to folder-note.`,
+					));
+				}
+
+				if (headingEntry?.kind && headingEntry.kind !== 'concept') {
+					diagnostics.push(blocking(
+						'nest-section-heading-kind',
+						`target.layout`,
+						`Level "${entry.level}" becomes sections and cannot declare kind. Remove kind from its heading entry.`,
+					));
+				}
+
+				if (parent?.leaf === 'section' && headingEntry) {
+					const parentHeading = recipe.target.layout.find(
+						(layoutEntry) => layoutEntry.level === parent.level && layoutEntry.mechanism === 'heading',
+					);
+					if (
+						parentHeading
+						&& typeof headingEntry.level_depth === 'number'
+						&& typeof parentHeading.level_depth === 'number'
+						&& headingEntry.level_depth <= parentHeading.level_depth
+					) {
+						diagnostics.push(blocking(
+							'nest-section-depth-order',
+							`target.layout`,
+							`Heading depth for "${entry.level}" must be deeper than "${parent.level}" (level_depth ${parentHeading.level_depth}). Set level_depth to ${parentHeading.level_depth + 1} or more.`,
+						));
+					}
+				}
+
+				let hasBody = false;
+				for (const body of recipe.target.also_emit?.body ?? []) {
+					if (body.position !== 'section' && body.level === entry.level) hasBody = true;
+				}
+				if (!hasBody) {
+					diagnostics.push({
+						code: 'nest-section-no-body',
+						severity: 'warning',
+						path: `source.nest.${index}.leaf`,
+						message: `Level "${entry.level}" becomes sections, but nothing is projected under each heading. Add a body projection with level "${entry.level}".`,
+					});
+				}
+			}
+
+			if (index > 0 && nest[index - 1].leaf === 'section') {
+				const hasFileEntry = levelLayout.some((layoutEntry) => layoutEntry.mechanism === 'file');
+				if (entry.leaf === 'folder-note' || hasFileEntry) {
+					const parent = nest[index - 1];
+					diagnostics.push(blocking(
+						'nest-section-child-is-note',
+						`source.nest.${index}.leaf`,
+						`Level "${parent.level}" becomes sections, so no level below it can be a note. Set "${entry.level}" to sections or leave it out.`,
+					));
+				}
+			}
 		}
 
 		const nestOrder = new Map(nest.map((entry, index) => [entry.level, index]));
@@ -429,6 +525,16 @@ export function diagnoseCanonicalRecipe(recipe: CrosswalkerImportRecipe): Recipe
 				}
 			}
 		}
+	}
+
+	const allowedSectionLevels = [...sectionLevels];
+	for (const [index, body] of (recipe.target.also_emit?.body ?? []).entries()) {
+		if (body.position === 'section' || body.level === undefined || sectionLevels.has(body.level)) continue;
+		diagnostics.push(blocking(
+			'body-level-not-section',
+			`target.also_emit.body.${index}.level`,
+			`Body projection level "${body.level}" is not a level that becomes sections. Use one of: ${allowedSectionLevels.join(', ') || '(none)'}, or remove level.`,
+		));
 	}
 
 	if (!hasLeaf) {
@@ -600,10 +706,12 @@ function patchOwnedRegions(
 		if (leaf) leaf.kind = originalLeafKind;
 	}
 	patched.target.layout = layout;
-	// Layout level ids are editor-owned alongside the layout itself. Keep the
-	// canonical source declaration synchronized so a legitimate workbench level
-	// edit cannot produce a self-invalid recipe with undeclared levels.
-	patched.source.levels = unique(layout.map((entry) => entry.level)) as [string, ...string[]];
+	// Layout and nested source level ids are editor-owned together. Keep the
+	// canonical declaration synchronized even when a left-out nested level has no layout entry.
+	patched.source.levels = unique([
+		...layout.map((entry) => entry.level),
+		...(regions.nest?.map((entry) => entry.level) ?? []),
+	]) as [string, ...string[]];
 	if (regions.nest?.length) {
 		patched.source.nest = deepClone(regions.nest) as NonNullable<CrosswalkerImportRecipe['source']['nest']>;
 	}
