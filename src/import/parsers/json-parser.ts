@@ -180,25 +180,47 @@ function nestedChain(records: Record<string, unknown>[]): NonNullable<IteratorCa
 	let parents = records;
 	for (let depth = 0; depth < 4 && parents.length > 0; depth++) {
 		const sampledParents = parents.slice(0, 50);
-		const first = sampledParents[0];
-		const field = Object.keys(first).find((key) => {
-			const value = first[key];
-			return Array.isArray(value) && value.some(isRecord);
-		});
-		if (!field) break;
-		const childrenByParent = sampledParents.map((parent) => {
-			const value = parent[field];
-			return Array.isArray(value) ? value.filter(isRecord) : [];
-		});
-		const children = childrenByParent.flat();
-		if (children.length === 0) break;
+		const parentKeys = new Set(sampledParents.flatMap((parent) => Object.keys(parent)));
+		const fields = new Set<string>();
+		for (const parent of sampledParents) {
+			for (const [key, value] of Object.entries(parent)) {
+				if (Array.isArray(value) && value.some(isRecord)) fields.add(key);
+			}
+		}
+
+		let best: {
+			field: string;
+			children: Record<string, unknown>[];
+			idKey: string | null;
+			overlap: number;
+			union: number;
+		} | undefined;
+		for (const field of fields) {
+			const childrenByParent = sampledParents.map((parent) => {
+				const value = parent[field];
+				return Array.isArray(value) ? value.filter(isRecord) : [];
+			});
+			const children = childrenByParent.flat();
+			const childKeys = new Set(children.flatMap((child) => Object.keys(child)));
+			const overlap = [...childKeys].filter((key) => parentKeys.has(key)).length;
+			const union = parentKeys.size + childKeys.size - overlap;
+			const idKey = nestedIdKey(childrenByParent, field);
+			// Compare Jaccard ratios without rounding; stable field order breaks exact ties.
+			if (!best || overlap * best.union > best.overlap * union ||
+				(overlap * best.union === best.overlap * union &&
+					(Number(idKey !== null) > Number(best.idKey !== null) ||
+						(idKey !== null === (best.idKey !== null) && children.length > best.children.length)))) {
+				best = { field, children, idKey, overlap, union };
+			}
+		}
+		if (!best) break;
 		chain.push({
-			field,
-			count: children.length,
-			sampleKeys: Object.keys(children[0]).slice(0, 6),
-			idKey: nestedIdKey(childrenByParent, field),
+			field: best.field,
+			count: best.children.length,
+			sampleKeys: Object.keys(best.children[0]).slice(0, 6),
+			idKey: best.idKey,
 		});
-		parents = children;
+		parents = best.children;
 	}
 	return chain;
 }

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: nested JSON import follows the real child level, so OSCAL catalogs nest as groups, controls, and enhancements (2026-09-23)
+
+- `nestedChain` in `src/import/parsers/json-parser.ts` picked the first record list, in key order, of the first sampled record. On the NIST SP 800-53 Rev 5 OSCAL catalog that meant descending into `params` instead of `controls`, and a first control with no enhancements (AC-1) hid the enhancement level entirely. It now gathers candidate lists across all sampled records and prefers the one whose items look like their parent (key-set overlap), then one with ids, then the larger. Checked against the real catalog: groups (20), controls, enhancements, then parts. Shipped in 0.1.2 with the bug; the fix lands in the next prerelease.
+- Tests: three cases in `tests/json-parser-nested-iterators.test.ts` on a synthetic OSCAL-shaped file.
+
 ### Third prerelease preparation, 0.1.2 (2026-09-23)
 
 - Prepared version `0.1.2` as the third BRAT prerelease, carrying the nested records, sections, crosswalk, vault scan, and split-into-levels work below on top of `0.1.1`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.2` entry. The user-facing notes live under `## [0.1.2]` near the end of this file, which is where the release job reads them.
