@@ -5,13 +5,18 @@ import { computeSourceByteDigest } from '../../generation/hash';
 import { discoverImportSets, settleVaultIndex } from '../../generation/import-set';
 import { outputRootPath } from '../../settings/folder-settings';
 import { MAPPING_PRESETS } from '../recipe-registry';
-import { ImportWizardModal, recognizedDestination } from '../import-wizard';
+import { ImportWizardModal, recognizedDestination, refreshRootProblem } from '../import-wizard';
 import { runRecognizedImport } from '../run-recognized-import';
 import { peekXLSXBytes } from '../parsers/xlsx-parser';
 import { peekCSV, peekJSON } from '../vault-source-scan';
 import { LARGE_FILE_BYTES } from '../vault-source-scan-runner';
 import { recognizeStackSources, type StackCandidate, type StackRecognition, type StackSource } from './stack-recognize';
-import { importMappingSlots, reconnectMappings, stackMappingDependencies, waitForIndexedDestination, type CompletedMapping } from './stack-run';
+import { builtInMappingTsv, importMappingSlots, reconnectMappings, stackMappingDependencies, waitForIndexedDestination, type CompletedMapping } from './stack-run';
+import { sssomRecipeDigest } from '../sssom-importer';
+import { checkpointFrameworkOutcome, fromDefinition, mappingKey, replaceStackDefinition, slotRunChoices, toDefinition,
+	type RunChoice, type StackDefinition, type StackRunRecord, type SlotRunFact } from './stack-persistence';
+import type { DiscoveredImportSet } from '../../generation/import-set';
+import { STACK_PRESETS, type MappingPreset } from '../recipe-registry';
 import {
 	CONNECTOR_ONTOLOGY, CONNECTOR_REASON, DEFAULT_STACK_SELECTION,
 	activeMappings, checklistPlainText, checklistRows, frameworkChoices, frameworkSlots,
@@ -36,14 +41,29 @@ export class StackSetupModal extends Modal {
 	private discoveredSets: number | null = null;
 	private mappingSets: CompletedMapping[] = [];
 	private discoveredCounts = new Map<string, number>();
+	private definition: StackDefinition | null;
+	private readonly revisiting: boolean;
+	private stackLabel: string;
+	private knownSets = new Map<string, DiscoveredImportSet>();
+	private sourceDigests = new Map<string, string>();
+	private choices = new Map<string, RunChoice>();
+	private runWarnings: string[] = [];
+	private skipped = 0;
 
-	constructor(app: App, private plugin: CrosswalkerPlugin) {
+	constructor(app: App, private plugin: CrosswalkerPlugin, definition?: StackDefinition, private onChanged?: () => void) {
 		super(app);
 		this.modalEl.addClass('crosswalker-stack-modal');
+		this.definition = definition ?? null;
+		this.revisiting = !!definition;
+		this.stackLabel = definition?.label ?? STACK_PRESETS[0].label;
+		if (definition) {
+			this.stackSelection = fromDefinition(definition);
+			this.screen = 'recognize';
+		}
 	}
 
 	onOpen(): void { this.render(); }
-	onClose(): void { this.contentEl.empty(); }
+	onClose(): void { this.contentEl.empty(); this.onChanged?.(); }
 
 	private render(): void {
 		const root = this.contentEl;
@@ -177,6 +197,7 @@ export class StackSetupModal extends Modal {
 		if (!['csv', 'tsv', 'xlsx', 'xls', 'json'].includes(file.extension.toLowerCase())) return;
 		try {
 			const bytes = new Uint8Array(await this.app.vault.readBinary(file));
+			this.sourceDigests.set(file.path, computeSourceByteDigest(bytes));
 			if (bytes.byteLength > LARGE_FILE_BYTES) this.largeSources.add(file.name);
 			const peeks = file.extension === 'xlsx' || file.extension === 'xls'
 				? peekXLSXBytes(bytes)
@@ -291,8 +312,8 @@ export class StackSetupModal extends Modal {
 		const footer = root.createDiv({ cls: 'crosswalker-stack-footer' });
 		new Setting(footer).addButton((button) => button.setButtonText('Back').onClick(() => { this.screen = 'checklist'; this.render(); }))
 			.addButton((button) => button.setButtonText('Next: review').setCta()
-				.setDisabled(this.busy || this.recognition.fills.length !== frameworkSlots(this.stackSelection).length)
-				.onClick(() => { this.screen = 'review'; this.render(); }));
+				.setDisabled(this.busy || (!this.revisiting && this.recognition.fills.length !== frameworkSlots(this.stackSelection).length))
+				.onClick(() => { void this.openReview(); }));
 	}
 
 	/** Choose a free address for a NEW set; never infer set identity from this path. */
@@ -305,17 +326,88 @@ export class StackSetupModal extends Modal {
 		return `${preferred} (new ${suffix})`;
 	}
 
+	private get storedRun(): StackRunRecord | undefined {
+		return this.plugin.settings.stackRuns.find((run) => run.stackId === this.definition?.id);
+	}
+
+	private async openReview(): Promise<void> {
+		if (this.revisiting) {
+			this.busy = true;
+			try {
+				if (await settleVaultIndex(this.app) > 0) {
+					this.error = 'Vault index is still loading. Wait a moment, then review this stack again.';
+					return;
+				}
+				this.knownSets = new Map((await discoverImportSets(this.app)).map((set) => [set.id, set]));
+				this.error = '';
+				this.choices.clear();
+				for (const slot of frameworkSlots(this.stackSelection)) {
+					const fill = this.recognition.fills.find((item) => item.slot.ontology === slot.ontology);
+					const fact = this.storedRun?.slotSets[slot.entry.id];
+					const set = fact && this.knownSets.get(fact.importSetId);
+					const hash = stackRecipeHash(slot, this.stackSelection.detail);
+					const guard = set ? refreshRootProblem(set) ?? refreshRecipeProblem(slot.entry.id, set.recipeIds, hash, set.recipeHashes) : null;
+					this.choices.set(slot.entry.id, slotRunChoices(fact, !!set, fill && this.sourceDigests.get(fill.source.path), hash, guard).selected);
+				}
+				for (const mapping of activeMappings(this.stackSelection)) {
+					if (mapping.kind === 'from-slot') continue;
+					const fill = this.recognition.mappingFills.find((item) => item.mapping.id === mapping.id);
+					const source = fill?.source.path;
+					const digest = mapping.kind === 'built-in' ? computeSourceByteDigest(new TextEncoder().encode(builtInMappingTsv()))
+						: source && this.sourceDigests.get(source);
+					const hash = sssomRecipeDigest(mapping.from, mapping.to);
+					const fact = this.storedRun?.mappingSets[mappingKey(mapping)];
+					const set = fact && this.knownSets.get(fact.importSetId);
+					const recipeId = `sssom-${mapping.from}-to-${mapping.to}`;
+					const guard = set ? refreshRootProblem(set) ?? refreshRecipeProblem(recipeId, set.recipeIds, hash, set.recipeHashes) : null;
+					this.choices.set(mappingKey(mapping), slotRunChoices(fact, !!set, digest, hash, guard).selected);
+				}
+				this.screen = 'review';
+			} catch {
+				this.error = 'Could not check the vault import sets. Wait for indexing or repair unreadable notes, then review again.';
+			} finally { this.busy = false; this.render(); }
+		} else { this.screen = 'review'; this.render(); }
+	}
+
+	private renderRunChoice(row: HTMLElement, key: string, fact: SlotRunFact | undefined, digest: string | undefined,
+		hash: string, recipeId: string, available: boolean): void {
+		const set = fact && this.knownSets.get(fact.importSetId);
+		const guard = set ? refreshRootProblem(set) ?? refreshRecipeProblem(recipeId, set.recipeIds, hash, set.recipeHashes) : null;
+		const state = slotRunChoices(fact, !!set, digest, hash, guard);
+		if (state.message) row.createDiv({ cls: 'crosswalker-stack-warning', text: state.message });
+		if (!available && state.selected !== 'skip') {
+			row.createDiv({ cls: 'crosswalker-stack-muted', text: 'Add the source file to import this slot.' });
+			return;
+		}
+		const selector = new Setting(row).setName('Import set');
+		selector.addDropdown((dropdown) => {
+			for (const mode of state.choices) dropdown.addOption(mode,
+				mode === 'skip' ? 'Skip (already imported, unchanged)' : mode === 'refresh' ? `Refresh set ${fact!.importSetId}` : 'New set');
+			dropdown.setValue(this.choices.get(key) ?? state.selected).onChange((mode) => this.choices.set(key, mode as RunChoice));
+		});
+	}
+
 	private renderReview(root: HTMLElement): void {
 		root.createEl('h2', { text: 'Review before import' });
-		root.createEl('p', { text: 'Frameworks import first, followed by each ready mapping. Every mapping gets a new import set. Missing mapping files stop the run before import.' });
+		root.createEl('p', { text: this.revisiting ? 'Check each source and import-set choice. Refresh is never selected automatically.'
+			: 'Frameworks import first, followed by each ready mapping. Every mapping gets a new import set. Missing mapping files stop the run before import.' });
+		new Setting(root).setName('Stack name').addText((text) => text.setValue(this.stackLabel)
+			.onChange((value) => { this.stackLabel = value; }));
 		const scroll = root.createDiv({ cls: 'crosswalker-stack-scroll' });
 		for (const slot of frameworkSlots(this.stackSelection)) {
 			const fill = this.recognition.fills.find((item) => item.slot.ontology === slot.ontology);
-			if (!fill) continue;
-			const rootPath = this.destinationFor(fill);
+			if (!fill && !this.revisiting) continue;
+			const rootPath = fill ? this.destinationFor(fill) : '';
 			const row = scroll.createDiv({ cls: 'crosswalker-stack-result', attr: { 'data-slot': slot.ontology } });
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: slot.entry.label });
-			row.createDiv({ text: `${slotDetailSummary(slot, this.stackSelection.detail)} Source: ${fill.source.name}. Lands in ${rootPath}.` });
+			row.createDiv({ text: `${slotDetailSummary(slot, this.stackSelection.detail)} ${fill ? `Source: ${fill.source.name}. Lands in ${rootPath}.` : 'No source file added.'}` });
+			if (this.revisiting) {
+				this.renderRunChoice(row, slot.entry.id, this.storedRun?.slotSets[slot.entry.id],
+					fill && this.sourceDigests.get(fill.source.path), stackRecipeHash(slot, this.stackSelection.detail),
+					slot.entry.id, !!fill);
+				continue;
+			}
+			if (!fill) continue;
 			row.createDiv({ cls: 'crosswalker-stack-muted', text: 'Import set: New set' });
 			new Setting(row).addButton((button) => button.setButtonText('Check for refresh').onClick(async () => {
 				const file = this.sourceFiles.get(fill.source.path);
@@ -351,12 +443,24 @@ export class StackSetupModal extends Modal {
 		for (const mapping of activeMappings(this.stackSelection)) {
 			const row = scroll.createDiv({ cls: 'crosswalker-stack-result', attr: { 'data-mapping': mapping.id } });
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: mapping.label });
-			row.createDiv({ cls: 'crosswalker-stack-muted', text: mapping.kind === 'built-in' || mapping.kind === 'from-slot' || this.recognition.mappingFills.some((fill) => fill.mapping.id === mapping.id)
-				? 'Ready' : 'Missing mapping file. Add the publisher export before importing.' });
+			if (mapping.kind === 'from-slot') {
+				const sourceSlot = frameworkSlots(this.stackSelection).find((slot) => slot.ontology === mapping.from);
+				row.createDiv({ cls: 'crosswalker-stack-muted', text: `Comes with ${sourceSlot!.entry.label}. Not tracked separately.` });
+				continue;
+			}
+			const fill = this.recognition.mappingFills.find((item) => item.mapping.id === mapping.id);
+			const source = fill?.source.path;
+			const ready = mapping.kind === 'built-in' || !!source;
+			row.createDiv({ cls: 'crosswalker-stack-muted', text: ready ? 'Ready' : 'Missing mapping file. Add the publisher export before importing.' });
+			if (this.revisiting) this.renderRunChoice(row, mappingKey(mapping), this.storedRun?.mappingSets[mappingKey(mapping)],
+				mapping.kind === 'built-in' ? computeSourceByteDigest(new TextEncoder().encode(builtInMappingTsv()))
+					: source && this.sourceDigests.get(source),
+				sssomRecipeDigest(mapping.from, mapping.to),
+				`sssom-${mapping.from}-to-${mapping.to}`, ready);
 		}
 		if (this.error) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: this.error });
 		if (this.indexing) scroll.createDiv({ cls: 'crosswalker-stack-muted', text: 'Waiting for the vault to index the notes just written...' });
-		if (this.completed.length) scroll.createDiv({ text: `${this.completed.length} framework sets imported. Remaining mappings will run next.` });
+		if (this.completed.length) scroll.createDiv({ text: `${this.completed.reduce((sum, item) => sum + item.created, 0)} framework notes created or updated. ${this.skipped} slots skipped. Remaining mappings will run next.` });
 		const footer = root.createDiv({ cls: 'crosswalker-stack-footer' });
 		new Setting(footer).addButton((button) => button.setButtonText('Back').setDisabled(this.busy)
 			.onClick(() => { this.screen = 'recognize'; this.render(); }))
@@ -364,33 +468,93 @@ export class StackSetupModal extends Modal {
 				.setDisabled(this.busy).onClick(() => { void this.importFrameworks(); }));
 	}
 
+	private async saveDefinition(): Promise<boolean> {
+		if (!this.stackLabel.trim()) {
+			this.error = 'Stack name is empty. Enter a name before importing.';
+			this.render(); return false;
+		}
+		const next = toDefinition(this.stackSelection, this.definition?.id, this.stackLabel.trim(), this.definition?.createdAt);
+		const saved = replaceStackDefinition(this.plugin.settings.stacks, this.plugin.settings.stackRuns, next);
+		this.plugin.settings.stacks = saved.stacks;
+		this.plugin.settings.stackRuns = saved.stackRuns;
+		await this.plugin.saveSettings();
+		this.definition = next;
+		return true;
+	}
+
+	private async recordFact(key: string, fact: SlotRunFact, mapping: boolean): Promise<void> {
+		if (!this.definition) return;
+		const previous = this.storedRun;
+		const run: StackRunRecord = {
+			stackId: this.definition.id, finishedAt: new Date().toISOString(), detail: this.stackSelection.detail,
+			slotSets: { ...previous?.slotSets }, mappingSets: { ...previous?.mappingSets },
+		};
+		if (mapping) run.mappingSets[key] = fact;
+		else run.slotSets[key] = fact;
+		this.plugin.settings.stackRuns = [...this.plugin.settings.stackRuns.filter((entry) => entry.stackId !== run.stackId), run];
+		await this.plugin.saveSettings();
+	}
+
 	private async importFrameworks(): Promise<void> {
-		const missing = activeMappings(this.stackSelection).find((mapping) => mapping.kind === 'download' &&
+		if (!await this.saveDefinition()) return;
+		const missing = !this.revisiting && activeMappings(this.stackSelection).find((mapping) => mapping.kind === 'download' &&
 			!this.mappingSets.some((item) => item.id === mapping.id) &&
 			!this.recognition.mappingFills.some((fill) => fill.mapping.id === mapping.id && this.sourceFiles.has(fill.source.path)));
 		if (missing) {
 			this.error = `${missing.label} has no recognized source file. Add the publisher mapping export before importing the frameworks.`;
 			this.render(); return;
 		}
-		this.busy = true; this.error = ''; this.render();
+		this.skipped = this.revisiting
+			? frameworkSlots(this.stackSelection).filter((slot) => this.choices.get(slot.entry.id) === 'skip'
+				&& !this.completed.some((item) => item.label === slot.entry.label)).length
+				+ activeMappings(this.stackSelection).filter((mapping) => mapping.kind !== 'from-slot'
+					&& this.choices.get(mappingKey(mapping)) === 'skip').length
+			: 0;
+		this.busy = true; this.error = ''; this.runWarnings = []; this.render();
 		for (const slot of frameworkSlots(this.stackSelection)) {
 			if (this.completed.some((item) => item.label === slot.entry.label)) continue;
 			const fill = this.recognition.fills.find((item) => item.slot.ontology === slot.ontology);
 			const file = fill && this.sourceFiles.get(fill.source.path);
-			if (!fill || !file) { this.error = `${slot.entry.label} has no source file. Add its publisher export, then try again.`; break; }
+			const mode = this.revisiting ? this.choices.get(slot.entry.id) : 'new';
+			if (mode === 'skip') {
+				const fact = this.storedRun?.slotSets[slot.entry.id];
+				this.completed.push({ label: slot.entry.label, created: 0, setId: fact?.importSetId ?? null,
+					folder: this.knownSets.get(fact?.importSetId ?? '')?.root ?? '', warnings: [] });
+				continue;
+			}
+			if (!fill || !file) {
+				if (this.revisiting) { this.runWarnings.push(`${slot.entry.label} needs its publisher file. Add the file and run again to import this slot.`); continue; }
+				this.error = `${slot.entry.label} has no source file. Add its publisher export, then try again.`; break;
+			}
 			try {
+				const fact = this.storedRun?.slotSets[slot.entry.id];
+				const set = fact && this.knownSets.get(fact.importSetId);
+				const sourceDigest = this.sourceDigests.get(fill.source.path);
+				const recipeDigest = stackRecipeHash(slot, this.stackSelection.detail);
+				const rootProblem = mode === 'refresh' ? refreshRootProblem(set) : null;
+				if (rootProblem) { this.error = rootProblem; break; }
+				const legal = slotRunChoices(fact, !!set, sourceDigest, recipeDigest,
+					set ? refreshRootProblem(set) ?? refreshRecipeProblem(slot.entry.id, set.recipeIds, recipeDigest, set.recipeHashes) : null);
+				if (this.revisiting && !legal.choices.includes(mode as RunChoice)) {
+					this.error = `${slot.entry.label} import choice is no longer available. Review the stack again before importing.`; break;
+				}
+				const target = mode === 'refresh' ? set : undefined;
 				const outcome = await runRecognizedImport(this.app, this.plugin, {
 					file, entry: slot.entry, table: fill.table, headerRow: fill.headerRow,
-					destination: this.destinationFor(fill),
+					destination: mode === 'refresh' ? target!.root! : this.destinationFor(fill),
+					...(target && fact ? { refreshSetId: fact.importSetId, overwriteMode: 'replace' as const } : {}),
 					sourceWhere: stackSourceWhere(slot.ontology, this.stackSelection.detail),
 				});
-				if (!outcome.ok || !outcome.importSetId) {
+				if (!outcome.ok) {
 					this.error = `${slot.entry.label} could not be imported. ${outcome.errors.some((message) => message.includes('still indexing'))
 						? 'Wait for the vault index to finish, then import again.'
 						: 'Check that the file has the expected sheet and columns, and that the destination is writable. Inspect the destination for any notes already created, then try again.'} Remaining frameworks were not started.`;
 					break;
 				}
 				this.completed.push({ label: slot.entry.label, created: outcome.created, setId: outcome.importSetId, folder: outcome.destination, warnings: outcome.warnings });
+				if (!await checkpointFrameworkOutcome(outcome, sourceDigest, recipeDigest, file.name,
+					(fact) => this.recordFact(slot.entry.id, fact, false)))
+					this.runWarnings.push(`${slot.entry.label} was imported, but its set could not be confirmed yet. Wait for vault indexing, then run again later to record it.`);
 				// The next framework's set qualification reads the vault-wide metadata
 				// index. Newly written notes may arrive after one `resolved` event, so
 				// wait for this slot's actual output instead of treating lag as absence.
@@ -412,9 +576,42 @@ export class StackSetupModal extends Modal {
 		}
 		if (!this.error) {
 			try {
-				this.mappingSets = await importMappingSlots(activeMappings(this.stackSelection), this.recognition.mappingFills,
+				const available = activeMappings(this.stackSelection).filter((mapping) => {
+					if (mapping.kind === 'from-slot') return true;
+					if (this.revisiting && this.choices.get(mappingKey(mapping)) === 'skip') return false;
+					const found = mapping.kind === 'built-in' || this.recognition.mappingFills.some((fill) =>
+						fill.mapping.id === mapping.id && this.sourceFiles.has(fill.source.path));
+					if (!found && this.revisiting) this.runWarnings.push(`${mapping.label} needs its mapping file. Add the file and run again to import this slot.`);
+					return found;
+				});
+				const mappingChoices = new Map<string, { mode: RunChoice; setId?: string; folder?: string }>();
+				for (const mapping of available.filter((item) => item.kind !== 'from-slot')) {
+					const key = mappingKey(mapping);
+					const mode = this.revisiting ? this.choices.get(key) ?? 'new' : 'new';
+					const fact = this.storedRun?.mappingSets[key];
+					const set = fact && this.knownSets.get(fact.importSetId);
+					const fill = this.recognition.mappingFills.find((item) => item.mapping.id === mapping.id);
+					const digest = mapping.kind === 'built-in' ? computeSourceByteDigest(new TextEncoder().encode(builtInMappingTsv()))
+						: fill && this.sourceDigests.get(fill.source.path);
+					const hash = sssomRecipeDigest(mapping.from, mapping.to);
+					const rootProblem = mode === 'refresh' ? refreshRootProblem(set) : null;
+					if (rootProblem) throw new Error(rootProblem);
+					const legal = slotRunChoices(fact, !!set, digest, hash,
+						set ? refreshRootProblem(set) ?? refreshRecipeProblem(`sssom-${mapping.from}-to-${mapping.to}`, set.recipeIds, hash, set.recipeHashes) : null);
+					if (this.revisiting && !legal.choices.includes(mode)) throw new Error(`${mapping.label} import choice is no longer available. Review the stack again before importing.`);
+					mappingChoices.set(mapping.id, { mode, ...(mode === 'refresh' && set && fact
+						? { setId: fact.importSetId, folder: set.root ?? undefined } : {}) });
+				}
+				this.mappingSets = await importMappingSlots(available, this.recognition.mappingFills,
 					this.sourceFiles, { ...stackMappingDependencies(this.app, this.plugin),
-						onCompleted: (record) => { this.mappingSets.push(record); } }, this.mappingSets);
+						onCompleted: async (record) => {
+						this.mappingSets.push(record);
+						if (record.sourceDigest && record.recipeDigest && record.sourceName)
+							await this.recordFact(mappingKey({ from: available.find((item) => item.id === record.id)!.from,
+								to: available.find((item) => item.id === record.id)!.to, id: record.id }),
+								{ importSetId: record.setId, sourceDigest: record.sourceDigest,
+									recipeDigest: record.recipeDigest, sourceName: record.sourceName }, true);
+						} }, this.mappingSets, mappingChoices);
 			} catch (err) {
 				this.error = err instanceof Error ? err.message : 'A mapping import stopped. Check the mapping file and vault permissions, then try again.';
 			}
@@ -438,7 +635,7 @@ export class StackSetupModal extends Modal {
 
 	private renderComplete(root: HTMLElement): void {
 		root.createEl('h2', { text: 'Framework stack imported' });
-		root.createEl('p', { text: `${this.completed.length} framework sets and ${this.mappingSets.length} mapping sets. ${this.discoveredSets === null ? 'Vault index is still loading; set counts cannot be confirmed yet.' : `${this.discoveredSets} sets confirmed in the vault.`}` });
+		root.createEl('p', { text: `${this.completed.length} framework sets and ${this.mappingSets.length} mapping sets. ${this.completed.reduce((sum, item) => sum + item.created, 0)} framework notes created or updated. ${this.mappingSets.reduce((sum, item) => sum + item.noteCount, 0)} mapping notes created or updated. ${this.skipped} slots skipped. ${this.discoveredSets === null ? 'Vault index is still loading; set counts cannot be confirmed yet.' : `${this.discoveredSets} sets confirmed in the vault.`}` });
 		if (this.stackSelection.detail === 'top-levels' && this.completed.some((item) =>
 			item.label === frameworkChoices().find((choice) => choice.ontology === 'nist-800-53')?.label ||
 			item.label === frameworkChoices().find((choice) => choice.ontology === 'cri-profile')?.label)) {
@@ -462,6 +659,7 @@ export class StackSetupModal extends Modal {
 			row.createDiv({ cls: 'crosswalker-stack-muted', text: `${count} edge ${count === 1 ? 'note' : 'notes'} · Set ${item.setId}` });
 			for (const message of item.unresolved) row.createDiv({ cls: 'crosswalker-stack-warning', text: message });
 		}
+		for (const warning of this.runWarnings) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: warning });
 		if (this.error) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: this.error });
 		new Setting(root.createDiv({ cls: 'crosswalker-stack-footer' }))
 			.addButton((button) => button.setButtonText('Reconnect mappings').setDisabled(this.busy || !this.mappingSets.length)

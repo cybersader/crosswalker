@@ -22,6 +22,7 @@ import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { renderPresetGuide } from '../import/import-preset-guide';
 import { VaultSourceScanModal } from '../import/vault-source-scan-modal';
 import { StackSetupModal } from '../import/stack/stack-modal';
+import { openImportStack, renderInstalledStacks } from '../import/stack/installed-stacks';
 import {
 	deriveInstalledOntologies,
 	findRecipeForOntologyIdentity,
@@ -162,6 +163,7 @@ export class CrosswalkerWorkspaceView extends ItemView {
 
 		this.renderHeader(root);
 		this.renderLaunchpad(root);
+		renderInstalledStacks(root, this.app, this.plugin, () => { void this.renderHome(); });
 		await this.renderInstalledOntologies(root, token);
 	}
 
@@ -186,8 +188,10 @@ export class CrosswalkerWorkspaceView extends ItemView {
 		});
 
 		this.launchButton(row, 'layers', 'Set up a framework stack', false, () => {
-			new StackSetupModal(this.app, this.plugin).open();
+			new StackSetupModal(this.app, this.plugin, undefined, () => { void this.renderHome(); }).open();
 		});
+		this.launchButton(row, 'file-up', 'Import a stack', false, () =>
+			openImportStack(this.app, this.plugin, () => { void this.renderHome(); }));
 
 		this.launchButton(row, 'search', 'Find sources in this vault', false, () => {
 			new VaultSourceScanModal(this.app, this.plugin).open();

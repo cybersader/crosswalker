@@ -12,6 +12,7 @@ import { RECIPE_REGISTRY } from './import/recipe-registry';
 import { SssomImportModal } from './import/sssom-import-modal';
 import { importSssom, type SssomImportOptions } from './import/sssom-importer';
 import { StackSetupModal } from './import/stack/stack-modal';
+import { normalizeStacks, normalizeStackRuns } from './import/stack/stack-persistence';
 import { VaultSourceScanModal } from './import/vault-source-scan-modal';
 import {
 	ExportFolderPickerModal,
@@ -1505,6 +1506,8 @@ export default class CrosswalkerPlugin extends Plugin {
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings.stacks = normalizeStacks(this.settings.stacks);
+		this.settings.stackRuns = normalizeStackRuns(this.settings.stackRuns, this.settings.stacks);
 	}
 
 	async saveSettings() {

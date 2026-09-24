@@ -3072,6 +3072,34 @@
 	background: var(--background-secondary);
 }
 
+.crosswalker-installed-stacks .crosswalker-workspace-ontology-item {
+	align-items: stretch;
+	flex-direction: column;
+	gap: var(--cw-s2);
+}
+
+.crosswalker-installed-stacks h3 {
+	margin: 0;
+	font-size: var(--font-ui-medium);
+}
+
+.crosswalker-installed-stack-rows {
+	display: grid;
+	gap: var(--cw-s1);
+}
+
+.crosswalker-installed-stack-rows .crosswalker-stack-result {
+	padding: var(--cw-s2);
+	font-size: var(--cw-fs-small);
+}
+
+.crosswalker-installed-stacks .crosswalker-workspace-ontology-actions {
+	margin: var(--cw-s1) 0 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--cw-s2);
+}
+
 .crosswalker-workspace-ontology-ico .svg-icon {
 	width: var(--cw-icon);
 	height: var(--cw-icon);
