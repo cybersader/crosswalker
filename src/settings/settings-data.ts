@@ -7,6 +7,7 @@
 import { SavedConfig } from '../types/config';
 import type { DebugLevel } from '../utils/debug';
 import type { Enrichment } from '../import/mapping/types';
+import type { StackDefinition, StackRunRecord } from '../import/stack/stack-persistence';
 
 export interface CrosswalkerSettings {
 	// ==========================================================================
@@ -101,6 +102,9 @@ export interface CrosswalkerSettings {
 	// Saved Configurations
 	// ==========================================================================
 	savedConfigs: SavedConfig[];
+	/** Recipe compositions; vault-specific run facts are stored separately. */
+	stacks: StackDefinition[];
+	stackRuns: StackRunRecord[];
 }
 
 export type KeyNamingStyle = 'as-is' | 'lowercase' | 'snake_case' | 'camelCase' | 'kebab-case';
@@ -162,6 +166,8 @@ export const DEFAULT_SETTINGS: CrosswalkerSettings = {
 	draftExpiryDays: 30,
 	maxDrafts: 20,
 
-	// Saved configs
-	savedConfigs: []
+	// Saved configs and stack recipe compositions (run facts kept separately)
+	savedConfigs: [],
+	stacks: [],
+	stackRuns: []
 };

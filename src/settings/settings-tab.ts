@@ -14,6 +14,7 @@ import { ImportWizardModal } from '../import/import-wizard';
 import { renderPresetGuide } from '../import/import-preset-guide';
 import { VaultSourceScanModal } from '../import/vault-source-scan-modal';
 import { StackSetupModal } from '../import/stack/stack-modal';
+import { openImportStack, renderInstalledStacks } from '../import/stack/installed-stacks';
 import { SavedConfig } from '../types/config';
 import CrosswalkerPlugin from '../main';
 import {
@@ -294,6 +295,7 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 
 	private renderOverview(root: HTMLElement): void {
 		this.renderLaunchpad(root);
+		renderInstalledStacks(root, this.app, this.plugin, () => this.display());
 
 		const grid = root.createDiv({ cls: 'crosswalker-settings-cardgrid' });
 		for (const section of this.sections()) {
@@ -341,8 +343,10 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 		});
 
 		this.launchButton(row, 'layers', 'Set up a framework stack', false, () => {
-			new StackSetupModal(this.app, this.plugin).open();
+			new StackSetupModal(this.app, this.plugin, undefined, () => this.display()).open();
 		});
+		this.launchButton(row, 'file-up', 'Import a stack', false, () =>
+			openImportStack(this.app, this.plugin, () => this.display()));
 
 		this.launchButton(row, 'search', 'Find sources in this vault', false, () => {
 			new VaultSourceScanModal(this.app, this.plugin).open();

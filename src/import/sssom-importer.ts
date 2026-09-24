@@ -40,7 +40,7 @@ import {
 	type SssomParseResult,
 	type SssomRow,
 } from './sssom-parser';
-import { sha256Hex } from '../generation/hash';
+import { sha256Hex, computeRecipeHash } from '../generation/hash';
 import { readNoteFrontmatterState } from '../export/vault-reader';
 import { type ImportSetOption } from '../generation/import-set';
 import { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../generation/crosswalk-identity';
@@ -336,6 +336,12 @@ async function runImportSssom(
  * mechanism so render() + frontmatter-merge + Tier 1 validation all
  * work unchanged.
  */
+/** The provenance hash of the effective SSSOM recipe used by importSssom. */
+export function sssomRecipeDigest(source: string, target: string): string {
+	const recipe = buildSyntheticRecipe(source, target);
+	return computeRecipeHash(recipe.target, recipe.source);
+}
+
 function buildSyntheticRecipe(source: string, target: string): Recipe {
 	// Note: template is RELATIVE to options.basePath (which is `folder`); the
 	// generation engine joins them. Don't repeat `folder` here or paths

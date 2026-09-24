@@ -23,6 +23,8 @@ export interface RecognizedImportRequest {
 	headerRow: number;
 	destination?: string;
 	overwriteMode?: 'skip' | 'replace' | 'error';
+	/** Explicit user-selected set id; never inferred from source, label or destination. */
+	refreshSetId?: string;
 	/** A run-scoped row predicate; the canonical bundled recipe is never mutated. */
 	sourceWhere?: string;
 	onProgress?: (current: number, total: number, message: string) => void;
@@ -181,7 +183,7 @@ export async function runRecognizedImport(
 		// even when nobody edited it, losing the ID needed for safe refresh.
 		const recipeOverride = req.entry.recipe as unknown as Recipe;
 		const config = buildRecognizedImportConfig(workbench);
-		const importSet = await newSetSchemeFor(app, req.entry.ontology);
+		const importSet = req.refreshSetId ? { id: req.refreshSetId } : await newSetSchemeFor(app, req.entry.ontology);
 		const result = await generateNotes(
 			app,
 			parsedData,
@@ -204,8 +206,8 @@ export async function runRecognizedImport(
 			plugin.debug,
 		);
 		const errors = generationErrors(result.errors);
-		let importSetId: string | null = null;
-		try {
+		let importSetId: string | null = req.refreshSetId ?? null;
+		if (!req.refreshSetId) try {
 			importSetId = await importSetIdFromCreatedNotes(app, destination, result.created);
 		} catch {
 			// Generation succeeded; cache-cold provenance lookup may remain unavailable.

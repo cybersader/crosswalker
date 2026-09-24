@@ -1,7 +1,9 @@
 import type { App, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
 import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
-import { importSssom, type SssomImportResult } from '../sssom-importer';
+import { importSssom, sssomRecipeDigest, type SssomImportResult } from '../sssom-importer';
+import { computeSourceByteDigest } from '../../generation/hash';
+import type { RunChoice } from './stack-persistence';
 import { readCtidJson, readOlirWorkbook, mappingRowsToTsv } from './mapping-readers';
 import type { MappingCandidate } from './stack-recognize';
 import type { MappingPreset } from '../recipe-registry';
@@ -28,6 +30,10 @@ export async function waitForIndexedDestination(app: App, root: string, timeoutM
 	return cold;
 }
 
+export function builtInMappingTsv(): string {
+	return require('../../../recipes/import/crosswalks/nist-csf-2-to-nist-800-53.sssom.tsv') as string;
+}
+
 export interface CompletedMapping {
 	id: string;
 	label: string;
@@ -37,6 +43,10 @@ export interface CompletedMapping {
 	unresolved: string[];
 	/** The captured input is kept only for this open modal's explicit reconnect. */
 	tsv: string;
+	/** Facts captured from this run's source and effective recipe. */
+	sourceDigest?: string;
+	recipeDigest?: string;
+	sourceName?: string;
 }
 
 export interface MappingRunDependencies {
@@ -45,7 +55,7 @@ export interface MappingRunDependencies {
 	readBytes(file: TFile): Promise<Uint8Array>;
 	log(stage: string, slot: string): void;
 	/** Persist each confirmed set in the open modal before the next mapping can fail. */
-	onCompleted?(mapping: CompletedMapping): void;
+	onCompleted?(mapping: CompletedMapping): void | Promise<void>;
 }
 
 /** A reconnect may only use a stored set id from this run record, never source or label matching. */
@@ -68,19 +78,27 @@ export async function reconnectMappings(
 export async function importMappingSlots(
 	mappings: readonly MappingPreset[], candidates: readonly MappingCandidate[], files: ReadonlyMap<string, TFile>,
 	dependencies: MappingRunDependencies, already: readonly CompletedMapping[] = [],
+	choices?: ReadonlyMap<string, { mode: RunChoice; setId?: string; folder?: string }>,
 ): Promise<CompletedMapping[]> {
 	const completed = [...already];
 	for (const mapping of mappings) {
-		if (mapping.kind === 'from-slot' || completed.some((item) => item.id === mapping.id)) continue;
+		if (mapping.kind === 'from-slot' || choices?.get(mapping.id)?.mode === 'skip'
+			|| completed.some((item) => item.id === mapping.id)) continue;
 		const candidate = candidates.find((item) => item.mapping.id === mapping.id);
 		let tsv: string;
+		let sourceDigest: string;
+		let sourceName: string;
 		if (!candidate && mapping.kind === 'built-in') {
 			// Only this NIST public-domain asset ships in the bundle. CTID and CRI files stay local.
-			tsv = require('../../../recipes/import/crosswalks/nist-csf-2-to-nist-800-53.sssom.tsv') as string;
+			tsv = builtInMappingTsv();
+			sourceDigest = computeSourceByteDigest(new TextEncoder().encode(tsv));
+			sourceName = 'Built-in mapping';
 		} else {
 			const file = candidate && files.get(candidate.source.path);
 			if (!file || !candidate) throw new Error(`${mapping.label} has no recognized source file. Add the publisher mapping export, then try again.`);
 			const bytes = await dependencies.readBytes(file);
+			sourceDigest = computeSourceByteDigest(bytes);
+			sourceName = file.name;
 			if (/\.json$/i.test(file.name)) {
 				const parsed = readCtidJson(new TextDecoder().decode(bytes), mapping.from);
 				if (parsed.attackVersion && parsed.attackVersion !== ATTACK_MAPPING_RELEASE) {
@@ -97,18 +115,23 @@ export async function importMappingSlots(
 			}
 		}
 		dependencies.log('mapping', mapping.id);
-		const before = new Set((await dependencies.listSets()).map((set) => set.id));
-		const outcome = await dependencies.importRows(tsv, { importSet: 'new-set-qualified', overwriteMode: 'skip' });
+		const selection = choices?.get(mapping.id);
+		const refresh = selection?.mode === 'refresh' ? selection : undefined;
+		if (refresh && (!refresh.setId || !refresh.folder)) throw new Error(`${mapping.label} has no confirmed refresh set. Import as a new set.`);
+		const before = refresh ? new Set<string>() : new Set((await dependencies.listSets()).map((set) => set.id));
+		const outcome = await dependencies.importRows(tsv, refresh
+			? { importSet: { id: refresh.setId! }, outputFolder: refresh.folder, overwriteMode: 'replace' }
+			: { importSet: 'new-set-qualified', overwriteMode: 'skip' });
 		if (!outcome.generation?.success || !outcome.folder) throw new Error(`${mapping.label} could not be imported. Check the mapping file and destination, then try again.`);
-		// Scoped discovery reads cache-cold notes in the written destination; a global
-		// cache settle can time out immediately after generation and lose this set's ID.
-		const added = (await dependencies.listSets(outcome.folder)).filter((set) => !before.has(set.id) && set.root === outcome.folder);
-		if (added.length !== 1) throw new Error(`${mapping.label} was written but its new import set could not be confirmed. Wait for vault indexing, then inspect the mapping notes before retrying.`);
-		const record = { id: mapping.id, label: mapping.label, setId: added[0].id,
-			folder: outcome.folder ?? added[0].root ?? '', noteCount: added[0].noteCount,
-			unresolved: outcome.summary, tsv };
+		// The scoped delta is the runner's result for a new mapping; refresh uses the explicitly stored id.
+		const added = refresh ? [] : (await dependencies.listSets(outcome.folder)).filter((set) => !before.has(set.id) && set.root === outcome.folder);
+		if (!refresh && added.length !== 1) throw new Error(`${mapping.label} was written but its new import set could not be confirmed. Wait for vault indexing, then inspect the mapping notes before retrying.`);
+		const record = { id: mapping.id, label: mapping.label, setId: refresh ? refresh.setId! : added[0].id,
+			folder: outcome.folder, noteCount: refresh ? outcome.generation.created.length : added[0].noteCount,
+			unresolved: outcome.summary, tsv, sourceDigest, sourceName,
+			recipeDigest: sssomRecipeDigest(mapping.from, mapping.to) };
 		completed.push(record);
-		dependencies.onCompleted?.(record);
+		await dependencies.onCompleted?.(record);
 	}
 	return completed;
 }

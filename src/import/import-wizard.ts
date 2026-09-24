@@ -75,6 +75,11 @@ import { computeRecipeHash } from '../generation/hash';
  * outside the ontology root and are used verbatim, because re-parenting them
  * would relocate the mapping and evidence surfaces that read them.
  */
+export function refreshRootProblem(set: Pick<DiscoveredImportSet, 'root'> | null | undefined): string | null {
+	if (!set || set.root) return null;
+	return 'Crosswalker cannot tell where this framework lives. Its notes are spread across more than one folder. Import it as a new set, or move its notes into one folder first.';
+}
+
 export function recognizedDestination(entry: RecipeRegistryEntry, globalDefault: string): string | null {
 	const suggested = (entry.suggestedFolder ?? '').trim().replace(/^\/+|\/+$/g, '');
 	if (!suggested) return null;
@@ -2116,9 +2121,7 @@ export class ImportFlow {
 	 * root is exactly the second-copy failure the rule above exists to prevent.
 	 */
 	private refreshRootProblem(): string | null {
-		const set = this.refreshTargetSet();
-		if (!set || set.root) return null;
-		return 'Crosswalker cannot tell where this framework lives. Its notes are spread across more than one folder. Import it as a new set, or move its notes into one folder first.';
+		return refreshRootProblem(this.refreshTargetSet());
 	}
 
 	/**
