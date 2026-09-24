@@ -86,6 +86,7 @@ export function buildProvenance(input: ProvenanceInput, pluginVersion: string): 
 		block.import_set = {
 			id: input.importSet.id,
 			scheme: input.importSet.scheme,
+			...(input.importSet.parent_set ? { parent_set: input.importSet.parent_set } : {}),
 			// Where the set lives, recorded so a refresh never has to infer it from
 			// vault paths. An import that guesses its own destination wrong writes a
 			// second copy of itself beside the first.

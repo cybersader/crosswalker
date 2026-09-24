@@ -275,6 +275,7 @@ async function applyDeclaredCrosswalks(
 	recipe: Recipe,
 	sourceOntology: string,
 	inputs: CrosswalkEdgeInput[],
+	producerSetId: string,
 	options: Pick<GenerationOptions, 'sourceFileName' | 'overwriteMode' | 'onProgress' | 'tier2'>,
 	result: GenerationResult,
 	debug?: DebugLog,
@@ -298,6 +299,7 @@ async function applyDeclaredCrosswalks(
 		entries,
 		sourceOntology,
 		recipeId: recipe.recipe,
+		producerSetId,
 		sourceFileName: options.sourceFileName,
 		inputs,
 		overwriteMode: options.overwriteMode,
@@ -1242,6 +1244,7 @@ export async function generateNotes(
 			recipe,
 			basePrefix,
 			crosswalkInputs ?? [],
+			importSet.id,
 			options,
 			result,
 			debug,
@@ -2918,6 +2921,8 @@ export interface RecipeImportOptions {
 	basePath: string;
 	/** Select an existing import set explicitly or force a freshly minted set. */
 	importSet?: ImportSetOption;
+	/** Producing framework set for a declared crosswalk edge run; stamped after resolution. */
+	producerSetId?: string;
 	/** How to handle existing files. */
 	overwriteMode: 'skip' | 'replace' | 'error';
 	/** Whether to create missing folders. Defaults to true. */
@@ -3004,7 +3009,11 @@ export async function generateFromRecipe(
 		: recipe.source?.ontology ?? recipe.recipe;
 	// Headless imports obey the same destination-discovery rules as the wizard.
 	// Callers can name a wiped/empty set explicitly or force a new mint.
-	const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest);
+	const resolvedImportSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest);
+	const importSet = options.producerSetId
+		? { ...resolvedImportSet, parent_set: options.producerSetId }
+		: resolvedImportSet;
+	result.importSetId = importSet.id;
 	if (recipe.source?.nest && derivationOf(importSet) !== 'declared-facts-v1') {
 		result.errors.push({
 			row: 0,
@@ -3817,6 +3826,7 @@ export async function generateFromRecipe(
 		recipe,
 		baseCuriePrefix,
 		crosswalkInputs ?? [],
+		importSet.id,
 		options,
 		result,
 		debug,

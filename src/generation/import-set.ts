@@ -63,6 +63,8 @@ export function derivationOf(reference?: Pick<ImportSetReference, 'derivation'>)
 export interface ImportSetReference {
 	id: string;
 	scheme: ImportSetScheme;
+	/** Framework import set whose run produced these crosswalk edges; absent otherwise. */
+	parent_set?: string;
 	/**
 	 * The destination folder this set was last written to. Recorded rather than
 	 * inferred: a refresh that cannot look up where its set already lives has to
@@ -121,7 +123,7 @@ export interface ImportSetReference {
 }
 
 export type ImportSetOption =
-	| { id: string; scheme?: ImportSetScheme }
+	| { id: string; scheme?: ImportSetScheme; parent_set?: string }
 	| 'new'
 	| 'new-set-qualified';
 
@@ -146,6 +148,8 @@ export interface DiscoveredImportSet extends ImportSetReference {
 	 * asking ("has this source written here before?").
 	 */
 	recipeIds: string[];
+	/** Distinct producing framework set ids stamped on this set's notes, sorted. */
+	parentSets?: string[];
 	/** Recipe hashes stamped by owned notes. An ambiguous or absent hash blocks stack refresh. */
 	recipeHashes?: string[];
 	/**
@@ -175,6 +179,7 @@ interface ImportSetObservation {
 	ontology: string | null;
 	/** The derivation pinned in this note's import_set block, if any (AM-27). */
 	derivation: string | null;
+	parentSet: string | null;
 	/** Nested level identity modes pinned in this note's import_set block, if any. */
 	nestIdentity: Record<string, 'global' | 'path'> | null;
 	/** Source provenance stamped beside the import-set ownership block. */
@@ -442,6 +447,7 @@ export async function resolveImportSet(
 	if (option && typeof option === 'object') {
 		assertImportSetId(option.id);
 		if (option.scheme !== undefined) assertImportSetScheme(option.scheme);
+		if (option.parent_set !== undefined) assertImportSetId(option.parent_set);
 		const observations = await collectObservations(app, undefined, option.id);
 		const existing = buildDiscoveredSets(observations)[0];
 		if (existing) {
@@ -457,6 +463,7 @@ export async function resolveImportSet(
 			return stamp(
 				{
 					id: existing.id,
+					...(option.parent_set ? { parent_set: option.parent_set } : (existing.parentSets?.length === 1 ? { parent_set: existing.parentSets[0] } : {})),
 					scheme: existing.scheme,
 					...(existing.derivation ? { derivation: existing.derivation } : {}),
 					...(existing.nest_identity ? { nest_identity: { ...existing.nest_identity } } : {}),
@@ -476,7 +483,7 @@ export async function resolveImportSet(
 		// match nothing it owns and write a duplicate of the entire import. An
 		// actually-empty set pays nothing for the caution: it has no notes to
 		// re-identify, and the rows it writes are consistent with what it stamps.
-		return stamp({ id: option.id, scheme: option.scheme ?? CURRENT_IMPORT_SET_SCHEME }, proposed);
+		return stamp({ id: option.id, scheme: option.scheme ?? CURRENT_IMPORT_SET_SCHEME, ...(option.parent_set ? { parent_set: option.parent_set } : {}) }, proposed);
 	}
 
 	// AM-9. THE ENGINE HAS NO OPINION ABOUT WHAT IS IN THE FOLDER.
@@ -569,6 +576,7 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 		const destination = readString((raw as Record<string, unknown>).destination);
 		const ontology = readString((raw as Record<string, unknown>).ontology);
 		const derivation = readString((raw as Record<string, unknown>).derivation);
+		const parentSet = readString((raw as Record<string, unknown>).parent_set);
 		const nestIdentity = readNestIdentity((raw as Record<string, unknown>).nest_identity, file.path);
 		// Two stamped facts about WHAT produced this note, kept beside the ownership
 		// id so a caller can ask "has this source written here before?" without
@@ -594,6 +602,7 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 			ontologyPrefix: curiePrefix(readString((fm as Record<string, unknown>).curie)),
 			ontology,
 			derivation,
+			parentSet,
 			nestIdentity,
 			sourceFile: readString(sourceRecord?.file),
 			sourceHash: readString(sourceRecord?.source_hash),
@@ -653,6 +662,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 			paths,
 			root: resolveSetRoot(recorded, paths),
 			recipeIds: distinctSorted(group.map((entry) => entry.recipeId)),
+			...(group.some((entry) => entry.parentSet) ? { parentSets: distinctSorted(group.map((entry) => entry.parentSet)) } : {}),
 			...(group.every((entry) => entry.recipeHash)
 				? { recipeHashes: distinctSorted(group.map((entry) => entry.recipeHash)) } : {}),
 			ontologyPrefixes: distinctSorted(group.map((entry) => entry.ontologyPrefix)),
