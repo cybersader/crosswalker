@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fourth prerelease preparation, 0.1.3 (2026-09-24)
+
+- Prepared version `0.1.3` as the fourth BRAT prerelease, carrying the framework stack work, the OSCAL nesting fix, and the 2026-09-24 fixes below on top of `0.1.2`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.3` entry. The user-facing notes live under `## [0.1.3]` near the end of this file, which is where the release job reads them.
+
 ### Docs: quick start covers framework stacks (2026-09-24)
 
 - The quick start now walks through **Set up a framework stack**: picking frameworks, the download checklist, adding files and fixing wrong-file errors, review and Detail, the completion screen with **Reconnect mappings**, and re-running a saved stack with Skip, Refresh, or New set. The single-file import path is unchanged.
@@ -1633,6 +1637,24 @@ AJV (Ajv2020) + ajv-formats wired into plugin startup; `spec/*.schema.json` comp
 - Ch 26 — Transform engine depth + input formats (resolved 2026-05-05)
 
 ---
+
+## [0.1.3] - 2026-09-24
+
+Fourth public prerelease. Still intended for early testing in backup or test vaults, not production-critical use.
+
+### What changed since 0.1.2
+
+- **Set up a framework stack.** A new guided flow imports several frameworks and the mappings that connect them in one run. Pick frameworks (for example CRI Profile, NIST 800-53, and MITRE ATT&CK), follow the download checklist, drop the files in, review, and import. Choosing CRI Profile and NIST 800-53 adds NIST CSF 2.0 as the bridge between them.
+- **Files are recognized for you.** Each dropped file is matched to its framework, and a wrong file, such as the ATT&CK STIX bundle instead of the Excel export, gets a message naming the right one.
+- **Mappings link real notes.** Mapping files from NIST and the Center for Threat-Informed Defense, plus a built-in NIST CSF 2.0 to 800-53 mapping, become link notes that point at the concept notes on both ends. A mapping line whose framework is not imported yet is kept and reported, never faked; **Reconnect mappings** links it later.
+- **A Detail setting** chooses between every level as a note, or top levels only. At full detail, NIST 800-53 families and CRI functions and categories get their own notes, so mappings to those levels resolve.
+- **Saved stacks can be run again.** The workspace tab lists installed stacks with each framework's state. **Run again** offers Skip for unchanged files, and Refresh or New set for changed ones; refresh is always your choice. Stacks export as JSON for a teammate.
+- **Fixes:** OSCAL catalogs nest as groups, controls, and enhancements; refreshing a framework no longer duplicates its mapping links and lists links that left the source; refresh counts separate unchanged notes from updated ones; an import no longer fails when new notes are still being indexed; count labels read correctly for one item.
+
+### Requirements
+
+- Obsidian 1.10.0 or newer.
+- Install through BRAT (add `cybersader/crosswalker`) or copy `main.js`, `manifest.json`, and `styles.css` into `.obsidian/plugins/crosswalker/`.
 
 ## [0.1.2] - 2026-09-23
 
