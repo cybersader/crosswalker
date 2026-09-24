@@ -292,6 +292,8 @@ export interface LevelRule {
 	destinations: Destination[];
 	/** How the rendered name is composed. */
 	naming: LevelNaming;
+	/** Concept note for a folder level with no source row of its own. */
+	impliedConcept?: true | { identity?: string };
 	/** Per-level missing-value policy. Not serializable yet (lossy TODO). */
 	missing: MissingPolicy;
 	/** Whether this level gets its own note (materialize). Not serializable yet (lossy TODO). */
@@ -364,6 +366,8 @@ export interface StructureMapping {
  * 2026-07-10 batch-enrichment design.
  */
 export interface Enrichment {
+	/** Identity-based parent links on nested notes; on by default for implied levels. */
+	parent_links?: boolean;
 	/** Managed `children` array on every parent note (sorted by child curie). */
 	children_lists?: boolean;
 	/** How facet values materialize: 'none' | 'tags-only' | 'notes' (hub note + members). */

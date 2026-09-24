@@ -242,8 +242,12 @@ export interface Relocation {
 }
 
 export interface EnrichmentResult {
+	/** First-class notes for folder levels with no source row. */
+	impliedConcepts: (HubNote & { impliedLevel: string; parentCurie?: string; parentLabel?: string })[];
 	/** FINAL (post-relocation) path → sorted `children` wikilink array, to patch onto that parent note. */
 	childrenByPath: Map<string, string[]>;
+	/** Nested row path → parent concept identity, never inferred from an address. */
+	parentByPath: Map<string, { curie: string; label: string }>;
 	/** Materialized facet hub notes (sorted by path). Empty unless facet_notes='notes'. */
 	hubs: HubNote[];
 	/** Materialized level (hierarchy MOC) hubs. Empty unless level_hubs='notes'. */
@@ -419,7 +423,7 @@ export interface EnrichOptions {
 	 *
 	 * Supplied by the caller because `enrich()` is pure and reads no vault.
 	 */
-	observedHubs?: readonly { curie: string; path: string; folder: string; hasRecordedChain: boolean }[];
+	observedHubs?: readonly { curie: string; path: string; folder: string; hasRecordedChain: boolean; role?: 'hub' | 'implied' }[];
 }
 
 /**
@@ -440,8 +444,8 @@ export interface EnrichOptions {
  * evidence that either one vanished.
  */
 export type OwnedHubAtFolder = (
-	| { state: 'one'; path: string; curie: string; values?: LayoutValue[] }
-	| { state: 'many'; paths: string[]; curies: string[] }
+	| { state: 'one'; path: string; curie: string; values?: LayoutValue[]; role?: 'hub' | 'implied' }
+	| { state: 'many'; paths: string[]; curies: string[]; roles?: ('hub' | 'implied')[] }
 	/**
 	 * S18 (2026-09-04). ONE VOICE PER FOLDER: the caller read an index note here,
 	 * found that its recorded chain describes a DIFFERENT folder (S12), withheld it,
@@ -516,7 +520,9 @@ export function enrich(notes: EnrichNote[], opts: EnrichOptions): EnrichmentResu
 	const config = opts.config ?? {};
 	const result: EnrichmentResult = {
 		childrenByPath: new Map(),
+		parentByPath: new Map(),
 		hubs: [],
+		impliedConcepts: [],
 		levelHubs: {
 			hostedChildrenByPath: new Map(),
 			hostedFolderByPath: new Map(),
@@ -787,8 +793,12 @@ interface FolderIdentity {
 	 * is a list rather than the single value it was.
 	 */
 	legacyCuries?: string[];
-	/** AM-33. Synthetic hubs only: the ordered layout values this hub's identity was minted from. */
+	/** AM-33. The ordered layout values this folder's identity was minted from. */
 	levelValues?: LayoutValue[];
+	/** Present when the folder has a first-class implied concept identity. */
+	impliedLevel?: string;
+	/** An existing, held implied note preserves its recorded curie and provenance. */
+	heldImplied?: boolean;
 }
 
 /**
@@ -816,10 +826,10 @@ function computeLevelHubs(
 	rootFolder: string | undefined,
 	ownedHubsByFolder: OwnedHubsByFolder | undefined,
 	/** AM-70. Every index note of this import the caller read. See `EnrichOptions.observedHubs`. */
-	observedHubs: readonly { curie: string; path: string; folder: string; hasRecordedChain: boolean }[] | undefined,
+	observedHubs: readonly { curie: string; path: string; folder: string; hasRecordedChain: boolean; role?: 'hub' | 'implied' }[] | undefined,
 	result: EnrichmentResult,
 ): void {
-	if (config.level_hubs !== 'notes') return;
+	if (config.level_hubs !== 'notes' && !notes.some((note) => note.layoutValues?.some((value) => value.identity !== undefined))) return;
 
 	const entries = notes.map((n) => ({ note: n, path: finalPath(n) }));
 	if (entries.length === 0) return;
@@ -1043,6 +1053,19 @@ function computeLevelHubs(
 	// deterministic, the same discipline every other derived list here follows.
 	const valuesByFolder = new Map<string, LayoutValue[]>();
 	const unalignedFolders = new Map<string, string>();
+	const identityDisagreements = new Map<string, string>();
+	const firstIdentityRow = new Map<string, string>();
+	const flaggedFolders = new Set<string>();
+	// A held row can identify that its layout has this control, but cannot
+	// re-identify a held folder. Only the recorded note decides its identity.
+	for (const e of entries.filter((x) => !isWritable(x.note))) {
+		if (dirOf(e.note.renderedPath ?? e.note.path) !== dirOf(e.path)) continue;
+		let folder = rootIsTrackedAncestor && root !== undefined ? root : '';
+		for (const value of e.note.layoutValues ?? []) {
+			folder = folder ? `${folder}/${value.value}` : value.value;
+			if (value.identity !== undefined && folders.has(folder)) flaggedFolders.add(folder);
+		}
+	}
 	// AM-50 (2026-09-04). Did this RUN collect values at all?
 	//
 	// Two states were being read as one. "This caller hands over no values" is a
@@ -1110,7 +1133,17 @@ function computeLevelHubs(
 				}
 				continue;
 			}
-			if (!valuesByFolder.has(abs)) valuesByFolder.set(abs, lv.slice(0, i + 1));
+			const previous = valuesByFolder.get(abs);
+			const candidate = lv[i];
+			if (candidate?.identity !== undefined) flaggedFolders.add(abs);
+			if (previous?.[i]?.identity !== undefined && candidate?.identity !== undefined
+				&& previous[i].identity !== candidate.identity && !identityDisagreements.has(abs)) {
+				identityDisagreements.set(abs, `No concept note was created for the folder "${abs}": rows placed in it disagree about its identity ("${previous[i].identity}" from "${firstIdentityRow.get(abs)}", "${candidate.identity}" from "${e.note.curie}"). The notes themselves were written normally. Fix the identity template or source data, then import again.`);
+			}
+			if (!previous) {
+				valuesByFolder.set(abs, lv.slice(0, i + 1));
+				firstIdentityRow.set(abs, e.note.curie);
+			}
 		}
 	}
 
@@ -1309,6 +1342,7 @@ function computeLevelHubs(
 	 * knew it disagreed, and guessed freely when it knew nothing.
 	 */
 	const refusalFor = (f: string): string | undefined => {
+		if (identityDisagreements.has(f)) return identityDisagreements.get(f);
 		// AM-50. The root is described by the set, not by a row. See `isImportRoot`.
 		if (isImportRoot(f)) return undefined;
 		// AM-54. The precedence, top to bottom: hosted by placement, then described by
@@ -1529,7 +1563,7 @@ function computeLevelHubs(
 		// is not an identity this run may carry. `refusalFor` has already named it;
 		// returning null here is what stops the folder being written under it, and no
 		// repair or re-derivation is attempted - see `isCurieOfThisOntology`.
-		if (!isCurieOfThisOntology(observed.curie)) return null;
+		if (!isCurieOfThisOntology(observed.curie) || observed.role === 'implied') return null;
 		return recordedValuesOf(f) ? observed.curie : null;
 	};
 
@@ -1614,6 +1648,23 @@ function computeLevelHubs(
 		if (host) {
 			id = { curie: host.curie, label, hostedPath: finalPath(host) };
 		} else {
+			const values = valuesByFolder.get(f);
+			const last = values?.[values.length - 1];
+			const held = keptObservationOf(f);
+			const impliedCurie = last?.identity !== undefined ? `${ontology}:${last.identity}` : null;
+			if (impliedCurie && !notes.some((note) => note.curie === impliedCurie)) {
+				id = { curie: impliedCurie, label, impliedLevel: last!.level,
+					levelValues: values,
+					legacyCuries: [hubCurieFromParts(values!.map((value) => value.value))] };
+				identity.set(f, id);
+				return id;
+			}
+			if (flaggedFolders.has(f) && held?.state === 'one' && held.role === 'implied' && recordedValuesOf(f)) {
+				id = { curie: held.curie, label, impliedLevel: recordedValuesOf(f)!.at(-1)!.level,
+					levelValues: recordedValuesOf(f)!, heldImplied: true };
+				identity.set(f, id);
+				return id;
+			}
 			const curie = hubCurieOf(f);
 			if (curie === null) return null;
 			// AM-52. A kept-in-place folder carries its RECORDED chain forward, so the
@@ -1621,12 +1672,12 @@ function computeLevelHubs(
 			// would clear the one record of what the folder is about (`hub_levels` and
 			// `hub_values` are always-managed keys, so an absent one is erased, not
 			// preserved) and the next run would have nothing to keep.
-			const values = valuesByFolder.get(f) ?? recordedValuesOf(f) ?? undefined;
+			const recordedOrCurrentValues = valuesByFolder.get(f) ?? recordedValuesOf(f) ?? undefined;
 			id = {
 				curie,
 				label,
 				legacyCuries: legacyHubCuriesOf(f).filter((c) => c !== curie),
-				...(values ? { levelValues: values } : {}),
+				...(recordedOrCurrentValues ? { levelValues: recordedOrCurrentValues } : {}),
 			};
 		}
 		identity.set(f, id);
@@ -1647,6 +1698,7 @@ function computeLevelHubs(
 
 	// Pass B: direct children (sorted by curie), materialize.
 	const sortedFolders = [...folders].sort(cmp);
+	const skippedLegacyIndexFolders: string[] = [];
 	for (const f of sortedFolders) {
 		// AM-37. The refusal. A folder whose values and segments disagree is a
 		// folder this run cannot describe, and the alternative to saying so is
@@ -1666,12 +1718,28 @@ function computeLevelHubs(
 			result.deviations.push(unaligned);
 			continue;
 		}
+		const heldIndex = keptObservationOf(f);
+		if (flaggedFolders.has(f) && heldIndex?.state === 'one' && (heldIndex.role ?? 'hub') === 'hub') {
+			keptExistingCuries.add(heldIndex.curie);
+			skippedLegacyIndexFolders.push(f);
+			continue;
+		}
 		const id = identityOf(f);
 		// AM-50. Unreachable behind the refusal above; the belt is here so a folder
 		// this run cannot name can never be written under a name taken from its path.
 		if (!id) continue;
 		const childRefs: { curie: string; label: string }[] = [];
-		for (const e of filesOf.get(f) ?? []) childRefs.push({ curie: e.note.curie, label: basename(e.path) });
+		// The parent identity comes from the same folder decision that emits its
+		// concept note. A folder's address supplies placement, never a CURIE.
+		const attachParent = (path: string, childCurie: string, parent: FolderIdentity): void => {
+			if (flaggedFolders.size === 0 || config.parent_links === false || childCurie === parent.curie) return;
+			if (!parent.impliedLevel && !parent.hostedPath) return;
+			result.parentByPath.set(path, { curie: parent.curie, label: parent.label });
+		};
+		for (const e of filesOf.get(f) ?? []) {
+			childRefs.push({ curie: e.note.curie, label: basename(e.path) });
+			attachParent(e.path, e.note.curie, id);
+		}
 		for (const g of subfoldersOf.get(f) ?? []) {
 			// AM-44. A refused subfolder is not linked to. Its hub note is not being
 			// written, so a `[[label]]` here is a link to nothing (or to whatever
@@ -1681,6 +1749,7 @@ function computeLevelHubs(
 			const gid = identityOf(g);
 			if (!gid) continue;
 			childRefs.push({ curie: gid.curie, label: gid.label });
+			if (gid.hostedPath) attachParent(gid.hostedPath, gid.curie, id);
 		}
 		childRefs.sort((a, b) => cmp(a.curie, b.curie));
 		const links = childRefs.map((c) => `[[${c.label}]]`);
@@ -1689,6 +1758,12 @@ function computeLevelHubs(
 		const facetGroup = isRoot && rootFacetLinks.length > 0 ? [{ label: 'Facets', links: rootFacetLinks }] : [];
 
 		if (id.hostedPath) {
+			if (config.level_hubs !== 'notes') {
+				if (config.children_lists !== false && flaggedFolders.size > 0) {
+					result.childrenByPath.set(id.hostedPath, links);
+				}
+				continue;
+			}
 			// A note already hosts this folder (e.g. a concept row whose id
 			// equals the root folder's own name). `hostedChildrenByPath`'s value
 			// is a plain wikilink array (shared with every non-root hosted
@@ -1708,7 +1783,30 @@ function computeLevelHubs(
 			result.levelHubs.hostedChildrenByPath.set(id.hostedPath, links);
 			// AM-76. Which folder this note hosts, said by the pass that decided it.
 			result.levelHubs.hostedFolderByPath.set(id.hostedPath, f);
-		} else {
+		} else if (id.impliedLevel) {
+			const values = id.levelValues ?? [];
+			const parentFolder = dirOf(f);
+			const parent = parentFolder && !isImportRoot(parentFolder) && folders.has(parentFolder)
+				&& !refusalFor(parentFolder) ? identityOf(parentFolder) : null;
+			const parentConcept = parent?.impliedLevel || parent?.hostedPath ? parent : null;
+			result.impliedConcepts.push({
+				path: joinMd(f, id.label),
+				curie: id.curie,
+				frontmatter: {
+					curie: id.curie, title: id.label, implied_level: id.impliedLevel,
+					implied_levels: values.map((value) => value.level),
+					implied_values: values.map((value) => value.value),
+					children: config.children_lists === false ? [] : links,
+					...(parentConcept ? { parent: `[[${parentConcept.label}]]`, parent_curie: parentConcept.curie } : {}),
+				},
+				body: `# ${id.label}\n\n${buildManagedChildrenSection('Contents', config.children_lists === false ? [] : links)}`,
+				childrenLinks: config.children_lists === false ? [] : links, impliedLevel: id.impliedLevel,
+				...(parentConcept ? { parentCurie: parentConcept.curie, parentLabel: parentConcept.label } : {}),
+				...(id.legacyCuries ? { legacyCuries: id.legacyCuries } : {}),
+				levelValues: values,
+				...(id.heldImplied ? { heldFolder: true as const } : {}),
+			});
+		} else if (config.level_hubs === 'notes') {
 			result.levelHubs.notes.push({
 				path: joinMd(f, id.label),
 				curie: id.curie,
@@ -1751,12 +1849,17 @@ function computeLevelHubs(
 		}
 	}
 
+	if (skippedLegacyIndexFolders.length > 0) {
+		const named = skippedLegacyIndexFolders.slice(0, 5).map((folder) => `"${folder}"`).join(', ');
+		result.deviations.push(`${skippedLegacyIndexFolders.length} ${skippedLegacyIndexFolders.length === 1 ? 'folder holds' : 'folders hold'} an index note from before concept identity was recorded for that level (${named}${skippedLegacyIndexFolders.length > 5 ? ', and others' : ''}); they were left as they were. Re-run with Replace to establish the concept notes.`);
+	}
+
 	// Root/home hub fallback: only when `rootFolder` was given a name but isn't
 	// itself a tracked ancestor folder (no note path is actually prefixed by
 	// it) — the bare golden-vault harness case (module header's step 4.5 note).
 	// In real usage `root` IS a tracked ancestor and was already handled above
 	// by the uniform per-folder pass, so this never double-creates a root hub.
-	if (root !== undefined && root !== '' && !folders.has(root)) {
+	if (config.level_hubs === 'notes' && root !== undefined && root !== '' && !folders.has(root)) {
 		const label = basename(root);
 		const childRefs: { curie: string; label: string }[] = [];
 		// Top-level folders first, so their (possibly hosted) labels are known

@@ -2,7 +2,7 @@ import nistNested from '../recipes/import/nist-800-53-nested.json';
 import criNested from '../recipes/import/cri-profile-v2-2-nested.json';
 import { findRecognizedRecipes } from '../src/import/recipe-registry';
 import { DEFAULT_STACK_SELECTION, frameworkChoices, frameworkSlots, stackSourceWhere, slotDetailSummary, stackRecipeHash, refreshRecipeProblem } from '../src/import/stack/stack-model';
-import { render, type Recipe, type RenderReport } from '../src/render';
+import { render, type Recipe, type RenderReport, type LayoutValue } from '../src/render';
 import { compileSourceExpression } from '../src/source';
 import { validateRecipe } from '../src/validation/validator';
 
@@ -32,7 +32,9 @@ describe('stack-only max-detail recipes', () => {
 		['YY-2', 'YY/YY-2/YY-2.md'],
 		['XX-3(2)', 'XX/XX-3/XX-3(2).md'],
 	])('places synthetic NIST %s at %s', (identifier, expected) => {
-		const address = render(nist, { curie: `nist-800-53:${identifier}`, scope: { identifier, name: 'Invented control', control_text: 'Invented text', discussion: '', related: '' } });
+		const layoutValues: LayoutValue[] = [];
+		const address = render(nist, { curie: `nist-800-53:${identifier}`, scope: { identifier, name: 'Invented control', control_text: 'Invented text', discussion: '', related: '' } }, undefined, layoutValues);
+		expect(layoutValues[0].identity).toBe(identifier.slice(0, 2));
 		expect(address.primary.path).toBe(expected);
 		expect(address.frontmatter.family).toBe(identifier.slice(0, 2));
 	});
@@ -48,7 +50,9 @@ describe('stack-only max-detail recipes', () => {
 			'CRI Profile Function / Category / Subcategory': 'Invented / Category / Subcategory',
 			'CRI Profile v2.2 Diagnostic Statement': 'Invented statement',
 			'Tier-1': '', 'Tier-2': '', 'Tier-3': '', 'Tier-4': '' };
-		expect(render(cri, { curie: `cri-profile:${id}`, scope }, report).primary.path).toBe(expected);
+		const layoutValues: LayoutValue[] = [];
+		expect(render(cri, { curie: `cri-profile:${id}`, scope }, report, layoutValues).primary.path).toBe(expected);
+		expect(layoutValues.every((value) => value.identity === undefined)).toBe(true);
 		expect(report.notes.filter((note) => ['prefix-index-missing', 'folder-level-skipped'].includes(note.code))).toHaveLength(missingNotes);
 	});
 

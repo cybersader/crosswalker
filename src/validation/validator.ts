@@ -26,6 +26,7 @@ import addFormats from 'ajv-formats';
 import tier1Schema from '../../spec/tier1.schema.json';
 import recipeSchema from '../../spec/recipe.schema.json';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
+import { validateTemplateSyntax } from '../render/template';
 
 const tier1CuriePattern = (tier1Schema as { $defs?: { curie?: { pattern?: unknown } } }).$defs?.curie?.pattern;
 if (typeof tier1CuriePattern !== 'string' || tier1CuriePattern.length === 0) {
@@ -164,7 +165,27 @@ export function validateTier1Frontmatter(fm: unknown): ValidationResult {
 export function validateRecipe(recipe: unknown, style: RecipeSchemaStyle = 'A'): ValidationResult {
 	const validator = getRecipeValidator(style);
 	const valid = !!validator(recipe);
-	return formatResult(valid, validator.errors);
+	const result = formatResult(valid, validator.errors);
+	const layout = (recipe as { target?: { layout?: unknown } } | null)?.target?.layout;
+	if (!Array.isArray(layout)) return result;
+	for (let i = 0; i < layout.length; i++) {
+		const entry = layout[i];
+		if (!entry || typeof entry !== 'object' || !('implied_concept' in entry)) continue;
+		const item = entry as Record<string, unknown>;
+		const path = `target.layout.${i}.implied_concept`;
+		if (i === layout.length - 1) result.errors.push(`${path}: the leaf level produces rows; an implied concept level must be above it`);
+		if (item.mechanism !== 'folder') result.errors.push(`${path}: only a folder level can carry implied concepts`);
+		if ('variadic' in item) result.errors.push(`${path}: implied concepts and variadic expansion cannot be combined in this version`);
+		const option = item.implied_concept;
+		if (option && typeof option === 'object' && 'identity' in option && typeof (option as { identity?: unknown }).identity === 'string') {
+			try { validateTemplateSyntax((option as { identity: string }).identity); }
+			catch (error) {
+				result.errors.push(`${path}.identity: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
+	}
+	result.valid = result.errors.length === 0;
+	return result;
 }
 
 /**
@@ -175,7 +196,7 @@ export function isValidRecipe(
 	recipe: unknown,
 	style: RecipeSchemaStyle = 'A',
 ): recipe is CrosswalkerImportRecipe {
-	return !!getRecipeValidator(style)(recipe);
+	return validateRecipe(recipe, style).valid;
 }
 
 function getRecipeValidator(style: RecipeSchemaStyle): ValidateFunction<CrosswalkerImportRecipe> {

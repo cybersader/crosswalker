@@ -7,6 +7,27 @@ import type { MappingCandidate } from './stack-recognize';
 import type { MappingPreset } from '../recipe-registry';
 import { ATTACK_MAPPING_RELEASE } from '../recipe-registry';
 
+/** Wait for notes written by one framework slot before the next slot's vault-wide
+ * import-set qualification. A single `resolved` event can precede those notes;
+ * never interpret a cold metadata cache as an empty set. */
+export async function waitForIndexedDestination(app: App, root: string, timeoutMs = 10_000): Promise<number> {
+	// An empty destination is not a scoped slot; there is nothing safe to poll.
+	if (!root.trim()) return 0;
+	const prefix = `${root.replace(/\/$/, '')}/`;
+	const remaining = (): number => app.vault.getMarkdownFiles()
+		.filter((file) => file.path.startsWith(prefix) && !app.metadataCache.getFileCache(file)).length;
+	const deadline = Date.now() + timeoutMs;
+	let cold = remaining();
+	while (cold > 0 && Date.now() < deadline) {
+		await new Promise<void>((resolve) => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
+		cold = remaining();
+	}
+	// A Replace refresh may expose a non-null but old cache entry. It still
+	// identifies an existing set, not an absent one, so it cannot cause the
+	// next slot's first-run set qualification to mint a duplicate set.
+	return cold;
+}
+
 export interface CompletedMapping {
 	id: string;
 	label: string;

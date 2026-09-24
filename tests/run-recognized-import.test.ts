@@ -179,8 +179,11 @@ describe('runRecognizedImport', () => {
 			sourceWhere: "$not($contains(identifier, '('))",
 		});
 		expect(result.ok).toBe(true);
-		expect(result.created).toBe(1);
-		expect([...harness.files.keys()]).toEqual([expect.stringMatching(/ZZ\/ZZ-1\/ZZ-1\.md$/)]);
+		expect(result.created).toBe(2);
+		expect([...harness.files.keys()].sort()).toEqual([
+			expect.stringMatching(/ZZ\/ZZ-1\/ZZ-1\.md$/),
+			expect.stringMatching(/ZZ\/ZZ\.md$/),
+		]);
 		expect(parsedFrontmatter([...harness.files.values()][0])._crosswalker).toMatchObject({ recipe: { id: NIST_NESTED.id } });
 		expect(NIST_NESTED.recipe.source).not.toHaveProperty('where');
 	});

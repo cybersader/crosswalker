@@ -173,6 +173,21 @@ const CROSSWALK_PREDICATE_LABELS: Record<CrosswalkPredicate, string> = {
 	intersects_with: 'They partly overlap',
 };
 
+/** Only claim a level has no own rows when expanded rows carry explicit level evidence. */
+export function impliedConceptControlState(
+	rule: LevelRule, index: number, levelCount: number, expandedRows: readonly Record<string, unknown>[] | null,
+): { visible: boolean; suggest: boolean } {
+	const visible = index < levelCount - 1
+		&& rule.destinations.some((destination) => destination.primitive === 'folder')
+		&& !rule.destinations.some((destination) => destination.primitive === 'name');
+	const suggest = visible && !!expandedRows?.length && !expandedRows.some((row) => {
+		const lineage = row._cw;
+		return typeof lineage === 'object' && lineage !== null
+			&& (lineage as { level?: unknown }).level === rule.level;
+	});
+	return { visible, suggest };
+}
+
 const PREVIEW_ROW_LIMIT = 20;
 /** Matches detection.ts's hierarchy analysis ceiling without widening its API. */
 const SPLIT_PANEL_SAMPLE_LIMIT = 500;
@@ -2220,6 +2235,22 @@ export class MappingWorkbench {
 				} else {
 					this.openSplitPanel(mi, li);
 				}
+			});
+		}
+		const impliedControl = impliedConceptControlState(rule, li, m.levels.length, this.expandedRows);
+		if (impliedControl.visible) {
+			const control = lvl.createEl('label', { cls: 'crosswalker-wb-implied-control' });
+			const toggle = control.createEl('input', {
+				attr: { type: 'checkbox', 'aria-label': `Create concept notes for ${rule.level} folders` },
+			});
+			toggle.checked = !!rule.impliedConcept;
+			control.createSpan({ text: 'Concept note for each folder' });
+			if (impliedControl.suggest) control.createSpan({
+				text: ' Suggested if this level has no rows of its own.',
+			});
+			toggle.addEventListener('change', () => {
+				const next = { ...rule, impliedConcept: toggle.checked ? true as const : undefined };
+				this.updateMapping(mi, this.replaceLevel(m, li, next));
 			});
 		}
 		// Sample cell.

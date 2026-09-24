@@ -11,7 +11,7 @@ import { peekXLSXBytes } from '../parsers/xlsx-parser';
 import { peekCSV, peekJSON } from '../vault-source-scan';
 import { LARGE_FILE_BYTES } from '../vault-source-scan-runner';
 import { recognizeStackSources, type StackCandidate, type StackRecognition, type StackSource } from './stack-recognize';
-import { importMappingSlots, reconnectMappings, stackMappingDependencies, type CompletedMapping } from './stack-run';
+import { importMappingSlots, reconnectMappings, stackMappingDependencies, waitForIndexedDestination, type CompletedMapping } from './stack-run';
 import {
 	CONNECTOR_ONTOLOGY, CONNECTOR_REASON, DEFAULT_STACK_SELECTION,
 	activeMappings, checklistPlainText, checklistRows, frameworkChoices, frameworkSlots,
@@ -29,6 +29,7 @@ export class StackSetupModal extends Modal {
 	private recognition: StackRecognition = recognizeStackSources([], []);
 	private folder = '';
 	private busy = false;
+	private indexing = false;
 	private error = '';
 	private largeSources = new Set<string>();
 	private completed: { label: string; created: number; setId: string | null; folder: string; warnings: string[] }[] = [];
@@ -354,6 +355,7 @@ export class StackSetupModal extends Modal {
 				? 'Ready' : 'Missing mapping file. Add the publisher export before importing.' });
 		}
 		if (this.error) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: this.error });
+		if (this.indexing) scroll.createDiv({ cls: 'crosswalker-stack-muted', text: 'Waiting for the vault to index the notes just written...' });
 		if (this.completed.length) scroll.createDiv({ text: `${this.completed.length} framework sets imported. Remaining mappings will run next.` });
 		const footer = root.createDiv({ cls: 'crosswalker-stack-footer' });
 		new Setting(footer).addButton((button) => button.setButtonText('Back').setDisabled(this.busy)
@@ -389,6 +391,18 @@ export class StackSetupModal extends Modal {
 					break;
 				}
 				this.completed.push({ label: slot.entry.label, created: outcome.created, setId: outcome.importSetId, folder: outcome.destination, warnings: outcome.warnings });
+				// The next framework's set qualification reads the vault-wide metadata
+				// index. Newly written notes may arrive after one `resolved` event, so
+				// wait for this slot's actual output instead of treating lag as absence.
+				this.indexing = true;
+				this.render();
+				let cold: number;
+				try { cold = await waitForIndexedDestination(this.app, outcome.destination); }
+				finally { this.indexing = false; this.render(); }
+				if (cold > 0) {
+					this.error = `${slot.entry.label} was imported, but its notes are still indexing. Wait for the vault index to finish, then retry the remaining frameworks.`;
+					break;
+				}
 				this.plugin.debug.info('stack', 'framework', `Stack framework: ${slot.ontology}`);
 			} catch {
 				this.error = `${slot.entry.label} could not be imported. Check the source and destination, then try again. Remaining frameworks were not started.`;

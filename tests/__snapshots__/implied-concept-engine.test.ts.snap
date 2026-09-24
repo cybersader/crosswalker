@@ -1,0 +1,41 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`implied concept notes A21: unflagged, unenriched import retains its complete byte output 1`] = `
+[
+  [
+    "Frameworks/Synthetic/ZZ/ZZ-1.md",
+    "---
+curie: "synthetic:ZZ-1"
+_crosswalker:
+  spec_version: "https://crosswalker.dev/spec/tier1.schema.json"
+  source_ref:
+    file: synthetic.csv
+  produced_at: "<timestamp>"
+  producer:
+    kind: plugin-engine
+    name: crosswalker-plugin
+    version: "0.1.2"
+  recipe:
+    id: synthetic-implied
+    hash: sha256-fcd23fb4355f9b1ad764c01509b695a03ab03b19e0d63d647d3265ead291bdf3
+  import_set:
+    id: <set-id>
+    scheme: endpoint-v1
+    destination: Frameworks/Synthetic
+    ontology: synthetic
+    derivation: declared-facts-v1
+  concept_cid: sha256-c66da0cbfbf56ddabd9ef432392e56b2efa5224ea851cb86db6e865cfeae9a18
+  review_cid: sha256-c66da0cbfbf56ddabd9ef432392e56b2efa5224ea851cb86db6e865cfeae9a18
+  review_groups:
+    wording: sha256-31cb95d3cebcfb216cab8c978af9e503f1f841295aacfa9228136b04fe6491bc
+    scope: sha256-97326f25747d620b2cfa6b647ad1629ced69be03a53d315fce5b21f03c03c347
+    housekeeping: sha256-bc767bb2cab63a47a15b7af10ba72340f8fc862746feaf3ddd7606fc7b7ee493
+---
+
+<!-- crosswalker:body:start v=1 -->
+# synthetic:ZZ-1
+<!-- crosswalker:body:end -->
+",
+  ],
+]
+`;
