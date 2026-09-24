@@ -17,9 +17,11 @@
  *
  * tests/fixtures/recipe-hash-golden.json was generated from the PRE-change
  * code. Do not regenerate it to make this test pass. The sole documented
- * exception is `cri-profile-v2-2.json`: Wave 2d deliberately moved its target
+ * exceptions are `cri-profile-v2-2.json`: Wave 2d deliberately moved its target
  * hash from sha256-3f44049e... to sha256-84e795b6... by declaring
- * `target.crosswalks`; every other pin remains the original baseline.
+ * `target.crosswalks`, and `crosswalk-edge.json`: optional source fields moved
+ * its target hash from sha256-ed118a18... to sha256-b810f5af.... All other
+ * pins remain at their baseline.
  *
  * Six shipped recipes have since adopted `source.where` to select their own
  * rows (SchemaVer 1.9.0), so their LIVE hash legitimately differs from the

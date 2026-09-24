@@ -129,7 +129,7 @@ export class RecipePickerModal extends Modal {
 			// eslint-disable-next-line obsidianmd/ui/sentence-case -- leading pencil glyph confuses the linter's first-letter detection; "Updating" is already correctly capitalized
 			badge.createEl('span', { text: '✎ Updating existing query', cls: 'crosswalker-update-badge-label' });
 			header.createEl('p', {
-				text: `Current template: ${this.existing.recipe} · query_id: ${this.existing.query_id}. Adjust params below + click Apply — the same .base file regenerates.`,
+				text: `Current template: ${this.existing.recipe} · query_id: ${this.existing.query_id}. Adjust params below + click Apply. The same .base file regenerates.`,
 				cls: 'setting-item-description',
 			});
 		} else {
@@ -150,7 +150,7 @@ export class RecipePickerModal extends Modal {
 			const list = errBox.createEl('ul');
 			for (const e of this.errors.slice(0, 5)) {
 				list.createEl('li', {
-					text: `${e.originPath} — ${e.error}`,
+					text: `${e.originPath}: ${e.error}`,
 					cls: 'setting-item-description',
 				});
 			}

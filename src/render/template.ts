@@ -473,7 +473,7 @@ function resolvePath(
 		if (cur == null || typeof cur !== 'object') {
 			if (allowMissing) return '';
 			throw new RenderError(
-				`Template variable "${rawPath}" — segment "${seg.name}" hit non-object value while traversing in template "${originalTemplate}".`,
+				`Template variable "${rawPath}": segment "${seg.name}" hit non-object value while traversing in template "${originalTemplate}".`,
 			);
 		}
 		cur = (cur as Record<string, unknown>)[seg.name];
@@ -637,14 +637,14 @@ const FILTERS: Record<string, (v: unknown, arg?: string, ctx?: FilterCtx) => unk
 				template: ctx.template,
 				detail:
 					idx === 0
-						? `"${String(v)}" contains no "${delim}" — the whole value was used as this piece.`
-						: `"${String(v)}" contains no "${delim}" — piece ${idx} came back empty.`,
+						? `"${String(v)}" contains no "${delim}": the whole value was used as this piece.`
+						: `"${String(v)}" contains no "${delim}": piece ${idx} came back empty.`,
 			});
 		} else if (idx >= parts.length) {
 			ctx?.report?.notes.push({
 				code: 'split-index-missing',
 				template: ctx.template,
-				detail: `"${String(v)}" splits on "${delim}" into ${parts.length} pieces — piece ${idx} doesn't exist, so it came back empty.`,
+				detail: `"${String(v)}" splits on "${delim}" into ${parts.length} pieces: piece ${idx} doesn't exist, so it came back empty.`,
 			});
 		}
 		return (parts[idx] ?? '').trim();
@@ -694,7 +694,7 @@ const FILTERS: Record<string, (v: unknown, arg?: string, ctx?: FilterCtx) => unk
 			ctx?.report?.notes.push({
 				code: 'part-index-missing',
 				template: ctx.template,
-				detail: `"${source}" splits on any of "${delimSet}" into ${pieces.length} piece(s) — piece ${idx} doesn't exist, so it came back empty.`,
+				detail: `"${source}" splits on any of "${delimSet}" into ${pieces.length} piece(s): piece ${idx} doesn't exist, so it came back empty.`,
 			});
 			return '';
 		}
@@ -722,7 +722,7 @@ const FILTERS: Record<string, (v: unknown, arg?: string, ctx?: FilterCtx) => unk
 			ctx?.report?.notes.push({
 				code: 'prefix-index-missing',
 				template: ctx.template,
-				detail: `"${source}" splits on any of "${delimSet}" into ${nonEmpty.length} piece(s) — piece ${idx} doesn't exist, so the prefix came back empty.`,
+				detail: `"${source}" splits on any of "${delimSet}" into ${nonEmpty.length} piece(s): piece ${idx} doesn't exist, so the prefix came back empty.`,
 			});
 			return '';
 		}
@@ -775,14 +775,14 @@ const FILTERS: Record<string, (v: unknown, arg?: string, ctx?: FilterCtx) => unk
 			ctx?.report?.notes.push({
 				code: 'regex-no-match',
 				template: ctx.template,
-				detail: `"${String(v)}" doesn't match the pattern "${arg}" — this piece came back empty.`,
+				detail: `"${String(v)}" doesn't match the pattern "${arg}": this piece came back empty.`,
 			});
 		}
 		return found ? (found[1] ?? found[0]) : '';
 	},
 };
 
-/** `split(<delim>)` — the produce step. Trims each piece and drops empties. */
+/** `split(<delim>)`: the produce step. Trims each piece and drops empties. */
 function splitToList(value: unknown, arg: string): string[] {
 	const delim = decodeDelimiter(arg);
 	if (delim === '') {
@@ -822,7 +822,7 @@ function splitOnSet(s: string, set: string): { text: string; end: number }[] {
 	return pieces;
 }
 
-/** `part(<delims>)` — the produce step. Trimmed non-empty pieces of the set split. */
+/** `part(<delims>)`: the produce step. Trimmed non-empty pieces of the set split. */
 function partToList(value: unknown, arg: string): string[] {
 	const delimSet = decodeDelimiter(arg);
 	if (delimSet === '') {

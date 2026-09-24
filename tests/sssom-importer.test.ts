@@ -459,6 +459,7 @@ describe('P2 SSSOM endpoint link projection', () => {
 		const refreshed = await importSssom(app, tsv, null, null, {
 			runTier2Projection: false, importSet: fm._crosswalker.import_set, overwriteMode: 'replace',
 		});
+		expect(refreshed.generation?.created).toEqual([edgePath]);
 		expect(refreshed.summary).toEqual([]);
 		expect(refreshed.generation?.orphans).toBeUndefined();
 		expect(written.get(edgePath)).toContain('[[One/First|First]] is_equivalent_to [[Two/Second|Second]]');

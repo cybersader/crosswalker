@@ -78,7 +78,7 @@ export function applyFolder(
 			code: 'folder-level-skipped',
 			level: entry.level,
 			template: entry.template,
-			detail: `Level "${entry.level}" rendered empty for this row — the folder level was skipped, so the note lands one level up from its siblings.`,
+			detail: `Level "${entry.level}" rendered empty for this row: the folder level was skipped, so the note lands one level up from its siblings.`,
 		});
 		return;
 	}
@@ -118,7 +118,7 @@ export function applyVariadicFolder(
 				code: 'folder-level-skipped',
 				level: entry.level,
 				template: entry.template,
-				detail: `Level "${entry.level}" split "${scalar}" on "${cfg.delimiter}" and hit an empty piece — that folder level was skipped, so the note lands one level up from its siblings.`,
+				detail: `Level "${entry.level}" split "${scalar}" on "${cfg.delimiter}" and hit an empty piece: that folder level was skipped, so the note lands one level up from its siblings.`,
 			});
 			continue;
 		}
@@ -156,7 +156,7 @@ export function applyVariadicFolder(
 			code: 'variadic-overflow-truncated',
 			level: entry.level,
 			template: entry.template,
-			detail: `Level "${entry.level}" split "${scalar}" into ${segments.length} folder levels — capped at the max_depth of ${maxDepth}. The extra levels were dropped; the full id is still in the filename.`,
+			detail: `Level "${entry.level}" split "${scalar}" into ${segments.length} folder levels: capped at the max_depth of ${maxDepth}. The extra levels were dropped; the full id is still in the filename.`,
 		});
 		segments = segments.slice(0, maxDepth);
 	}

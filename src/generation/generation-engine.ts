@@ -283,7 +283,7 @@ async function applyDeclaredCrosswalks(
 	const entries = declaredCrosswalks(recipe);
 	if (entries.length === 0) return;
 
-	result.crosswalkEdges = { created: 0, sets: [] };
+	result.crosswalkEdges = { created: 0, upToDate: 0, sets: [] };
 	if (!result.success || result.errors.length > 0) {
 		const failedRows = new Set(result.errors.filter((error) => error.row >= 0).map((error) => error.row)).size
 			|| result.errors.length;
@@ -309,10 +309,14 @@ async function applyDeclaredCrosswalks(
 	}, debug);
 	result.crosswalkEdges = {
 		created: pass.totalCreated,
+		upToDate: pass.perEntry.reduce((sum, entry) => sum + entry.upToDate, 0),
 		sets: pass.perEntry
 			.map((entry) => entry.importSetId)
 			.filter((id): id is string => id !== null),
 		summary: pass.summary,
+		...(pass.perEntry.some((entry) => entry.orphans?.length)
+			? { orphans: pass.perEntry.flatMap((entry) => entry.orphans ?? []) }
+			: {}),
 	};
 	if (pass.errors.length > 0) {
 		result.errors.push(...pass.errors.map((error) => ({ row: -1, message: error.message })));
@@ -465,6 +469,7 @@ export async function generateNotes(
 	const result: GenerationResult = {
 		success: true,
 		created: [],
+		upToDate: [],
 		skipped: [],
 		errors: [],
 		duration: 0,
@@ -882,9 +887,12 @@ export async function generateNotes(
 						return;
 					}
 					let takingOverImplied = false;
-					if (target.existingFile instanceof TFile && ownedIdentityIndex.get(noteData.curie)?.path === target.existingFile.path) {
+					if (target.existingFile instanceof TFile) {
 						const observed = await readFrontmatterForRun(app, target.existingFile);
-						takingOverImplied = observed.state === 'ok' && observed.frontmatter.implied_level !== undefined;
+						const sameCurie = ownedIdentityIndex.get(noteData.curie)?.path === target.existingFile.path;
+						const managed = observed.state === 'ok' ? observed.frontmatter[ENGINE_MANAGED_KEYS] : undefined;
+						const managedImplied = Array.isArray(managed) && ['implied_level', 'implied_levels', 'implied_values'].some((key) => managed.includes(key));
+						takingOverImplied = observed.state === 'ok' && observed.frontmatter.implied_level !== undefined && (sameCurie || (target.existingFile.path === fullPath && managedImplied));
 						if (takingOverImplied && target.existingFile.path !== fullPath) {
 							result.errors.push({ row: rowNum, message: `Duplicate identity in this import: ${noteData.curie} is an implied concept at ${target.existingFile.path}, but the population row would write it at ${fullPath}. Keep the existing address or resolve the collision before refreshing.` });
 							return;
@@ -1023,7 +1031,10 @@ export async function generateNotes(
 							for (const key of owned) managedKeys.add(key);
 						}
 						if (takingOverImplied) {
-							for (const key of ['implied_level', 'implied_levels', 'implied_values']) managedKeys.add(key);
+							const recorded = previous.state === 'ok' ? previous.frontmatter[ENGINE_MANAGED_KEYS] : undefined;
+							for (const key of ['implied_level', 'implied_levels', 'implied_values']) {
+								if (ownedIdentityIndex.get(noteData.curie)?.path === existingFile.path || (Array.isArray(recorded) && recorded.includes(key))) managedKeys.add(key);
+							}
 						}
 						const outcome = await mergeExistingNote({
 							app,
@@ -1055,6 +1066,7 @@ export async function generateNotes(
 					// Create or update file
 					if (existingFile instanceof TFile) {
 						const changed = await writeMergedNote(app, existingFile, noteData.frontmatter, bodyToWrite);
+						(changed ? result.created : result.upToDate).push(writePath);
 						debug?.info(
 							'generation',
 							changed ? 'file-replaced' : 'file-unchanged',
@@ -1064,9 +1076,8 @@ export async function generateNotes(
 					} else {
 						await app.vault.create(writePath, content);
 						debug?.info('generation', 'file-created', `Created new file ${writePath}`, { path: writePath });
+						result.created.push(writePath);
 					}
-
-					result.created.push(writePath);
 					if (takingOverImplied) rowTakenOverImplied.set(noteData.curie, writePath);
 
 					// Collect a record for Pass 1.5 enrichment (parent→children +
@@ -2990,6 +3001,7 @@ export async function generateFromRecipe(
 	const result: GenerationResult = {
 		success: true,
 		created: [],
+		upToDate: [],
 		skipped: [],
 		errors: [],
 		duration: 0,
@@ -3446,9 +3458,12 @@ export async function generateFromRecipe(
 			// whether this is an implied-to-row transition. Moving that concept to
 			// another address is a collision, never an implicit takeover.
 			let takingOverImplied = false;
-			if (target.existingFile instanceof TFile && ownedIdentityIndex.get(curie)?.path === target.existingFile.path) {
+			if (target.existingFile instanceof TFile) {
 				const observed = await readFrontmatterForRun(app, target.existingFile);
-				takingOverImplied = observed.state === 'ok' && observed.frontmatter.implied_level !== undefined;
+				const sameCurie = ownedIdentityIndex.get(curie)?.path === target.existingFile.path;
+				const managed = observed.state === 'ok' ? observed.frontmatter[ENGINE_MANAGED_KEYS] : undefined;
+				const managedImplied = Array.isArray(managed) && ['implied_level', 'implied_levels', 'implied_values'].some((key) => managed.includes(key));
+				takingOverImplied = observed.state === 'ok' && observed.frontmatter.implied_level !== undefined && (sameCurie || (target.existingFile.path === fullPath && managedImplied));
 				if (takingOverImplied && target.existingFile.path !== fullPath) {
 					result.errors.push({ row: rowNum, message: `Duplicate identity in this import: ${curie} is an implied concept at ${target.existingFile.path}, but the population row would write it at ${fullPath}. Keep the existing address or resolve the collision before refreshing.` });
 					return;
@@ -3647,7 +3662,10 @@ export async function generateFromRecipe(
 				// Implied-only properties are engine-owned even if the recipe does not
 				// declare them. Deletion belongs to the managed merge, not a later edit.
 				if (takingOverImplied) {
-					for (const key of ['implied_level', 'implied_levels', 'implied_values']) managedKeys.add(key);
+					const recorded = previous.state === 'ok' ? previous.frontmatter[ENGINE_MANAGED_KEYS] : undefined;
+					for (const key of ['implied_level', 'implied_levels', 'implied_values']) {
+						if (ownedIdentityIndex.get(curie)?.path === existingFile.path || (Array.isArray(recorded) && recorded.includes(key))) managedKeys.add(key);
+					}
 				}
 				const outcome = await mergeExistingNote({
 					app,
@@ -3671,11 +3689,12 @@ export async function generateFromRecipe(
 			// 10. Write
 			const content = buildNoteContent(frontmatter, body);
 			if (existingFile instanceof TFile) {
-				await writeMergedNote(app, existingFile, frontmatter, body);
+				const changed = await writeMergedNote(app, existingFile, frontmatter, body);
+				(changed ? result.created : result.upToDate).push(writePath);
 			} else {
 				await app.vault.create(writePath, content);
+				result.created.push(writePath);
 			}
-			result.created.push(writePath);
 			if (takingOverImplied) rowTakenOverImplied.set(curie, writePath);
 
 			// Collect a record for Pass 1.5 enrichment (parent→children + facet hubs).
@@ -5056,6 +5075,7 @@ async function applyEnrichment(
 	const producedThisRun = new Set<string>([
 		...records.filter((r) => writeSet.has(r.path)).map((r) => normalizePath(r.path)),
 		...result.created.map((path) => normalizePath(path)),
+		...result.upToDate.map((path) => normalizePath(path)),
 	]);
 	// The row writer observed the original implied CURIE before its managed merge
 	// removed the marker. The post-stream hub walk can no longer see that marker.
@@ -5103,7 +5123,7 @@ async function applyEnrichment(
 			result.warnings ??= [];
 			result.warnings.push({
 				row: 0,
-				message: `parent_note: could not relocate ${reloc.curie} — ${toPath} already exists in the vault (not produced by this import).`,
+				message: `parent_note: could not relocate ${reloc.curie}. ${toPath} already exists in the vault (not produced by this import).`,
 			});
 			continue;
 		}
@@ -5123,6 +5143,8 @@ async function applyEnrichment(
 		if (createdIdx !== -1) {
 			result.created[createdIdx] = toPath;
 		} else {
+			const upToDateIdx = result.upToDate.indexOf(reloc.from);
+			if (upToDateIdx !== -1) result.upToDate[upToDateIdx] = toPath;
 			const skippedIdx = result.skipped.indexOf(reloc.from);
 			if (skippedIdx !== -1) result.skipped[skippedIdx] = toPath;
 		}
@@ -5457,6 +5479,8 @@ async function applyEnrichment(
 		}
 		if (note.heldFolder && !(existing instanceof TFile)) continue;
 		const frontmatter: Record<string, any> = { ...note.frontmatter,
+			...(note.frontmatter.implied_level !== undefined ? { [ENGINE_MANAGED_KEYS]:
+				['implied_level', 'implied_levels', 'implied_values', ...ENGINE_PARENT_KEYS].filter((key) => note.frontmatter[key] !== undefined) } : {}),
 			_crosswalker: buildProvenance({ sourceFile: options.sourceFileName,
 				sourceVersion: options.sourceVersion, sourceHash: options.sourceHash,
 				recipeId: recipe.recipe, recipeHash, importSet }, PLUGIN_VERSION) };

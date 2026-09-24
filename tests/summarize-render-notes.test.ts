@@ -53,7 +53,7 @@ describe('summarizeRenderNotes — deviations present', () => {
 		expect(summary.tone).toBe('warning');
 		expect(summary.deviantCount).toBe(13);
 		expect(summary.message).toBe(
-			"187 of 200 previewed rows match the pattern fully. 13 rows don't — expand to see where they'll land.",
+			"187 of 200 previewed rows match the pattern fully. 13 rows don't. Expand to see where they'll land.",
 		);
 	});
 
@@ -66,7 +66,7 @@ describe('summarizeRenderNotes — deviations present', () => {
 
 		expect(summary.sampled).toBe(true);
 		expect(summary.message).toBe(
-			"187 of the first 200 rows previewed match the pattern fully. 13 rows don't — expand to see where they'll land.",
+			"187 of the first 200 rows previewed match the pattern fully. 13 rows don't. Expand to see where they'll land.",
 		);
 	});
 
@@ -75,7 +75,7 @@ describe('summarizeRenderNotes — deviations present', () => {
 		const summary = summarizeRenderNotes(perRow, 2);
 
 		expect(summary.message).toBe(
-			"1 of 2 previewed rows match the pattern fully. 1 row doesn't — expand to see where they'll land.",
+			"1 of 2 previewed rows match the pattern fully. 1 row doesn't. Expand to see where they'll land.",
 		);
 	});
 

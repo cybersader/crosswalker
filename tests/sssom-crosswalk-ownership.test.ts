@@ -383,7 +383,7 @@ describe('the crosswalk ownership review', () => {
 		const { modal } = openModal(vault.app, INHOUSE_TSV);
 		const { texts, dropdown } = await captureReview(modal);
 
-		expect(texts.some((line) => line.startsWith(`${existing.id} `))).toBe(true);
+		expect(texts.some((line) => line.startsWith(`${existing.id}: `))).toBe(true);
 		expect(texts.some((line) => line.includes(FOLDER))).toBe(true);
 		expect(dropdown!.options.map((option) => option.value)).toEqual(['__new__', existing.id]);
 	});

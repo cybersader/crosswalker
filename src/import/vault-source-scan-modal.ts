@@ -1,3 +1,4 @@
+import { plural } from '../utils/plural';
 import { Modal, Notice, TFile, TFolder, normalizePath, type App } from 'obsidian';
 import type CrosswalkerPlugin from '../main';
 import { ImportWizardModal, type PrefillBinding } from './import-wizard';
@@ -281,7 +282,7 @@ export class VaultSourceScanModal extends Modal {
 		for (const set of report.foreignSets) {
 			const row = section.createDiv({ cls: 'crosswalker-scan-foreign-row' });
 			row.createDiv({
-				text: `${set.setId}: ${set.noteCount} notes under ${set.root ?? 'no shared folder'}`,
+				text: `${set.setId}: ${plural(set.noteCount, 'note')} under ${set.root ?? 'no shared folder'}`,
 			});
 			const open = row.createEl('button', { text: 'Open' });
 			open.addEventListener('click', () => {
@@ -393,8 +394,8 @@ export class VaultSourceScanModal extends Modal {
 					break;
 				}
 				control.result.setText(
-					`Imported ${outcome.created} notes`
-					+ (outcome.crosswalkEdges !== undefined ? `, ${outcome.crosswalkEdges} crosswalk edges` : ''),
+					`Imported ${plural(outcome.created, 'note')}`
+					+ (outcome.crosswalkEdges !== undefined ? `, ${plural(outcome.crosswalkEdges, 'crosswalk edge')}` : ''),
 				);
 				control.checkbox.checked = false;
 			}

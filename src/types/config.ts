@@ -450,7 +450,10 @@ export interface GenerationResult {
 	success: boolean;
 	/** Actual import set resolved for a native recipe run (even if no notes were written). */
 	importSetId?: string;
+	/** Files actually created or changed by this run. */
 	created: string[];
+	/** Existing files whose merged content was byte-identical. */
+	upToDate: string[];
 	skipped: string[];
 	errors: GenerationError[];
 	/**
@@ -519,7 +522,7 @@ export interface GenerationResult {
 	 */
 	filteredOut?: number;
 	/** Crosswalk edge notes written by a declared target.crosswalks pass. */
-	crosswalkEdges?: { created: number; sets: string[]; summary?: string[] };
+	crosswalkEdges?: { created: number; upToDate: number; sets: string[]; summary?: string[]; orphans?: Array<{ curie: string; path: string }> };
 	/**
 	 * Approved evidence links this run wrote WITHOUT a review baseline, because
 	 * their subject control was not resolvable in this vault (Ch 43

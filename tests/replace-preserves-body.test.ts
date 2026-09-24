@@ -261,6 +261,8 @@ describe.each(PATHS)('managed body regions — $name', ({ run }) => {
 		const once = files.get(NOTE)!;
 		const result = await run({ app });
 		expect(stable(files.get(NOTE)!)).toBe(stable(once));
+		expect(result.created).not.toContain(NOTE);
+		expect(result.upToDate).toContain(NOTE);
 		expect(result.conflicts ?? []).toEqual([]);
 	});
 

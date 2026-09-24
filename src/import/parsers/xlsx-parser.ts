@@ -87,7 +87,7 @@ export async function parseXLSXFile(file: File, options: XLSXParseOptions = {}):
 	if (typeof options.sheet === 'number') {
 		sheetName = wb.SheetNames[options.sheet];
 		if (!sheetName) {
-			throw new Error(`Sheet index ${options.sheet} out of range — workbook has ${wb.SheetNames.length} sheet(s): ${wb.SheetNames.join(', ')}`);
+			throw new Error(`Sheet index ${options.sheet} out of range. Workbook has ${wb.SheetNames.length} sheet(s): ${wb.SheetNames.join(', ')}`);
 		}
 	} else if (typeof options.sheet === 'string' && options.sheet !== '') {
 		if (!wb.SheetNames.includes(options.sheet)) {

@@ -6,6 +6,7 @@ import {
 	canonicalToMapping,
 	diagnoseCanonicalRecipe,
 	diagnoseEditableMapping,
+	diagnoseSourceCompatibility,
 	loadRecipeDocument,
 	patchRecipeDocument,
 	recipesSemanticallyEqual,
@@ -183,6 +184,25 @@ describe('RecipeDocument canonical preservation boundary', () => {
 			},
 		});
 		expect(address.frontmatter.match_confidence).toBe(0.95);
+	});
+
+	it('accepts absent optional crosswalk columns but still blocks absent required columns', () => {
+		const columns = [
+			'subject_id', 'object_id', 'strm_predicate', 'subject_group', 'object_group',
+			'source_framework', 'target_framework', 'match_confidence',
+			'mapping_justification', 'mapping_provider', 'sssom_predicate',
+		];
+		const loaded = loadRecipeDocument(crosswalkRecipe, { origin: 'bundled', sourceColumns: columns });
+		expect(loaded.ok).toBe(true);
+		if (!loaded.ok) return;
+		expect(loaded.document.diagnostics.filter((diagnostic) => diagnostic.code === 'source-column-missing')).toEqual([]);
+		expect(patchRecipeDocument(loaded.document).ok).toBe(true);
+
+		const missingRequired = diagnoseSourceCompatibility(crosswalkRecipe, columns.filter((column) => column !== 'object_id'));
+		expect(missingRequired.filter((diagnostic) => diagnostic.code === 'source-column-missing')
+			.map((diagnostic) => diagnostic.message)).toEqual([
+			'The selected source does not contain recipe column "object_id".',
+		]);
 	});
 
 	it('preserves canonical array order when emissions belong to different mapping levels', () => {

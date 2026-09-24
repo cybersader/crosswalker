@@ -21,6 +21,7 @@
  * surface raw schema editing — for that, users edit the .sssom.tsv file
  * directly, then re-import.
  */
+import { plural } from '../utils/plural';
 
 import { App, Modal, Notice, Setting, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../main';
@@ -73,7 +74,7 @@ export function describeImportSet(set: { id: string; noteCount: number; paths: s
 	const folder = commonFolder(set.paths);
 	const where = folder ? ` in ${folder}` : '';
 	const noteWord = set.noteCount === 1 ? 'note' : 'notes';
-	return `${set.id} — ${set.noteCount} ${noteWord}${where}`;
+	return `${set.id}: ${set.noteCount} ${noteWord}${where}`;
 }
 
 /** Longest shared folder prefix of the given paths, or '' when they share none. */
@@ -245,7 +246,7 @@ export class SssomImportModal extends Modal {
 			const ul = previewEl.createEl('ul');
 			for (const w of result.warnings.slice(0, 10)) ul.createEl('li', { text: w });
 			if (result.warnings.length > 10) {
-				previewEl.createEl('p', { text: `(+ ${result.warnings.length - 10} more — see debug log)` });
+				previewEl.createEl('p', { text: `(+ ${result.warnings.length - 10} more. Review the warnings above and correct the source before retrying.)` });
 			}
 		}
 
@@ -293,7 +294,7 @@ export class SssomImportModal extends Modal {
 		const line = wrap.createEl('p', { cls: 'setting-item-description' });
 		if (refreshing) {
 			line.setText(
-				`Refreshing ${refreshing.id} (${refreshing.noteCount} existing notes). This replaces that release while preserving its identities.`,
+				`Refreshing ${refreshing.id} (${plural(refreshing.noteCount, 'existing note')}). This replaces that release while preserving its identities.`,
 			);
 		} else {
 			line.setText(sets.length === 1
@@ -495,7 +496,7 @@ export class SssomImportModal extends Modal {
 				return;
 			}
 			new Notice(
-				`SSSOM import: ${gen.created.length} junction notes created under ${result.folder}`,
+				`SSSOM import: ${plural(gen.created.length, 'junction note')} created or updated; ${plural((gen.upToDate?.length ?? 0), 'junction note')} already up to date under ${result.folder}`,
 				8000,
 			);
 			this.close();
@@ -521,10 +522,10 @@ export class SssomImportModal extends Modal {
 
 		const summary = contentEl.createDiv({ cls: 'crosswalker-results-summary' });
 		summary.createEl('p', {
-			text: `Created: ${gen.created.length} junction notes${folder ? ` under ${folder}` : ''}`,
+			text: `Created or updated: ${plural(gen.created.length, 'junction note')}; already up to date: ${plural((gen.upToDate?.length ?? 0), 'junction note')}${folder ? ` under ${folder}` : ''}`,
 		});
 		if (gen.skipped.length > 0) {
-			summary.createEl('p', { text: `Skipped: ${gen.skipped.length} existing notes` });
+			summary.createEl('p', { text: `Skipped: ${plural(gen.skipped.length, 'existing note')}` });
 		}
 		summary.createEl('p', { text: `Errors: ${gen.errors.length}`, cls: 'mod-warning' });
 		for (const message of unresolved) summary.createEl('p', { text: message, cls: 'mod-warning' });

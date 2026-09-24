@@ -50,6 +50,8 @@ describe('Visual — no pane-level horizontal overflow at any width', function (
 			const plugin = app.plugins.plugins['crosswalker'];
 			plugin.settings.enableConfigSuggestions = false;
 			plugin.settings.enableDraftSessions = false;
+			// The shape-first workbench is opt-in; defaults otherwise show classic mapping.
+			plugin.settings.enableShapeWorkbench = true;
 			const PATH = 'GraphTest-widths.csv';
 			const existing = app.vault.getAbstractFileByPath(PATH);
 			if (existing) await app.vault.delete(existing);

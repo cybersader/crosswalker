@@ -120,7 +120,7 @@ export async function regenerateOne(
 	// Re-render the template
 	const baseBody = renderRecipeTemplate(recipe, params);
 	if (baseBody === null) {
-		const err = `No template registered for recipe '${recipe}' — cannot regenerate`;
+		const err = `No template registered for recipe '${recipe}': cannot regenerate`;
 		if (!opts._shared) {
 			debug?.warn('view', 'regenerate-missing-template', err, {
 				note: file.path,

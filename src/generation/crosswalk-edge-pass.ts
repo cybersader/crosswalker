@@ -5,6 +5,8 @@ import type { Recipe } from '../render';
 import type { DebugLog } from '../utils/debug';
 import type { CrosswalkPredicate } from '../import/mapping/types';
 import { splitCrosswalkCell } from '../import/detection';
+import { readNoteFrontmatterState } from '../export/vault-reader';
+import { TFile } from 'obsidian';
 import { SSSOM_CURIE_PREFIX, sssomEdgeCurie, strmToSkos } from '../import/sssom-importer';
 import { assertionBaseKey } from '../utils/mapping-provenance';
 import { discoverImportSets, newSetSchemeFor, newSetSchemeFrom, requireVaultIndexed } from './import-set';
@@ -41,6 +43,7 @@ export interface CrosswalkEdgePassResult {
 		orphans?: Array<{ curie: string; path: string }>;
 		folder: string;
 		created: number;
+		upToDate: number;
 		skipped: number;
 		errors: GenerationError[];
 	}>;
@@ -209,6 +212,21 @@ export async function runCrosswalkEdgePass(
 	for (const entry of args.entries) {
 		const folder = `_crosswalker/mappings/${args.sourceOntology}-to-${entry.to_ontology}`;
 		const derived = deriveCrosswalkEdgeRows(entry, args.sourceOntology, args.recipeId, args.inputs);
+		const columnRecipeId = buildCrosswalkColumnRecipe(entry, args.sourceOntology, args.recipeId).recipe;
+		// A zero-row refresh still has an owned set to inspect for retained links.
+		const candidates = args.producerSetId
+			? discovered.filter((set) =>
+				(set.parentSets ?? []).length === 1
+				&& set.parentSets?.[0] === args.producerSetId
+				&& set.recipeIds.includes(columnRecipeId))
+			: [];
+		if (candidates.length > 1) {
+			const ids = candidates.map((set) => set.id).sort().join(', ');
+			const error = { row: -1, message: `Crosswalk links for ${entry.column} were not updated. More than one link set records this framework as its source: ${ids}. Remove the extra set in ownership review, then run the import again.` };
+			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, upToDate: 0, skipped: 0, errors: [error] });
+			result.errors.push(error);
+			continue;
+		}
 		if (derived.rows.length === 0) {
 			debug?.info('crosswalk-edge-pass', 'no-edges', `No crosswalk edges to write for ${entry.column}`, {
 				column: entry.column,
@@ -218,9 +236,19 @@ export async function runCrosswalkEdgePass(
 			result.perEntry.push({
 				column: entry.column,
 				toOntology: entry.to_ontology,
-				importSetId: null,
+				importSetId: candidates[0]?.id ?? null,
+				...(candidates.length === 1 ? {
+					orphans: (await Promise.all(candidates[0].paths.map(async (path) => {
+						const file = app.vault.getAbstractFileByPath(path);
+						if (!(file instanceof TFile)) return null;
+						const read = await readNoteFrontmatterState(app, file);
+						const curie = read.state === 'ok' ? read.frontmatter.curie : undefined;
+						return typeof curie === 'string' && curie ? { curie, path } : null;
+					}))).filter((item): item is { curie: string; path: string } => item !== null),
+				} : {}),
 				folder,
 				created: 0,
+				upToDate: 0,
 				skipped: 0,
 				errors: [],
 			});
@@ -237,28 +265,12 @@ export async function runCrosswalkEdgePass(
 			rows: resolvedRows,
 			rowCount: derived.rows.length,
 		};
-		const columnRecipeId = buildCrosswalkColumnRecipe(entry, args.sourceOntology, args.recipeId).recipe;
-		// Mixed stamped and unstamped notes remain eligible if the only distinct
-		// recorded parent is this producer; no parent is inferred from unstamped notes.
-		const candidates = args.producerSetId
-			? discovered.filter((set) =>
-				(set.parentSets ?? []).length === 1
-				&& set.parentSets?.[0] === args.producerSetId
-				&& set.recipeIds.includes(columnRecipeId))
-			: [];
-		if (candidates.length > 1) {
-			const ids = candidates.map((set) => set.id).sort().join(', ');
-			const error = { row: -1, message: `Crosswalk links for ${entry.column} were not updated. More than one link set records this framework as its source: ${ids}. Remove the extra set in ownership review, then run the import again.` };
-			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, skipped: 0, errors: [error] });
-			result.errors.push(error);
-			continue;
-		}
 		const destination = candidates.length === 1
 			? candidates[0].root // validated recorded destination, or recovered from moved notes
 			: folder;
 		if (destination === null) {
 			const error = { row: -1, message: `Crosswalk links for ${entry.column} were not updated. Link set ${candidates[0].id} has no shared destination. Resolve its location in ownership review, then run the import again.` };
-			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, skipped: 0, errors: [error] });
+			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, upToDate: 0, skipped: 0, errors: [error] });
 			result.errors.push(error);
 			continue;
 		}
@@ -307,7 +319,7 @@ export async function runCrosswalkEdgePass(
 			}
 		}
 
-		const importSetId = generation.created.length > 0 || generation.skipped.length > 0 ? generation.importSetId ?? null : null;
+		const importSetId = generation.created.length > 0 || generation.upToDate.length > 0 || generation.skipped.length > 0 ? generation.importSetId ?? null : null;
 
 		const entryResult = {
 			column: entry.column,
@@ -316,6 +328,7 @@ export async function runCrosswalkEdgePass(
 			...(generation.orphans?.length ? { orphans: generation.orphans } : {}),
 			folder: destination,
 			created: generation.created.length,
+			upToDate: generation.upToDate.length,
 			skipped: generation.skipped.length,
 			errors: generation.errors,
 		};

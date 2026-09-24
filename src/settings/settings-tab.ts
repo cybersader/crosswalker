@@ -1108,7 +1108,7 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName('Log level')
-			.setDesc('Minimum severity written to the log file. Standard is right for most bug reports; verbose adds a lot of volume, so leave it off unless you are chasing a specific issue. Only affects the file — the copy-diagnostics button above always has the recent events on hand regardless of level.')
+			.setDesc('Minimum severity written to the log file. Standard is right for most bug reports; verbose adds a lot of volume, so leave it off unless you are chasing a specific issue. Only affects the file. The copy-diagnostics button above always has the recent events on hand regardless of level.')
 			.addDropdown((dropdown) =>
 				dropdown
 					.addOption('error', LOG_LEVEL_LABEL.error)

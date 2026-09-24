@@ -156,7 +156,7 @@ async function migrateOneNote(
 	// 3. Render view.base body from recipe + params
 	const baseBody = renderRecipeTemplate(legacy.recipe, legacy.params);
 	if (baseBody === null) {
-		return `No template registered for recipe '${legacy.recipe}' — cannot migrate (note: ${hostNote.path})`;
+		return `No template registered for recipe '${legacy.recipe}'. Cannot migrate (note: ${hostNote.path})`;
 	}
 
 	// 4. Build v2 frontmatter
