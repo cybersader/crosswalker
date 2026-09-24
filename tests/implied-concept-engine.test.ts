@@ -610,12 +610,14 @@ describe('implied concept notes', () => {
 		expect(rec.target.layout.every((entry) => entry.implied_concept === undefined)).toBe(true);
 		const generated = await run(app, rec, data([{ family: 'ZZ', id: 'ZZ-1' }]), 'replace', 'new');
 		expect(generated.errors).toEqual([]);
-		// Normalize only nondeterministic mint/time fields; snapshot retains every
-		// file path and every other byte, including frontmatter ordering and body.
+		// Normalize only nondeterministic mint/time fields and the release version;
+		// snapshot retains every file path and every other byte, including
+		// frontmatter ordering and body.
 		const output = [...files.entries()].sort(([a], [b]) => a.localeCompare(b))
 			.map(([path, content]) => [path, content
 				.replace(/iset-[a-z0-9]{6}/g, '<set-id>')
-				.replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z/g, '<timestamp>')]);
+				.replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z/g, '<timestamp>')
+				.replace(/(name: crosswalker-plugin\n\s+version: )"[^"]+"/g, '$1"<version>"')]);
 		expect(output).toMatchSnapshot();
 	});
 	it('adopts a pre-feature hub on Replace without losing prose', async () => {

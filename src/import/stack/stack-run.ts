@@ -30,6 +30,11 @@ export async function waitForIndexedDestination(app: App, root: string, timeoutM
 	return cold;
 }
 
+/** A crosswalk needs replay only when its target is newly written later in this run. */
+export function needsLateCrosswalkRefresh(targetOntologies: readonly string[], laterImportedOntologies: readonly string[]): boolean {
+	return targetOntologies.some((target) => laterImportedOntologies.includes(target));
+}
+
 export function builtInMappingTsv(): string {
 	return require('../../../recipes/import/crosswalks/nist-csf-2-to-nist-800-53.sssom.tsv') as string;
 }
@@ -41,6 +46,7 @@ export interface CompletedMapping {
 	folder: string;
 	noteCount: number;
 	upToDate?: number;
+	duplicateRowsSkipped?: number;
 	unresolved: string[];
 	/** The captured input is kept only for this open modal's explicit reconnect. */
 	tsv: string;
@@ -89,6 +95,7 @@ export async function importMappingSlots(
 		let tsv: string;
 		let sourceDigest: string;
 		let sourceName: string;
+		let duplicateRowsSkipped = 0;
 		if (!candidate && mapping.kind === 'built-in') {
 			// Only this NIST public-domain asset ships in the bundle. CTID and CRI files stay local.
 			tsv = builtInMappingTsv();
@@ -105,6 +112,7 @@ export async function importMappingSlots(
 				if (parsed.attackVersion && parsed.attackVersion !== ATTACK_MAPPING_RELEASE) {
 					throw new Error(`This mapping covers ATT&CK ${parsed.attackVersion}, but this stack expects ${ATTACK_MAPPING_RELEASE}. Choose the matching CTID release and try again.`);
 				}
+				duplicateRowsSkipped = parsed.duplicateRowsSkipped;
 				tsv = mappingRowsToTsv(parsed.rows, 'CTID Mappings Explorer', mapping.from, mapping.to, parsed.attackVersion ?? ATTACK_MAPPING_RELEASE);
 			} else {
 				const options = { subjectOntology: mapping.from, objectOntology: mapping.to,
@@ -129,7 +137,7 @@ export async function importMappingSlots(
 		if (!refresh && added.length !== 1) throw new Error(`${mapping.label} was written but its new import set could not be confirmed. Wait for vault indexing, then inspect the mapping notes before retrying.`);
 		const record = { id: mapping.id, label: mapping.label, setId: refresh ? refresh.setId! : added[0].id,
 			folder: outcome.folder, noteCount: refresh ? (outcome.generation.created.length + (outcome.generation.upToDate?.length ?? 0)) : added[0].noteCount,
-			upToDate: (outcome.generation.upToDate?.length ?? 0), unresolved: outcome.summary, tsv, sourceDigest, sourceName,
+			upToDate: (outcome.generation.upToDate?.length ?? 0), duplicateRowsSkipped, unresolved: outcome.summary, tsv, sourceDigest, sourceName,
 			recipeDigest: sssomRecipeDigest(mapping.from, mapping.to) };
 		completed.push(record);
 		await dependencies.onCompleted?.(record);

@@ -638,7 +638,7 @@ const SOURCE_GUIDANCE: Record<
 /** NIST catalog workbook display headers mapped to the recipe's canonical source keys. */
 export const NIST_CATALOG_HEADER_ALIASES: Record<string, string[]> = {
 	identifier: ['Control Identifier', 'Control ID'],
-	name: ['Control (or Enhancement) Name', 'Control Name', 'Control or Enhancement Name'],
+	name: ['Control (or Enhancement) Name', 'Control (or Control Enhancement) Name', 'Control Name', 'Control or Enhancement Name'],
 	control_text: ['Control Text'],
 	discussion: ['Discussion'],
 	related: ['Related Controls', 'Related Control'],

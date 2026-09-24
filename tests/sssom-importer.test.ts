@@ -465,3 +465,29 @@ describe('P2 SSSOM endpoint link projection', () => {
 		expect(written.get(edgePath)).toContain('[[One/First|First]] is_equivalent_to [[Two/Second|Second]]');
 	});
 });
+
+describe('mapping projection indexing barrier', () => {
+	const tsv = 'subject_id\tsubject_label\tpredicate_id\tobject_id\tobject_label\tmapping_justification\tconfidence\nalpha:A\tAlpha\tskos:exactMatch\tbeta:B\tBeta\tSynthetic\t1';
+	it('waits for newly written notes to index before projecting and precomputing', async () => {
+		const { app } = makeMockApp();
+		const cache = app.metadataCache.getFileCache.bind(app.metadataCache);
+		let indexed = false;
+		app.metadataCache.getFileCache = (file) => indexed ? cache(file) : null;
+		const projected = jest.fn(async () => ({ success: true }));
+		const closure = jest.fn(async () => 1);
+		setTimeout(() => { indexed = true; }, 50);
+		const result = await importSssom(app, tsv, projected, closure);
+		expect(result.generation?.success).toBe(true);
+		expect(projected).toHaveBeenCalledTimes(1);
+		expect(closure).toHaveBeenCalledTimes(1);
+		expect(indexed).toBe(true);
+	});
+	it('does not precompute mapping chains when projection reports a partial pass', async () => {
+		const { app } = makeMockApp();
+		const closure = jest.fn(async () => 1);
+		const result = await importSssom(app, tsv, async () => ({ success: false, errors: ['cache lag'] }), closure);
+		expect(result.generation?.success).toBe(true);
+		expect(result.summary.join(' ')).toMatch(/projection was incomplete.*Refresh the query database/);
+		expect(closure).not.toHaveBeenCalled();
+	});
+});

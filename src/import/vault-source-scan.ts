@@ -39,21 +39,23 @@ interface JsonIteratorCandidate {
 	iterator: string;
 }
 
+export const MAX_JSON_RECORD_DEPTH = 4;
+export const MAX_JSON_PROBE_KEYS = 256;
+
 function jsonIteratorCandidates(root: unknown): JsonIteratorCandidate[] {
 	if (Array.isArray(root)) return [{ iterator: '$[*]' }];
-	if (root === null || typeof root !== 'object') return [];
-
-	const object = root as Record<string, unknown>;
 	const candidates: JsonIteratorCandidate[] = [];
-	for (const [key, value] of Object.entries(object)) {
-		if (Array.isArray(value)) candidates.push({ iterator: `$.${key}[*]` });
-	}
-	for (const [key, value] of Object.entries(object)) {
-		if (value === null || typeof value !== 'object' || Array.isArray(value)) continue;
-		for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
-			if (Array.isArray(childValue)) candidates.push({ iterator: `$.${key}.${childKey}[*]` });
+	let inspected = 0;
+	const visit = (node: unknown, path: string, depth: number): void => {
+		if (!node || typeof node !== 'object' || Array.isArray(node) || depth >= MAX_JSON_RECORD_DEPTH) return;
+		for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+			if (++inspected > MAX_JSON_PROBE_KEYS) return;
+			const childPath = `${path}.${key}`;
+			if (Array.isArray(value)) candidates.push({ iterator: `${childPath}[*]` });
+			else visit(value, childPath, depth + 1);
 		}
-	}
+	};
+	visit(root, '$', 0);
 	return candidates;
 }
 

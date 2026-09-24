@@ -12,7 +12,8 @@ import { peekXLSXBytes } from '../parsers/xlsx-parser';
 import { peekCSV, peekJSON } from '../vault-source-scan';
 import { LARGE_FILE_BYTES } from '../vault-source-scan-runner';
 import { recognizeStackSources, type StackCandidate, type StackRecognition, type StackSource } from './stack-recognize';
-import { builtInMappingTsv, importMappingSlots, reconnectMappings, stackMappingDependencies, waitForIndexedDestination, type CompletedMapping } from './stack-run';
+import { builtInMappingTsv, importMappingSlots, needsLateCrosswalkRefresh, reconnectMappings, stackMappingDependencies, waitForIndexedDestination, type CompletedMapping } from './stack-run';
+import { frameworkImportError } from './stack-errors';
 import { sssomRecipeDigest } from '../sssom-importer';
 import { checkpointFrameworkOutcome, fromDefinition, mappingKey, replaceStackDefinition, slotRunChoices, toDefinition,
 	type RunChoice, type StackDefinition, type StackRunRecord, type SlotRunFact } from './stack-persistence';
@@ -50,6 +51,7 @@ export class StackSetupModal extends Modal {
 	private choices = new Map<string, RunChoice>();
 	private runWarnings: string[] = [];
 	private skipped = 0;
+	private pendingFrameworkLinks: Array<{ slot: ReturnType<typeof frameworkSlots>[number]; fill: StackCandidate; file: TFile; setId: string; folder: string }> = [];
 
 	constructor(app: App, private plugin: CrosswalkerPlugin, definition?: StackDefinition, private onChanged?: () => void) {
 		super(app);
@@ -512,7 +514,8 @@ export class StackSetupModal extends Modal {
 					&& this.choices.get(mappingKey(mapping)) === 'skip').length
 			: 0;
 		this.busy = true; this.error = ''; this.runWarnings = []; this.render();
-		for (const slot of frameworkSlots(this.stackSelection)) {
+		const frameworkOrder = frameworkSlots(this.stackSelection);
+		for (const [position, slot] of frameworkOrder.entries()) {
 			if (this.completed.some((item) => item.label === slot.entry.label)) continue;
 			const fill = this.recognition.fills.find((item) => item.slot.ontology === slot.ontology);
 			const file = fill && this.sourceFiles.get(fill.source.path);
@@ -547,9 +550,7 @@ export class StackSetupModal extends Modal {
 					sourceWhere: stackSourceWhere(slot.ontology, this.stackSelection.detail),
 				});
 				if (!outcome.ok) {
-					this.error = `${slot.entry.label} could not be imported. ${outcome.errors.some((message) => message.includes('still indexing'))
-						? 'Wait for the vault index to finish, then import again.'
-						: 'Check that the file has the expected sheet and columns, and that the destination is writable. Inspect the destination for any notes already created, then try again.'} Remaining frameworks were not started.`;
+					this.error = frameworkImportError(slot.entry.label, outcome.errors);
 					break;
 				}
 				this.completed.push({ label: slot.entry.label, created: outcome.created, upToDate: outcome.upToDate, crosswalkLinks: outcome.crosswalkEdges ?? 0, crosswalkLinksUpToDate: outcome.crosswalkLinksUpToDate ?? 0, setId: outcome.importSetId, folder: outcome.destination, warnings: outcome.warnings });
@@ -568,12 +569,35 @@ export class StackSetupModal extends Modal {
 					this.error = `${slot.entry.label} was imported, but its notes are still indexing. Wait for the vault index to finish, then retry the remaining frameworks.`;
 					break;
 				}
+				// Inline crosswalks written before a later framework has concepts need
+				// one identity-based refresh after that framework is indexed.
+				if (outcome.importSetId && needsLateCrosswalkRefresh(
+					(slot.entry.recipe.target.crosswalks ?? []).map((edge) => edge.to_ontology),
+					frameworkOrder.slice(position + 1).filter((later) => this.choices.get(later.entry.id) !== 'skip')
+						.map((later) => later.ontology))) {
+					this.pendingFrameworkLinks.push({ slot, fill, file, setId: outcome.importSetId, folder: outcome.destination });
+				}
 				this.plugin.debug.info('stack', 'framework', `Stack framework: ${slot.ontology}`);
 			} catch {
 				this.error = `${slot.entry.label} could not be imported. Check the source and destination, then try again. Remaining frameworks were not started.`;
 				break;
 			}
 			this.render();
+		}
+		// Refresh the original framework set, never infer an owner from its path,
+		// publisher file, or label. This also leaves all-skip Run again untouched.
+		while (!this.error && this.pendingFrameworkLinks.length) {
+			const pending = this.pendingFrameworkLinks[0];
+			const outcome = await runRecognizedImport(this.app, this.plugin, {
+				file: pending.file, entry: pending.slot.entry, table: pending.fill.table, headerRow: pending.fill.headerRow,
+				destination: pending.folder, refreshSetId: pending.setId, overwriteMode: 'replace',
+				sourceWhere: stackSourceWhere(pending.slot.ontology, this.stackSelection.detail),
+			});
+			if (!outcome.ok) {
+				this.error = frameworkImportError(`${pending.slot.entry.label} crosswalk links`, outcome.errors);
+				break;
+			}
+			this.pendingFrameworkLinks.shift();
 		}
 		if (!this.error) {
 			try {
@@ -658,6 +682,7 @@ export class StackSetupModal extends Modal {
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: item.label });
 			const count = this.discoveredCounts.get(item.setId) ?? item.noteCount;
 			row.createDiv({ cls: 'crosswalker-stack-muted', text: `${count} edge ${count === 1 ? 'note' : 'notes'} · Set ${item.setId}` });
+			if (item.duplicateRowsSkipped) row.createDiv({ cls: 'crosswalker-stack-muted', text: `${plural(item.duplicateRowsSkipped, 'duplicate row')} skipped` });
 			for (const message of item.unresolved) row.createDiv({ cls: 'crosswalker-stack-warning', text: message });
 		}
 		for (const warning of this.runWarnings) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: warning });

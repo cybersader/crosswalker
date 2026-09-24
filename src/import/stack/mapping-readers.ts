@@ -65,7 +65,7 @@ export function readOlirWorkbook(bytes: Uint8Array, options: OlirOptions, sheetN
 	return olirRowsToSssom(rows, options);
 }
 
-export interface CtidResult { rows: SssomRow[]; attackVersion: string | null }
+export interface CtidResult { rows: SssomRow[]; attackVersion: string | null; duplicateRowsSkipped: number }
 
 /** CTID Mappings Explorer JSON is a mapping_objects bundle, not ATT&CK STIX. */
 export function readCtidJson(text: string, capabilityOntology = 'nist-800-53'): CtidResult {
@@ -75,6 +75,8 @@ export function readCtidJson(text: string, capabilityOntology = 'nist-800-53'): 
 	if (!Array.isArray(bundle.mapping_objects)) throw new Error('No mapping_objects array found. Choose the CTID Mappings Explorer JSON export, not STIX or a Navigator layer.');
 	const metadata = bundle.metadata && typeof bundle.metadata === 'object' ? bundle.metadata as Record<string, unknown> : {};
 	const rows: SssomRow[] = [];
+	const seen = new Set<string>();
+	let duplicateRowsSkipped = 0;
 	for (const item of bundle.mapping_objects) {
 		if (!item || typeof item !== 'object') continue;
 		const entry = item as Record<string, unknown>;
@@ -83,6 +85,11 @@ export function readCtidJson(text: string, capabilityOntology = 'nist-800-53'): 
 		// Only 800-53 has a fixed id shape here; other capability frameworks keep their own local ids.
 		const controlShape = capabilityOntology === 'nist-800-53' ? /^[A-Z]{2}(?:-\d+(?:\(\d+\))?)?$/i : /^\S+$/;
 		if (!controlShape.test(control) || !/^T\d{4}(?:\.\d{3})?$/i.test(technique)) continue;
+		// Compare every publisher field, not just endpoints: distinct evidence or
+		// predicates must still reach the importer for its conflict handling.
+		const fingerprint = JSON.stringify(Object.keys(entry).sort().map((key) => [key, entry[key]]));
+		if (seen.has(fingerprint)) { duplicateRowsSkipped++; continue; }
+		seen.add(fingerprint);
 		const type = String(entry.mapping_type ?? '').trim().toLowerCase();
 		rows.push({
 			subject_id: `${capabilityOntology}:${capabilityOntology === 'nist-800-53' ? depad80053(control.toUpperCase()) : control}`,
@@ -92,7 +99,7 @@ export function readCtidJson(text: string, capabilityOntology = 'nist-800-53'): 
 		});
 	}
 	if (!rows.length) throw new Error('No valid control-to-technique mappings found. Check that this is the CTID JSON mapping export and try again.');
-	return { rows, attackVersion: typeof metadata.attack_version === 'string' ? metadata.attack_version : null };
+	return { rows, attackVersion: typeof metadata.attack_version === 'string' ? metadata.attack_version : null, duplicateRowsSkipped };
 }
 
 /** Encode generated mapping rows for the existing SSSOM parser, never for direct note writes. */

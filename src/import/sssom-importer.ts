@@ -42,7 +42,7 @@ import {
 } from './sssom-parser';
 import { sha256Hex, computeRecipeHash } from '../generation/hash';
 import { readNoteFrontmatterState } from '../export/vault-reader';
-import { type ImportSetOption } from '../generation/import-set';
+import { settleVaultIndex, type ImportSetOption } from '../generation/import-set';
 import { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../generation/crosswalk-identity';
 export { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../generation/crosswalk-identity';
 import {
@@ -298,22 +298,35 @@ async function runImportSssom(
 		return result;
 	}
 
-	// ----- Phase 4: Trigger Tier 2 projection -----
-	// Re-projects newly-written junction-edge .md files into the `mappings` table.
-	// pluginRunProjection is the plugin.runProjection handle; null in tests.
+	// Full projection must not read a partially indexed import. A failed or
+	// deferred projection must never feed eager closure from partial data.
+	let projectionReady = true;
 	if (options.runTier2Projection !== false && pluginRunProjection) {
-		debug?.info('sssom-import', 'projection-start', 'SSSOM import: running Tier 2 projection');
-		try {
-			await pluginRunProjection();
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			gen.errors.push({ row: -1, message: `Tier 2 projection failed: ${msg}` });
-			debug?.warn('sssom-import', 'projection-failed', 'SSSOM import: projection failed', { error: msg });
+		const cold = await settleVaultIndex(app, 30_000);
+		if (cold > 0) {
+			projectionReady = false;
+			result.summary.push(`${cold} notes are still indexing. Query results may be stale. Wait for indexing, then refresh the query database before using mapping chains.`);
+			debug?.warn('sssom-import', 'projection-deferred', 'Mapping projection deferred until notes are indexed', { cold });
+		} else {
+			debug?.info('sssom-import', 'projection-start', 'SSSOM import: running Tier 2 projection');
+			try {
+				const outcome = await pluginRunProjection();
+				if (outcome && typeof outcome === 'object' && 'success' in outcome && outcome.success === false) {
+					projectionReady = false;
+					result.summary.push('Query database projection was incomplete. Refresh the query database after indexing before using mapping chains.');
+					debug?.warn('sssom-import', 'projection-incomplete', 'Mapping projection incomplete; closure was not precomputed');
+				}
+			} catch (err) {
+				projectionReady = false;
+				const msg = err instanceof Error ? err.message : String(err);
+				result.summary.push('Query database projection failed. Refresh the query database after indexing before using mapping chains.');
+				debug?.warn('sssom-import', 'projection-failed', 'SSSOM import: projection failed', { error: msg });
+			}
 		}
 	}
 
 	// ----- Phase 5: Eager closure precomputation per Ch 35 -----
-	if (pluginPrecomputeClosure) {
+	if (pluginPrecomputeClosure && projectionReady) {
 		debug?.info('sssom-import', 'closure-precompute-start', 'SSSOM import: precomputing closure', { source, target });
 		try {
 			const cachedRows = await pluginPrecomputeClosure(source, target);

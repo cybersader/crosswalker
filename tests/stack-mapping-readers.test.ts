@@ -44,6 +44,17 @@ describe('CTID JSON reader', () => {
 		const tsv = mappingRowsToTsv(parsed.rows, 'CTID', 'nist-800-53', 'mitre-attack', '16.1');
 		expect(parseSssomTsv(tsv).rows).toHaveLength(2);
 	});
+	it('skips only exact publisher duplicates, preserving distinct predicates and evidence fields', () => {
+		const first = { capability_id: 'AC-01', attack_object_id: 'T1234', mapping_type: 'mitigates', evidence: 'A' };
+		const parsed = readCtidJson(JSON.stringify({ mapping_objects: [
+			first, { ...first }, { evidence: 'A', mapping_type: 'mitigates', attack_object_id: 'T1234', capability_id: 'AC-01' },
+			{ ...first, evidence: 'B' }, { ...first, mapping_type: 'equivalent' },
+		] }));
+		expect(parsed.duplicateRowsSkipped).toBe(2);
+		expect(parsed.rows).toHaveLength(3);
+		expect(parsed.rows[2].predicate_id).toBe('skos:exactMatch');
+		expect(parseSssomTsv(mappingRowsToTsv(parsed.rows, 'Synthetic', 'nist-800-53', 'mitre-attack', '16.1')).rows).toHaveLength(3);
+	});
 	it('rejects STIX bundles and nonmatching ids instead of silently importing zero edges', () => {
 		expect(() => readCtidJson('{"objects":[]}')).toThrow('mapping_objects');
 		expect(() => readCtidJson('{"mapping_objects":[{"capability_id":"bad","attack_object_id":"bad"}]}')).toThrow('No valid');

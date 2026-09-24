@@ -318,6 +318,10 @@ async function applyDeclaredCrosswalks(
 			? { orphans: pass.perEntry.flatMap((entry) => entry.orphans ?? []) }
 			: {}),
 	};
+	for (const warning of pass.summary.filter((message) => message.includes('Query results may be stale') || message.includes('Query database projection'))) {
+		result.warnings ??= [];
+		result.warnings.push({ row: -1, message: warning });
+	}
 	if (pass.errors.length > 0) {
 		result.errors.push(...pass.errors.map((error) => ({ row: -1, message: error.message })));
 		result.success = false;

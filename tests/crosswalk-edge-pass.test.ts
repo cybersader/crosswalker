@@ -309,7 +309,7 @@ describe('crosswalk edge pass and generation hook', () => {
 		expect([...files.keys()].filter((path) => path.startsWith('_crosswalker/mappings/'))).toHaveLength(2);
 	});
 
-	it('runs closure even when Tier 2 projection reports an error', async () => {
+	it('marks projection stale and skips closure when Tier 2 projection throws', async () => {
 		const harness = makeApp();
 		const closure = jest.fn(async () => 3);
 		const pass = await runCrosswalkEdgePass(harness.app, {
@@ -322,8 +322,22 @@ describe('crosswalk edge pass and generation hook', () => {
 			runProjection: async () => { throw new Error('Synthetic projection failure'); },
 			precomputeClosure: closure,
 		}, debug);
-		expect(pass.errors).toContainEqual({ row: -1, message: 'Tier 2 projection failed: Synthetic projection failure' });
-		expect(closure).toHaveBeenCalledWith('cri-profile', 'nist-csf-2');
+		expect(pass.errors).toEqual([]);
+		expect(pass.summary.join(' ')).toMatch(/Query database projection failed.*Refresh the query database/);
+		expect(closure).not.toHaveBeenCalled();
+	});
+
+	it('refuses to precompute closure on a partial projection result', async () => {
+		const harness = makeApp();
+		const closure = jest.fn(async () => 3);
+		const pass = await runCrosswalkEdgePass(harness.app, {
+			entries: [ENTRY], sourceOntology: 'cri-profile', recipeId: 'synthetic-cri-crosswalk',
+			inputs: INPUTS, overwriteMode: 'replace',
+			runProjection: async () => ({ success: false, counts: { errors: 2 } }),
+			precomputeClosure: closure,
+		}, debug);
+		expect(pass.summary.join(' ')).toMatch(/projection was incomplete/);
+		expect(closure).not.toHaveBeenCalled();
 	});
 
 	it('does not run the edge pass after a concept row error and explains the action', async () => {
