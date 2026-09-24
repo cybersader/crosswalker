@@ -40,7 +40,7 @@ export class EmbedExistingQueryModal extends Modal {
 		const header = contentEl.createDiv({ cls: 'crosswalker-browse-header' });
 		header.createEl('h2', { text: 'Embed an existing query', cls: 'crosswalker-browse-title' });
 		header.createEl('div', {
-			text: 'Click a query to insert its embed at your cursor. No scan happens here — embedding is just a reference.',
+			text: 'Click a query to insert its embed at your cursor. No scan happens here. Embedding is just a reference.',
 			cls: 'crosswalker-browse-count',
 		});
 

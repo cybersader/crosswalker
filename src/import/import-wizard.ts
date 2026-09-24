@@ -1,3 +1,4 @@
+import { plural } from '../utils/plural';
 import { App, Modal, Scope, Setting, Notice, normalizePath, setIcon, TFile, TFolder } from 'obsidian';
 import CrosswalkerPlugin from '../main';
 import { ParsedData, ImportRecipe, ColumnInfo, SavedConfig, HierarchyMapping, isEagerRows } from '../types/config';
@@ -1088,7 +1089,7 @@ export class ImportFlow {
 
 		if (visible.length === 0) {
 			section.createEl('p', {
-				text: 'No drafts yet. As you configure your import, the wizard will auto-save your progress — close the modal anytime and your work will appear here so you can resume.',
+				text: 'No drafts yet. As you configure your import, the wizard will auto-save your progress. Close the modal anytime and your work will appear here so you can resume.',
 				cls: 'setting-item-description'
 			});
 			return;
@@ -1413,7 +1414,7 @@ export class ImportFlow {
 		const enrichment = honestEnrichment(entry);
 		card.createEl('p', { cls: 'crosswalker-recognized-desc', text: entry.description });
 		const summary = card.createEl('div', { cls: 'crosswalker-recognized-summary' });
-		summary.createSpan({ cls: 'crosswalker-recognized-metric', text: `${rowCount.toLocaleString()} rows to ${rowCount.toLocaleString()} notes` });
+		summary.createSpan({ cls: 'crosswalker-recognized-metric', text: `${plural(rowCount, 'row')} to ${plural(rowCount, 'note')}` });
 		if (shapes.length) summary.createSpan({ cls: 'crosswalker-recognized-metric', text: shapes.join(', ') });
 		summary.createSpan({ cls: 'crosswalker-recognized-metric', text: `lands in ${dest}` });
 		if (enrichment?.children_lists) {
@@ -1561,13 +1562,13 @@ export class ImportFlow {
 		if (this.suggestedColumns.size > 0 && !this.appliedConfig) {
 			const banner = container.createEl('div', { cls: 'crosswalker-suggest-banner' });
 			banner.createEl('span', {
-				text: `✨ Crosswalker pre-filled ${this.suggestedColumns.size} column role${this.suggestedColumns.size === 1 ? '' : 's'} based on the column names — review the ✨ rows below and adjust freely.`
+				text: `✨ Crosswalker pre-filled ${this.suggestedColumns.size} column role${this.suggestedColumns.size === 1 ? '' : 's'} based on the column names. Review the ✨ rows below and adjust freely.`
 			});
 		}
 		// The two questions every first run asks, answered up front:
 		container.createEl('p', {
 			// eslint-disable-next-line obsidianmd/ui/sentence-case -- "Skip" and "Use as" quote literal control labels
-			text: 'All columns are imported as frontmatter properties by default — nothing is dropped unless you set it to Skip. Change "Use as" to map a column onto a different vault primitive (folder, filename, link, body); the last column previews the result.',
+			text: 'All columns are imported as frontmatter properties by default. Nothing is dropped unless you set it to Skip. Change "Use as" to map a column onto a different vault primitive (folder, filename, link, body); the last column previews the result.',
 			cls: 'setting-item-description'
 		});
 
@@ -1632,7 +1633,7 @@ export class ImportFlow {
 				case 'title': return `📄 ${v}.md`;
 				case 'link': return `[[${v}]]`;
 				case 'body': return '¶ note body';
-				case 'skip': return '— not imported';
+				case 'skip': return 'Not imported';
 				default: return `${cfg.outputKey || 'key'}: ${v}`;
 			}
 		};
@@ -1704,7 +1705,7 @@ export class ImportFlow {
 			if (colMapping) {
 				nameCell.createEl('span', { text: ' ⚙️', cls: 'crosswalker-config-icon', attr: { title: 'Pre-filled from config' } });
 			} else if (this.suggestedColumns.has(colInfo.name)) {
-				nameCell.createEl('span', { text: ' ✨', cls: 'crosswalker-config-icon', attr: { title: 'Suggested role — change freely' } });
+				nameCell.createEl('span', { text: ' ✨', cls: 'crosswalker-config-icon', attr: { title: 'Suggested role: change freely' } });
 			}
 
 			// Detected type
@@ -3314,7 +3315,7 @@ export class ImportFlow {
 				body.createEl('p', { text: this.truncate(String(row[b.column] ?? ''), 220) });
 			}
 		} else {
-			card.createEl('div', { text: 'No body content mapped — notes will be properties-only.', cls: 'setting-item-description crosswalker-note-card-body' });
+			card.createEl('div', { text: 'No body content mapped. Notes will be properties-only.', cls: 'setting-item-description crosswalker-note-card-body' });
 		}
 	}
 
@@ -3585,16 +3586,16 @@ export class ImportFlow {
 			container.createEl('div', { cls: 'crosswalker-generate-summary' }, (div) => {
 				div.createEl('p', { text: 'Will create:' });
 				div.createEl('ul', {}, (ul) => {
-					ul.createEl('li', { text: `~${estimate.folderCount} folders` });
-					ul.createEl('li', { text: `~${estimate.noteCount} notes` });
-					ul.createEl('li', { text: `~${estimate.linkCount} crosswalk links` });
+					ul.createEl('li', { text: `~${plural(estimate.folderCount, 'folder')}` });
+					ul.createEl('li', { text: `~${plural(estimate.noteCount, 'note')}` });
+					ul.createEl('li', { text: `~${plural(estimate.linkCount, 'crosswalk link')}` });
 				});
 			});
 
 			// Warning for large imports
 			if (estimate.noteCount > 500) {
 				container.createEl('p', {
-					text: `⚠️ Large import detected (${estimate.noteCount} notes). This may take a minute or two.`,
+					text: `⚠️ Large import detected (${plural(estimate.noteCount, 'note')}). This may take a minute or two.`,
 					cls: 'crosswalker-warning'
 				});
 			}
@@ -3648,7 +3649,7 @@ export class ImportFlow {
 
 	/** "1 record" / "12 records" — pluralize the count label honestly. */
 	private recordsLabel(n: number): string {
-		return `${n.toLocaleString()} record${n === 1 ? '' : 's'}`;
+		return plural(n, 'record');
 	}
 
 	/** Show what a record in this list ACTUALLY looks like — a concrete example
@@ -3711,8 +3712,8 @@ export class ImportFlow {
 		const names = [candidate.name, ...chain.map((entry) => entry.field)];
 		const total = candidate.count + chain.reduce((count, entry) => count + entry.count, 0);
 		for (const option of [
-			{ value: 'nested', label: `Nested: ${names.join(', ')} (${total} notes)` },
-			{ value: 'flat', label: `Only ${candidate.name} (${candidate.count} notes)` },
+			{ value: 'nested', label: `Nested: ${names.join(', ')} (${plural(total, 'note')})` },
+			{ value: 'flat', label: `Only ${candidate.name} (${plural(candidate.count, 'note')})` },
 		] as const) {
 			const label = choices.createEl('label');
 			const radio = label.createEl('input', { type: 'radio', attr: { name, value: option.value } });
@@ -3808,7 +3809,7 @@ export class ImportFlow {
 
 		// Escape hatch — manual path syntax (same as recipes + the command line).
 		const adv = container.createEl('details', { cls: 'crosswalker-advanced' });
-		adv.createEl('summary', { text: 'Advanced — type the record path yourself' });
+		adv.createEl('summary', { text: 'Advanced: type the record path yourself' });
 		const advBlock = adv.createEl('div', { cls: 'crosswalker-field-block' });
 		advBlock.createEl('div', {
 			text: 'The same path syntax recipes and the command line use. Leave empty when the file itself is the list.',
@@ -4225,12 +4226,12 @@ export class ImportFlow {
 				const movedText = movedCount === 0 ? 'Nothing moved.' : `${movedCount} moved.`;
 				const orphanText = !orphansChecked
 					? 'Orphans not checked.'
-					: (orphanCount === 0 ? 'No orphans.' : `${orphanCount} orphans.`);
+					: (orphanCount === 0 ? 'No orphans.' : `${plural(orphanCount, 'orphan')}.`);
 				// Anything but a clean, fully checked run sends the user to the screen
 				// that carries the detail, and the same flag gates drawing it below.
 				const needsResults = movedCount > 0 || orphanCount > 0 || !orphansChecked;
 				const counts = `${movedText} ${orphanText}${needsResults ? ' See results.' : ''}`;
-				const message = `✅ Created ${result.created.length} notes` +
+				const message = `✅ Created or updated ${plural(result.created.length, 'note')}; ${plural((result.upToDate?.length ?? 0), 'note')} already up to date` +
 					(result.skipped.length > 0 ? `, skipped ${result.skipped.length} existing` : '') +
 					` in ${(result.duration / 1000).toFixed(1)}s. ${counts}`;
 				new Notice(message, 5000);
@@ -4247,9 +4248,9 @@ export class ImportFlow {
 					const n = result.conflicts.length;
 					new Notice(`⚠️ ${n} ${n === 1 ? 'note was' : 'notes were'} left unchanged because Crosswalker could not safely update ${n === 1 ? 'it' : 'them'}. See the results screen.`, 10000);
 				}
-				if (result.created.length === 0 && result.skipped.length === 0 && result.errors.length === 0) {
+				if (result.created.length === 0 && (result.upToDate?.length ?? 0) === 0 && result.skipped.length === 0 && result.errors.length === 0) {
 					// eslint-disable-next-line obsidianmd/ui/sentence-case -- "Note title" and "In the vault" quote literal UI labels
-					new Notice('⚠️ Nothing was generated — check that the Note title column actually has values (Step 2 "In the vault" preview shows the filename each row would get).', 10000);
+					new Notice('⚠️ Nothing was generated. Check that the Note title column actually has values (Step 2 "In the vault" preview shows the filename each row would get).', 10000);
 				}
 
 				// Ask to save config if enabled and not using existing config
@@ -4328,11 +4329,12 @@ export class ImportFlow {
 	renderGenerationResults(result: {
 		success: boolean;
 		created: string[];
+		upToDate?: string[];
 		skipped: string[];
 		errors: { row: number; message: string }[];
 		conflicts?: Array<{ path: string; code: string; detail: string }>;
 		filteredOut?: number;
-		crosswalkEdges?: { created: number; sets: string[]; summary?: string[] };
+		crosswalkEdges?: { created: number; upToDate?: number; sets: string[]; summary?: string[]; orphans?: Array<{ curie: string; path: string }> };
 		/** Notes the run relocated by identity. Empty unless a root actually moved. */
 		moved?: Array<{ curie: string; from: string; to: string }>;
 		/** Identities this set held that the source no longer produces. */
@@ -4347,17 +4349,23 @@ export class ImportFlow {
 
 		// Summary
 		const summary = contentEl.createEl('div', { cls: 'crosswalker-results-summary' });
-		summary.createEl('p', { text: `✅ Created: ${result.created.length} notes` });
+		summary.createEl('p', { text: `Created or updated: ${plural(result.created.length, 'note')}; already up to date: ${plural((result.upToDate?.length ?? 0), 'note')}` });
 		if (result.crosswalkEdges) {
 			summary.createEl('p', {
-				text: `Wrote ${result.crosswalkEdges.created} crosswalk edges to ${result.crosswalkEdges.sets.length} mapping sets under _crosswalker/mappings.`,
+				text: result.crosswalkEdges.created === 0 ? `No crosswalk links written; ${plural(result.crosswalkEdges.sets.length, 'link set')} checked under _crosswalker/mappings${result.crosswalkEdges.upToDate ? `; ${plural(result.crosswalkEdges.upToDate, 'link')} already up to date` : ''}.` : `Wrote ${plural(result.crosswalkEdges.created, 'crosswalk link')} to ${plural(result.crosswalkEdges.sets.length, 'link set')} under _crosswalker/mappings.`,
 			});
+			const linkOrphans = result.crosswalkEdges.orphans ?? [];
+			if (linkOrphans.length > 0) {
+				summary.createEl('p', {
+					text: `🕳️ Orphans: ${linkOrphans.length} crosswalk ${linkOrphans.length === 1 ? 'link' : 'links'} no longer in the source. They were kept, not deleted.`,
+				});
+			}
 			for (const message of result.crosswalkEdges.summary ?? []) {
 				summary.createEl('p', { text: message, cls: 'mod-warning' });
 			}
 		}
 		if (result.skipped.length > 0) {
-			summary.createEl('p', { text: `⏭️ Skipped: ${result.skipped.length} existing notes` });
+			summary.createEl('p', { text: `⏭️ Skipped: ${plural(result.skipped.length, 'existing note')}` });
 		}
 		if (result.errors.length > 0) {
 			summary.createEl('p', { text: `❌ Errors: ${result.errors.length}` });
@@ -4491,6 +4499,22 @@ export class ImportFlow {
 			}
 			if (orphans.length > 20) {
 				list.createEl('p', { text: `... and ${orphans.length - 20} more`, cls: 'setting-item-description' });
+			}
+		}
+
+		const linkOrphans = result.crosswalkEdges?.orphans ?? [];
+		if (linkOrphans.length > 0) {
+			contentEl.createEl('h4', { text: 'Crosswalk links no longer in the source' });
+			contentEl.createEl('p', {
+				text: 'These links were made by an earlier import of this set and the source no longer contains them. Nothing was deleted. Review them and remove them yourself if they are gone for good.',
+				cls: 'setting-item-description',
+			});
+			const list = contentEl.createEl('div', { cls: 'crosswalker-error-list' });
+			for (const orphan of linkOrphans.slice(0, 20)) {
+				list.createEl('p', { text: `${orphan.curie}: ${orphan.path}`, cls: 'crosswalker-error-item' });
+			}
+			if (linkOrphans.length > 20) {
+				list.createEl('p', { text: `... and ${linkOrphans.length - 20} more`, cls: 'setting-item-description' });
 			}
 		}
 

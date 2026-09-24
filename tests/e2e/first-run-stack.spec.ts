@@ -135,7 +135,7 @@ describe('First run: synthetic framework stack', function () {
 		expect(mappingLinks).toHaveLength(3);
 		expect(mappingLinks.filter((edge) => edge.links.length >= 2)).toHaveLength(2);
 		expect(mappingLinks.filter((edge) => edge.links.length === 1)).toHaveLength(1);
-		expect(result.text).toContain('mapping endpoints could not link');
+		expect(result.text).toContain('mapping endpoint could not link');
 		await browser.executeObsidian(async ({ app }) => {
 			// Metadata can lag newly written notes. Read the file when its cache is cold;
 			// neither absence nor identity may be inferred from the path alone.
@@ -156,7 +156,7 @@ describe('First run: synthetic framework stack', function () {
 		await browser.waitUntil(async () => (await browser.executeObsidian(({ app }) => {
 			const edges = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/'));
 			return edges.length === 3 && edges.every((file) => Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {}).length >= 2)
-				&& !(document.querySelector('.crosswalker-stack-modal')?.textContent ?? '').includes('mapping endpoints could not link');
+				&& !(document.querySelector('.crosswalker-stack-modal')?.textContent ?? '').includes('mapping endpoint could not link');
 		})), { timeout: 30_000, timeoutMsg: 'Explicit reconnect did not resolve the new technique identity' });
 		await button('Done');
 		await browser.executeObsidian(({ app }) => {
@@ -257,7 +257,7 @@ describe('First run: synthetic framework stack', function () {
 			text: document.querySelector('.crosswalker-stack-modal')?.textContent ?? '',
 			edges: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/nist-csf-2-to-nist-800-53/')).length,
 		}));
-		expect(result.text).toContain('1 mapping sets');
+		expect(result.text).toContain('1 mapping set');
 		expect(result.edges).toBeGreaterThan(100);
 	});
 });

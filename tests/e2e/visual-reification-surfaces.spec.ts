@@ -891,7 +891,16 @@ describe('Visual reification surfaces', function () {
 		for (const theme of ['light', 'dark'] as const) {
 			for (const width of ['normal', '640px'] as const) {
 				const observation = await captureLaunchpad(theme, width);
-				expect((observation.buttons as unknown[])).toHaveLength(4);
+				// Exact actions catch both missing and unexpectedly added controls by name.
+				// Stack setup/import and draft resume are documented in CHANGELOG.md.
+				expect((observation.buttons as Array<{ label: string }>).map((button) => button.label)).toEqual([
+					'Import structured data',
+					'Set up a framework stack',
+					'Import a stack',
+					'Find sources in this vault',
+					'Manage saved configs',
+					'Resume a draft',
+				]);
 				// Button overlap is recorded for the reviewer, not asserted (see assertScanResults).
 				const overlap = (observation.pairIntersections as Array<{ intersects: boolean }>)
 					.some((pair) => pair.intersects);

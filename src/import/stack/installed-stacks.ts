@@ -1,3 +1,4 @@
+import { plural } from '../../utils/plural';
 import { App, Modal, Notice, Setting } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
 import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
@@ -16,7 +17,7 @@ export function installedStackRow(fact: SlotRunFact | undefined, known: Readonly
 	if (!fact) return 'Not imported yet';
 	const set = known.get(fact.importSetId);
 	if (!set) return `Set ${fact.importSetId} is no longer in this vault. Import as a new set.`;
-	return `set ${fact.importSetId}${typeof set.noteCount === 'number' ? `, ${set.noteCount} notes` : ''}`;
+	return `set ${fact.importSetId}${typeof set.noteCount === 'number' ? `, ${plural(set.noteCount, 'note')}` : ''}`;
 }
 
 export function stackSlotRows(stack: StackDefinition, run: CrosswalkerPlugin['settings']['stackRuns'][number] | undefined,

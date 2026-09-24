@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: optional crosswalk recipe columns (2026-09-24)
+
+- The recipe workbench no longer blocks a crosswalk import when its source omits optional endpoint links, mapping-set ID, or predicate modifier. These fields can be supplied by the importer or left out, while required source columns still block generation when missing. The shipped crosswalk-edge recipe now marks mapping-set ID and predicate modifier optional; its pinned recipe hash changes from `sha256-ed118a18…` to `sha256-b810f5af…`, with no other recipe digest changed.
+
+### Fixed: refresh reports retained crosswalk links (2026-09-24)
+
+- A framework refresh now reports crosswalk links that disappeared from a mapped source column as retained orphans, including when that column becomes empty. No link is silently removed, and the wizard lists the affected notes.
+
+### Fixed: singular count labels and punctuation (2026-09-24)
+
+- Count labels now use singular nouns for one item, and import, settings, and mapping messages use periods, commas, or colons instead of dash punctuation.
+
+### Fixed: mapping refresh counts and labels (2026-09-24)
+
+- Byte-identical Replace refreshes now report already-up-to-date notes separately from created or updated notes. Stack completion and standalone SSSOM imports show both counts.
+- Stack completion now counts links generated from a framework file separately from independently imported mapping notes. Previously the latter count read zero even after the framework updated its own crosswalk links. Standalone mapping refresh messages now say "created or updated" rather than claiming updated notes were new.
+
+### Fixed: implied note takeover preserves user fields (2026-09-24)
+
+- Older implied notes without a managed-key stamp are cleaned up by same-identity takeover and gain `_crosswalker_managed_keys` on their next refresh.
+- When a source row takes over a generated implied note at the same address under a different identifier, refresh clears only recorded engine-owned implied and parent fields, keeping user fields and prose.
+
 ### Fixed: framework refresh no longer duplicates its crosswalk links (2026-09-24)
 
 - Refreshing a framework now finds each crosswalk link set through the framework import set recorded on its links and reuses that set, so repeated imports keep existing link identities rather than making duplicate sets. If multiple link sets claim the same framework and column, no links for that column are written until the extra set is removed in ownership review. The same recorded parent set is written on every link produced through a framework import. Existing link sets without this stamp are never guessed or adopted: the first refresh creates one stamped set, and subsequent refreshes reuse it. To reconnect links to concepts imported later, refresh the framework with Replace; Skip leaves existing links as they are.

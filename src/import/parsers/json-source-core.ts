@@ -43,7 +43,7 @@ function tokenizeIterator(iterator: string): PathToken[] {
 			rest = rest.slice(1);
 			const m = /^[^.[\]]+/.exec(rest);
 			if (!m) {
-				throw new Error(`Malformed iterator near ".${rest}" — expected a key name after ".".`);
+				throw new Error(`Malformed iterator near ".${rest}". Expected a key name after ".".`);
 			}
 			const key = m[0];
 			rest = rest.slice(key.length);
@@ -58,7 +58,7 @@ function tokenizeIterator(iterator: string): PathToken[] {
 		throw new Error(
 			`Unsupported iterator syntax at "${rest}" in "${iterator}". ` +
 			`Supported: dotted keys + [*] fan-out only (e.g. $.catalog.groups[*].controls[*]). ` +
-			`Indices ([0]) and filters ([?...]) are not supported — filter rows with --where instead.`,
+			`Indices ([0]) and filters ([?...]) are not supported: filter rows with --where instead.`,
 		);
 	}
 	return tokens;
@@ -152,7 +152,7 @@ export function jsonToRows(jsonText: string, iterator?: string): JsonRowsResult 
 			effective = '$[*]';
 		} else {
 			throw new Error(
-				`JSON source is an object, not an array — pass --iterator to locate the rows. ` +
+				`JSON source is an object, not an array: pass --iterator to locate the rows. ` +
 				`Top-level keys: ${availableKeys(root)}. Example: --iterator '$.objects[*]'`,
 			);
 		}

@@ -352,6 +352,64 @@ describe('implied concept notes', () => {
 		expect(files.get(path)).toBe(bytes);
 		expect(modified.filter((changed) => changed === path)).toHaveLength(writes);
 	});
+	it.each(['recipe', 'wizard'] as const)('legacy same-curie %s takeover removes implied fields without a managed-key stamp', async (entry) => {
+		const { app, files } = vault();
+		await run(app, recipe(true, true), data([{ family: 'ZZ', id: 'ZZ-1' }]), 'replace', 'new');
+		const path = `${base}/ZZ/ZZ.md`;
+		const original = files.get(path)!;
+		const setId = fm(original)._crosswalker.import_set.id;
+		const legacy = original.replace(/_crosswalker_managed_keys:\n(?:  - [^\n]*\n)+/, '')
+			.replace('title: ZZ\n', 'title: ZZ\nreviewer: Invented reviewer\n') + '\nUser prose survives.\n';
+		files.set(path, legacy);
+		const rows = data([{ family: 'ZZ', id: 'ZZ' }, { family: 'ZZ', id: 'ZZ-1' }]);
+		const options = { basePath: base, overwriteMode: 'replace' as const, createFolders: true,
+			sourceFileName: 'synthetic.csv', importSet: { id: setId } };
+		const invoke = () => entry === 'recipe'
+			? generateFromRecipe(app, rows, recipe(true, true), options)
+			: generateNotes(app, rows, { name: 'synthetic-implied', mapping: {
+				hierarchy: [], frontmatter: [], links: [], body: [], filename: { template: '{id}.md', sanitize: true },
+			} } as any, { ...options, recipeOverride: recipe(true, true) });
+		const first = await invoke();
+		expect(first.errors).toEqual([]);
+		expect(first.created).toContain(path);
+		const note = fm(files.get(path)!);
+		for (const key of ['implied_level', 'implied_levels', 'implied_values']) expect(note[key]).toBeUndefined();
+		expect(note.reviewer).toBe('Invented reviewer');
+		expect(files.get(path)).toContain('User prose survives.');
+		const second = await invoke();
+		expect(second.errors).toEqual([]);
+		expect(second.conflicts ?? []).toEqual([]);
+		expect(fm(files.get(path)!).curie).toBe('synthetic:ZZ');
+	});
+	it.each(['recipe', 'wizard'] as const)('cross-curie %s takeover removes only recorded engine keys in one pass', async (entry) => {
+		const { app, files } = vault();
+		await run(app, recipe(), data([{ family: 'ZZ', id: 'ZZ-1' }]), 'replace', 'new');
+		const path = `${base}/ZZ/ZZ.md`;
+		const before = fm(files.get(path)!);
+		const setId = before._crosswalker.import_set.id;
+		const stamped = files.get(path)!.replace('title: ZZ\n',
+			'title: ZZ\nreviewer: Invented reviewer\nparent: "[[Engine parent]]"\nparent_curie: "synthetic:ENGINE"\n')
+			.replace('_crosswalker_managed_keys:\n', '_crosswalker_managed_keys:\n  - parent\n  - parent_curie\n') + '\nUser prose survives.\n';
+		files.set(path, stamped);
+		const rows = entry === 'recipe'
+			? data([{ family: 'ZZ', id: 'ZZ' }])
+			: { columns: ['family', 'id', 'curie'], rows: [{ family: 'ZZ', id: 'ZZ', curie: 'synthetic:OTHER' }], rowCount: 1 };
+		const options = { basePath: base, overwriteMode: 'replace' as const, createFolders: true,
+			sourceFileName: 'synthetic.csv', importSet: { id: setId },
+			curieLocalPart: () => 'OTHER' };
+		const result = entry === 'recipe'
+			? await generateFromRecipe(app, rows, recipe(false), options)
+			: await generateNotes(app, rows, { name: 'synthetic-implied', mapping: {
+				hierarchy: [], frontmatter: [], links: [], body: [], filename: { template: '{id}.md', sanitize: true },
+			} } as any, { ...options, recipeOverride: recipe(false) });
+		expect(result.errors).toEqual([]);
+		expect(result.conflicts ?? []).toEqual([]);
+		const note = fm(files.get(path)!);
+		expect(note.curie).toBe('synthetic:OTHER');
+		for (const key of ['implied_level', 'implied_levels', 'implied_values', 'parent', 'parent_curie']) expect(note[key]).toBeUndefined();
+		expect(note.reviewer).toBe('Invented reviewer');
+		expect(files.get(path)).toContain('User prose survives.');
+	});
 	it('Skip with a new population row keeps the existing implied note without a duplicate claim', async () => {
 		const { app, files, modified } = vault();
 		await run(app, recipe(true, true), data([{ family: 'ZZ', id: 'ZZ-1' }]), 'replace', 'new');

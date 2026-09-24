@@ -40,6 +40,7 @@ export interface CompletedMapping {
 	setId: string;
 	folder: string;
 	noteCount: number;
+	upToDate?: number;
 	unresolved: string[];
 	/** The captured input is kept only for this open modal's explicit reconnect. */
 	tsv: string;
@@ -70,7 +71,7 @@ export async function reconnectMappings(
 		dependencies.log('mapping-refresh', item.id);
 		const outcome = await dependencies.importRows(item.tsv, { importSet: { id: item.setId }, outputFolder: set.root, overwriteMode: 'replace' });
 		if (!outcome.generation?.success) throw new Error(`${item.label} could not reconnect. Check the mapping source and vault permissions, then try again.`);
-		refreshed.push({ ...item, noteCount: outcome.generation.created.length, unresolved: outcome.summary });
+		refreshed.push({ ...item, noteCount: (outcome.generation.created.length + (outcome.generation.upToDate?.length ?? 0)), upToDate: (outcome.generation.upToDate?.length ?? 0), unresolved: outcome.summary });
 	}
 	return refreshed;
 }
@@ -127,8 +128,8 @@ export async function importMappingSlots(
 		const added = refresh ? [] : (await dependencies.listSets(outcome.folder)).filter((set) => !before.has(set.id) && set.root === outcome.folder);
 		if (!refresh && added.length !== 1) throw new Error(`${mapping.label} was written but its new import set could not be confirmed. Wait for vault indexing, then inspect the mapping notes before retrying.`);
 		const record = { id: mapping.id, label: mapping.label, setId: refresh ? refresh.setId! : added[0].id,
-			folder: outcome.folder, noteCount: refresh ? outcome.generation.created.length : added[0].noteCount,
-			unresolved: outcome.summary, tsv, sourceDigest, sourceName,
+			folder: outcome.folder, noteCount: refresh ? (outcome.generation.created.length + (outcome.generation.upToDate?.length ?? 0)) : added[0].noteCount,
+			upToDate: (outcome.generation.upToDate?.length ?? 0), unresolved: outcome.summary, tsv, sourceDigest, sourceName,
 			recipeDigest: sssomRecipeDigest(mapping.from, mapping.to) };
 		completed.push(record);
 		await dependencies.onCompleted?.(record);

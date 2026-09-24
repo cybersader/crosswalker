@@ -337,6 +337,7 @@ describe('runRecognizedImport', () => {
 			errors: ['Vault is still indexing. Wait a moment and run the import again.'],
 			warnings: [],
 			parsedRowCount: 0,
+			upToDate: 0,
 		});
 		expect(harness.files).toEqual(before);
 		expect(harness.create).not.toHaveBeenCalled();

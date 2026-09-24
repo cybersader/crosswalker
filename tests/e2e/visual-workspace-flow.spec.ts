@@ -480,7 +480,7 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 			// sleep so this isn't racy against that resolution.
 			const t0 = Date.now();
 			let installedText = document.querySelector('.crosswalker-workspace-ontology-list')?.textContent ?? '';
-			while (!installedText.includes('NIST-CSF-2.0') && Date.now() - t0 < 8000) {
+			while (!installedText.includes('NIST CSF 2.0') && Date.now() - t0 < 8000) {
 				await sleep(200);
 				installedText = document.querySelector('.crosswalker-workspace-ontology-list')?.textContent ?? '';
 			}
@@ -496,7 +496,7 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 		expect(genInfo.ok).toBe(true);
 		if (genInfo.ok) {
 			expect(genInfo.backOnHome).toBe(true);
-			expect(genInfo.installedText).toContain('NIST-CSF-2.0');
+			expect(genInfo.installedText).toContain('NIST CSF 2.0');
 			expect(genInfo.installedText).toMatch(/note/);
 			expect(genInfo.hasReimportBtn).toBe(true);
 		}

@@ -337,7 +337,7 @@ describe('crosswalk edge pass and generation hook', () => {
 			debug,
 		);
 		expect(result.errors.length).toBeGreaterThan(0);
-		expect(result.crosswalkEdges).toEqual({ created: 0, sets: [] });
+		expect(result.crosswalkEdges).toEqual({ created: 0, upToDate: 0, sets: [] });
 		expect(result.warnings).toContainEqual({
 			row: -1,
 			message: 'Crosswalk edges were not written because 1 rows failed. Fix the rows and run the import again.',
@@ -432,6 +432,8 @@ describe('recorded producer resolution', () => {
 		}, debug);
 		expect(refreshed.errors).toEqual([]);
 		expect(refreshed.importSetId).toBe(id);
+		// Replace writes are included in created, even when the path already existed.
+		expect(refreshed.created).toHaveLength(2);
 		expect(notes(files)).toHaveLength(2);
 		for (const [, text] of notes(files)) expect(frontmatter(text)._crosswalker.import_set.parent_set).toBe('iset-abcdef');
 	});
@@ -532,6 +534,53 @@ describe('recorded producer resolution', () => {
 		expect(refreshed.perEntry[0].importSetId).toBe(first.perEntry[0].importSetId);
 		expect(refreshed.perEntry[0].orphans).toContainEqual({ curie: frontmatter(old[1]).curie, path: old[0] });
 		expect(files.get(old[0])).toBe(old[1]);
+	});
+
+	it('reports byte-identical link refreshes as up to date, not written', async () => {
+		const { app, files, modify } = makeApp();
+		const input = {
+			entries: [ENTRY], sourceOntology: 'synthetic-source', recipeId: 'synthetic-stable-links',
+			producerSetId: 'iset-abcdef', inputs: [{ curie: 'synthetic-source:A', row: { [ENTRY.column]: 'B; C' } }],
+			overwriteMode: 'replace' as const,
+		};
+		const first = await runCrosswalkEdgePass(app, input, debug);
+		const before = new Map(files);
+		modify.mockClear();
+		const second = await runCrosswalkEdgePass(app, input, debug);
+		expect(second.errors).toEqual([]);
+		expect(second.perEntry[0].importSetId).toBe(first.perEntry[0].importSetId);
+		expect(second.totalCreated).toBe(0);
+		expect(second.perEntry[0].upToDate).toBe(2);
+		expect(modify).not.toHaveBeenCalled();
+		expect(files).toEqual(before);
+	});
+
+	it('reports every owned link when the refreshed column derives no rows', async () => {
+		const { app, files, create, modify } = makeApp();
+		const initial = {
+			entries: [ENTRY], sourceOntology: 'synthetic-source', recipeId: 'synthetic-empty-column',
+			producerSetId: 'iset-abcdef', inputs: [{ curie: 'synthetic-source:A', row: { [ENTRY.column]: 'B; C' } }],
+			overwriteMode: 'replace' as const,
+		};
+		const first = await runCrosswalkEdgePass(app, initial, debug);
+		const before = new Map(files);
+		create.mockClear(); modify.mockClear();
+		const indexed = app.metadataCache.getFileCache.bind(app.metadataCache);
+		const abstract = app.vault.getAbstractFileByPath.bind(app.vault);
+		const orphanPaths = new Set<string>();
+		app.vault.getAbstractFileByPath = (path: string) => {
+			if (path.startsWith('_crosswalker/mappings/')) orphanPaths.add(path);
+			return abstract(path);
+		};
+		app.metadataCache.getFileCache = (file: TFile) => orphanPaths.has(file.path) ? { frontmatter: {} } : indexed(file);
+		const refreshed = await runCrosswalkEdgePass(app, {
+			...initial, inputs: [{ curie: 'synthetic-source:A', row: { [ENTRY.column]: '' } }],
+		}, debug);
+		expect(refreshed.errors).toEqual([]);
+		expect(refreshed.perEntry[0].importSetId).toBe(first.perEntry[0].importSetId);
+		expect(refreshed.perEntry[0].orphans).toEqual([...before].map(([path, text]) => ({ curie: frontmatter(text).curie, path })));
+		expect(create).not.toHaveBeenCalled(); expect(modify).not.toHaveBeenCalled();
+		expect(files).toEqual(before);
 	});
 
 	it('keeps set-qualified curies stable on replace refresh', async () => {

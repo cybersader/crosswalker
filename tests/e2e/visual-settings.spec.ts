@@ -76,8 +76,13 @@ describe('Visual — redesigned settings tab', function () {
 		expect(hub.ok).toBe(true);
 		expect(hub.hasLaunchpad).toBe(true);
 		expect(hub.launchButtons).toBeGreaterThanOrEqual(2);
-		expect(hub.cardCount).toBe(10);
-		expect(hub.cardTitles).toContain('Output');
+		// Mirror the eleven sections() cards, including Saved configurations.
+		expect(hub.cardCount).toBe(11);
+		expect(hub.cardTitles).toEqual([
+			'Output', 'Naming', 'Cell values', 'Links between notes', 'Connections',
+			'Import behavior', 'Suggestions', 'Drafts', 'Advanced', 'Diagnostics',
+			'Saved configurations',
+		]);
 		expect(hub.settingItems).toBe(0);
 
 		// -- Stage B: click the Output card → its page (folder tree preview).

@@ -1,3 +1,4 @@
+import { plural } from '../utils/plural';
 import type { App } from 'obsidian';
 import { buildIdentityIndex, type IdentityIndex } from './identity-index';
 
@@ -56,7 +57,7 @@ export function summarizeUnresolvedEndpoints(endpoints: UnresolvedEndpoint[], un
 	if (endpoints.length === 0) return [];
 	const distinct = new Map<string, UnresolvedEndpoint['cause']>();
 	for (const { curie, cause } of endpoints) distinct.set(curie, cause);
-	const messages = [`${distinct.size} mapping endpoints could not link to concepts in this vault. The edge notes were kept.`];
+	const messages = [`${plural(distinct.size, 'mapping endpoint')} could not link to concepts in this vault. The edge notes were kept.`];
 	const groups = new Map<string, number>();
 	for (const [curie, cause] of distinct) {
 		const ontology = curie.includes(':') ? curie.split(':', 1)[0] : 'unknown ontology';
@@ -68,10 +69,10 @@ export function summarizeUnresolvedEndpoints(endpoints: UnresolvedEndpoint[], un
 		const action = cause === 'ambiguous identity'
 			? `Resolve duplicate ${ontology} concept CURIEs, then explicitly refresh the mapping import.`
 			: `Import ${ontology} concepts at the needed detail, then explicitly refresh the mapping import.`;
-		messages.push(`${count} ${ontology} endpoints: ${cause}. ${action}`);
+		messages.push(`${plural(count, `${ontology} endpoint`)}: ${cause}. ${action}`);
 	}
 	if (unreadableNotes > 0) {
-		messages.push(`${unreadableNotes} notes in this vault have properties that could not be read, so some of these concepts may already exist. Fix the properties on those notes, then explicitly refresh the mapping import.`);
+		messages.push(`${plural(unreadableNotes, 'note')} in this vault have properties that could not be read, so some of these concepts may already exist. Fix the properties on those notes, then explicitly refresh the mapping import.`);
 	}
 	return messages;
 }

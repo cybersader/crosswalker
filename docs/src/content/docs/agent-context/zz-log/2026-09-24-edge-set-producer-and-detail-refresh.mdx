@@ -1,0 +1,50 @@
+---
+title: "Crosswalk link sets record their producer; a detail change is never refreshed in place"
+description: "Decision record for Tier 1 SchemaVer 1.5.0 and the stack Run again rule. Crosswalk link sets now record the framework import set that produced them, so a framework refresh reuses its links instead of duplicating them. A stack re-run at a different detail level keeps offering only a new set."
+tags: [decision, schema, import-set, crosswalk, stack, refresh]
+date: 2026-09-24
+sidebar:
+  label: "09-24 · Link sets record their producer"
+  order: -20260924
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="note" title="Status">
+Decided 2026-09-24. Part 1 shipped in PR #12 (schema field `_crosswalker.import_set.parent_set`). Part 2 is a confirmed owner decision with no code change. Delivery detail lives in `CHANGELOG.md` `[Unreleased]`. This entry supersedes the "Refreshing crosswalk edges in place" deferral in [§5.3 of the 2026-09-21 synthesis](/crosswalker/agent-context/zz-log/2026-09-21-deep-reification-and-import-control-synthesis/).
+</Aside>
+
+## 1. In one breath
+
+A framework whose source rows carry crosswalk columns writes two things: its concept notes, and a set of [crosswalk](/crosswalker/concepts/terminology/) link notes per column. Until now every run minted a new link set, so each refresh left a duplicate set of links behind. Link notes now record **which framework [import set](/crosswalker/concepts/terminology/#import-set) produced them** (plain: the owner of the run that wrote them). A refresh finds its links by that recorded fact and updates them in place. Separately, the owner confirmed that re-running a stack at a different detail level stays a **new set**, never an in-place refresh.
+
+## 2. Example
+
+Synthetic framework set `iset-aaaaaa` has a column mapping its controls to a second framework. The first run writes link set `iset-bbbbbb`, and every link note in it carries `import_set.parent_set: iset-aaaaaa`. Refreshing `iset-aaaaaa` from an updated source looks for sets whose only recorded producer is `iset-aaaaaa` and whose recipe is that column's recipe. It finds exactly `iset-bbbbbb` and updates it where it lives. Link ids stay the same.
+
+## 3. Decisions
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | Record the producer as data: optional `_crosswalker.import_set.parent_set`, written on crosswalk link notes only (SchemaVer 1.5.0, additive) | [Identity, never path](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/): folder, label or recipe id alone cannot name an owner |
+| 2 | Exactly one matching set is reused; two or more block that column with an actionable error; zero mints a new stamped set | [Refresh is chosen, never guessed](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/): ambiguity is surfaced, not resolved by picking one |
+| 3 | Link sets written before this change are never adopted; the first refresh mints one stamped set | Adopting an unstamped set would be a guess from recipe id |
+| 4 | A reused set is written where it lives (its recorded destination), not to the default folder | A moved set must not be split across two folders |
+| 5 | Skip leaves existing links untouched; Replace reconnects links to concepts imported later | Skip used to reconnect only as a side effect of the duplicate set |
+| 6 | **A stack Run again at a different detail level offers only New set**, with the existing guard message. Refresh in place is not offered for a detail change | Owner decision. Narrowing in place would leave notes the new detail no longer produces as orphans in a set that claims the new detail; a new set keeps both honest |
+
+## 4. Options considered for decision 6
+
+| Option | Result |
+|---|---|
+| Keep blocked (chosen) | No code change; the old set stays intact beside the new one |
+| Allow refresh, report orphans | One set, but stale notes linger as orphans until cleaned up |
+| Allow widening only | Adds notes safely, but splits the rule by direction; more to explain |
+
+## Related
+
+- Machine contract: [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/)
+- Terms: [import set](/crosswalker/concepts/terminology/#import-set), [terminology](/crosswalker/concepts/terminology/)
+- Superseded deferral: [deeper reification and import control synthesis §5.3](/crosswalker/agent-context/zz-log/2026-09-21-deep-reification-and-import-control-synthesis/)
+- Rules applied: [import set = ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/), [re-import is identity reconciliation](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/)
+- Pillars: [vision](/crosswalker/agent-context/vision/), [what makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/)

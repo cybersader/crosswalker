@@ -1846,8 +1846,8 @@ describe.each(['replace', 'skip'] as const)('two real wizard runs, the second a 
 		void second;
 		expect(noticeText()).toMatch(
 			overwriteMode === 'replace'
-				? /✅ Created 6 notes in [\d.]+s\. Nothing moved\. No orphans\./
-				: /✅ Created 0 notes, skipped 6 existing in [\d.]+s\. Nothing moved\. No orphans\./,
+				? /✅ Created or updated 6 notes; 0 notes already up to date in [\d.]+s\. Nothing moved\. No orphans\./
+				: /✅ Created or updated 0 notes; 0 notes already up to date, skipped 6 existing in [\d.]+s\. Nothing moved\. No orphans\./,
 		);
 	});
 
@@ -2069,7 +2069,7 @@ describe('the success notice', () => {
 		// nor a silence. Both clauses are asserted, and the clean-run sentence is
 		// asserted absent, because a notice that printed it unconditionally would
 		// pass the test above and say nothing true here.
-		expect(noticeText()).toContain('Nothing moved. 1 orphans. See results.');
+		expect(noticeText()).toContain('Nothing moved. 1 orphan. See results.');
 		expect(noticeText()).not.toContain('No orphans.');
 		expect(noticeText()).not.toContain('Orphans not checked.');
 		// And the screen it points at really is drawn, with the orphan on it.
@@ -2080,7 +2080,7 @@ describe('the success notice', () => {
 	it('carries the counts alongside the created and skipped totals, not instead of them', async () => {
 		const { second } = await importThenRefreshWith(parsed());
 		void second;
-		expect(noticeText()).toMatch(/^✅ Created 6 notes in [\d.]+s\. Nothing moved\. No orphans\.$/m);
+		expect(noticeText()).toMatch(/^✅ Created or updated 2 notes; 4 notes already up to date in [\d.]+s\. Nothing moved\. No orphans\.$/m);
 	});
 });
 
@@ -4019,7 +4019,7 @@ describe.each(['replace', 'skip'] as const)(
 			expect(noticeText()).toContain(`Import finished with ${refused.length} errors. See results.`);
 			// Created zero and skipped zero is exactly the shape AM-4 was written
 			// about: a run that reports success having written nothing at all.
-			expect(noticeText()).toContain('Created 0 notes');
+			expect(noticeText()).toContain('Created or updated 0 notes');
 			expect(noticeText()).not.toContain('skipped');
 		});
 

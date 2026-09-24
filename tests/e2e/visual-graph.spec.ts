@@ -292,16 +292,25 @@ describe('Visual — connectedness money shot (clean graph of a single import)',
 				await sleep(150);
 			}
 			if (!graphLeaf) return { ok: false as const, reason: 'NO_GRAPH_LEAF' };
-			const search = graphLeaf.querySelector('input[type="search"], .search-input-container input') as HTMLInputElement | null;
-			let filtered = false;
+			// Graph filters are behind the Filters disclosure in the current graph view.
+			const filters = Array.from(graphLeaf.querySelectorAll<HTMLElement>('*'))
+				.find((el) => el.textContent?.trim() === 'Filters' && el.children.length === 0);
+			filters?.click();
+			let search: HTMLInputElement | null = null;
+			const t1 = Date.now();
+			while (Date.now() - t1 < 8000) {
+				search = graphLeaf.querySelector('input[type="search"], .search-input-container input');
+				if (search) break;
+				await sleep(100);
+			}
+			const query = 'path:GraphTest-e2e';
 			if (search) {
 				search.focus();
-				search.value = 'path:GraphTest';
+				search.value = query;
 				search.dispatchEvent(new Event('input', { bubbles: true }));
-				filtered = true;
 			}
 			await sleep(4000); // let the force layout settle
-			return { ok: true as const, filtered, query: 'path:GraphTest' };
+			return { ok: true as const, filtered: search?.value === query, query };
 		});
 		console.log('[graph] graph → ' + JSON.stringify(graphInfo));
 		await browser.saveScreenshot(path.join(OUT, 'graph-01-connected.png'));

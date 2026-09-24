@@ -5,6 +5,7 @@
  * document by those names, never as "subject" and "object", so the direction
  * that decides whether coverage works cannot be entered backwards.
  */
+import { plural } from '../utils/plural';
 
 import {
 	App,
@@ -648,7 +649,7 @@ export class EvidenceLinkModal extends Modal {
 			const unindexed = countUnindexedMarkdownFiles(this.deps.app);
 			contentEl.createEl('p', {
 				text: unindexed > 0
-					? `Obsidian is still indexing this vault (${unindexed} notes left to read). Wait for indexing to finish, then run this command again.`
+					? `Obsidian is still indexing this vault (${plural(unindexed, 'note')} left to read). Wait for indexing to finish, then run this command again.`
 					: 'No imported controls were found in this vault. Import a framework first, then link evidence to it.',
 			});
 			return;
@@ -661,7 +662,7 @@ export class EvidenceLinkModal extends Modal {
 		// AM-46. The short list is stated, not left to be noticed.
 		if (this.unreadableControls.size > 0) {
 			contentEl.createEl('p', {
-				text: `${this.unreadableControls.size} notes could not be read, so this list may be short. `
+				text: `${plural(this.unreadableControls.size, 'note')} could not be read, so this list may be short. `
 					+ 'If the control you want is missing, fix that note\'s properties and run this command again.',
 			});
 		}
@@ -877,7 +878,7 @@ export class EvidenceLinkModal extends Modal {
 		const named = scan.junctions;
 		if (named.length > 1) {
 			throw new PairLookupRefusal(
-				`${named.length} notes already record this control and this evidence `
+				`${plural(named.length, 'note')} already record this control and this evidence `
 				+ `(${named.map((entry) => entry.file.path).join(', ')}). Delete or fix all but one of them, `
 				+ 'then try again.',
 			);

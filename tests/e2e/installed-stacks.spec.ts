@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import * as XLSX from 'xlsx';
 import { toDefinition } from '../../src/import/stack/stack-persistence';
+import { RECIPE_REGISTRY } from '../../src/import/recipe-registry';
 
 const OUT = path.resolve('test-screenshots');
 const HEADERS = ['Control Identifier', 'Control (or Enhancement) Name', 'Control Text', 'Discussion', 'Related Controls'];
@@ -58,7 +59,8 @@ describe('Installed stacks and revisit on synthetic data', function () {
 		await browser.waitUntil(async () => browser.executeObsidian(() =>
 			Array.from(document.querySelectorAll('.crosswalker-stack-result[data-slot]')).some((item) => item.textContent?.includes('Recognized'))),
 		{ timeout: 20_000, timeoutMsg: 'Synthetic source did not recognize' });
-		await click('Next: review'); await click('Import stack');
+		await click('Next: review');
+		await click('Import stack');
 		await browser.waitUntil(async () => browser.executeObsidian(() =>
 			document.querySelector('.crosswalker-stack-modal h2')?.textContent === 'Framework stack imported'),
 		{ timeout: 60_000, timeoutMsg: 'Synthetic framework did not import' });
@@ -246,5 +248,110 @@ describe('Installed stacks and revisit on synthetic data', function () {
 			return app.plugins.plugins['crosswalker'].settings.stacks.length;
 		});
 		expect(persisted).toBe(0);
+	});
+
+	it('refreshes one populated from-slot link set without tracking it as a separate mapping', async () => {
+		const cri = RECIPE_REGISTRY.find((entry) => entry.id === 'cri-profile-v2-2-flat')!;
+		const criColumns = Array.from(new Set([...cri.signatureColumns, 'NIST CSF v2 Mapping']));
+		const workbook = (sheet: string, headers: string[], row: Record<string, string>, banner = false): number[] => {
+			const book = XLSX.utils.book_new();
+			const prefix = banner ? [['Synthetic banner'], []] : [];
+			XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([...prefix, headers, headers.map((name) => row[name] ?? '')]), sheet);
+			return Array.from(new Uint8Array(XLSX.write(book, { type: 'buffer', bookType: 'xlsx' })));
+		};
+		const criSource = (text: string) => workbook('CRI Profile v2.2 Structure', criColumns, {
+			'Profile Id': 'ZZ.ZZ-01.01', Level: 'DS', 'Outline Id': 'Z.1',
+			'CRI Profile Function / Category / Subcategory': 'Invented / Category / Subcategory',
+			'CRI Profile v2.2 Diagnostic Statement': text,
+			'NIST CSF v2 Mapping': 'GV.XX-01',
+		}, true);
+		const sources = [
+			{ name: 'synthetic-from-slot-cri.xlsx', bytes: criSource('Invented statement.') },
+			{ name: 'synthetic-from-slot-csf.xlsx', bytes: workbook('CSF', ['element_identifier', 'element_type', 'text'], {
+				element_identifier: 'GV.XX-01', element_type: 'subcategory', text: 'Invented CSF outcome.',
+			}) },
+		];
+		await browser.executeObsidian(async ({ app }, payload) => {
+			if (!app.vault.getAbstractFileByPath('Sources')) await app.vault.createFolder('Sources');
+			for (const item of payload) await app.vault.createBinary(`Sources/${item.name}`, new Uint8Array(item.bytes).buffer);
+			// @ts-expect-error Obsidian internal command registry
+			app.commands.executeCommandById('crosswalker:set-up-framework-stack');
+		}, sources);
+		await $('.crosswalker-stack-modal').waitForDisplayed();
+		await browser.executeObsidian(() => {
+			for (const id of ['nist-800-53', 'mitre-attack', 'cis-v8', 'scf']) {
+				const choice = document.querySelector<HTMLInputElement>(`.crosswalker-stack-choice input[data-ontology="${id}"]`);
+				if (choice?.checked) choice.click();
+			}
+			for (const id of ['cri-profile', 'nist-csf-2']) {
+				const choice = document.querySelector<HTMLInputElement>(`.crosswalker-stack-choice input[data-ontology="${id}"]`);
+				if (choice && !choice.checked) choice.click();
+			}
+		});
+		await click('Next: download checklist'); await click('Next: add the files');
+		await browser.executeObsidian(() => {
+			const input = document.querySelector<HTMLInputElement>('.crosswalker-stack-modal input[placeholder="Sources"]');
+			if (input) { input.value = 'Sources'; input.dispatchEvent(new Event('input', { bubbles: true })); }
+		});
+		await click('Choose folder');
+		await browser.waitUntil(async () => browser.executeObsidian(() =>
+			Array.from(document.querySelectorAll('.crosswalker-stack-result[data-slot]')).filter((row) =>
+				row.textContent?.includes('Recognized')).length === 2),
+		{ timeout: 20_000, timeoutMsg: 'Synthetic CRI and CSF files did not recognize' });
+		await click('Next: review');
+		await click('Import stack');
+		await browser.waitUntil(async () => browser.executeObsidian(() =>
+			document.querySelector('.crosswalker-stack-modal h2')?.textContent === 'Framework stack imported'),
+		{ timeout: 60_000, timeoutMsg: 'Populated from-slot stack did not import' });
+		const before = await browser.executeObsidian(async ({ app }) => {
+			const files = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/cri-profile-to-nist-csf-2/'));
+			return Promise.all(files.map(async (file) => ({ path: file.path, text: await app.vault.read(file) })));
+		});
+		expect(before).toHaveLength(1);
+		expect(before[0].text).toContain('import_set:');
+		await click('Done'); await home();
+		const fromSlot = 'Comes with CRI Profile v2.2. Not tracked separately.';
+		expect(await browser.executeObsidian(() => document.querySelector('.crosswalker-installed-stacks')?.textContent ?? '')).toContain(fromSlot);
+		await browser.executeObsidian(async ({ app }, bytes) => {
+			const file = app.vault.getAbstractFileByPath('Sources/synthetic-from-slot-cri.xlsx');
+			if (!file || !('extension' in file)) throw new Error('Synthetic CRI source missing');
+			await app.vault.modifyBinary(file, new Uint8Array(bytes).buffer);
+		}, criSource('Changed invented statement.'));
+		await browser.executeObsidian(() => {
+			Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-installed-stacks button'))
+				.find((button) => button.textContent === 'Run again')?.click();
+		});
+		await $('.crosswalker-stack-modal').waitForDisplayed();
+		await browser.executeObsidian(() => {
+			const input = document.querySelector<HTMLInputElement>('.crosswalker-stack-modal input[placeholder="Sources"]');
+			if (input) { input.value = 'Sources'; input.dispatchEvent(new Event('input', { bubbles: true })); }
+		});
+		await click('Choose folder'); await click('Next: review');
+		const choices = await browser.executeObsidian(() => {
+			const row = document.querySelector('.crosswalker-stack-result[data-slot="cri-profile"]');
+			return Array.from(row?.querySelectorAll('select option') ?? []).map((option) => option.textContent);
+		});
+		expect(choices.some((choice) => choice?.startsWith('Refresh set '))).toBe(true);
+		await browser.executeObsidian(() => {
+			const dropdown = document.querySelector<HTMLSelectElement>('.crosswalker-stack-result[data-slot="cri-profile"] select');
+			if (dropdown) { dropdown.value = 'refresh'; dropdown.dispatchEvent(new Event('change', { bubbles: true })); }
+		});
+		await click('Import stack');
+		await browser.waitUntil(async () => browser.executeObsidian(() =>
+			document.querySelector('.crosswalker-stack-modal h2')?.textContent === 'Framework stack imported'),
+		{ timeout: 60_000, timeoutMsg: 'Synthetic from-slot refresh did not finish' });
+		expect(await browser.executeObsidian(() => document.querySelector('.crosswalker-stack-modal')?.textContent ?? ''))
+			.toContain('1 framework crosswalk link created or updated; 0 framework crosswalk links already up to date');
+		await click('Done'); await home();
+		expect(await browser.executeObsidian(() => document.querySelector('.crosswalker-installed-stacks')?.textContent ?? '')).toContain(fromSlot);
+		const after = await browser.executeObsidian(async ({ app }) => {
+			const files = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/cri-profile-to-nist-csf-2/'));
+			return Promise.all(files.map(async (file) => ({ path: file.path, text: await app.vault.read(file) })));
+		});
+		expect(after).toHaveLength(1);
+		expect(after[0].path).toBe(before[0].path);
+		const setId = (text: string) => text.match(/import_set:\s*\n\s*id:\s*([^\s]+)/)?.[1];
+		expect(setId(before[0].text)).toBeTruthy();
+		expect(setId(after[0].text)).toBe(setId(before[0].text));
 	});
 });

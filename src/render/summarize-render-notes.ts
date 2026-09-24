@@ -98,5 +98,5 @@ function buildWarningMessage(
 ): string {
 	const rowsPhrase = deviantCount === 1 ? "row doesn't" : "rows don't";
 	const scopePhrase = sampled ? `the first ${previewedCount} rows previewed` : `${previewedCount} previewed rows`;
-	return `${cleanCount} of ${scopePhrase} match the pattern fully. ${deviantCount} ${rowsPhrase} — expand to see where they'll land.`;
+	return `${cleanCount} of ${scopePhrase} match the pattern fully. ${deviantCount} ${rowsPhrase}. Expand to see where they'll land.`;
 }

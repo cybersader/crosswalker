@@ -485,15 +485,15 @@ describe('Visual — import wizard XLSX + JSON paths', function () {
       if (!sourceRef) {
         throw new Error(`JSON missing nested _crosswalker.source_ref provenance for ${generated.path}`);
       }
-      const sourceHashPresent = Object.prototype.hasOwnProperty.call(sourceRef, 'source_hash');
+      const expectedSourceHash = `sha256-${createHash('sha256').update(Buffer.from(STIX_JSON, 'utf8')).digest('hex')}`;
       console.log('[wizard] json evidence → ' + JSON.stringify({
         terminal: g,
         samplePath: generated.path,
         frontmatter: generated.frontmatter,
-        sourceHashPresent,
+        expectedSourceHash,
       }));
-      if (sourceHashPresent) {
-        throw new Error(`JSON unexpectedly emitted source_hash for ${generated.path}: ${String(sourceRef?.source_hash)}`);
+      if (sourceRef.source_hash !== expectedSourceHash) {
+        throw new Error(`JSON source hash mismatch for ${generated.path}: expected ${expectedSourceHash}, got ${String(sourceRef.source_hash)}`);
       }
     } finally {
       await cleanupFolder(target);

@@ -35,8 +35,10 @@ export interface RecognizedImportOutcome {
 	destination: string;
 	importSetId: string | null;
 	created: number;
+	upToDate: number;
 	skipped: number;
 	crosswalkEdges?: number;
+	crosswalkLinksUpToDate?: number;
 	errors: string[];
 	warnings: string[];
 	parsedRowCount: number;
@@ -143,6 +145,7 @@ export async function runRecognizedImport(
 		destination,
 		importSetId: null,
 		created: 0,
+		upToDate: 0,
 		skipped: 0,
 		errors: [],
 		warnings: [],
@@ -217,8 +220,9 @@ export async function runRecognizedImport(
 			destination,
 			importSetId,
 			created: result.created.length,
+			upToDate: result.upToDate.length,
 			skipped: result.skipped.length,
-			...(result.crosswalkEdges ? { crosswalkEdges: result.crosswalkEdges.created } : {}),
+			...(result.crosswalkEdges ? { crosswalkEdges: result.crosswalkEdges.created, crosswalkLinksUpToDate: result.crosswalkEdges.upToDate } : {}),
 			errors,
 			warnings: visibleGenerationWarnings(result.warnings ?? [], req.entry, parsedData.rows),
 			parsedRowCount: parsedData.rowCount,

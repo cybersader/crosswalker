@@ -735,6 +735,7 @@ function referencedColumns(recipe: CrosswalkerImportRecipe): string[] {
 	const collect = (template: string): void => {
 		for (const segment of parseTemplateSegments(template)) {
 			if (segment.kind !== 'interp') continue;
+			if (segment.interp.filters.some((filter) => filter.name === 'optional')) continue;
 			const column = interpolationColumn(segment.interp).column;
 			if (column && !column.startsWith('_cw.')) columns.add(column);
 		}

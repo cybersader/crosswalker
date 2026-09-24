@@ -1,3 +1,4 @@
+import { plural } from './utils/plural';
 import { Plugin, Notice, TFile, TFolder, MarkdownView, Platform, apiVersion, normalizePath, type WorkspaceLeaf } from 'obsidian';
 import { CrosswalkerSettings, DEFAULT_SETTINGS } from './settings/settings-data';
 import { outputRootPath, outputRootFile, evidenceJunctionFolder, evidenceReportFolder, tier2SidecarPath } from './settings/folder-settings';
@@ -532,7 +533,7 @@ export default class CrosswalkerPlugin extends Plugin {
 							const row = modal.contentEl.createDiv({ cls: 'crosswalker-fixture-row' });
 							row.createEl('div', { text: fx.displayName, cls: 'crosswalker-fixture-title' });
 							row.createEl('div', {
-								text: `${fx.rowCount} mappings · ${fx.subjectOntology} → ${fx.objectOntology}`,
+								text: `${plural(fx.rowCount, 'mapping')} · ${fx.subjectOntology} → ${fx.objectOntology}`,
 								cls: 'crosswalker-fixture-meta',
 							});
 							new ButtonComponent(row).setButtonText('Import').setCta().onClick(() => {
@@ -606,14 +607,14 @@ export default class CrosswalkerPlugin extends Plugin {
 					const errors = result.generation?.errors ?? [];
 					const conflicts = result.generation?.conflicts ?? [];
 					const skipReason = result.skipped ? ` (skipped: ${result.skipped})` : '';
-					const refused = errors.length > 0 ? `, ${errors.length} rows refused` : '';
-					const unchanged = conflicts.length > 0 ? `, ${conflicts.length} notes left unchanged` : '';
+					const refused = errors.length > 0 ? `, ${plural(errors.length, 'row')} refused` : '';
+					const unchanged = conflicts.length > 0 ? `, ${plural(conflicts.length, 'note')} left unchanged` : '';
 					const detail = errors.length > 0
 						? `\n${errors.slice(0, 3).map((error) => error.message).join('\n')}`
 							+ (errors.length > 3 ? `\nAnd ${errors.length - 3} more.` : '')
 						: '';
 					new Notice(
-						`Imported "${fx.displayName}": ${createdCount} junction notes${refused}${unchanged}${skipReason}.${detail}`,
+						`Imported "${fx.displayName}": ${plural(createdCount, 'junction note')}${refused}${unchanged}${skipReason}.${detail}`,
 						errors.length > 0 ? 15000 : 6000,
 					);
 				});
@@ -656,13 +657,13 @@ export default class CrosswalkerPlugin extends Plugin {
 						});
 					}
 					if (deletable.length === 0) {
-						c.createEl('p', { text: 'No deletable test imports — every generated note is curated corpus.', cls: 'crosswalker-fixture-meta' });
+						c.createEl('p', { text: 'No deletable test imports. Every generated note is curated corpus.', cls: 'crosswalker-fixture-meta' });
 					}
 					for (const g of groups.filter((x) => x.protected)) {
 						const row = c.createDiv({ cls: 'crosswalker-fixture-row crosswalker-fixture-protected' });
 						const txt = row.createDiv();
 						txt.createEl('div', { text: `${g.folder}/  ·  protected corpus`, cls: 'crosswalker-fixture-title' });
-						txt.createEl('div', { text: `${g.count} notes — kept`, cls: 'crosswalker-fixture-meta' });
+						txt.createEl('div', { text: `${plural(g.count, 'note')} kept`, cls: 'crosswalker-fixture-meta' });
 					}
 					const footer = c.createDiv({ cls: 'crosswalker-modal-footer' });
 					if (totalDeletable > 0) {

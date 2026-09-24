@@ -4,6 +4,7 @@
  * A modal for browsing, viewing, selecting, editing, and managing saved configurations.
  * Can be opened from settings or from the import wizard.
  */
+import { plural } from '../utils/plural';
 
 import { App, Modal, Setting, Notice, ButtonComponent } from 'obsidian';
 import CrosswalkerPlugin from '../main';
@@ -175,7 +176,7 @@ export class ConfigBrowserModal extends Modal {
 
 		const meta = titleArea.createEl('div', { cls: 'crosswalker-card-meta' });
 		meta.createEl('span', {
-			text: `${config.fingerprint.columnCount} columns`,
+			text: plural(config.fingerprint.columnCount, 'column'),
 			cls: 'crosswalker-meta-item'
 		});
 		meta.createEl('span', { text: '·', cls: 'crosswalker-meta-sep' });
