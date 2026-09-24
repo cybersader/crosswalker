@@ -6,9 +6,52 @@ tags: [getting-started, import]
 
 You need Crosswalker [installed and enabled](/crosswalker/getting-started/installation/) and a framework file to import: a CSV, XLSX, or JSON export of controls, requirements, or techniques. If you do not have the file yet, use the [framework data sources guide](/crosswalker/reference/framework-data-sources/) to find the publisher download, matching bundled recipe, licence caution, and exact import binding.
 
-**Status last verified:** 2026-08-28 — verified against the empty-vault real-Obsidian `tests/e2e/first-run.spec.ts` run.
+**Status last verified:** 2026-09-24 — the framework stack section was verified against fresh real-Obsidian runs of `tests/e2e/visual-stack-setup.spec.ts`, `tests/e2e/first-run-stack.spec.ts`, and `tests/e2e/installed-stacks.spec.ts` (screenshots of every screen). The single-file section was last verified 2026-08-28 against the empty-vault `tests/e2e/first-run.spec.ts` run.
 
 **Not yet verified in real Obsidian (2026-09-21):** the vault scan and the worksheet suggestion described below shipped on an unmerged branch without a screenshot run.
+
+## Pick your path
+
+| You want to... | Use | Section |
+|---|---|---|
+| Bring in several frameworks and the mappings that connect them, in one guided run | **Set up a framework stack** | [Set up a framework stack](#set-up-a-framework-stack) |
+| Import one spreadsheet or export, or any file Crosswalker does not recognize, and control every column | **Import structured data** | [Import your first framework](#import-your-first-framework) |
+
+Both start from the **Start here** row on the Crosswalker workspace tab, and both write ordinary notes you can edit.
+
+## Set up a framework stack
+
+A **framework stack** is a set of frameworks your team works with (for example CRI Profile, NIST 800-53, and MITRE ATT&CK) plus the mapping files that link their controls to each other. Crosswalker imports each framework, then each mapping, so the result is one connected graph instead of separate folders.
+
+Open it with the **Set up a framework stack** button on the workspace tab (or in **Settings > Crosswalker**), or run **Crosswalker: Set up a framework stack** from the command palette.
+
+| Step | Screen | What you do | What to watch for |
+|---|---|---|---|
+| 1 | **Set up a framework stack** | Tick your frameworks under **Frameworks**. Choices: CRI Profile v2.2, MITRE ATT&CK techniques, NIST 800-53 Rev 5, NIST CSF 2.0 (CPRT export, nested), CIS Controls v8 (controls), Secure Controls Framework (2026). **Connections this stack will import** lists the mappings your choices unlock; **Optional local mappings** lists extras you can tick. Set **Detail** near the bottom, then choose **Next: download checklist** | Tick CRI Profile and NIST 800-53 together and NIST CSF 2.0 is ticked for you, because it is the bridge between them. Untick it to leave that route disconnected |
+| 2 | **Download these files** | Follow each publisher link and save the files anywhere in the vault. **Copy checklist** copies the list as plain text. Choose **Next: add the files** | Rows marked **Built in** or **From file above** need no download. Some sources (CRI Profile, CIS Controls) require free registration and are licensed for your own local use: you download them yourself, and Crosswalker never ships them |
+| 3 | **Add the files** | Drop files onto the box, click **Choose Files**, or type a **Vault folder** and click **Choose folder**. Choose **Next: review** once every framework shows a file | Each framework row reads **Recognized** (with the sheet and header row it found), **Might match** (click **Use anyway** if you are sure), **Wrong file**, or **Missing**. Wrong-file messages name the fix, for example the ATT&CK STIX bundle instead of the Excel export, or a workbook's change-log sheet. A file that fits a framework you did not tick is listed as **Not in this stack**. Two files for one slot offer **Use this file** or **Keep first file** |
+| 4 | **Review before import** | Check each framework's one-line summary of what becomes a folder or a note, where it lands, and **Import set: New set**. Rename the stack under **Stack name** if you like. Choose **Import stack** | **Check for refresh** tells you if this exact file was imported before, but never switches to refresh for you. Any mapping still missing its file stops the run before anything is written |
+| 5 | Import runs | Wait | Frameworks import first, then each mapping. If a step fails, the button becomes **Retry remaining** and finished frameworks are not redone |
+| 6 | **Framework stack imported** | Read the counts, then choose **Done** | Each framework and mapping is listed with its note count and [import set](/crosswalker/concepts/terminology/#import-set) id. A mapping line that could not link to a framework note is kept and reported, never faked. After you import the missing framework, **Reconnect mappings** links them without re-importing |
+
+**Detail** has two settings. It only changes NIST 800-53 and CRI Profile; the other frameworks come out the same either way:
+
+| Detail | What you get |
+|---|---|
+| **Everything as notes** (default) | Every level becomes a note, including 800-53 control enhancements and CRI diagnostic statements |
+| **Notes for top levels only** | 800-53 enhancements and CRI diagnostic statements are left out. Mapping lines that point at them stay unlinked on purpose |
+
+### Running a stack again
+
+After the first run, the workspace tab shows an **Installed stacks** panel. Each stack card lists every framework and mapping with its state (its set and note count, **Not imported yet**, or a set that is no longer in the vault), plus three buttons:
+
+| Button | What it does |
+|---|---|
+| **Run again** | Reopens the flow with your stack's choices. On the review screen each row gets an **Import set** choice: **Skip (already imported, unchanged)** when the file matches what you imported last time, **Refresh set** followed by its id to update that set in place, or **New set** for a separate copy. A changed file defaults to **New set**; refresh is always your choice, never automatic |
+| **Export** | Downloads the stack definition as JSON and copies it to the clipboard, so a teammate can use **Import a stack**. Your vault's import history is not included |
+| **Delete** | Removes the saved stack only. Its notes and import sets stay in the vault |
+
+Where to download each file, and the licence terms for each source, are in [framework data sources](/crosswalker/reference/framework-data-sources/#stack-mapping-sources).
 
 ## Import your first framework
 

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Docs: quick start covers framework stacks (2026-09-24)
+
+- The quick start now walks through **Set up a framework stack**: picking frameworks, the download checklist, adding files and fixing wrong-file errors, review and Detail, the completion screen with **Reconnect mappings**, and re-running a saved stack with Skip, Refresh, or New set. The single-file import path is unchanged.
+
 ### Fixed: generated mappings wait for note indexing (2026-09-24)
 
 - Imports that produce mapping links now wait for newly written notes to finish indexing before deciding link ownership. An early cache event no longer aborts an otherwise successful import; if indexing stays incomplete past the deadline, the import still refuses to guess.
