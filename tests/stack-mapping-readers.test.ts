@@ -67,3 +67,35 @@ describe('CTID JSON reader', () => {
 		expect(parsed.rows[0].object_id).toBe('mitre-attack:T9999.001');
 	});
 });
+
+describe('mapping workbooks with several sheets', () => {
+	it('combines matching sheets and reports each skipped sheet', () => {
+		const wb = XLSX.utils.book_new();
+		for (const [name, data] of [
+			['First', [['Focal Document Element', 'Reference Document Element'], ['ZZ-01', 'AB-01']]],
+			['Notes', [['Description', 'Unrelated'], ['text', 'text']]],
+			['Second', [['Banner'], ['Focal\nDocument Element', 'Reference  Document Element'], ['ZZ-02', 'AB-02']]],
+		] as const) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), name);
+		const bytes = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+		const { readOlirWorkbookDetails } = require('../src/import/stack/mapping-readers');
+		const result = readOlirWorkbookDetails(bytes, { subjectOntology: 'alpha', objectOntology: 'beta' }, ['First']);
+		expect(result.included).toEqual(['First', 'Second']);
+		expect(result.skipped).toEqual([{ sheet: 'Notes', reason: 'Missing Focal Document Element / Reference Document Element header columns' }]);
+		expect(result.rows.map((row: { subject_id: string }) => row.subject_id)).toEqual(['alpha:ZZ-01', 'alpha:ZZ-02']);
+	});
+	it('includes a header after a long banner and skips sheets beyond the bounded scan', () => {
+		const wb = XLSX.utils.book_new();
+		const banners = Array.from({ length: 12 }, (_, i) => [`Banner ${i}`]);
+		const headerAndRow = [['Focal Document Element', 'Reference Document Element'], ['ZZ-12', 'AB-12']];
+		XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...banners, ...headerAndRow]), 'Long banner');
+		XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+			...Array.from({ length: 50 }, (_, i) => [`Banner ${i}`]), ...headerAndRow,
+		]), 'Beyond limit');
+		const bytes = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+		const { readOlirWorkbookDetails } = require('../src/import/stack/mapping-readers');
+		const result = readOlirWorkbookDetails(bytes, { subjectOntology: 'alpha', objectOntology: 'beta' });
+		expect(result.included).toEqual(['Long banner']);
+		expect(result.rows.map((row: { subject_id: string }) => row.subject_id)).toEqual(['alpha:ZZ-12']);
+		expect(result.skipped).toEqual([{ sheet: 'Beyond limit', reason: 'Missing Focal Document Element / Reference Document Element header columns' }]);
+	});
+});

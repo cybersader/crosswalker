@@ -47,14 +47,32 @@ export function olirRowsToSssom(rows: readonly Record<string, string>[], options
 	});
 }
 
-/** Read formatted Excel text across all matching sheets. Do not coerce ids through numbers. */
-export function readOlirWorkbook(bytes: Uint8Array, options: OlirOptions, sheetNames?: readonly string[], headerRow = 0): SssomRow[] {
+export interface WorkbookMappingResult { rows: SssomRow[]; skipped: { sheet: string; reason: string }[]; included: string[] }
+
+const MAX_MAPPING_HEADER_ROWS = 50;
+
+/** A matching mapping table is defined by its endpoint headers, not a sheet name. */
+export function readOlirWorkbookDetails(bytes: Uint8Array, options: OlirOptions, sheetNames?: readonly string[], headerRow = 0): WorkbookMappingResult {
 	const workbook = XLSX.read(bytes.slice(), { type: 'array' });
 	const rows: Record<string, string>[] = [];
+	const skipped: WorkbookMappingResult['skipped'] = [];
+	const included: string[] = [];
+	const required = [options.subjectColumn ?? 'Focal Document Element', options.objectColumn ?? 'Reference Document Element'];
+	const normalize = (header: unknown): string => String(header ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 	for (const name of workbook.SheetNames) {
-		if (sheetNames && !sheetNames.includes(name)) continue;
-		const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[name], {
-			range: headerRow, defval: '', blankrows: false, raw: false,
+		const sheet = workbook.Sheets[name];
+		const area = sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']) : null;
+		const preview = area ? XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+			header: 1, defval: '', blankrows: true, raw: false,
+			range: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.min(area.e.r, MAX_MAPPING_HEADER_ROWS - 1), c: area.e.c } }),
+		}) : [];
+		const hinted = sheetNames?.includes(name) && headerRow >= 0 && headerRow < preview.length ? [headerRow] : [];
+		const positions = [...hinted, ...Array.from({ length: preview.length }, (_, i) => i)];
+		const rowIndex = positions.find((index) => required.every((key) => (preview[index] ?? []).some((column) => normalize(column) === normalize(key))));
+		if (rowIndex === undefined) { skipped.push({ sheet: name, reason: `Missing ${required.join(' / ')} header columns` }); continue; }
+		included.push(name);
+		const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+			range: rowIndex, defval: '', blankrows: false, raw: false,
 		});
 		for (const item of raw) {
 			const row: Record<string, string> = {};
@@ -62,7 +80,12 @@ export function readOlirWorkbook(bytes: Uint8Array, options: OlirOptions, sheetN
 			rows.push(row);
 		}
 	}
-	return olirRowsToSssom(rows, options);
+	return { rows: olirRowsToSssom(rows, options), skipped, included };
+}
+
+/** Compatibility for existing callers; all matching sheets are combined. */
+export function readOlirWorkbook(bytes: Uint8Array, options: OlirOptions, sheetNames?: readonly string[], headerRow = 0): SssomRow[] {
+	return readOlirWorkbookDetails(bytes, options, sheetNames, headerRow).rows;
 }
 
 export interface CtidResult { rows: SssomRow[]; attackVersion: string | null; duplicateRowsSkipped: number }

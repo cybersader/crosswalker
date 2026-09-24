@@ -19,7 +19,7 @@
  *      than through an OS file picker. This is what a user does when they save
  *      publisher downloads into a vault folder, then use "Choose folder".
  *   3. Buttons are clicked through DOM `click()` inside the modal.
- *   4. "Might match" slots are accepted with the modal's own "Use anyway" button.
+ *   4. Only non-CRI partial matches may use the modal's own "Use anyway" button.
  *   5. Set LOCAL_STACK_SKIP_RERUN=1 to measure only the first import, without
  *      the separate Run again leg. Publisher files are copied unchanged.
  *
@@ -41,8 +41,6 @@ const CORE = [
 ];
 const OPTIONAL = [
 	'wp-contentuploads202509CRI-Profile-v2.1-to-SP-800-53-Rev-5.1.1.Final_.2025.xlsx',
-	'wp-contentuploads202509MITRE-ATTACK-v16.1-to-CRI-Profile-v2.1-Mapping.2025.xlsx',
-	'wp-contentuploads202604CRI-Profile-ver.-2.2-Mappings-Catalog.2026-04-27.xlsx',
 	'cri_profile-v2.1_attack-16.1-enterprise_json.json',
 ];
 const metrics: Record<string, unknown> = {};
@@ -137,6 +135,16 @@ async function useAnyway(label: string): Promise<void> {
 		return Array.from(document.querySelectorAll('.crosswalker-stack-modal .crosswalker-stack-result')).map((row) => fn(row.textContent ?? '').slice(0, 200));
 	}, SANITIZE));
 }
+async function assertCriRecognized(label: string): Promise<void> {
+	const state = await browser.executeObsidian(() => {
+		const row = document.querySelector<HTMLElement>('.crosswalker-stack-modal [data-slot="cri-profile"]');
+		return { text: row?.textContent ?? '', useAnyway: Array.from(row?.querySelectorAll('button') ?? [])
+			.some((button) => button.textContent?.trim() === 'Use anyway') };
+	});
+	log(`${label}-cri-recognition`, state);
+	expect(state.text).toContain('Recognized');
+	expect(state.useAnyway).toBe(false);
+}
 async function waitForComplete(label: string, timeout = 1_500_000): Promise<void> {
 	const started = Date.now();
 	let lastReport = 0;
@@ -186,6 +194,18 @@ async function logProblems(label: string): Promise<void> {
 		}
 		return { ringSize: ring.length, groups };
 	}, SANITIZE));
+}
+async function assertNoPlaceholderLinks(label: string): Promise<void> {
+	const count = await browser.executeObsidian(({ app }) => app.vault.getMarkdownFiles().reduce((n, file) => {
+		const cache = app.metadataCache.getFileCache(file);
+		const targets = [...Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {}),
+			...Object.keys(app.metadataCache.unresolvedLinks[file.path] ?? {})];
+		return n + targets.filter((target) => /^(?:none\.?|n\/?a|-)$/i.test(target.split('/').pop() ?? '')).length
+			+ (Array.isArray(cache?.frontmatter?.related_curies)
+				? cache.frontmatter.related_curies.filter((value: unknown) => /:none\.?$/i.test(String(value))).length : 0);
+	}, 0));
+	log(`${label}-placeholder-links`, count);
+	expect(count).toBe(0);
 }
 async function measure(label: string): Promise<void> {
 	await browser.waitUntil(async () => browser.executeObsidian(({ app }) => {
@@ -309,6 +329,7 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 		await mustClick('Next: add the files');
 		await fillFolderAndRecognize('default');
 		await shot('03-recognize');
+		await assertCriRecognized('default');
 		await useAnyway('default');
 		await shot('03b-recognize-accepted');
 		await mustClick('Next: review');
@@ -329,6 +350,7 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 			await logProblems('default');
 		}
 		await measure('default');
+		await assertNoPlaceholderLinks('default');
 		const criCsf = await browser.executeObsidian(({ app }) => {
 			const edges = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith('_crosswalker/mappings/cri-profile-to-nist-csf-2/'));
 			return { total: edges.length, both: edges.filter((f) => {
@@ -389,6 +411,7 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 		await $('.crosswalker-stack-modal').waitForDisplayed();
 		await fillFolderAndRecognize('rerun');
 		await shot('07b-rerun-recognize');
+		await assertCriRecognized('rerun');
 		await mustClick('Next: review');
 		const choices = await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLSelectElement>('.crosswalker-stack-modal select')).map((sel) => ({
 			row: sel.closest('[data-slot],[data-mapping]')?.getAttribute('data-slot') ?? sel.closest('[data-mapping]')?.getAttribute('data-mapping') ?? '?',
@@ -398,6 +421,7 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 		expect(choices.length).toBeGreaterThanOrEqual(6);
 		expect(choices.every((choice) => choice.selected?.toLowerCase().includes('skip'))).toBe(true);
 		log('rerun-review-text', await modalText());
+		expect(await modalText()).not.toContain('(new 2)');
 		await shot('08-rerun-review');
 		await tapProblems();
 		await mustClick('Import stack');
@@ -466,6 +490,7 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 		await mustClick('Next: add the files');
 		await fillFolderAndRecognize('optional');
 		await shot('12-optional-recognize');
+		await assertCriRecognized('optional');
 		await useAnyway('optional');
 		await mustClick('Next: review');
 		log('optional-review-text', await modalText());
@@ -474,5 +499,11 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 		await mustClick('Import stack');
 		try { await waitForComplete('optional'); } finally { await shot('14-optional-complete'); await logProblems('optional'); }
 		await measure('optional');
+		await assertNoPlaceholderLinks('optional');
+		const direct = await browser.executeObsidian(({ app }) => app.vault.getMarkdownFiles()
+			.filter((file) => file.path.startsWith('_crosswalker/mappings/cri-profile-to-nist-800-53/')).length);
+		log('optional-cri-80053-notes', direct);
+		expect(direct).toBeGreaterThan(900);
+		expect(direct).toBeLessThan(1100);
 	});
 });

@@ -236,7 +236,7 @@ function templateColumns(template: string): string[] {
 
 /** Normalize a column name for tolerant comparison (mirrors config-manager fingerprinting). */
 export function normalizeColumn(name: string): string {
-	return name.toLowerCase().trim().replace(/[^a-z0-9]/g, '_');
+	return name.toLowerCase().trim().replace(/\s+/g, ' ').replace(/[^a-z0-9]/g, '_');
 }
 
 /** Find the first registry ontology named by a case-insensitive header substring. */
@@ -646,19 +646,19 @@ export const NIST_CATALOG_HEADER_ALIASES: Record<string, string[]> = {
 
 /** Registry aliases are opt-in for stack recognition, not global CSV auto-recognition. */
 export function canonicalHeaderColumns(columns: string[], entry: RecipeRegistryEntry): string[] {
-	const have = new Set(columns.map((column) => column.trim().toLowerCase()));
+	const have = new Set(columns.map(normalizeColumn));
 	return [...columns, ...Object.entries(entry.headerAliases ?? {}).flatMap(([canonical, aliases]) =>
-		!columns.includes(canonical) && aliases.some((alias) => have.has(alias.toLowerCase()))
+		!columns.includes(canonical) && aliases.some((alias) => have.has(normalizeColumn(alias)))
 			? [canonical] : [])];
 }
 
 /** Preserve source columns while adding canonical keys consumed by recipe templates. */
 export function applyHeaderAliases<T extends ParsedData>(data: T, entry: RecipeRegistryEntry): T {
 	if (!entry.headerAliases) return data;
-	const lookup = new Map(data.columns.map((column) => [column.trim().toLowerCase(), column]));
+	const lookup = new Map(data.columns.map((column) => [normalizeColumn(column), column]));
 	const chosen = Object.entries(entry.headerAliases).flatMap(([canonical, aliases]) => {
 		if (data.columns.includes(canonical)) return [];
-		const actual = aliases.map((alias) => lookup.get(alias.toLowerCase())).find(Boolean);
+		const actual = aliases.map((alias) => lookup.get(normalizeColumn(alias))).find(Boolean);
 		return actual ? [{ canonical, actual }] : [];
 	});
 	if (!chosen.length) return data;
@@ -886,7 +886,7 @@ export const MAPPING_PRESETS: readonly MappingPreset[] = [
 	{
 		id: 'cri-80053', label: 'CRI Profile to NIST 800-53 (direct)', from: 'cri-profile', to: 'nist-800-53',
 		kind: 'download', optional: true, defaultSelected: false,
-		source: 'Optional CRI mapping workbook. Local use only.', expectedFile: 'CRI mapping workbook',
+		source: 'Use the OLIR-style CRI to 800-53 workbook. The CRI v2.2 Mappings Catalog is a multi-framework catalog, not this mapping table.', expectedFile: 'CRI to 800-53 OLIR workbook',
 		publisherLink: { label: 'Cyber Risk Institute', url: 'https://cyberriskinstitute.org/the-profile/' },
 		licenceNote: 'CRI licence terms apply. Use locally; Crosswalker does not distribute this file.',
 	},
@@ -900,8 +900,8 @@ export const MAPPING_PRESETS: readonly MappingPreset[] = [
 	{
 		id: 'cri-attack', label: 'CRI Profile to MITRE ATT&CK', from: 'cri-profile', to: 'mitre-attack',
 		kind: 'download', optional: true, defaultSelected: false,
-		source: 'Optional CRI mapping workbook. Local use only.', expectedFile: 'CRI ATT&CK mapping workbook',
-		publisherLink: { label: 'Cyber Risk Institute', url: 'https://cyberriskinstitute.org/the-profile/' },
+		source: 'Use the CTID Mappings Explorer JSON export for CRI. The publisher ATT&CK spreadsheet has a different layout and is not supported here.', expectedFile: 'CRI ATT&CK Mappings Explorer JSON',
+		publisherLink: { label: 'CTID Mappings Explorer', url: 'https://center-for-threat-informed-defense.github.io/mappings-explorer/' },
 		licenceNote: 'CRI licence terms apply. Use locally; Crosswalker does not distribute this file.',
 	},
 ];

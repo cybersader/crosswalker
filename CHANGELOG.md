@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: a framework stack imports from the real published downloads (2026-09-24)
+
+- A first end-to-end run against the publishers' own files (not synthetic fixtures) found failures the acceptance suite missed. Now fixed:
+  - The NIST 800-53 catalog's control-name header variant is accepted, and the NIST CSF 2.0 JSON export is found even though its records sit deeper than two levels.
+  - Exact duplicate rows in CTID mapping JSON are skipped and counted on the completion screen instead of stopping the mapping step.
+  - CRI Profile to CSF inline links now connect: once CSF is imported, the CRI set is refreshed by its recorded import set.
+  - SSSOM and inline crosswalk edges wait for new notes to be indexed instead of projecting from partial data.
+  - CRI Profile headers with line breaks or repeated spaces are recognized without **Use anyway**.
+  - Optional CRI to 800-53: the OLIR workbook reader reads every sheet with the expected headers in its first 50 rows and lists skipped sheets. The checklist now asks for the OLIR workbook and, for CRI to ATT&CK, the CTID Mappings Explorer JSON.
+  - Placeholder cells (`None`, `N/A`, `-`) no longer produce phantom links or list items.
+  - **Run again** on an unchanged stack selects Skip for every slot and writes nothing; the review no longer shows a "(new 2)" destination.
+  - Framework import failures name the cause and the fix, with a bounded count of remaining errors.
+- A local-only spec, `tests/e2e/local-real-stack.spec.ts`, replays the full run when `LOCAL_REAL_STACK=1` and the downloads are present; it skips otherwise. No publisher rows ship in tests or fixtures.
+
 ### Fourth prerelease preparation, 0.1.3 (2026-09-24)
 
 - Prepared version `0.1.3` as the fourth BRAT prerelease, carrying the framework stack work, the OSCAL nesting fix, and the 2026-09-24 fixes below on top of `0.1.2`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.3` entry. The user-facing notes live under `## [0.1.3]` near the end of this file, which is where the release job reads them.

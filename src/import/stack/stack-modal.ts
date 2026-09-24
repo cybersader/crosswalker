@@ -280,7 +280,7 @@ export class StackSetupModal extends Modal {
 				wrong ? `${wrong.source.name} · Wrong file` : 'Missing' });
 			if (fill?.table) row.createDiv({ cls: 'crosswalker-stack-muted', text: `Sheet ${fill.table}, header row ${fill.headerRow + 1}` });
 			if (wrong) row.createDiv({ cls: 'crosswalker-stack-warning', text: wrong.message });
-			if (maybe) {
+			if (maybe && !fill) {
 				new Setting(row).addButton((button) => button.setButtonText('Use anyway').onClick(() => {
 					this.recognition.mightMatch = this.recognition.mightMatch.filter((item) => item !== maybe);
 					this.recognition.fills.push(maybe); this.render();
@@ -400,10 +400,13 @@ export class StackSetupModal extends Modal {
 		for (const slot of frameworkSlots(this.stackSelection)) {
 			const fill = this.recognition.fills.find((item) => item.slot.ontology === slot.ontology);
 			if (!fill && !this.revisiting) continue;
-			const rootPath = fill ? this.destinationFor(fill) : '';
+			const choice = this.choices.get(slot.entry.id);
+			const recorded = this.storedRun?.slotSets[slot.entry.id];
+			const rootPath = choice === 'skip' ? '' : choice === 'refresh' && recorded
+				? this.knownSets.get(recorded.importSetId)?.root ?? '' : fill ? this.destinationFor(fill) : '';
 			const row = scroll.createDiv({ cls: 'crosswalker-stack-result', attr: { 'data-slot': slot.ontology } });
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: slot.entry.label });
-			row.createDiv({ text: `${slotDetailSummary(slot, this.stackSelection.detail)} ${fill ? `Source: ${fill.source.name}. Lands in ${rootPath}.` : 'No source file added.'}` });
+			row.createDiv({ text: `${slotDetailSummary(slot, this.stackSelection.detail)} ${fill ? `Source: ${fill.source.name}.${rootPath ? ` Lands in ${rootPath}.` : ''}` : 'No source file added.'}` });
 			if (this.revisiting) {
 				this.renderRunChoice(row, slot.entry.id, this.storedRun?.slotSets[slot.entry.id],
 					fill && this.sourceDigests.get(fill.source.path), stackRecipeHash(slot, this.stackSelection.detail),
@@ -683,6 +686,7 @@ export class StackSetupModal extends Modal {
 			const count = this.discoveredCounts.get(item.setId) ?? item.noteCount;
 			row.createDiv({ cls: 'crosswalker-stack-muted', text: `${count} edge ${count === 1 ? 'note' : 'notes'} · Set ${item.setId}` });
 			if (item.duplicateRowsSkipped) row.createDiv({ cls: 'crosswalker-stack-muted', text: `${plural(item.duplicateRowsSkipped, 'duplicate row')} skipped` });
+			for (const skip of item.sheetSkips ?? []) row.createDiv({ cls: 'crosswalker-stack-warning', text: `Sheet ${skip.sheet} skipped: ${skip.reason}. Choose a workbook with matching Focal/Reference columns to include it.` });
 			for (const message of item.unresolved) row.createDiv({ cls: 'crosswalker-stack-warning', text: message });
 		}
 		for (const warning of this.runWarnings) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: warning });

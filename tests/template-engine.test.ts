@@ -518,3 +518,17 @@ describe('capability 3 — delimiter-set part/prefix filters', () => {
 		expect(() => renderTemplateValue('{v|prefix(.-)}', { v: 'A.B.C' })).toThrow(RenderError);
 	});
 });
+
+
+describe('empty link and list placeholders', () => {
+	it.each(['None', 'None.', 'N/A', 'n/a', '-', '  ', ''])('drops %s before wikilink and CURIE output', (value) => {
+		expect(renderTemplateValue('{v|optional|wikilink}', { v: value })).toBe('');
+		expect(renderTemplateValue('{v|optional|curie-prefix(alpha)}', { v: value })).toBe('');
+		expect(renderBodyProjection({ template: '{v}', format: 'list' }, { v: value })).toBeNull();
+		expect(renderTemplateValue('{v|optional|split(,)|trim(.)|wikilink}', { v: `ZZ-1,${value},ZZ-2` })).toEqual(['[[ZZ-1]]', '[[ZZ-2]]']);
+	});
+	it('retains ordinary values', () => {
+		expect(renderTemplateValue('{v|wikilink}', { v: 'ZZ-1' })).toBe('[[ZZ-1]]');
+		expect(renderBodyProjection({ template: '{v}', format: 'list' }, { v: 'ZZ-1\nNone.\nN/A\nZZ-2' })?.content).toBe('- ZZ-1\n- ZZ-2');
+	});
+});
