@@ -64,6 +64,24 @@ describe('RecipeDocument canonical preservation boundary', () => {
 		expect(serializeCanonicalRecipe(patched.recipe)).toBe(serializeCanonicalRecipe(rich));
 	});
 
+	it('preserves the implied identity template through the canonical workbench patch', () => {
+		const recipe = {
+			recipe: 'synthetic-implied-canonical',
+			source: { ontology: 'synthetic', levels: ['group', 'entry'] },
+			target: { layout: [
+				{ level: 'group', mechanism: 'folder', template: '{name}', implied_concept: { identity: '{id}' } },
+				{ level: 'entry', mechanism: 'file', template: '{id}.md' },
+			] },
+		} as CrosswalkerImportRecipe;
+		const loaded = loadRecipeDocument(recipe, { origin: 'bundled' });
+		expect(loaded.ok).toBe(true);
+		if (!loaded.ok) return;
+		const patched = patchRecipeDocument(loaded.document);
+		expect(patched.ok).toBe(true);
+		if (!patched.ok) return;
+		expect(serializeCanonicalRecipe(patched.recipe)).toBe(serializeCanonicalRecipe(recipe));
+	});
+
 	it('recognized recipe mapping carries canonical crosswalks into the editable destination', () => {
 		const recipe = {
 			recipe: 'synthetic-recognized-crosswalk',

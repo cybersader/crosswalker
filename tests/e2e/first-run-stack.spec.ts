@@ -166,7 +166,8 @@ describe('First run: synthetic framework stack', function () {
 		await $('.workspace-leaf-content[data-type="graph"]').waitForDisplayed();
 		await browser.pause(3000);
 		await browser.saveScreenshot(path.join(OUT, 'visual-stack-06-graph-connected.png'));
-		expect(result.paths).toHaveLength(3);
+		expect(result.paths).toHaveLength(4);
+		expect(result.paths).toContain('Frameworks/NIST 800-53/ZZ/ZZ.md');
 		expect(new Set(result.paths.map((file) => file.split('/').slice(0, 2).join('/'))).size).toBe(3);
 		await openStack();
 		await browser.executeObsidian(() => {
@@ -204,7 +205,7 @@ describe('First run: synthetic framework stack', function () {
 			paths: app.vault.getMarkdownFiles().filter((file) => ['Frameworks/NIST 800-53', 'Frameworks/MITRE ATT&CK', 'Frameworks/CRI Profile'].some((root) => file.path.startsWith(root))).map((file) => file.path),
 		}));
 		expect(second.text).toContain('5 sets confirmed in the vault');
-		expect(second.paths).toHaveLength(7);
+		expect(second.paths).toHaveLength(9);
 		expect(new Set(second.paths.map((file) => file.split('/').slice(0, 2).join('/'))).size).toBe(6);
 		await button('Done');
 	});
@@ -241,9 +242,17 @@ describe('First run: synthetic framework stack', function () {
 		expect(await browser.executeObsidian(() => document.querySelector('.crosswalker-stack-modal')?.textContent ?? ''))
 			.toContain('NIST CSF 2.0 to NIST 800-53');
 		await button('Import stack');
-		await browser.waitUntil(async () => (await browser.executeObsidian(() =>
-			(document.querySelector('.crosswalker-stack-modal h2')?.textContent ?? '') === 'Framework stack imported')),
-		{ timeout: 180_000, timeoutMsg: 'Bundled mapping import did not finish' });
+		await browser.waitUntil(async () => (await browser.executeObsidian(() => {
+			const modal = document.querySelector('.crosswalker-stack-modal');
+			return (modal?.querySelector('h2')?.textContent ?? '') === 'Framework stack imported' ||
+				!!modal?.querySelector('.crosswalker-stack-warning');
+		})), { timeout: 180_000, timeoutMsg: 'Bundled mapping import did not finish' });
+		const importState = await browser.executeObsidian(({ app }) => ({
+			modal: document.querySelector('.crosswalker-stack-modal')?.textContent ?? '',
+			unindexedFrameworks: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('Frameworks/') && !app.metadataCache.getFileCache(file)).map((file) => file.path),
+		}));
+		expect(importState.unindexedFrameworks).toEqual([]);
+		expect(importState.modal).toContain('Framework stack imported');
 		const result = await browser.executeObsidian(({ app }) => ({
 			text: document.querySelector('.crosswalker-stack-modal')?.textContent ?? '',
 			edges: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/nist-csf-2-to-nist-800-53/')).length,

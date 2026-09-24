@@ -1,5 +1,5 @@
 {
-  "$comment": "Nested stack variant of the NIST control-catalog recipe. It uses the same XLSX catalog column binding and body as the flat recipe. Family folders do not produce notes; family-level mapping endpoints remain unresolved until the separate family concept-note design. Controls host their own folders, and enhancements are files alongside those control folder notes.",
+  "$comment": "Nested stack variant of the NIST control-catalog recipe. It uses the same XLSX catalog column binding and body as the flat recipe. Family folders produce concept notes, so family-level mapping endpoints can resolve. Controls host their own folders, and enhancements are files alongside those control folder notes.",
   "recipe": "nist-800-53-r5-nested",
   "source": {
     "ontology": "nist-800-53",
@@ -15,6 +15,7 @@
       {
         "level": "family",
         "mechanism": "folder",
+        "implied_concept": true,
         "template": "{identifier|prefix(-,0)}"
       },
       {

@@ -61,6 +61,7 @@ export interface LayoutEntry {
 	level_depth?: number;
 	kind?: 'concept' | 'junction-note' | 'crosswalk-edge';
 	variadic?: VariadicConfig;
+	implied_concept?: true | { identity?: string };
 }
 
 /** A managed list-valued wikilink spec (schema `managed_links`). */
@@ -312,7 +313,8 @@ function emitLevel(
 	for (const dest of rule.destinations) {
 		switch (dest.primitive) {
 			case 'folder':
-				layout.push({ level: rule.level, mechanism: 'folder', template: name });
+				layout.push({ level: rule.level, mechanism: 'folder', template: name,
+					...(rule.impliedConcept ? { implied_concept: rule.impliedConcept } : {}) });
 				break;
 			case 'name':
 				layout.push({ level: rule.level, mechanism: 'file', template: `${name}.md` });
@@ -601,6 +603,7 @@ export function fromRegions(regions: RecipeRegions, options: FromRegionsOptions 
 					}
 					: { primitive: 'name' };
 		const rule = makeLevel(entry.level, parsed, [dest]);
+		if (entry.implied_concept) rule.impliedConcept = entry.implied_concept;
 		structuralLevels.push(rule);
 		sigToLevel.set(sourceSignature(parsed), rule);
 	}

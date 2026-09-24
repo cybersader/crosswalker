@@ -528,6 +528,22 @@ function parseAndValidateLeadingOptional(filters: FilterCall[], originalTemplate
 	return optionalIndexes.length === 1;
 }
 
+/** Check an identity template's filter grammar without requiring source-row values. */
+export function validateTemplateSyntax(template: string): void {
+	for (const segment of parseTemplateSegments(template)) {
+		if (segment.kind !== 'interp') continue;
+		parseAndValidateLeadingOptional(segment.interp.filters, template);
+		for (const filter of segment.interp.filters) {
+			if (filter.malformed) {
+				throw new RenderError(`Malformed filter expression "${filter.raw.trim()}" in template "${template}".`);
+			}
+			if (filter.name !== 'optional' && !Object.prototype.hasOwnProperty.call(FILTERS, filter.name)) {
+				throw new RenderError(`Unknown filter "${filter.name}" in template "${template}".`);
+			}
+		}
+	}
+}
+
 /**
  * Remove whitespace and any character in `chars` from both ends.
  * `trim` with no argument is byte-identical to `String.prototype.trim`.

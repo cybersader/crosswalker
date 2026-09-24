@@ -545,6 +545,13 @@ export async function generateNotes(
 			return result;
 		}
 
+		const impliedPinError = impliedIdentityPinError(recipe, importSet);
+		if (impliedPinError) {
+			result.errors.push({ row: 0, message: impliedPinError, declaration: 'target.layout' });
+			result.success = false;
+			result.duration = Date.now() - startTime;
+			return result;
+		}
 		const nestIdentityMismatch = nestedIdentityPinMismatch(recipe.source?.nest, importSet);
 		if (nestIdentityMismatch) {
 			result.errors.push({
@@ -598,6 +605,7 @@ export async function generateNotes(
 		// both claimants. `producedCuries` alone cannot: it also carries the hub
 		// identities enrichment implies, which have no row.
 		const curieOrigins = new Map<string, ProducedCurieOrigin>();
+		const rowTakenOverImplied = new Map<string, string>();
 		const sourceOrderStamper = new SourceOrderStamper();
 
 		// Pass 1.5 enrichment (v0.1.6.1): the wizard/workbench path shares the
@@ -609,7 +617,7 @@ export async function generateNotes(
 		// ViaRender already used before this change, so per-row curies are
 		// unaffected when the recipe carries no `source.ontology`, e.g. the
 		// workbench recipe today).
-		const enrichmentEnabled = !!recipe.target.enrichment;
+		const enrichmentEnabled = recipeNeedsEnrichment(recipe);
 		// AM-6. The SET decides the ontology, not the run. A refresh that
 		// recomputed this from its own recipe could land on a different answer
 		// (a renamed config, a differently named export file), and every curie it
@@ -871,6 +879,15 @@ export async function generateNotes(
 						reportAddressRefusal(result, debug, target.refusal, rowNum, noteData.curie);
 						return;
 					}
+					let takingOverImplied = false;
+					if (target.existingFile instanceof TFile && ownedIdentityIndex.get(noteData.curie)?.path === target.existingFile.path) {
+						const observed = await readFrontmatterForRun(app, target.existingFile);
+						takingOverImplied = observed.state === 'ok' && observed.frontmatter.implied_level !== undefined;
+						if (takingOverImplied && target.existingFile.path !== fullPath) {
+							result.errors.push({ row: rowNum, message: `Duplicate identity in this import: ${noteData.curie} is an implied concept at ${target.existingFile.path}, but the population row would write it at ${fullPath}. Keep the existing address or resolve the collision before refreshing.` });
+							return;
+						}
+					}
 
 					emittedPaths.add(noteData.path);
 
@@ -997,13 +1014,22 @@ export async function generateNotes(
 					if (existingFile instanceof TFile) {
 						const userPreserve = recipe.target.also_emit?.frontmatter?.user_preserve ?? [];
 						const managedKeys = computeManagedKeys(noteData.frontmatter, userPreserve, declaredManagedKeys);
+						const previous = await readFrontmatterForRun(app, existingFile);
+						if (previous.state === 'ok') {
+							const owned = recordedEngineParentKeys(previous.frontmatter);
+							if (owned.length > 0) managedKeys.add(ENGINE_MANAGED_KEYS);
+							for (const key of owned) managedKeys.add(key);
+						}
+						if (takingOverImplied) {
+							for (const key of ['implied_level', 'implied_levels', 'implied_values']) managedKeys.add(key);
+						}
 						const outcome = await mergeExistingNote({
 							app,
 							file: existingFile,
 							freshFrontmatter: noteData.frontmatter,
 							managedKeys,
 							freshManagedBody: noteData.body,
-							kind: 'note',
+							kind: takingOverImplied ? 'implied-to-row' : 'note',
 						});
 						if (!outcome.ok) {
 							recordConflict(result, debug, writePath, noteData.curie, outcome.code, outcome.detail);
@@ -1039,6 +1065,7 @@ export async function generateNotes(
 					}
 
 					result.created.push(writePath);
+					if (takingOverImplied) rowTakenOverImplied.set(noteData.curie, writePath);
 
 					// Collect a record for Pass 1.5 enrichment (parent→children +
 					// facet hubs) — same collection generateFromRecipe performs.
@@ -1164,6 +1191,7 @@ export async function generateNotes(
 					{ owned: ownedIdentityIndex, vaultWide: identityIndex },
 					ownedHubs?.byFolder,
 					ownedHubs?.observed,
+					rowTakenOverImplied,
 					observedUnjudgedCuries,
 					deviationsSeen,
 					debug,
@@ -1486,7 +1514,26 @@ function crossSetCollisionMessage(curie: string, claim: ForeignClaim): string {
  * not look. `row: 0` marks a claimant that is not a source row, and the message
  * says so rather than pointing a user at a row number that does not exist.
  */
-type ProducedCurieOrigin = { row: number; path: string; kind: 'row' | 'hub' };
+type ProducedCurieOrigin = { row: number; path: string; kind: 'row' | 'hub' | 'implied' };
+
+/** Present only when enrichment, rather than the recipe, wrote parent fields. */
+const ENGINE_MANAGED_KEYS = '_crosswalker_managed_keys';
+const ENGINE_PARENT_KEYS = ['parent', 'parent_curie'] as const;
+function recordedEngineParentKeys(frontmatter: Record<string, unknown>): Array<'parent' | 'parent_curie'> {
+	const keys = frontmatter[ENGINE_MANAGED_KEYS];
+	return Array.isArray(keys) ? ENGINE_PARENT_KEYS.filter((key) => keys.includes(key)) : [];
+}
+
+function recipeNeedsEnrichment(recipe: Recipe): boolean {
+	return !!recipe.target.enrichment || recipe.target.layout.some((entry) => !!entry.implied_concept);
+}
+
+function impliedIdentityPinError(recipe: Recipe, importSet: ImportSetReference): string | null {
+	return recipe.target.layout.some((entry) => !!entry.implied_concept)
+		&& derivationOf(importSet) !== 'declared-facts-v1'
+		? 'This recipe declares implied concept levels, which need the current identity derivation; this import set was created under the legacy rule. Import it as a new set.'
+		: null;
+}
 
 /**
  * Claim one identity for this run, or say who claimed it first.
@@ -2968,6 +3015,13 @@ export async function generateFromRecipe(
 		result.duration = Date.now() - startTime;
 		return result;
 	}
+	const impliedPinError = impliedIdentityPinError(recipe, importSet);
+	if (impliedPinError) {
+		result.errors.push({ row: 0, message: impliedPinError, declaration: 'target.layout' });
+		result.success = false;
+		result.duration = Date.now() - startTime;
+		return result;
+	}
 	const nestIdentityMismatch = nestedIdentityPinMismatch(recipe.source?.nest, importSet);
 	if (nestIdentityMismatch) {
 		result.errors.push({
@@ -3104,6 +3158,8 @@ export async function generateFromRecipe(
 	// AM-27. Which row produced each curie, so the duplicate refusal can name both
 	// claimants. Same guard, same reason, as the wizard path above.
 	const curieOrigins = new Map<string, ProducedCurieOrigin>();
+	// A row can supersede an observed implied note only at that note's address.
+	const rowTakenOverImplied = new Map<string, string>();
 	// Ch 43 re-attestation: review fingerprints of concepts produced by THIS run,
 	// so a recipe that emits a concept and an evidence link for it in one pass can
 	// stamp the link against the concept it just wrote.
@@ -3180,7 +3236,7 @@ export async function generateFromRecipe(
 	// post-stream patch phase can derive parent→children + facet hubs without
 	// re-reading the vault. One lightweight record per written note. Only
 	// populated when the recipe declares target.enrichment.
-	const enrichmentEnabled = !!recipe.target.enrichment;
+	const enrichmentEnabled = recipeNeedsEnrichment(recipe);
 	const crosswalkInputs: CrosswalkEdgeInput[] | null = declaredCrosswalks(recipe).length > 0 ? [] : null;
 	const enrichRecords: EnrichRecord[] = [];
 	// AM-2. Rows this run KEPT rather than wrote (overwriteMode 'skip'). The same
@@ -3377,6 +3433,18 @@ export async function generateFromRecipe(
 				reportAddressRefusal(result, debug, target.refusal, rowNum, curie);
 				return;
 			}
+			// The existing note's recorded identity, not its filename, establishes
+			// whether this is an implied-to-row transition. Moving that concept to
+			// another address is a collision, never an implicit takeover.
+			let takingOverImplied = false;
+			if (target.existingFile instanceof TFile && ownedIdentityIndex.get(curie)?.path === target.existingFile.path) {
+				const observed = await readFrontmatterForRun(app, target.existingFile);
+				takingOverImplied = observed.state === 'ok' && observed.frontmatter.implied_level !== undefined;
+				if (takingOverImplied && target.existingFile.path !== fullPath) {
+					result.errors.push({ row: rowNum, message: `Duplicate identity in this import: ${curie} is an implied concept at ${target.existingFile.path}, but the population row would write it at ${fullPath}. Keep the existing address or resolve the collision before refreshing.` });
+					return;
+				}
+			}
 
 			emittedPaths.add(fullPath);
 
@@ -3561,13 +3629,24 @@ export async function generateFromRecipe(
 			if (existingFile instanceof TFile) {
 				const userPreserve = recipe.target.also_emit?.frontmatter?.user_preserve ?? [];
 				const managedKeys = computeManagedKeys(frontmatter, userPreserve, declaredManagedKeys);
+				const previous = await readFrontmatterForRun(app, existingFile);
+				if (previous.state === 'ok') {
+					const owned = recordedEngineParentKeys(previous.frontmatter);
+					if (owned.length > 0) managedKeys.add(ENGINE_MANAGED_KEYS);
+					for (const key of owned) managedKeys.add(key);
+				}
+				// Implied-only properties are engine-owned even if the recipe does not
+				// declare them. Deletion belongs to the managed merge, not a later edit.
+				if (takingOverImplied) {
+					for (const key of ['implied_level', 'implied_levels', 'implied_values']) managedKeys.add(key);
+				}
 				const outcome = await mergeExistingNote({
 					app,
 					file: existingFile,
 					freshFrontmatter: frontmatter,
 					managedKeys,
 					freshManagedBody: managedBody,
-					kind: 'note',
+					kind: takingOverImplied ? 'implied-to-row' : 'note',
 				});
 				if (!outcome.ok) {
 					recordConflict(result, debug, writePath, curie, outcome.code, outcome.detail);
@@ -3588,6 +3667,7 @@ export async function generateFromRecipe(
 				await app.vault.create(writePath, content);
 			}
 			result.created.push(writePath);
+			if (takingOverImplied) rowTakenOverImplied.set(curie, writePath);
 
 			// Collect a record for Pass 1.5 enrichment (parent→children + facet hubs).
 			if (enrichmentEnabled) {
@@ -3696,6 +3776,7 @@ export async function generateFromRecipe(
 				{ owned: ownedIdentityIndex, vaultWide: identityIndex },
 				ownedHubs?.byFolder,
 				ownedHubs?.observed,
+				rowTakenOverImplied,
 				observedUnjudgedCuries,
 				deviationsSeen,
 				debug,
@@ -4023,13 +4104,13 @@ async function readOwnedHubsByFolder(
 	byFolder: Map<string, OwnedHubAtFolder>;
 	unreadable: string[];
 	misplaced: string[];
-	/** AM-70. Every `kind: 'hub'` note this walk read, whatever folder it sat in. */
-	observed: { curie: string; path: string; folder: string; hasRecordedChain: boolean }[];
+	/** AM-70. Every owned index note this walk read, whatever folder it sat in. */
+	observed: { curie: string; path: string; folder: string; hasRecordedChain: boolean; role: 'hub' | 'implied' }[];
 }> {
 	const byFolder = new Map<string, OwnedHubAtFolder>();
 	const unreadable: string[] = [];
 	const misplaced: string[] = [];
-	const observed: { curie: string; path: string; folder: string; hasRecordedChain: boolean }[] = [];
+	const observed: { curie: string; path: string; folder: string; hasRecordedChain: boolean; role: 'hub' | 'implied' }[] = [];
 	// AM-68. The folders in which SOME note could not be read - a note-level fact,
 	// applied at the end as a qualifier rather than as the folder's own state.
 	const unreadableFolders = new Set<string>();
@@ -4064,9 +4145,10 @@ async function readOwnedHubsByFolder(
 		}
 		if (read.state !== 'ok') continue;
 		const fm = read.frontmatter;
-		if (fm.kind !== 'hub') continue;
-		const values = readStringArray(fm.hub_values);
-		const levels = readStringArray(fm.hub_levels);
+		const role = fm.kind === 'hub' ? 'hub' : typeof fm.implied_level === 'string' ? 'implied' : null;
+		if (!role) continue;
+		const values = readStringArray(role === 'hub' ? fm.hub_values : fm.implied_values);
+		const levels = readStringArray(role === 'hub' ? fm.hub_levels : fm.implied_levels);
 		const usable = values && values.length > 0 && levels && levels.length === values.length
 			? values.map((value, i) => ({ level: levels[i], value }))
 			: undefined;
@@ -4080,7 +4162,7 @@ async function readOwnedHubsByFolder(
 		// subject left the source - the orphan this feature exists to report. A hub
 		// carrying no usable chain in a folder nothing reaches is the one the run can
 		// say nothing about, and it is the one AM-70 names instead of judging.
-		observed.push({ curie, path: file.path, folder, hasRecordedChain: usable !== undefined });
+		observed.push({ curie, path: file.path, folder, hasRecordedChain: usable !== undefined, role });
 		// S12 (2026-09-04). THE NOTE'S OWN RECORD MUST DESCRIBE THE FOLDER IT SITS IN.
 		//
 		// Failure mode prevented: adoption. AM-55 keyed this map by placement and
@@ -4124,18 +4206,19 @@ async function readOwnedHubsByFolder(
 			// every note it names. Sorted by path so the message and the accounting are
 			// in the same deterministic order.
 			const pairs = existing.state === 'many'
-				? existing.paths.map((p, i) => ({ path: p, curie: existing.curies[i] }))
-				: [{ path: existing.path, curie: existing.curie }];
-			pairs.push({ path: file.path, curie });
+				? existing.paths.map((p, i) => ({ path: p, curie: existing.curies[i], role: existing.roles?.[i] ?? 'hub' as const }))
+				: [{ path: existing.path, curie: existing.curie, role: existing.role ?? 'hub' as const }];
+			pairs.push({ path: file.path, curie, role });
 			pairs.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 			byFolder.set(folder, {
 				state: 'many',
 				paths: pairs.map((p) => p.path),
 				curies: pairs.map((p) => p.curie),
+				roles: pairs.map((p) => p.role),
 			});
 			continue;
 		}
-		byFolder.set(folder, { state: 'one', path: file.path, curie, ...(usable ? { values: usable } : {}) });
+		byFolder.set(folder, { state: 'one', path: file.path, curie, role, ...(usable ? { values: usable } : {}) });
 	}
 	// AM-68. The qualifier, applied AFTER every readable note has had its say, so a
 	// folder with a readable index note keeps that note's state and only gains the
@@ -4855,7 +4938,9 @@ async function applyEnrichment(
 	 * AM-70. Every index note of this import the caller READ this run. Handed over
 	 * so the one derivation can say which of them no note of the population reaches.
 	 */
-	observedHubs: readonly { curie: string; path: string; folder: string; hasRecordedChain: boolean }[] | undefined,
+	observedHubs: readonly { curie: string; path: string; folder: string; hasRecordedChain: boolean; role?: 'hub' | 'implied' }[] | undefined,
+	/** Observed implied identities already written by a row at their original address. */
+	rowTakenOverImplied: ReadonlyMap<string, string>,
 	/**
 	 * AM-70. Filled here, read by the caller's orphan diff: the curies of index
 	 * notes the run read and cannot judge. Never merged into `producedCuries` - this
@@ -4962,6 +5047,17 @@ async function applyEnrichment(
 		...records.filter((r) => writeSet.has(r.path)).map((r) => normalizePath(r.path)),
 		...result.created.map((path) => normalizePath(path)),
 	]);
+	// The row writer observed the original implied CURIE before its managed merge
+	// removed the marker. The post-stream hub walk can no longer see that marker.
+	// Require all three facts: original identity, successful row claim, same path.
+	const rowOwnsObservedImplied = (
+		file: TFile | null, candidateCurie: string | null, aliases: readonly string[] = [],
+	): boolean => file instanceof TFile
+		&& [...rowTakenOverImplied].some(([curie, path]) => {
+			const claim = curieOrigins.get(curie);
+			return (candidateCurie === curie || aliases.includes(curie))
+				&& path === file.path && claim?.kind === 'row' && claim.path === path;
+		});
 
 	// 0. Parent-note relocations (batch-enrichment design §3 step 2) — physically
 	//    move each file BEFORE the children-list patch below, which writes to
@@ -5028,7 +5124,10 @@ async function applyEnrichment(
 	//    concept). `patch.children` → managed `children` frontmatter array
 	//    (children_lists); `patch.hubChildren` → the managed body "Contents"
 	//    section (level_hubs='notes', hosted folders — module doc step 4.5).
-	const patchByPath = new Map<string, { children?: string[]; hubChildren?: string[] }>();
+	const patchByPath = new Map<string, { children?: string[]; hubChildren?: string[]; parent?: { curie: string; label: string } }>();
+	for (const [path, parent] of enrichment.parentByPath) {
+		patchByPath.set(path, { ...(patchByPath.get(path) ?? {}), parent });
+	}
 	for (const [path, children] of enrichment.childrenByPath) {
 		patchByPath.set(path, { ...(patchByPath.get(path) ?? {}), children });
 	}
@@ -5070,9 +5169,22 @@ async function applyEnrichment(
 		// order is identical on every re-import (matches the golden shape).
 		const { _crosswalker, children: _stale, ...rest } = record.frontmatter as Record<string, unknown>;
 		void _stale;
+		// Only previously stamped engine fields can be removed here. Recipe-declared
+		// fields and unstamped user fields are outside enrichment's ownership.
+		const declared = computeDeclaredManagedKeys(recipe.target.also_emit?.frontmatter);
+		for (const key of recordedEngineParentKeys(rest)) {
+			if (!declared.has(key)) delete rest[key];
+		}
+		delete rest[ENGINE_MANAGED_KEYS];
+		const projectedParentKeys = patch.parent
+			? ENGINE_PARENT_KEYS.filter((key) => !declared.has(key))
+			: [];
 		const frontmatter = {
 			...rest,
 			...(patch.children ? { children: patch.children } : {}),
+			...(projectedParentKeys.includes('parent') ? { parent: `[[${patch.parent!.label}]]` } : {}),
+			...(projectedParentKeys.includes('parent_curie') ? { parent_curie: patch.parent!.curie } : {}),
+			...(projectedParentKeys.length > 0 ? { [ENGINE_MANAGED_KEYS]: projectedParentKeys } : {}),
 			...(_crosswalker !== undefined ? { _crosswalker } : {}),
 		};
 		let body = record.body;
@@ -5088,7 +5200,7 @@ async function applyEnrichment(
 			);
 			if (config.waypoint_marker) body = ensureWaypointMarker(body);
 		}
-		await app.vault.modify(file, buildNoteContent(frontmatter, body));
+		await writeMergedNote(app, file, frontmatter, body);
 	}
 
 	// 2. Facet hub notes — create or merge, preserving user body prose + user keys.
@@ -5287,10 +5399,108 @@ async function applyEnrichment(
 	// AM-33 step 3's index. Built once, and only when at least one level hub
 	// actually carries recorded values, so an import with no level hubs (or one
 	// whose hubs predate the values) pays nothing for it.
-	const hubValueIndex = enrichment.levelHubs.notes.some((h) => h.levelValues && h.levelValues.length > 0)
+	const hubValueIndex = [...enrichment.impliedConcepts, ...enrichment.levelHubs.notes].some((h) => h.levelValues && h.levelValues.length > 0)
 		? await buildOwnedHubValueIndex(app, indexes?.owned)
 		: undefined;
 
+
+	// Implied concepts are first-class notes, but share the index-note reconciliation
+	// ladder. Each claim happens before a move or write; a legacy hub alias is also
+	// claimed so adoption cannot create an orphan on the same refresh.
+	for (const note of enrichment.impliedConcepts) {
+		const fullPath = normalizePath(note.path);
+		const curie = note.curie;
+		const foreign = foreignHubClaim(indexes?.owned, indexes?.vaultWide, curie, note.legacyCuries);
+		if (foreign) {
+			result.errors.push({ row: 0, message: crossSetCollisionMessage(foreign.curie, foreign.claim) });
+			continue;
+		}
+		const target = resolveHubTarget(app, fullPath, curie, note.legacyCuries,
+			indexes?.owned, indexes?.vaultWide, importSet.id, producedThisRun,
+			{ levelValues: note.levelValues, index: hubValueIndex });
+		if (target.refusal) {
+			reportAddressRefusal(result, debug, target.refusal, 0, curie);
+			continue;
+		}
+		const existing = target.existingFile;
+		if (rowOwnsObservedImplied(existing, curie, [...(note.legacyCuries ?? []), ...(target.adoptedAlias ? [target.adoptedAlias] : [])])) continue;
+		if (existing instanceof TFile && target.adoptedAlias && options.overwriteMode === 'skip') {
+			const first = claimProducedCurie(producedCuries, curieOrigins, target.adoptedAlias,
+				{ row: 0, path: existing.path, kind: 'implied' });
+			if (first) result.errors.push({ row: 0, message: duplicateHubCurieMessage(target.adoptedAlias, existing.path, first) });
+			// The enrichment pass already names every skipped legacy folder in one deviation.
+			continue;
+		}
+		const first = claimProducedCurie(producedCuries, curieOrigins, curie,
+			{ row: 0, path: fullPath, kind: 'implied' });
+		if (first) {
+			result.errors.push({ row: 0, message: duplicateHubCurieMessage(curie, fullPath, first) });
+			continue;
+		}
+		if (existing instanceof TFile && target.adoptedAlias && target.adoptedAlias !== curie) {
+			const aliasClaim = claimProducedCurie(producedCuries, curieOrigins, target.adoptedAlias,
+				{ row: 0, path: existing.path, kind: 'implied' });
+			if (aliasClaim) {
+				result.errors.push({ row: 0, message: duplicateHubCurieMessage(target.adoptedAlias, existing.path, aliasClaim) });
+				continue;
+			}
+		}
+		if (note.heldFolder && !(existing instanceof TFile)) continue;
+		const frontmatter: Record<string, any> = { ...note.frontmatter,
+			_crosswalker: buildProvenance({ sourceFile: options.sourceFileName,
+				sourceVersion: options.sourceVersion, sourceHash: options.sourceHash,
+				recipeId: recipe.recipe, recipeHash, importSet }, PLUGIN_VERSION) };
+		const writePath = note.heldFolder && existing instanceof TFile ? existing.path
+			: await applyHubRelocation(app, target, curie, result, options.overwriteMode, producedThisRun, debug);
+		let body = note.body;
+		if (existing instanceof TFile) {
+			let old: { frontmatter: Record<string, unknown>; body: string };
+			try { old = await readExistingNote(app, existing); }
+			catch (error) {
+				recordConflict(result, debug, writePath, curie, 'frontmatter-unreadable',
+					error instanceof Error ? error.message : String(error));
+				continue;
+			}
+			const scan = scanRegions(old.body);
+			if (!scan.ok) {
+				recordConflict(result, debug, writePath, curie, scan.code, scan.detail);
+				continue;
+			}
+			try {
+				const managed = computeManagedKeys(frontmatter, userPreserve,
+					['kind', ...HUB_VALUE_RECORD_KEYS, 'implied_levels', 'implied_values', 'parent', 'parent_curie']);
+				const merged = mergeFrontmatter(old.frontmatter, frontmatter, managed);
+				Object.keys(frontmatter).forEach((key) => delete frontmatter[key]);
+				Object.assign(frontmatter, merged);
+			} catch (error) {
+				recordConflict(result, debug, writePath, curie, 'frontmatter-merge-failed',
+					error instanceof Error ? error.message : String(error));
+				continue;
+			}
+			body = mergeManagedChildrenSection(old.body,
+				buildManagedChildrenSection('Contents', note.childrenLinks ?? []),
+				(note.childrenLinks ?? []).length === 0);
+			if (config.waypoint_marker) body = ensureWaypointMarker(body);
+			if (note.heldFolder) {
+				const held = heldHubProvenance(old.frontmatter, frontmatter._crosswalker);
+				frontmatter._crosswalker = held.preserved;
+				const candidate = buildNoteContent(frontmatter, body);
+				let onDisk: string | null = null;
+				try { onDisk = await app.vault.read(existing); } catch { /* Fail closed on unreadable comparison. */ }
+				if (onDisk === candidate) continue;
+				frontmatter._crosswalker = held.stamped;
+			}
+			if (note.heldFolder) await app.vault.modify(existing, buildNoteContent(frontmatter, body));
+			else await writeMergedNote(app, existing, frontmatter, body);
+		} else {
+			if (config.waypoint_marker) body = ensureWaypointMarker(body);
+			const parent = getParentPath(writePath);
+			if (parent) await ensureFolderExists(app, parent);
+			await app.vault.create(writePath, buildNoteContent(frontmatter, body));
+			result.created.push(writePath);
+			producedThisRun.add(writePath);
+		}
+	}
 	// 3. Synthetic level-hub notes (level_hubs='notes', pure structural folders
 	//    with no hosting concept note — module doc step 4.5). `hub.path` here is
 	//    ALREADY a full vault-relative path (it was built from `rootFolder`,
@@ -5339,6 +5549,29 @@ async function applyEnrichment(
 		if (target.refusal) {
 			reportAddressRefusal(result, debug, target.refusal, 0, hubCurie ?? undefined);
 			continue;
+		}
+		if (rowOwnsObservedImplied(target.existingFile, hubCurie, [...(hub.legacyCuries ?? []), ...(target.adoptedAlias ? [target.adoptedAlias] : [])])) continue;
+		// An earlier implied concept is not a synthetic hub merely because the
+		// current recipe no longer flags its folder. Never adopt or claim it here:
+		// its recorded concept curie belongs in the orphan report instead.
+		if (target.existingFile instanceof TFile) {
+			let existingFrontmatter: Record<string, unknown>;
+			try { existingFrontmatter = (await readExistingNote(app, target.existingFile)).frontmatter; }
+			catch (error) {
+				recordConflict(result, debug, target.existingFile.path, hubCurie ?? undefined,
+					'frontmatter-unreadable', error instanceof Error ? error.message : String(error));
+				continue;
+			}
+			if (existingFrontmatter.implied_level !== undefined) {
+				const folder = getParentPath(fullPath) ?? fullPath;
+				const message = `The folder "${folder}" holds a concept note from an earlier import, so no index note was written there. Turn the implied concept level back on for that level, or delete the note, then run again.`;
+				if (!deviationsSeen.has(message)) {
+					result.warnings ??= [];
+					result.warnings.push({ row: 0, message });
+					deviationsSeen.add(message);
+				}
+				continue;
+			}
 		}
 		// AM-31. Same guard as the facet hubs above, at the other hub writer. One
 		// rule, all writers: a level hub that would take an identity this run

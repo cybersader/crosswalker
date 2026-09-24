@@ -23,6 +23,7 @@ import { applyFile } from './mechanisms/file';
 import { applyHeading } from './mechanisms/heading';
 import { applyTagStub } from './mechanisms/tag';
 import { applyWikilinkStub } from './mechanisms/wikilink';
+import { injectiveDeclaredIdLocalPart } from '../generation/curie';
 
 export type {
 	Address,
@@ -101,6 +102,8 @@ export interface Recipe {
 			kind?: Tier1Kind;
 			/** Variable-depth folder expansion — valid on `mechanism: "folder"` only. */
 			variadic?: VariadicConfig;
+			/** Emit a concept for this folder level when no source row owns its identity. */
+			implied_concept?: true | { identity?: string };
 		}>;
 		also_emit?: {
 			tags?: string[];
@@ -143,6 +146,7 @@ export interface Recipe {
 
 /** The `target.enrichment` block (see spec/recipe.schema.json $defs/enrichment). */
 export interface RecipeEnrichment {
+	parent_links?: boolean;
 	children_lists?: boolean;
 	facet_notes?: 'none' | 'tags-only' | 'notes';
 	parent_note?: 'sibling' | 'folder-note';
@@ -252,6 +256,14 @@ export function render(
 					);
 				} else {
 					applyFolder(address, entry as Parameters<typeof applyFolder>[1], identity.scope, report, layoutValues);
+				}
+				if (entry.implied_concept && address.primary.path !== pathBefore && layoutValues) {
+					const value = layoutValues[layoutValues.length - 1];
+					const raw = entry.implied_concept === true || !entry.implied_concept.identity
+						? value.value
+						: renderTemplate(entry.implied_concept.identity, identity.scope, report);
+					if (!raw) throw new RenderError(`Implied concept identity for level "${entry.level}" is empty. Fix its identity template and import again.`);
+					value.identity = injectiveDeclaredIdLocalPart(raw);
 				}
 				if (address.primary.path !== pathBefore) lastAppliedFolder = entry;
 				break;

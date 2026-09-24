@@ -85,12 +85,29 @@ describe('Visual — nested stack imports on invented source rows', function () 
 		await importOne('nist-800-53');
 		const paths = await browser.executeObsidian(({ app }) => app.vault.getMarkdownFiles()
 			.filter((file) => file.path.startsWith('Frameworks/NIST 800-53/')).map((file) => file.path).sort());
-		expect(paths).toHaveLength(6);
+		expect(paths).toHaveLength(9);
+		for (const family of ['ZZ', 'YY', 'XX']) {
+			const file = `Frameworks/NIST 800-53/${family}/${family}.md`;
+			expect(paths).toContain(file);
+			const frontmatter = await browser.executeObsidian(async ({ app }, notePath) => {
+				const note = app.vault.getAbstractFileByPath(notePath);
+				return note && 'extension' in note ? await app.vault.read(note) : '';
+			}, file);
+			expect(frontmatter).toMatch(new RegExp(`^curie: ["']?nist-800-53:${family}["']?$`, 'm'));
+			expect(frontmatter).toContain('implied_level: family');
+		}
 		expect(paths).toContain('Frameworks/NIST 800-53/ZZ/ZZ-1/ZZ-1.md');
 		expect(paths).toContain('Frameworks/NIST 800-53/ZZ/ZZ-1/ZZ-1(1).md');
 		expect(paths).toContain('Frameworks/NIST 800-53/YY/YY-1/YY-1(2).md');
 		await showExplorer(['Frameworks/NIST 800-53', 'Frameworks/NIST 800-53/ZZ', 'Frameworks/NIST 800-53/ZZ/ZZ-1', 'Frameworks/NIST 800-53/YY', 'Frameworks/NIST 800-53/YY/YY-1', 'Frameworks/NIST 800-53/XX', 'Frameworks/NIST 800-53/XX/XX-3']);
 		await browser.saveScreenshot(path.join(OUT, 'visual-stack-07-nested-800-53.png'));
+		await browser.executeObsidian(async ({ app }) => {
+			const note = app.vault.getAbstractFileByPath('Frameworks/NIST 800-53/ZZ/ZZ.md');
+			if (!note || !('extension' in note)) throw new Error('Synthetic family concept note missing');
+			await app.workspace.getLeaf(false).openFile(note);
+		});
+		await browser.pause(400);
+		await browser.saveScreenshot(path.join(OUT, 'visual-stack-07-implied-family.png'));
 	});
 	it('shows only synthetic CRI function, category, subcategory and diagnostic statement', async () => {
 		const ids = [['GV', 'F'], ['GV.OC', 'C'], ['GV.OC-01', 'S'], ['GV.OC-01.01', 'DS'], ['GV.OC-01.02', 'DS']];

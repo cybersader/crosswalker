@@ -1,7 +1,7 @@
 import type { DiscoveredImportSet } from '../src/generation/import-set';
-import { importMappingSlots, reconnectMappings, type MappingRunDependencies, type CompletedMapping } from '../src/import/stack/stack-run';
+import { importMappingSlots, reconnectMappings, waitForIndexedDestination, type MappingRunDependencies, type CompletedMapping } from '../src/import/stack/stack-run';
 import { MAPPING_PRESETS } from '../src/import/recipe-registry';
-import type { TFile } from 'obsidian';
+import type { App, TFile } from 'obsidian';
 import { TextDecoder } from 'node:util';
 Object.defineProperty(globalThis, 'TextDecoder', { value: TextDecoder, configurable: true });
 
@@ -65,6 +65,29 @@ it('checkpoints each confirmed mapping set so a later failed slot cannot duplica
 	await expect(importMappingSlots(mappings, candidates, new Map([[file.path, file]]), dependencies, records))
 		.rejects.toThrow('no recognized source file');
 	expect(imported).toHaveLength(1);
+});
+
+it('waits for every note written to a framework destination, not one resolved event', async () => {
+	const notes = [{ path: 'Frameworks/Invented/ZZ/ZZ.md' }, { path: 'Frameworks/Invented/ZZ/ZZ-1.md' }, { path: 'Other/Cold.md' }];
+	const cache = new Set([notes[0].path]);
+	const app = {
+		vault: { getMarkdownFiles: () => notes },
+		metadataCache: { getFileCache: (file: { path: string }) => cache.has(file.path) ? {} : null },
+	} as unknown as App;
+	setTimeout(() => cache.add(notes[1].path), 20);
+	await expect(waitForIndexedDestination(app, 'Frameworks/Invented', 300)).resolves.toBe(0);
+	// The cold note in another destination is still cold; only the slot's
+	// freshly written notes are the wait's responsibility.
+	await expect(waitForIndexedDestination(app, 'Other', 20)).resolves.toBe(1);
+});
+
+it('skips an unscoped index wait instead of polling an unrelated vault root', async () => {
+	const app = {
+		vault: { getMarkdownFiles: jest.fn(() => [{ path: 'Cold.md' }]) },
+		metadataCache: { getFileCache: jest.fn(() => null) },
+	} as unknown as App;
+	await expect(waitForIndexedDestination(app, ' ', 5)).resolves.toBe(0);
+	expect(app.vault.getMarkdownFiles).not.toHaveBeenCalled();
 });
 
 it('does not silently skip a missing required mapping file', async () => {

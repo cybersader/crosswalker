@@ -9,7 +9,7 @@
  */
 
 import { TFile, TFolder } from 'obsidian';
-import { MappingWorkbench, type WorkbenchOptions } from '../src/import/workbench';
+import { MappingWorkbench, impliedConceptControlState, type WorkbenchOptions } from '../src/import/workbench';
 import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import type { ParsedData, ImportRecipe } from '../src/types/config';
 import type { CrosswalkerImportRecipe } from '../src/types/generated/recipe';
@@ -108,6 +108,15 @@ function attackRows(): Record<string, unknown>[] {
 }
 
 describe('MappingWorkbench recipe assembly', () => {
+	it('only offers implied folder concepts before the leaf, and only suggests them on known row gaps', () => {
+		const folder = { level: 'family', destinations: [{ primitive: 'folder' as const }] } as ImportMapping['mappings'][number]['levels'][number];
+		const hasFamily = [{ _cw: { level: 'family' } }, { _cw: { level: 'control' } }];
+		const noFamily = [{ _cw: { level: 'control' } }];
+		expect(impliedConceptControlState(folder, 0, 2, hasFamily)).toEqual({ visible: true, suggest: false });
+		expect(impliedConceptControlState(folder, 0, 2, noFamily)).toEqual({ visible: true, suggest: true });
+		expect(impliedConceptControlState(folder, 0, 2, null)).toEqual({ visible: true, suggest: false });
+		expect(impliedConceptControlState(folder, 1, 2, noFamily)).toEqual({ visible: false, suggest: false });
+	});
 	it('patches a bundled-origin recipe with a valid crosswalk declaration', () => {
 		const recipe = makeCrosswalkWorkbench('nist-csf-2').buildRecipe() as CrosswalkerImportRecipe;
 		expect(recipe.target.crosswalks).toEqual([{ column: 'id', to_ontology: 'nist-csf-2' }]);

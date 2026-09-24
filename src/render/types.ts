@@ -137,6 +137,8 @@ export interface LayoutValue {
 	level: string;
 	/** The value that level rendered for this row — the segment, before it became part of any path. */
 	value: string;
+	/** Escaped curie local part, present only on an implied concept level. */
+	identity?: string;
 }
 
 /**

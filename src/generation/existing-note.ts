@@ -154,8 +154,11 @@ export interface MergeExistingNoteArgs {
 	 * `note` — ordinary generated notes. Legacy adoption requires exact equality.
 	 * `facet-hub` — adoption replays `mergeHubBody`, which is already lossless,
 	 *               so a facet hub never conflicts on its body.
+	 * `implied-to-row` — only an observed implied concept whose generated H1
+	 *               matches its recorded title may transition; all following
+	 *               bytes, including user prose and the children region, survive.
 	 */
-	kind: 'note' | 'facet-hub';
+	kind: 'note' | 'facet-hub' | 'implied-to-row';
 }
 
 export type MergeOutcome =
@@ -219,6 +222,18 @@ export async function mergeExistingNote(args: MergeExistingNoteArgs): Promise<Me
 	if (findSpan(scan.spans, 'body')) {
 		const body = replaceRegion(existing.body, scan.spans, 'body', wrapRegion('body', freshManagedBody));
 		return { ok: true, frontmatter, body, adopted: false };
+	}
+
+	if (kind === 'implied-to-row') {
+		const title = existing.frontmatter.title;
+		const firstLine = /^(#[^\r\n]*)(\r?\n|$)/.exec(existing.body);
+		if (typeof title !== 'string' || firstLine?.[1] !== `# ${title}`) {
+			return { ok: false, code: 'legacy-body-differs', detail: 'the implied concept heading differs from its recorded title, so its user prose cannot be separated safely.' };
+		}
+		const remainder = existing.body.slice(firstLine[0].length);
+		// Replace only the generated heading. Leave every later byte, including
+		// the managed children section and unmarked user prose, in place.
+		return { ok: true, frontmatter, body: wrapRegion('body', freshManagedBody) + firstLine[2] + remainder, adopted: true };
 	}
 
 	const adopted = adoptLegacyBody(existing.body, freshManagedBody, kind === 'facet-hub' ? 'replay-hub' : 'strict');
