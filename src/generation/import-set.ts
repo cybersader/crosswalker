@@ -268,34 +268,46 @@ export function countUnindexedMarkdownFiles(app: App): number {
 }
 
 /**
- * Wait once for Obsidian's metadata cache to drain, then RE-CHECK.
+ * Wait for Obsidian's metadata cache to drain, then RE-CHECK.
  *
- * `resolved` fires once per full pass, and the wait also resolves on its own
- * timeout, so the fact that the await returned is not evidence of anything. The
- * number returned is a fresh count, never an assumption.
+ * A `resolved` event can arrive while newly generated notes are still pending.
+ * Keep checking until every file has a cache entry or the deadline expires;
+ * never treat the event itself as proof that indexing finished. Polling also
+ * covers hosts that do not emit `resolved` for an individual file.
  */
 export async function settleVaultIndex(app: App, timeoutMs = 4000): Promise<number> {
-	if (countUnindexedMarkdownFiles(app) === 0) return 0;
+	const initial = countUnindexedMarkdownFiles(app);
+	if (initial === 0 || timeoutMs <= 0) return initial;
 	const on = app.metadataCache?.on?.bind(app.metadataCache);
 	const offref = app.metadataCache?.offref?.bind(app.metadataCache);
-	if (on && offref) {
-		await new Promise<void>((resolve) => {
-			let done = false;
-			let timer: ReturnType<typeof setTimeout> | null = null;
-			const finish = () => {
-				if (done) return;
-				done = true;
-				if (timer !== null) clearTimeout(timer);
-				try { offref(ref); } catch { /* a host that cannot unsubscribe still resolves */ }
-				resolve();
-			};
-			// Obsidian's `resolved` event is asynchronous. Register it before the
-			// timeout so an immediately completing real cache pass cannot be missed.
-			const ref = on('resolved', finish);
-			timer = setTimeout(finish, timeoutMs);
-		});
-	}
-	return countUnindexedMarkdownFiles(app);
+	const deadline = Date.now() + timeoutMs;
+	return new Promise<number>((resolve, reject) => {
+		let done = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let ref: ReturnType<NonNullable<typeof on>> | undefined;
+		const finish = (pending: number, error?: unknown) => {
+			if (done) return;
+			done = true;
+			if (timer !== undefined) clearTimeout(timer);
+			if (ref && offref) {
+				try { offref(ref); } catch { /* optional host subscription cleanup */ }
+			}
+			if (error !== undefined) reject(error);
+			else resolve(pending);
+		};
+		const check = () => {
+			if (done) return;
+			let pending: number;
+			try { pending = countUnindexedMarkdownFiles(app); }
+			catch (error) { finish(0, error); return; }
+			if (pending === 0 || Date.now() >= deadline) { finish(pending); return; }
+			if (timer !== undefined) clearTimeout(timer);
+			timer = setTimeout(check, Math.min(100, deadline - Date.now()));
+		};
+		try { if (on && offref) ref = on('resolved', check); }
+		catch (error) { finish(0, error); return; }
+		check();
+	});
 }
 
 /**

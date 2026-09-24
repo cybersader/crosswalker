@@ -44,7 +44,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as XLSX from 'xlsx';
 import criRecipe from '../../recipes/import/cri-profile-v2-2.json';
-import { readFrontmatterFromDisk, resetTier2Sidecar, waitForFrontmatterIndexed } from './helpers/vault-readiness';
+import { readFrontmatterFromDisk, resetTier2Sidecar, waitForFrontmatterIndexed, waitForVaultIndexed } from './helpers/vault-readiness';
 
 const OUT_DIR = path.resolve(__dirname, '..', '..', 'test-screenshots');
 const CORPUS = path.resolve(__dirname, '..', '..', 'Frameworks', 'CRI-Profile-ver.-2.2.2026-04-27.xlsx');
@@ -149,6 +149,12 @@ describe('Visual — the CRI Profile v2.2 recipe (restricted source)', function 
 		// Every row in the slice carries prose at source, so a bodyless note downstream can
 		// only be an engine fault. Length only; the text itself is never surfaced.
 		expect(rows.filter((row) => (row[PROSE_COLUMN] ?? '').length > 0).length).toBe(WANTED.length);
+
+		// Import-set discovery correctly refuses a half-indexed vault. Wait for the
+		// startup cache pass before invoking the product path, rather than retrying
+		// an import that may already have written notes.
+		const readiness = await waitForVaultIndexed({ timeoutMs: 60_000 });
+		expect(readiness.ready).toBe(true);
 
 		const generation = await browser.executeObsidian(
 			async ({ app }, args) => {

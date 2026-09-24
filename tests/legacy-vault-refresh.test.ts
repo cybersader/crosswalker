@@ -1275,7 +1275,7 @@ describe('a cold metadata cache at step 3', () => {
 		const { flow } = await coldFlow();
 		flow.currentStep = 2;
 		await expect(flow.validateCurrentStep()).resolves.toBe(false);
-	});
+	}, 12_000);
 
 	it('refuses to hand generation an ownership answer', async () => {
 		const { flow } = await coldFlow();
@@ -1295,7 +1295,7 @@ describe('a cold metadata cache at step 3', () => {
 		// never emptied. An empty list would read as "this vault holds no imports",
 		// which is how a cold cache mints a duplicate of a set it could not see.
 		expect(inner(flow).discoveredSets).toBeNull();
-	});
+	}, 12_000);
 
 	it('retries once the cache is warm, rather than latching the refusal', async () => {
 		// The refusal deliberately clears the settled marker: a user who waits and

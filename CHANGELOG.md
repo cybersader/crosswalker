@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: generated mappings wait for note indexing (2026-09-24)
+
+- Imports that produce mapping links now wait for newly written notes to finish indexing before deciding link ownership. An early cache event no longer aborts an otherwise successful import; if indexing stays incomplete past the deadline, the import still refuses to guess.
+
 ### Fixed: optional crosswalk recipe columns (2026-09-24)
 
 - The recipe workbench no longer blocks a crosswalk import when its source omits optional endpoint links, mapping-set ID, or predicate modifier. These fields can be supplied by the importer or left out, while required source columns still block generation when missing. The shipped crosswalk-edge recipe now marks mapping-set ID and predicate modifier optional; its pinned recipe hash changes from `sha256-ed118a18…` to `sha256-b810f5af…`, with no other recipe digest changed.
