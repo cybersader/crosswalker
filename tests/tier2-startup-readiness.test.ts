@@ -272,6 +272,29 @@ describe('Tier 2 startup readiness', () => {
 		await expect(waitForTier2StartupReadiness(app, () => false)).rejects.toThrow('cache scan failed');
 	});
 
+	it('waits through a premature resolved event until a newly written note is indexed', async () => {
+		const vault = makeApp([['Synthetic.v1 Statement.md', null]]);
+		const waiting = settleVaultIndex(vault.app, 4000);
+		vault.emitResolved(); // A first pass completed, but the generated note is still pending.
+		await jest.advanceTimersByTimeAsync(150);
+		expect(vault.unsubscribes()).toBe(0);
+		vault.cacheByPath.set('Synthetic.v1 Statement.md', { frontmatter: { curie: 'demo:QZ-42.01' } });
+		await jest.advanceTimersByTimeAsync(100);
+		await expect(waiting).resolves.toBe(0);
+		expect(vault.unsubscribes()).toBe(1);
+		expect(jest.getTimerCount()).toBe(0);
+	});
+
+	it('still reports pending notes when the index never drains before the deadline', async () => {
+		const vault = makeApp([['Synthetic.v1 Statement.md', null]]);
+		const waiting = settleVaultIndex(vault.app, 400);
+		vault.emitResolved();
+		await jest.advanceTimersByTimeAsync(400);
+		await expect(waiting).resolves.toBe(1);
+		expect(vault.unsubscribes()).toBe(1);
+		expect(jest.getTimerCount()).toBe(0);
+	});
+
 	it('keeps settleVaultIndex two-argument behavior and clears its early timer', async () => {
 		const vault = makeApp([['Cold.md', null]]);
 		const waiting = settleVaultIndex(vault.app, 4000);
