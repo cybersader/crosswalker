@@ -1,5 +1,5 @@
 import type { RenderedBodyRegion, RenderReport, SourceScope } from './types';
-import { renderTemplateValue, RenderError } from './template';
+import { isEmptyListOrLinkValue, renderTemplateValue, RenderError } from './template';
 
 export type BodyFormat = 'text' | 'code' | 'quote' | 'list';
 
@@ -39,12 +39,12 @@ export function renderBodyProjection(
 				`Body projection template "${projection.template}" produced a list of ${value.length} value(s), which format "${format}" cannot carry; add |join(<sep>) or set format: "list".`,
 			);
 		}
-		const items = value.map((item) => String(item).trim()).filter((item) => item !== '');
+		const items = value.map((item) => String(item).trim()).filter((item) => !isEmptyListOrLinkValue(item));
 		if (items.length === 0 && (projection.omit_if_empty ?? true)) return null;
 		content = items.map((item) => `- ${item}`).join('\n');
 	} else {
 		const rendered = typeof value === 'string' ? value : String(value);
-		const empty = rendered.trim() === '';
+		const empty = rendered.trim() === '' || (format === 'list' && isEmptyListOrLinkValue(rendered));
 		if (empty && (projection.omit_if_empty ?? true)) return null;
 		content = formatBodyValue(rendered, format);
 	}
@@ -76,7 +76,7 @@ export function formatBodyValue(value: string, format: BodyFormat): string {
 				.replace(/\r\n/g, '\n')
 				.split('\n')
 				.map((line) => line.trim())
-				.filter((line) => line !== '')
+				.filter((line) => !isEmptyListOrLinkValue(line))
 				.map((line) => `- ${line}`)
 				.join('\n');
 		case 'text':

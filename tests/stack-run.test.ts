@@ -38,6 +38,32 @@ it('imports a CTID mapping as a new set and explicitly reconnects only its store
 	expect(calls).toHaveLength(2);
 });
 
+it('records a successful mapping set and reports exact duplicate source rows', async () => {
+	const mapping = MAPPING_PRESETS.find((item) => item.id === '80053-attack')!;
+	const file = { path: 'Sources/synthetic.json', name: 'synthetic.json' } as TFile;
+	let sets: DiscoveredImportSet[] = [];
+	const records: CompletedMapping[] = [];
+	const dependencies: MappingRunDependencies = {
+		log: jest.fn(), listSets: async () => sets,
+		readBytes: async () => Buffer.from(JSON.stringify({ metadata: { attack_version: '16.1' }, mapping_objects: [
+			{ capability_id: 'AC-01', attack_object_id: 'T1234', mapping_type: 'mitigates' },
+			{ capability_id: 'AC-01', attack_object_id: 'T1234', mapping_type: 'mitigates' },
+		] })),
+		importRows: async (tsv) => {
+			expect(tsv.split('\n').filter((line) => line.startsWith('nist-800-53:'))).toHaveLength(1);
+			sets = [set('iset-deduped', 1)];
+			return { generation: { success: true, created: ['edge.md'], skipped: [], errors: [] },
+				folder: '_crosswalker/mappings/nist-800-53-to-mitre-attack', summary: [], unresolved: [],
+				parse: { header: {}, rows: [], warnings: [], errors: [] }, source: 'nist-800-53', target: 'mitre-attack' };
+		},
+		onCompleted: (record) => { records.push(record); },
+	};
+	const completed = await importMappingSlots([mapping], [{ source: { path: file.path, name: file.name, peeks: [] }, mapping,
+		table: '$.mapping_objects[*]', headerRow: 0 }], new Map([[file.path, file]]), dependencies);
+	expect(completed).toMatchObject([{ setId: 'iset-deduped', duplicateRowsSkipped: 1, noteCount: 1 }]);
+	expect(records).toEqual(completed);
+});
+
 it('checkpoints each confirmed mapping set so a later failed slot cannot duplicate it on retry', async () => {
 	let sets: DiscoveredImportSet[] = [];
 	const records: CompletedMapping[] = [];

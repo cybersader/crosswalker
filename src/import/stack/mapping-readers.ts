@@ -47,14 +47,32 @@ export function olirRowsToSssom(rows: readonly Record<string, string>[], options
 	});
 }
 
-/** Read formatted Excel text across all matching sheets. Do not coerce ids through numbers. */
-export function readOlirWorkbook(bytes: Uint8Array, options: OlirOptions, sheetNames?: readonly string[], headerRow = 0): SssomRow[] {
+export interface WorkbookMappingResult { rows: SssomRow[]; skipped: { sheet: string; reason: string }[]; included: string[] }
+
+const MAX_MAPPING_HEADER_ROWS = 50;
+
+/** A matching mapping table is defined by its endpoint headers, not a sheet name. */
+export function readOlirWorkbookDetails(bytes: Uint8Array, options: OlirOptions, sheetNames?: readonly string[], headerRow = 0): WorkbookMappingResult {
 	const workbook = XLSX.read(bytes.slice(), { type: 'array' });
 	const rows: Record<string, string>[] = [];
+	const skipped: WorkbookMappingResult['skipped'] = [];
+	const included: string[] = [];
+	const required = [options.subjectColumn ?? 'Focal Document Element', options.objectColumn ?? 'Reference Document Element'];
+	const normalize = (header: unknown): string => String(header ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 	for (const name of workbook.SheetNames) {
-		if (sheetNames && !sheetNames.includes(name)) continue;
-		const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[name], {
-			range: headerRow, defval: '', blankrows: false, raw: false,
+		const sheet = workbook.Sheets[name];
+		const area = sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']) : null;
+		const preview = area ? XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+			header: 1, defval: '', blankrows: true, raw: false,
+			range: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.min(area.e.r, MAX_MAPPING_HEADER_ROWS - 1), c: area.e.c } }),
+		}) : [];
+		const hinted = sheetNames?.includes(name) && headerRow >= 0 && headerRow < preview.length ? [headerRow] : [];
+		const positions = [...hinted, ...Array.from({ length: preview.length }, (_, i) => i)];
+		const rowIndex = positions.find((index) => required.every((key) => (preview[index] ?? []).some((column) => normalize(column) === normalize(key))));
+		if (rowIndex === undefined) { skipped.push({ sheet: name, reason: `Missing ${required.join(' / ')} header columns` }); continue; }
+		included.push(name);
+		const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+			range: rowIndex, defval: '', blankrows: false, raw: false,
 		});
 		for (const item of raw) {
 			const row: Record<string, string> = {};
@@ -62,10 +80,15 @@ export function readOlirWorkbook(bytes: Uint8Array, options: OlirOptions, sheetN
 			rows.push(row);
 		}
 	}
-	return olirRowsToSssom(rows, options);
+	return { rows: olirRowsToSssom(rows, options), skipped, included };
 }
 
-export interface CtidResult { rows: SssomRow[]; attackVersion: string | null }
+/** Compatibility for existing callers; all matching sheets are combined. */
+export function readOlirWorkbook(bytes: Uint8Array, options: OlirOptions, sheetNames?: readonly string[], headerRow = 0): SssomRow[] {
+	return readOlirWorkbookDetails(bytes, options, sheetNames, headerRow).rows;
+}
+
+export interface CtidResult { rows: SssomRow[]; attackVersion: string | null; duplicateRowsSkipped: number }
 
 /** CTID Mappings Explorer JSON is a mapping_objects bundle, not ATT&CK STIX. */
 export function readCtidJson(text: string, capabilityOntology = 'nist-800-53'): CtidResult {
@@ -75,6 +98,8 @@ export function readCtidJson(text: string, capabilityOntology = 'nist-800-53'): 
 	if (!Array.isArray(bundle.mapping_objects)) throw new Error('No mapping_objects array found. Choose the CTID Mappings Explorer JSON export, not STIX or a Navigator layer.');
 	const metadata = bundle.metadata && typeof bundle.metadata === 'object' ? bundle.metadata as Record<string, unknown> : {};
 	const rows: SssomRow[] = [];
+	const seen = new Set<string>();
+	let duplicateRowsSkipped = 0;
 	for (const item of bundle.mapping_objects) {
 		if (!item || typeof item !== 'object') continue;
 		const entry = item as Record<string, unknown>;
@@ -83,6 +108,11 @@ export function readCtidJson(text: string, capabilityOntology = 'nist-800-53'): 
 		// Only 800-53 has a fixed id shape here; other capability frameworks keep their own local ids.
 		const controlShape = capabilityOntology === 'nist-800-53' ? /^[A-Z]{2}(?:-\d+(?:\(\d+\))?)?$/i : /^\S+$/;
 		if (!controlShape.test(control) || !/^T\d{4}(?:\.\d{3})?$/i.test(technique)) continue;
+		// Compare every publisher field, not just endpoints: distinct evidence or
+		// predicates must still reach the importer for its conflict handling.
+		const fingerprint = JSON.stringify(Object.keys(entry).sort().map((key) => [key, entry[key]]));
+		if (seen.has(fingerprint)) { duplicateRowsSkipped++; continue; }
+		seen.add(fingerprint);
 		const type = String(entry.mapping_type ?? '').trim().toLowerCase();
 		rows.push({
 			subject_id: `${capabilityOntology}:${capabilityOntology === 'nist-800-53' ? depad80053(control.toUpperCase()) : control}`,
@@ -92,7 +122,7 @@ export function readCtidJson(text: string, capabilityOntology = 'nist-800-53'): 
 		});
 	}
 	if (!rows.length) throw new Error('No valid control-to-technique mappings found. Check that this is the CTID JSON mapping export and try again.');
-	return { rows, attackVersion: typeof metadata.attack_version === 'string' ? metadata.attack_version : null };
+	return { rows, attackVersion: typeof metadata.attack_version === 'string' ? metadata.attack_version : null, duplicateRowsSkipped };
 }
 
 /** Encode generated mapping rows for the existing SSSOM parser, never for direct note writes. */

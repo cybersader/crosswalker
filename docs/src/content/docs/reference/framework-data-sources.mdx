@@ -8,7 +8,7 @@ tags: [frameworks, import-transforms, frameworks-nist, frameworks-mitre]
 
 Crosswalker ships recognized-source imports for the framework files below today. This page is the canonical technical reference for obtaining each source, choosing the matching [recipe](/crosswalker/concepts/terminology/#recipe), selecting the exact worksheet and header row, checking the real record count, and avoiding imports that look successful but are wrong.
 
-**Status last verified:** 2026-09-23 — nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
+**Status last verified:** 2026-09-24 — stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
 
 The bundled recipes live in the [Crosswalker plugin repository](https://github.com/cybersader/crosswalker/tree/main/recipes/import). Community recipes and contribution guidance live in [crosswalker-recipes](https://github.com/cybersader/crosswalker-recipes). Framework content is not bundled: obtain each source from its publisher and confirm that the publisher's terms fit your use.
 
@@ -48,7 +48,8 @@ Choose **Notes for top levels only** to omit NIST enhancements and CRI diagnosti
 |---|---|---|
 | NIST CSF 2.0 to NIST 800-53 | Public-domain NIST OLIR-derived SSSOM mapping included with the plugin; a publisher OLIR workbook with `Focal Document Element` / `Reference Document Element` headers can be selected as a replacement. | Bundled copy has mapping date 2026-05-04. Compare a newer [NIST crosswalk release](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters) before refreshing it. |
 | NIST 800-53 to MITRE ATT&CK | Download the `*_json.json` CTID Mappings Explorer bundle from the [publisher](https://center-for-threat-informed-defense.github.io/mappings-explorer/). Its `mapping_objects` entries have `capability_id`, `attack_object_id`, and `mapping_type`; do not use a Navigator layer or STIX bundle in this slot. | Local only. Current stack expects ATT&CK 16.1, shown in the checklist; check the JSON metadata's `attack_version` before using another release. |
-| CRI Profile to NIST 800-53 | Optional publisher OLIR-shaped CRI mapping workbook with Focal/Reference columns. | Local only; check CRI licence terms for the exact use. |
+| CRI Profile to NIST 800-53 | Optional. The CRI to 800-53 OLIR workbook, with `Focal Document Element` / `Reference Document Element` headers. Every sheet whose headers appear in its first 50 rows is read; other sheets are listed as skipped. The CRI Profile Mappings Catalog is a different table and is not accepted here. | Local only; check CRI licence terms for the exact use. |
+| CRI Profile to MITRE ATT&CK | Optional. The CTID Mappings Explorer JSON for the CRI Profile, from the [publisher](https://center-for-threat-informed-defense.github.io/mappings-explorer/); same `mapping_objects` shape as the 800-53 bundle. | Local only. Exact duplicate rows are skipped and counted. |
 
 The [framework crosswalk guide](/crosswalker/agent-context/framework-crosswalks/) describes how the plugin converts these files into linked edge notes. No CTID or CRI mapping rows ship in the bundle.
 

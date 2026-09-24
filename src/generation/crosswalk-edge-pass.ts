@@ -9,7 +9,7 @@ import { readNoteFrontmatterState } from '../export/vault-reader';
 import { TFile } from 'obsidian';
 import { SSSOM_CURIE_PREFIX, sssomEdgeCurie, strmToSkos } from '../import/sssom-importer';
 import { assertionBaseKey } from '../utils/mapping-provenance';
-import { discoverImportSets, newSetSchemeFor, newSetSchemeFrom, requireVaultIndexed } from './import-set';
+import { discoverImportSets, newSetSchemeFor, newSetSchemeFrom, requireVaultIndexed, settleVaultIndex } from './import-set';
 import { generateFromRecipe } from './generation-engine';
 import { edgeEndpointIndex, resolveEdgeEndpoints, summarizeUnresolvedEndpoints, type UnresolvedEndpoint } from './edge-endpoints';
 
@@ -203,6 +203,7 @@ export async function runCrosswalkEdgePass(
 	debug?: DebugLog,
 ): Promise<CrosswalkEdgePassResult> {
 	const result: CrosswalkEdgePassResult = { perEntry: [], totalCreated: 0, unresolved: [], summary: [], errors: [] };
+	const projectionWarnings: string[] = [];
 	const { index, unreadable } = await edgeEndpointIndex(app);
 	// Snapshot producer ownership once before any column writes change the vault.
 	if (args.producerSetId) await requireVaultIndexed(app);
@@ -300,16 +301,28 @@ export async function runCrosswalkEdgePass(
 
 		if (candidates.length === 0 && generation.created.length > 0) mintedSSSOM = true;
 
+		let projectionReady = true;
 		if (generation.success && args.runProjection) {
-			try {
-				await args.runProjection();
+			const cold = await settleVaultIndex(app, 30_000);
+			if (cold > 0) {
+				projectionReady = false;
+				projectionWarnings.push(`${cold} notes are still indexing. Query results may be stale. Wait for indexing, then refresh the query database before using mapping chains.`);
+				debug?.warn('crosswalk-edge-pass', 'projection-deferred', 'Crosswalk projection deferred until vault indexing finishes', { cold });
+			} else try {
+				const outcome = await args.runProjection();
+				if (outcome && typeof outcome === 'object' && 'success' in outcome && outcome.success === false) {
+					projectionReady = false;
+					projectionWarnings.push('Query database projection was incomplete. Refresh the query database after indexing before using mapping chains.');
+					debug?.warn('crosswalk-edge-pass', 'projection-incomplete', 'Crosswalk projection incomplete; closure was not precomputed');
+				}
 			} catch (error) {
+				projectionReady = false;
 				const message = error instanceof Error ? error.message : String(error);
-				generation.errors.push({ row: -1, message: `Tier 2 projection failed: ${message}` });
+				projectionWarnings.push('Query database projection failed. Refresh the query database after indexing before using mapping chains.');
 				debug?.warn('crosswalk-edge-pass', 'projection-failed', 'Crosswalk edge projection failed', { error: message });
 			}
 		}
-		if (generation.success && args.precomputeClosure) {
+		if (generation.success && projectionReady && args.precomputeClosure) {
 			try {
 				await args.precomputeClosure(args.sourceOntology, entry.to_ontology);
 			} catch (error) {
@@ -337,7 +350,7 @@ export async function runCrosswalkEdgePass(
 		result.errors.push(...generation.errors);
 	}
 
-	result.summary = summarizeUnresolvedEndpoints(result.unresolved, unreadable);
+	result.summary = [...summarizeUnresolvedEndpoints(result.unresolved, unreadable), ...projectionWarnings];
 	return result;
 }
 

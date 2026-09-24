@@ -14,7 +14,7 @@ _crosswalker:
   producer:
     kind: plugin-engine
     name: crosswalker-plugin
-    version: "0.1.2"
+    version: "<version>"
   recipe:
     id: synthetic-implied
     hash: sha256-fcd23fb4355f9b1ad764c01509b695a03ab03b19e0d63d647d3265ead291bdf3

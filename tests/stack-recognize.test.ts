@@ -32,6 +32,19 @@ describe('stack recognition over synthetic source headers', () => {
 		expect(normalized.rows[0].control_text).toBe('Invented body');
 	});
 
+	it('recognizes CRLF, repeated whitespace, and nbsp in raw CRI headers and alias binding', () => {
+		const cri = slots.find((slot) => slot.ontology === 'cri-profile')!;
+		const varied = cri.entry.signatureColumns.map((column, index) => index < 2 ? column.replace(/ /g, '\r\n  ') : column);
+		const found = recognizeStackSources([source('cri.xlsx', varied, 'CRI Profile v2.2 Structure')], [cri]);
+		expect(found.fills).toHaveLength(1);
+		expect(found.fills[0].score).toBe(100);
+		expect(matchScore(cri.entry, varied)).toBe(100);
+		const nist = slots.find((slot) => slot.ontology === 'nist-800-53')!;
+		const data = { columns: ['Control  \r\n Name'], rows: [{ 'Control  \r\n Name': 'Synthetic' }] };
+		expect(applyHeaderAliases(data, nist.entry).rows[0].name).toBe('Synthetic');
+		expect(matchScore({ ...cri.entry, signatureColumns: ['Alpha Beta'], requiredColumns: ['Alpha Beta'] }, ['Alpha\u00a0  Beta'])).toBe(100);
+	});
+
 	it('names an ATT&CK STIX bundle as a wrong file, never a filled Excel slot', () => {
 		const found = recognizeStackSources([source('enterprise-attack.json', ['type', 'id', 'objects'], '$.objects[*]')], slots);
 		expect(found.fills).toHaveLength(0);

@@ -44,6 +44,17 @@ describe('CTID JSON reader', () => {
 		const tsv = mappingRowsToTsv(parsed.rows, 'CTID', 'nist-800-53', 'mitre-attack', '16.1');
 		expect(parseSssomTsv(tsv).rows).toHaveLength(2);
 	});
+	it('skips only exact publisher duplicates, preserving distinct predicates and evidence fields', () => {
+		const first = { capability_id: 'AC-01', attack_object_id: 'T1234', mapping_type: 'mitigates', evidence: 'A' };
+		const parsed = readCtidJson(JSON.stringify({ mapping_objects: [
+			first, { ...first }, { evidence: 'A', mapping_type: 'mitigates', attack_object_id: 'T1234', capability_id: 'AC-01' },
+			{ ...first, evidence: 'B' }, { ...first, mapping_type: 'equivalent' },
+		] }));
+		expect(parsed.duplicateRowsSkipped).toBe(2);
+		expect(parsed.rows).toHaveLength(3);
+		expect(parsed.rows[2].predicate_id).toBe('skos:exactMatch');
+		expect(parseSssomTsv(mappingRowsToTsv(parsed.rows, 'Synthetic', 'nist-800-53', 'mitre-attack', '16.1')).rows).toHaveLength(3);
+	});
 	it('rejects STIX bundles and nonmatching ids instead of silently importing zero edges', () => {
 		expect(() => readCtidJson('{"objects":[]}')).toThrow('mapping_objects');
 		expect(() => readCtidJson('{"mapping_objects":[{"capability_id":"bad","attack_object_id":"bad"}]}')).toThrow('No valid');
@@ -54,5 +65,37 @@ describe('CTID JSON reader', () => {
 		] }), 'cri-profile');
 		expect(parsed.rows[0].subject_id).toBe('cri-profile:ZZ.AB-01.02');
 		expect(parsed.rows[0].object_id).toBe('mitre-attack:T9999.001');
+	});
+});
+
+describe('mapping workbooks with several sheets', () => {
+	it('combines matching sheets and reports each skipped sheet', () => {
+		const wb = XLSX.utils.book_new();
+		for (const [name, data] of [
+			['First', [['Focal Document Element', 'Reference Document Element'], ['ZZ-01', 'AB-01']]],
+			['Notes', [['Description', 'Unrelated'], ['text', 'text']]],
+			['Second', [['Banner'], ['Focal\nDocument Element', 'Reference  Document Element'], ['ZZ-02', 'AB-02']]],
+		] as const) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), name);
+		const bytes = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+		const { readOlirWorkbookDetails } = require('../src/import/stack/mapping-readers');
+		const result = readOlirWorkbookDetails(bytes, { subjectOntology: 'alpha', objectOntology: 'beta' }, ['First']);
+		expect(result.included).toEqual(['First', 'Second']);
+		expect(result.skipped).toEqual([{ sheet: 'Notes', reason: 'Missing Focal Document Element / Reference Document Element header columns' }]);
+		expect(result.rows.map((row: { subject_id: string }) => row.subject_id)).toEqual(['alpha:ZZ-01', 'alpha:ZZ-02']);
+	});
+	it('includes a header after a long banner and skips sheets beyond the bounded scan', () => {
+		const wb = XLSX.utils.book_new();
+		const banners = Array.from({ length: 12 }, (_, i) => [`Banner ${i}`]);
+		const headerAndRow = [['Focal Document Element', 'Reference Document Element'], ['ZZ-12', 'AB-12']];
+		XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...banners, ...headerAndRow]), 'Long banner');
+		XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+			...Array.from({ length: 50 }, (_, i) => [`Banner ${i}`]), ...headerAndRow,
+		]), 'Beyond limit');
+		const bytes = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+		const { readOlirWorkbookDetails } = require('../src/import/stack/mapping-readers');
+		const result = readOlirWorkbookDetails(bytes, { subjectOntology: 'alpha', objectOntology: 'beta' });
+		expect(result.included).toEqual(['Long banner']);
+		expect(result.rows.map((row: { subject_id: string }) => row.subject_id)).toEqual(['alpha:ZZ-12']);
+		expect(result.skipped).toEqual([{ sheet: 'Beyond limit', reason: 'Missing Focal Document Element / Reference Document Element header columns' }]);
 	});
 });

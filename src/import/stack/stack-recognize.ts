@@ -1,6 +1,6 @@
 /** Pure stack-slot recognition over already peeked source headers. */
 import {
-	CANDIDATE_FLOOR, CONFIDENT_MATCH_THRESHOLD, canonicalHeaderColumns, matchScore, RECIPE_REGISTRY,
+	CANDIDATE_FLOOR, CONFIDENT_MATCH_THRESHOLD, canonicalHeaderColumns, matchScore, normalizeColumn, RECIPE_REGISTRY,
 	type RecipeRegistryEntry,
 } from '../recipe-registry';
 import type { TablePeek } from '../parsers/table-peek';
@@ -27,7 +27,7 @@ export interface StackRecognition {
 	wrongFiles: { source: StackSource; slot: FrameworkSlot | null; message: string }[];
 	notInStack: { source: StackSource; entry: RecipeRegistryEntry }[];
 }
-const norm = (value: string): string => value.trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+const norm = (value: string): string => normalizeColumn(value);
 
 function hintRank(entry: RecipeRegistryEntry, source: StackSource, table: string, headerRow: number): number {
 	const detect = entry.recipe.source.detect;
@@ -76,7 +76,7 @@ function recognizeMappingSource(source: StackSource, mappings: readonly MappingP
 		if (!/\.xlsx?$/i.test(name)) continue;
 		for (let headerRow = 0; headerRow < Math.min(peek.rows.length, 9); headerRow++) {
 			const headers = peek.rows[headerRow].map(norm);
-			if (!headers.includes('focal document element') || !headers.includes('reference document element')) continue;
+			if (!headers.includes(norm('focal document element')) || !headers.includes(norm('reference document element'))) continue;
 			const id = /cri|profile/.test(name) ? 'cri-80053' : /csf|cybersecurity.framework/i.test(name) ? 'csf-80053' : null;
 			const mapping = mappings.find((item) => item.id === id);
 			if (mapping) return { source, mapping, table: peek.table, headerRow };

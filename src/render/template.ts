@@ -607,8 +607,9 @@ const FILTERS: Record<string, (v: unknown, arg?: string, ctx?: FilterCtx) => unk
 				`curie-prefix filter requires a lowercase CURIE prefix, e.g. {var|curie-prefix(nist)}.`,
 			);
 		}
+		if (isEmptyListOrLinkValue(value)) return '';
 		const local = String(value).trim();
-		return local === '' ? '' : `${arg}:${local}`;
+		return `${arg}:${local}`;
 	},
 	number: (v) => {
 		const value = typeof v === 'number' ? v : Number(String(v).trim());
@@ -754,7 +755,7 @@ const FILTERS: Record<string, (v: unknown, arg?: string, ctx?: FilterCtx) => unk
 		// Decorate. Supersedes the engine's hard-coded `v === '[[]]'` guard:
 		// {parent|optional|wikilink} never produces an empty link in the first place.
 		const s = String(v);
-		return s === '' ? '' : `[[${s}]]`;
+		return isEmptyListOrLinkValue(s) ? '' : `[[${s}]]`;
 	},
 	regex: (v, arg, ctx) => {
 		// {var|regex(<pattern>)} — return the first match of <pattern> (or its
@@ -843,6 +844,11 @@ function isListAware(call: FilterCall): boolean {
 	// `part`'s 1-argument (list-producing) form; same shape as split.
 	if (call.name === 'part' && call.arg !== undefined && !/^(.*),(\d+)$/.test(call.arg)) return true;
 	return false;
+}
+
+/** Source placeholders represent absent links, not a note or CURIE named None. */
+export function isEmptyListOrLinkValue(value: unknown): boolean {
+	return /^(?:none\.?|n\/?a|-)$/i.test(String(value ?? '').trim()) || String(value ?? '').trim() === '';
 }
 
 /** L2 — elide items blanked by a filter, recording one note with the count. */

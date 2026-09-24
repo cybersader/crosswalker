@@ -65,7 +65,11 @@ describe('framework stack setup model', () => {
 	it('optional mappings appear only when selected and both endpoints exist', () => {
 		const rows = checklistRows(selection({ optionalMappings: ['cri-80053', 'cri-attack'] }));
 		expect(rows.slice(7).map((row) => row.id)).toEqual(['cri-80053', 'cri-attack']);
-		expect(rows.slice(7).every((row) => row.publisherLink?.url === 'https://cyberriskinstitute.org/the-profile/')).toBe(true);
+		expect(rows.find((row) => row.id === 'cri-80053')?.publisherLink?.url).toBe('https://cyberriskinstitute.org/the-profile/');
+		expect(rows.find((row) => row.id === 'cri-attack')?.publisherLink?.url).toContain('mappings-explorer');
+		expect(rows.find((row) => row.id === 'cri-80053')?.expectedFile).toContain('OLIR workbook');
+		expect(rows.find((row) => row.id === 'cri-attack')?.expectedFile).toContain('Explorer JSON');
+		expect(checklistPlainText(rows)).toContain('not supported here');
 	});
 
 	it('copies plain text with actionable links but no HTML or Markdown link markup', () => {

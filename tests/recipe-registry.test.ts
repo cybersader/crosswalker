@@ -9,6 +9,9 @@
 
 import {
 	RECIPE_REGISTRY,
+	NIST_CATALOG_HEADER_ALIASES,
+	applyHeaderAliases,
+	canonicalHeaderColumns,
 	CONFIDENT_MATCH_THRESHOLD,
 	matchScore,
 	findRecognizedRecipes,
@@ -62,6 +65,19 @@ describe('recipe-registry — loading + signatures', () => {
 		expect(entry('nist-csf-2-cprt').label).toBe('NIST CSF 2.0 (CPRT export)');
 		expect(entry('cis-controls-v8-controls').label).toContain('CIS Controls v8');
 	});
+});
+
+it('recognizes the catalog control-name heading and maps its row value to the recipe name key', () => {
+	const catalog = entry('nist-800-53-r5-nested');
+	const columns = ['Control Identifier', 'Control (or Control Enhancement) Name', 'Control Text', 'Discussion', 'Related Controls'];
+	expect(NIST_CATALOG_HEADER_ALIASES.name).toContain(columns[1]);
+	expect(matchScore(catalog, canonicalHeaderColumns(columns, catalog))).toBe(100);
+	const source = { columns, rows: [{
+		'Control Identifier': 'ZZ-01', 'Control (or Control Enhancement) Name': 'Synthetic heading',
+		'Control Text': 'Synthetic text', Discussion: '', 'Related Controls': '',
+	}], rowCount: 1 } as Parameters<typeof applyHeaderAliases>[0];
+	const parsed = applyHeaderAliases(source, catalog);
+	expect(parsed.rows).toEqual([expect.objectContaining({ name: 'Synthetic heading' })]);
 });
 
 describe('recipe-registry — matchScore', () => {

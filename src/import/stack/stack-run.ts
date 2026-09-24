@@ -4,7 +4,7 @@ import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '
 import { importSssom, sssomRecipeDigest, type SssomImportResult } from '../sssom-importer';
 import { computeSourceByteDigest } from '../../generation/hash';
 import type { RunChoice } from './stack-persistence';
-import { readCtidJson, readOlirWorkbook, mappingRowsToTsv } from './mapping-readers';
+import { readCtidJson, readOlirWorkbookDetails, mappingRowsToTsv } from './mapping-readers';
 import type { MappingCandidate } from './stack-recognize';
 import type { MappingPreset } from '../recipe-registry';
 import { ATTACK_MAPPING_RELEASE } from '../recipe-registry';
@@ -30,6 +30,11 @@ export async function waitForIndexedDestination(app: App, root: string, timeoutM
 	return cold;
 }
 
+/** A crosswalk needs replay only when its target is newly written later in this run. */
+export function needsLateCrosswalkRefresh(targetOntologies: readonly string[], laterImportedOntologies: readonly string[]): boolean {
+	return targetOntologies.some((target) => laterImportedOntologies.includes(target));
+}
+
 export function builtInMappingTsv(): string {
 	return require('../../../recipes/import/crosswalks/nist-csf-2-to-nist-800-53.sssom.tsv') as string;
 }
@@ -41,6 +46,8 @@ export interface CompletedMapping {
 	folder: string;
 	noteCount: number;
 	upToDate?: number;
+	duplicateRowsSkipped?: number;
+	sheetSkips?: { sheet: string; reason: string }[];
 	unresolved: string[];
 	/** The captured input is kept only for this open modal's explicit reconnect. */
 	tsv: string;
@@ -89,6 +96,8 @@ export async function importMappingSlots(
 		let tsv: string;
 		let sourceDigest: string;
 		let sourceName: string;
+		let duplicateRowsSkipped = 0;
+		let sheetSkips: { sheet: string; reason: string }[] = [];
 		if (!candidate && mapping.kind === 'built-in') {
 			// Only this NIST public-domain asset ships in the bundle. CTID and CRI files stay local.
 			tsv = builtInMappingTsv();
@@ -105,12 +114,17 @@ export async function importMappingSlots(
 				if (parsed.attackVersion && parsed.attackVersion !== ATTACK_MAPPING_RELEASE) {
 					throw new Error(`This mapping covers ATT&CK ${parsed.attackVersion}, but this stack expects ${ATTACK_MAPPING_RELEASE}. Choose the matching CTID release and try again.`);
 				}
+				duplicateRowsSkipped = parsed.duplicateRowsSkipped;
 				tsv = mappingRowsToTsv(parsed.rows, 'CTID Mappings Explorer', mapping.from, mapping.to, parsed.attackVersion ?? ATTACK_MAPPING_RELEASE);
 			} else {
 				const options = { subjectOntology: mapping.from, objectOntology: mapping.to,
 					depad: mapping.id === 'cri-80053' ? 'subject' as const : 'object' as const,
 					reverse: mapping.id === 'cri-80053' };
-				const rows = readOlirWorkbook(bytes, options, [candidate.table], candidate.headerRow);
+				const workbook = readOlirWorkbookDetails(bytes, options, [candidate.table], candidate.headerRow);
+				sheetSkips = workbook.skipped;
+				for (const skip of workbook.skipped) dependencies.log('mapping-sheet-skipped', `${mapping.id}: ${skip.sheet}: ${skip.reason}`);
+				dependencies.log('mapping-sheets-included', `${mapping.id}: ${workbook.included.length}`);
+				const rows = workbook.rows;
 				if (!rows.length) throw new Error(`${mapping.label} has no Focal/Reference mapping rows. Choose the publisher mapping sheet, then try again.`);
 				tsv = mappingRowsToTsv(rows, 'OLIR mapping workbook', mapping.from, mapping.to, file.name);
 			}
@@ -129,7 +143,7 @@ export async function importMappingSlots(
 		if (!refresh && added.length !== 1) throw new Error(`${mapping.label} was written but its new import set could not be confirmed. Wait for vault indexing, then inspect the mapping notes before retrying.`);
 		const record = { id: mapping.id, label: mapping.label, setId: refresh ? refresh.setId! : added[0].id,
 			folder: outcome.folder, noteCount: refresh ? (outcome.generation.created.length + (outcome.generation.upToDate?.length ?? 0)) : added[0].noteCount,
-			upToDate: (outcome.generation.upToDate?.length ?? 0), unresolved: outcome.summary, tsv, sourceDigest, sourceName,
+			upToDate: (outcome.generation.upToDate?.length ?? 0), duplicateRowsSkipped, sheetSkips, unresolved: outcome.summary, tsv, sourceDigest, sourceName,
 			recipeDigest: sssomRecipeDigest(mapping.from, mapping.to) };
 		completed.push(record);
 		await dependencies.onCompleted?.(record);

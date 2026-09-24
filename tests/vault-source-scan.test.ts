@@ -1,8 +1,11 @@
 import * as XLSX from 'xlsx';
 import { peekXLSXBytes } from '../src/import/parsers/xlsx-parser';
+import { jsonToRows } from '../src/import/parsers/json-source-core';
 import { RECIPE_REGISTRY, type RecipeRegistryEntry } from '../src/import/recipe-registry';
 import {
 	MAX_FILES_PER_SCAN,
+	MAX_JSON_RECORD_DEPTH,
+	MAX_JSON_PROBE_KEYS,
 	peekCSV,
 	peekJSON,
 	planScan,
@@ -100,6 +103,31 @@ describe('peekJSON', () => {
 		expect(peekJSON(text)).toEqual([
 			{ table: '$.objects[*]', rows: [['technique', 'name']] },
 		]);
+	});
+
+	it('recognizes nested record lists at depth three and their reader consumes the selected iterator', () => {
+		const text = JSON.stringify({ response: { elements: { elements: [
+			{ element_identifier: 'ZZ.AB-01', title: 'Synthetic item', element_type: 'subcategory', text: 'Synthetic description' },
+		] } } });
+		const peeks = peekJSON(text);
+		expect(peeks).toEqual([{ table: '$.response.elements.elements[*]', rows: [[
+			'element_identifier', 'title', 'element_type', 'text',
+		]] }]);
+		const recipe = registryEntry('nist-csf-2-cprt-hierarchical');
+		expect(scoreFilePeeks('Sources/synthetic.json', 'synthetic.json', peeks, [recipe])).toMatchObject({
+			entryId: recipe.id, table: '$.response.elements.elements[*]', score: 100,
+		});
+		expect(jsonToRows(text, peeks[0].table).rows).toEqual([expect.objectContaining({ title: 'Synthetic item' })]);
+	});
+
+	it('stops walking at the depth and inspected-key caps', () => {
+		const nested = { records: [{ id: 'AA' }] };
+		let tooDeep: unknown = nested;
+		for (let i = 0; i < MAX_JSON_RECORD_DEPTH; i++) tooDeep = { layer: tooDeep };
+		expect(peekJSON(JSON.stringify(tooDeep))).toEqual([]);
+		const manyKeys = Object.fromEntries(Array.from({ length: MAX_JSON_PROBE_KEYS + 1 }, (_, i) => [`key${i}`, i]));
+		manyKeys.records = [{ id: 'AA' }];
+		expect(peekJSON(JSON.stringify(manyKeys))).toEqual([]);
 	});
 
 	it('finds record lists one object level below the root', () => {
