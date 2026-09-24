@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fifth prerelease preparation, 0.1.4 (2026-09-24)
+
+- Prepared version `0.1.4` as the fifth BRAT prerelease, carrying the real-download framework stack fixes below on top of `0.1.3`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.4` entry. The user-facing notes live under `## [0.1.4]` near the end of this file, which is where the release job reads them.
+
 ### Fixed: a framework stack imports from the real published downloads (2026-09-24)
 
 - A first end-to-end run against the publishers' own files (not synthetic fixtures) found failures the acceptance suite missed. Now fixed:
@@ -1651,6 +1655,26 @@ AJV (Ajv2020) + ajv-formats wired into plugin startup; `spec/*.schema.json` comp
 - Ch 26 — Transform engine depth + input formats (resolved 2026-05-05)
 
 ---
+
+## [0.1.4] - 2026-09-24
+
+Fifth public prerelease. Still intended for early testing in backup or test vaults, not production-critical use.
+
+### What changed since 0.1.3
+
+- **Framework stacks work with the real downloads.** A full run with the files as published by CRI, NIST, MITRE, and the Center for Threat-Informed Defense now imports every framework and links the mappings end to end.
+- **Better file recognition.** The NIST 800-53 catalog, the NIST CSF 2.0 JSON export, and CRI Profile workbooks whose headers contain line breaks are recognized without **Use anyway**.
+- **CRI Profile links to CSF connect** once CSF is imported in the same stack.
+- **Mapping files with repeated rows** import; duplicates are skipped and counted on the completion screen.
+- **Optional CRI mappings.** The checklist now asks for the CRI to 800-53 OLIR workbook and the CTID Mappings Explorer JSON for CRI to ATT&CK. Every workbook sheet with the mapping headers is read, and skipped sheets are listed.
+- **No phantom links.** Cells reading None, N/A, or a dash no longer become links or list items.
+- **Run again** on unchanged files skips everything and writes nothing.
+- **Clearer errors** when a framework import fails, naming the cause and what to do.
+
+### Requirements
+
+- Obsidian 1.10.0 or newer.
+- Install through BRAT (add `cybersader/crosswalker`) or copy `main.js`, `manifest.json`, and `styles.css` into `.obsidian/plugins/crosswalker/`.
 
 ## [0.1.3] - 2026-09-24
 
