@@ -99,6 +99,27 @@ describe('validateTier1Frontmatter', () => {
 		},
 	);
 
+
+	it('accepts parent_set on an edge set but rejects unknown import-set keys', () => {
+		const edge = {
+			curie: 'sssom:cwset-iset-abc123-nist-AC-2-iso-A-9',
+			kind: 'crosswalk-edge',
+			subject_id: 'nist:AC-2', predicate_id: 'is_equivalent_to', object_id: 'iso27001:A.9',
+			_crosswalker: {
+				spec_version: 'https://crosswalker.dev/spec/tier1.schema.json',
+				source_ref: { file: 'synthetic.tsv' }, produced_at: '2026-09-24T00:00:00Z',
+				import_set: { id: 'iset-abc123', scheme: 'set-qualified-v1', parent_set: 'iset-fedcba' },
+			},
+		};
+		expect(validateTier1Frontmatter(edge).valid).toBe(true);
+		expect(validateTier1Frontmatter({ ...edge, _crosswalker: { ...edge._crosswalker,
+			import_set: { ...edge._crosswalker.import_set, parent_set: 'invalid' },
+		} }).valid).toBe(false);
+		expect(validateTier1Frontmatter({ ...edge, _crosswalker: { ...edge._crosswalker,
+			import_set: { ...edge._crosswalker.import_set, unexpected: true },
+		} }).valid).toBe(false);
+	});
+
 	it('rejects frontmatter missing the required curie field', () => {
 		const result = validateTier1Frontmatter({
 			title: 'Account Management',

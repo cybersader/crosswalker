@@ -308,6 +308,16 @@ describe('import-set ownership discovery and selection', () => {
 		});
 	});
 
+	it('retains the sole recorded parent during a standalone edge-set Replace refresh', async () => {
+		const app = mockApp({
+			'Mappings/edge.md': { raw: { id: 'iset-abc123', scheme: 'endpoint-v1', parent_set: 'iset-fedcba' } },
+		});
+		const resolved = await resolveImportSet(app, 'Mappings', { id: 'iset-abc123' }, 'sssom');
+		expect(resolved.parent_set).toBe('iset-fedcba');
+		const explicit = await resolveImportSet(app, 'Mappings', { id: 'iset-abc123', parent_set: 'iset-aabbcc' }, 'sssom');
+		expect(explicit.parent_set).toBe('iset-aabbcc');
+	});
+
 	it('refuses to change an existing set scheme during refresh', async () => {
 		const app = mockApp({
 			'Frameworks/A.md': { id: 'iset-abc123', scheme: 'endpoint-v1' },

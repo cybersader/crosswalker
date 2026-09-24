@@ -448,6 +448,8 @@ export interface WikiLink {
 
 export interface GenerationResult {
 	success: boolean;
+	/** Actual import set resolved for a native recipe run (even if no notes were written). */
+	importSetId?: string;
 	created: string[];
 	skipped: string[];
 	errors: GenerationError[];

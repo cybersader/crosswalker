@@ -431,6 +431,8 @@ describe('Crosswalker plugin — v0.1.4 junction notes + crosswalk edges', funct
 		const owner = await readFrontmatterMatching(`${base}/source`, 'Subject');
 		const set = (owner.frontmatter as any)?._crosswalker?.import_set;
 		expect(set?.id).toMatch(/^iset-/);
+		const firstEdgeSet = firstEdges[0].body.match(/^\s+id: (iset-[a-z0-9]{6})$/m)?.[1];
+		expect(firstEdgeSet).toMatch(/^iset-/);
 		const second = await browser.executeObsidian(async ({ app }, args) => {
 			// @ts-expect-error - internal plugin lookup
 			const plugin = app.plugins.plugins['crosswalker'];
@@ -439,17 +441,37 @@ describe('Crosswalker plugin — v0.1.4 junction notes + crosswalk edges', funct
 			const object = await plugin.runImportFromRecipe({ columns: ['id'], rows: [{ id: 'Second' }], rowCount: 1 }, target,
 				{ basePath: `${args.base}/target`, overwriteMode: 'replace', createFolders: true, strictValidation: true });
 			const refreshed = await plugin.runImport(args.parsedSource, args.config, { ...args.options, importSet: args.set, overwriteMode: 'skip' });
-			return { object: object.success, created: refreshed.crosswalkEdges?.created, summary: refreshed.crosswalkEdges?.summary, errors: refreshed.errors };
+			return { object: object.success, created: refreshed.crosswalkEdges?.created, sets: refreshed.crosswalkEdges?.sets,
+				summary: refreshed.crosswalkEdges?.summary, errors: refreshed.errors };
 		}, { base, targetRecipe, parsedSource, config, options, set: { id: set.id, scheme: set.scheme } });
 		expect(second.object).toBe(true);
 		expect(second.errors).toEqual([]);
-		expect(second.created).toBe(2);
+		expect(second.created).toBe(0);
+		expect(second.sets).toEqual([firstEdgeSet]);
 		expect(second.summary).toEqual([]);
+		const skippedEdges = await browser.executeObsidian(async ({ app }, dir) => {
+			const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${dir}/`));
+			return Promise.all(files.map(async (file) => await app.vault.read(file)));
+		}, edgeDir);
+		expect(skippedEdges).toHaveLength(2);
+		expect(skippedEdges.some((body) => body.includes('`p2target:Second`') && !body.includes('object_note:'))).toBe(true);
+
+		const replaced = await browser.executeObsidian(async ({ app }, args) => {
+			// @ts-expect-error - internal plugin lookup
+			const plugin = app.plugins.plugins['crosswalker'];
+			const refreshed = await plugin.runImport(args.parsedSource, args.config,
+				{ ...args.options, importSet: args.set, overwriteMode: 'replace' });
+			return { sets: refreshed.crosswalkEdges?.sets, summary: refreshed.crosswalkEdges?.summary, errors: refreshed.errors };
+		}, { parsedSource, config, options, set: { id: set.id, scheme: set.scheme } });
+		expect(replaced.errors).toEqual([]);
+		expect(replaced.sets).toEqual([firstEdgeSet]);
+		expect(replaced.summary).toEqual([]);
 		const refreshedEdges = await browser.executeObsidian(async ({ app }, dir) => {
 			const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${dir}/`));
 			return Promise.all(files.map(async (file) => await app.vault.read(file)));
 		}, edgeDir);
-		expect(refreshedEdges).toHaveLength(4);
+		expect(refreshedEdges).toHaveLength(2);
+		expect(refreshedEdges.every((body) => body.includes(`id: ${firstEdgeSet}`))).toBe(true);
 		expect(refreshedEdges.some((body) => body.includes(`[[${subjectPath.replace(/\.md$/, '')}|Subject]] is_equivalent_to [[${secondObjectPath.replace(/\.md$/, '')}|Second]]`))).toBe(true);
 	});
 });

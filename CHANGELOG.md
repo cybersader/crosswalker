@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: framework refresh no longer duplicates its crosswalk links (2026-09-24)
+
+- Refreshing a framework now finds each crosswalk link set through the framework import set recorded on its links and reuses that set, so repeated imports keep existing link identities rather than making duplicate sets. If multiple link sets claim the same framework and column, no links for that column are written until the extra set is removed in ownership review. The same recorded parent set is written on every link produced through a framework import. Existing link sets without this stamp are never guessed or adopted: the first refresh creates one stamped set, and subsequent refreshes reuse it. To reconnect links to concepts imported later, refresh the framework with Replace; Skip leaves existing links as they are.
+
 ### Added: installed stacks and re-runs (2026-09-23)
 
 - Framework stacks now save their selected frameworks, mappings, detail, and name separately from vault-specific import-set history. The launchpad lists saved stacks and shows which slots are imported, missing, or not yet imported. Teams can run a stack again, export its definition as JSON, import a copy with a new identity, or delete the saved stack without deleting vault notes.

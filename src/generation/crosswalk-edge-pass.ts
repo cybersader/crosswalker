@@ -7,7 +7,7 @@ import type { CrosswalkPredicate } from '../import/mapping/types';
 import { splitCrosswalkCell } from '../import/detection';
 import { SSSOM_CURIE_PREFIX, sssomEdgeCurie, strmToSkos } from '../import/sssom-importer';
 import { assertionBaseKey } from '../utils/mapping-provenance';
-import { discoverImportSets, newSetSchemeFor } from './import-set';
+import { discoverImportSets, newSetSchemeFor, newSetSchemeFrom, requireVaultIndexed } from './import-set';
 import { generateFromRecipe } from './generation-engine';
 import { edgeEndpointIndex, resolveEdgeEndpoints, summarizeUnresolvedEndpoints, type UnresolvedEndpoint } from './edge-endpoints';
 
@@ -37,6 +37,8 @@ export interface CrosswalkEdgePassResult {
 		column: string;
 		toOntology: string;
 		importSetId: string | null;
+		/** Owned edge notes no longer represented by this run; never deleted here. */
+		orphans?: Array<{ curie: string; path: string }>;
 		folder: string;
 		created: number;
 		skipped: number;
@@ -52,6 +54,8 @@ export interface CrosswalkEdgePassArgs {
 	entries: CrosswalkColumnEntry[];
 	sourceOntology: string;
 	recipeId: string;
+	/** Set that produced these edges; direct legacy callers may omit it. */
+	producerSetId?: string;
 	sourceFileName?: string;
 	inputs: CrosswalkEdgeInput[];
 	overwriteMode: 'skip' | 'replace' | 'error';
@@ -197,6 +201,10 @@ export async function runCrosswalkEdgePass(
 ): Promise<CrosswalkEdgePassResult> {
 	const result: CrosswalkEdgePassResult = { perEntry: [], totalCreated: 0, unresolved: [], summary: [], errors: [] };
 	const { index, unreadable } = await edgeEndpointIndex(app);
+	// Snapshot producer ownership once before any column writes change the vault.
+	if (args.producerSetId) await requireVaultIndexed(app);
+	const discovered = args.producerSetId ? await discoverImportSets(app) : [];
+	let mintedSSSOM = false;
 
 	for (const entry of args.entries) {
 		const folder = `_crosswalker/mappings/${args.sourceOntology}-to-${entry.to_ontology}`;
@@ -229,16 +237,46 @@ export async function runCrosswalkEdgePass(
 			rows: resolvedRows,
 			rowCount: derived.rows.length,
 		};
-		const importSet = await newSetSchemeFor(app, SSSOM_CURIE_PREFIX);
+		const columnRecipeId = buildCrosswalkColumnRecipe(entry, args.sourceOntology, args.recipeId).recipe;
+		// Mixed stamped and unstamped notes remain eligible if the only distinct
+		// recorded parent is this producer; no parent is inferred from unstamped notes.
+		const candidates = args.producerSetId
+			? discovered.filter((set) =>
+				(set.parentSets ?? []).length === 1
+				&& set.parentSets?.[0] === args.producerSetId
+				&& set.recipeIds.includes(columnRecipeId))
+			: [];
+		if (candidates.length > 1) {
+			const ids = candidates.map((set) => set.id).sort().join(', ');
+			const error = { row: -1, message: `Crosswalk links for ${entry.column} were not updated. More than one link set records this framework as its source: ${ids}. Remove the extra set in ownership review, then run the import again.` };
+			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, skipped: 0, errors: [error] });
+			result.errors.push(error);
+			continue;
+		}
+		const destination = candidates.length === 1
+			? candidates[0].root // validated recorded destination, or recovered from moved notes
+			: folder;
+		if (destination === null) {
+			const error = { row: -1, message: `Crosswalk links for ${entry.column} were not updated. Link set ${candidates[0].id} has no shared destination. Resolve its location in ownership review, then run the import again.` };
+			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, skipped: 0, errors: [error] });
+			result.errors.push(error);
+			continue;
+		}
+		const importSetOption = candidates.length === 1
+			? { id: candidates[0].id }
+			: args.producerSetId
+				? (mintedSSSOM ? 'new-set-qualified' : newSetSchemeFrom(discovered, SSSOM_CURIE_PREFIX))
+				: await newSetSchemeFor(app, SSSOM_CURIE_PREFIX);
 		const generation = await generateFromRecipe(
 			app,
 			parsedData,
 			buildCrosswalkColumnRecipe(entry, args.sourceOntology, args.recipeId),
 			{
-				basePath: folder,
+				basePath: destination,
 				overwriteMode: args.overwriteMode,
 				createFolders: true,
-				importSet,
+				importSet: importSetOption,
+				producerSetId: args.producerSetId,
 				sourceFileName: args.sourceFileName,
 				strictValidation: true,
 				curieLocalPart: (row, _rowNumber, set) => sssomEdgeCurie(row, set),
@@ -247,6 +285,8 @@ export async function runCrosswalkEdgePass(
 			},
 			debug,
 		);
+
+		if (candidates.length === 0 && generation.created.length > 0) mintedSSSOM = true;
 
 		if (generation.success && args.runProjection) {
 			try {
@@ -267,22 +307,14 @@ export async function runCrosswalkEdgePass(
 			}
 		}
 
-		let importSetId: string | null = null;
-		try {
-			const created = new Set(generation.created);
-			const sets = await discoverImportSets(app, folder);
-			importSetId = sets.find((set) => set.paths.some((path) => created.has(path)))?.id ?? null;
-		} catch (error) {
-			debug?.warn('crosswalk-edge-pass', 'set-discovery-failed', 'Could not read the new crosswalk import set id', {
-				error: error instanceof Error ? error.message : String(error),
-			});
-		}
+		const importSetId = generation.created.length > 0 || generation.skipped.length > 0 ? generation.importSetId ?? null : null;
 
 		const entryResult = {
 			column: entry.column,
 			toOntology: entry.to_ontology,
 			importSetId,
-			folder,
+			...(generation.orphans?.length ? { orphans: generation.orphans } : {}),
+			folder: destination,
 			created: generation.created.length,
 			skipped: generation.skipped.length,
 			errors: generation.errors,

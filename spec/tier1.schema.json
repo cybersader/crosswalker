@@ -4,7 +4,7 @@
   "title": "Crosswalker Tier 1",
   "description": "The canonical contract for a Crosswalker vault. Tier 1 is the load-bearing primitive: any producer (the bundled engine, an external Python script, an AI agent, an MCP server, hand-written notes) that emits files conforming to this schema produces a valid Crosswalker vault. Validation surface covers YAML frontmatter shape only — folder layout and Markdown body are recipe-defined and out of scope here. See https://crosswalker.dev/spec/recipe.schema.json for recipe shape.",
   "type": "object",
-  "$comment": "v0.1. JSON Schema 2020-12. Stable URI; breaking changes will bump to /v2/. Discrimination by `kind` field: kind='junction-note' must match junction-note shape; kind='crosswalk-edge' must match crosswalk-edge shape; absent kind (or any other value) must match concept-note shape. Uses allOf+if/then so AJV can produce specific error messages from the matching branch. SchemaVer 1.4.0. Additive history: 1.1.0 (2026-08-28, Ch 43) added the optional `reviewed_against` block on junction_note_frontmatter (the control fingerprint an attestation was approved against) and the optional `review_cid` on provenance_block (the concept-side current value); 1.2.0 (2026-08-28, Ch 43) widened the crosswalk_edge_frontmatter predicate_id enum with the release-lineage pair `superseded_by` / `supersedes`. 1.3.0 (2026-08-28, Ch 43) added optional recipe-driven review_groups to concept provenance and reviewed_against so a changed whole-row fingerprint can be classified as wording, scope, or housekeeping. 1.4.0 (2026-09-06) added the optional strict `_crosswalker.recipe.recipe_document_digest` reference to the complete normalized canonical recipe used for a note. All steps are property/enum widenings only: every document that validated before still validates, so the $id is unchanged.",
+  "$comment": "v0.1. JSON Schema 2020-12. Stable URI; breaking changes will bump to /v2/. Discrimination by `kind` field: kind='junction-note' must match junction-note shape; kind='crosswalk-edge' must match crosswalk-edge shape; absent kind (or any other value) must match concept-note shape. Uses allOf+if/then so AJV can produce specific error messages from the matching branch. SchemaVer 1.5.0. Additive history: 1.1.0 (2026-08-28, Ch 43) added the optional `reviewed_against` block on junction_note_frontmatter (the control fingerprint an attestation was approved against) and the optional `review_cid` on provenance_block (the concept-side current value); 1.2.0 (2026-08-28, Ch 43) widened the crosswalk_edge_frontmatter predicate_id enum with the release-lineage pair `superseded_by` / `supersedes`. 1.3.0 (2026-08-28, Ch 43) added optional recipe-driven review_groups to concept provenance and reviewed_against so a changed whole-row fingerprint can be classified as wording, scope, or housekeeping. 1.4.0 (2026-09-06) added the optional strict `_crosswalker.recipe.recipe_document_digest` reference to the complete normalized canonical recipe used for a note. 1.5.0 (2026-09-24) added optional `import_set.parent_set` to record the producing framework import set for crosswalk edge sets. All steps are property/enum widenings only: every document that validated before still validates, so the $id is unchanged.",
 
   "$defs": {
     "curie": {
@@ -118,6 +118,11 @@
               "type": "string",
               "pattern": "^iset-[a-z0-9]{6}$",
               "description": "Crypto-random, semantically meaningless import-set identifier. Minted once and reused on refresh."
+            },
+            "parent_set": {
+              "type": "string",
+              "pattern": "^iset-[a-z0-9]{6}$",
+              "description": "The id of the import set whose run produced this set; written on crosswalk edge sets only."
             },
             "scheme": {
               "type": "string",

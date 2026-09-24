@@ -1,12 +1,15 @@
 import { TFile, TFolder } from 'obsidian';
 import type { App } from 'obsidian';
-import { load } from 'js-yaml';
+import { dump, load } from 'js-yaml';
 import {
 	deriveCrosswalkEdgeRows,
+	buildCrosswalkColumnRecipe,
 	runCrosswalkEdgePass,
 	type CrosswalkEdgeInput,
 } from '../src/generation/crosswalk-edge-pass';
-import { generateNotes } from '../src/generation/generation-engine';
+import { generateFromRecipe, generateNotes } from '../src/generation/generation-engine';
+import { sssomEdgeCurie } from '../src/generation/crosswalk-identity';
+import { discoverImportSets } from '../src/generation/import-set';
 import { validateTier1Frontmatter } from '../src/validation/validator';
 import type { DebugLog } from '../src/utils/debug';
 import type { Recipe } from '../src/render';
@@ -188,7 +191,7 @@ function conceptOptions(recipe: Recipe) {
 }
 
 describe('crosswalk edge pass and generation hook', () => {
-	it('writes separately owned valid edge notes, preserves source provenance, and mints another set on the second pass', async () => {
+	it('writes separately owned edge notes, mints for a new framework set, and reuses on refresh', async () => {
 		const harness = makeApp();
 		const projection = jest.fn(async () => undefined);
 		const closure = jest.fn(async () => 4);
@@ -236,6 +239,7 @@ describe('crosswalk edge pass and generation hook', () => {
 			const fm = frontmatter(text);
 			expect(validateTier1Frontmatter(fm)).toEqual(expect.objectContaining({ valid: true }));
 			expect(fm._crosswalker.import_set.ontology).toBe('sssom');
+			expect(fm._crosswalker.import_set.parent_set).toBe(conceptSet!.id);
 			expect(fm._crosswalker.source_ref.file).toBe('synthetic-cri.csv');
 			firstEdgeSetIds.add(fm._crosswalker.import_set.id);
 		}
@@ -243,23 +247,28 @@ describe('crosswalk edge pass and generation hook', () => {
 		expect(firstEdgeSetIds).not.toEqual(conceptSetIds);
 		const firstPathsAndBytes = new Map(edgeNotes);
 
-		const inputs: CrosswalkEdgeInput[] = ROWS.map((row) => ({
-			curie: `cri-profile:${row.id}`,
-			row,
-			title: row.title,
-		}));
 		const second = await runCrosswalkEdgePass(harness.app, {
-			entries: [ENTRY],
-			sourceOntology: 'cri-profile',
-			recipeId: 'synthetic-cri-crosswalk',
-			sourceFileName: 'synthetic-cri.csv',
-			inputs,
+			entries: [ENTRY], sourceOntology: 'cri-profile', recipeId: 'synthetic-cri-crosswalk',
+			producerSetId: 'iset-fedcba', sourceFileName: 'synthetic-cri.csv',
+			inputs: ROWS.map((row) => ({ curie: `cri-profile:${row.id}`, row, title: row.title })),
 			overwriteMode: 'replace',
 		}, debug);
 		expect(second.errors).toEqual([]);
 		expect(second.totalCreated).toBe(5);
 		expect(second.perEntry[0].importSetId).not.toBe([...firstEdgeSetIds][0]);
 		for (const [path, text] of firstPathsAndBytes) expect(harness.files.get(path)).toBe(text);
+
+		const replaceRefresh = await generateNotes(
+			harness.app,
+			{ columns: Object.keys(ROWS[0]), rows: ROWS, rowCount: ROWS.length },
+			CONFIG,
+			{ ...conceptOptions(conceptRecipe()), importSet: conceptSet!, overwriteMode: 'replace' },
+			debug,
+		);
+		expect(replaceRefresh.errors).toEqual([]);
+		expect(replaceRefresh.crosswalkEdges?.sets).toEqual([[...firstEdgeSetIds][0]]);
+		const afterReplace = new Map([...harness.files.entries()].filter(([path]) => path.startsWith('_crosswalker/mappings/')));
+		expect(afterReplace).toHaveProperty('size', 10);
 
 		const skipRefresh = await generateNotes(
 			harness.app,
@@ -275,10 +284,29 @@ describe('crosswalk edge pass and generation hook', () => {
 		expect(skipRefresh.errors).toEqual([]);
 		expect(skipRefresh.created).toEqual([]);
 		expect(skipRefresh.skipped).toHaveLength(6);
-		expect(skipRefresh.crosswalkEdges?.created).toBe(5);
-		expect(skipRefresh.crosswalkEdges?.sets).toHaveLength(1);
-		expect(skipRefresh.crosswalkEdges?.sets[0]).not.toBe([...firstEdgeSetIds][0]);
-		for (const [path, text] of firstPathsAndBytes) expect(harness.files.get(path)).toBe(text);
+		expect(skipRefresh.crosswalkEdges?.created).toBe(0);
+		expect(skipRefresh.crosswalkEdges?.sets).toEqual([[...firstEdgeSetIds][0]]);
+		expect([...harness.files.keys()].filter((path) => path.startsWith('_crosswalker/mappings/'))).toHaveLength(10);
+		for (const [path, text] of afterReplace) expect(harness.files.get(path)).toBe(text);
+	});
+
+	it('keeps one from-slot link set when a stack framework is refreshed', async () => {
+		const { app, files } = makeApp();
+		const recipe = { ...conceptRecipe(), recipe: 'cri-profile-v2-2-nested' };
+		const data = { columns: Object.keys(ROWS[0]), rows: [ROWS[0]], rowCount: 1 };
+		const first = await generateNotes(app, data, CONFIG, conceptOptions(recipe), debug);
+		expect(first.errors).toEqual([]);
+		const frameworkSet = frontmatter([...files.entries()].find(([path]) => path.startsWith('Frameworks/'))![1])._crosswalker.import_set;
+		const initial = first.crosswalkEdges!.sets[0];
+		const refreshed = await generateNotes(app, data, CONFIG,
+			{ ...conceptOptions(recipe), importSet: { id: frameworkSet.id }, overwriteMode: 'replace' }, debug);
+		expect(refreshed.errors).toEqual([]);
+		expect(refreshed.crosswalkEdges?.sets).toEqual([initial]);
+		const owned = (await discoverImportSets(app)).filter((set) =>
+			set.parentSets?.length === 1 && set.parentSets[0] === frameworkSet.id
+			&& set.recipeIds.includes('cri-profile-v2-2-nested::crosswalk::nist-csf-v2-mapping'));
+		expect(owned.map((set) => set.id)).toEqual([initial]);
+		expect([...files.keys()].filter((path) => path.startsWith('_crosswalker/mappings/'))).toHaveLength(2);
 	});
 
 	it('runs closure even when Tier 2 projection reports an error', async () => {
@@ -359,5 +387,167 @@ describe('P2 endpoint links by concept identity', () => {
 		expect(frontmatter(newEdge).object_note).toBe('[[Frameworks/csf/Govern/Outcome|Outcome]]');
 		expect(newEdge).toContain('[[Frameworks/cri/Statement|Statement]] is_approximate_to [[Frameworks/csf/Govern/Outcome|Outcome]]');
 		expect([...files.keys()].filter((path) => path.startsWith('Frameworks/csf/'))).toEqual(['Frameworks/csf/Govern/Outcome.md']);
+	});
+});
+
+
+describe('recorded producer resolution', () => {
+	const args = (producerSetId?: string, overwriteMode: 'replace' | 'skip' = 'replace') => ({
+		entries: [ENTRY], sourceOntology: 'cri-profile', recipeId: 'synthetic-producer',
+		inputs: INPUTS, overwriteMode, producerSetId,
+	});
+	const notes = (files: Map<string, string>) => [...files.entries()].filter(([path]) => path.startsWith('_crosswalker/mappings/'));
+
+	it('mints a producer-backed edge set with declared-facts identity', async () => {
+		const { app, files } = makeApp();
+		const result = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		expect(result.errors).toEqual([]);
+		const edge = notes(files).map(([, text]) => frontmatter(text)).find((fm) => fm.object_id === 'nist-csf-2:GV.OC-01')!;
+		expect(edge._crosswalker.import_set.derivation).toBe('declared-facts-v1');
+		expect(edge._crosswalker.import_set.parent_set).toBe('iset-abcdef');
+		expect(edge.curie).toBe('sssom:cw-cri-profile-GV-OC-01-01--9bd6f57447-nist-csf-2-GV-OC-01--6acf6fb373');
+	});
+
+	it('mints a legacy direct-call edge set with declared-facts identity', async () => {
+		const { app, files } = makeApp();
+		const result = await runCrosswalkEdgePass(app, args(), debug);
+		expect(result.errors).toEqual([]);
+		const edge = notes(files).map(([, text]) => frontmatter(text)).find((fm) => fm.object_id === 'nist-csf-2:GV.OC-01')!;
+		expect(edge._crosswalker.import_set.derivation).toBe('declared-facts-v1');
+		expect(edge._crosswalker.import_set.parent_set).toBeUndefined();
+		expect(edge.curie).toBe('sssom:cw-cri-profile-GV-OC-01-01--9bd6f57447-nist-csf-2-GV-OC-01--6acf6fb373');
+	});
+
+	it('preserves the producer stamp on standalone SSSOM Replace', async () => {
+		const { app, files } = makeApp();
+		const first = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		const id = first.perEntry[0].importSetId!;
+		const rows = deriveCrosswalkEdgeRows(ENTRY, 'cri-profile', 'synthetic-producer', INPUTS).rows
+			.map((row) => ({ ...row, edge_body: 'Synthetic edge' }));
+		const refreshed = await generateFromRecipe(app, {
+			columns: Object.keys(rows[0]), rows, rowCount: rows.length,
+		}, buildCrosswalkColumnRecipe(ENTRY, 'cri-profile', 'synthetic-producer'), {
+			basePath: first.perEntry[0].folder, importSet: { id }, overwriteMode: 'replace', createFolders: true,
+			curieLocalPart: (row, _index, set) => sssomEdgeCurie(row, set), curiePrefix: 'sssom',
+		}, debug);
+		expect(refreshed.errors).toEqual([]);
+		expect(refreshed.importSetId).toBe(id);
+		expect(notes(files)).toHaveLength(2);
+		for (const [, text] of notes(files)) expect(frontmatter(text)._crosswalker.import_set.parent_set).toBe('iset-abcdef');
+	});
+
+	it('reuses the root recovered after moving the edge set', async () => {
+		const { app, files } = makeApp();
+		const first = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		const previousFolder = first.perEntry[0].folder;
+		const movedFolder = '_crosswalker/relocated/cri-to-csf';
+		for (const [path, text] of notes(files)) {
+			files.delete(path);
+			files.set(`${movedFolder}/${path.slice(previousFolder.length + 1)}`, text);
+		}
+		const second = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		expect(second.errors).toEqual([]);
+		expect(second.perEntry[0].importSetId).toBe(first.perEntry[0].importSetId);
+		expect(second.perEntry[0].folder).toBe(movedFolder);
+		const relocated = [...files.entries()].filter(([path]) => path.startsWith(`${movedFolder}/`));
+		expect(relocated).toHaveLength(2);
+		expect(notes(files)).toHaveLength(0);
+		expect(relocated.every(([path, text]) => path.startsWith(`${movedFolder}/`)
+			&& frontmatter(text)._crosswalker.import_set.destination === movedFolder)).toBe(true);
+	});
+
+	it('preserves the legacy direct-call behavior when the producer is absent', async () => {
+		const { app, files } = makeApp();
+		const first = await runCrosswalkEdgePass(app, args(), debug);
+		const second = await runCrosswalkEdgePass(app, args(), debug);
+		expect(second.errors).toEqual([]);
+		expect(second.perEntry[0].importSetId).not.toBe(first.perEntry[0].importSetId);
+		expect(notes(files)).toHaveLength(4);
+		for (const [, value] of notes(files)) expect(frontmatter(value)._crosswalker.import_set.parent_set).toBeUndefined();
+	});
+
+	it('never adopts a legacy unstamped set and then reuses its own stamped set', async () => {
+		const { app, files } = makeApp();
+		const legacy = await runCrosswalkEdgePass(app, args(), debug);
+		expect((await discoverImportSets(app)).find((set) => set.id === legacy.perEntry[0].importSetId)).not.toHaveProperty('parentSets');
+		const first = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		expect(first.perEntry[0].importSetId).not.toBe(legacy.perEntry[0].importSetId);
+		const repeat = await runCrosswalkEdgePass(app, args('iset-abcdef', 'skip'), debug);
+		expect(repeat.perEntry[0].importSetId).toBe(first.perEntry[0].importSetId);
+		expect(repeat.totalCreated).toBe(0);
+		expect(notes(files)).toHaveLength(4);
+		for (const [, value] of notes(files).filter(([, text]) => frontmatter(text)._crosswalker.import_set.id === first.perEntry[0].importSetId)) {
+			expect(frontmatter(value)._crosswalker.import_set.parent_set).toBe('iset-abcdef');
+		}
+	});
+
+	it('refuses multiple exact candidates without writing any edges for the column', async () => {
+		const { app, files, create, modify } = makeApp();
+		await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		await runCrosswalkEdgePass(app, args('iset-fedcba'), debug);
+		const secondSet = notes(files).filter(([, value]) => frontmatter(value)._crosswalker.import_set.parent_set === 'iset-fedcba');
+		for (const [path, value] of secondSet) {
+			const fm = frontmatter(value);
+			fm._crosswalker.import_set.parent_set = 'iset-abcdef';
+			const yaml = value.match(/^---\n[\s\S]*?\n---/)![0];
+			files.set(path, value.replace(yaml, `---\n${dump(fm).trimEnd()}\n---`));
+		}
+		const before = new Map(files);
+		create.mockClear(); modify.mockClear();
+		const blocked = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		expect(blocked.perEntry[0].importSetId).toBeNull();
+		expect(blocked.perEntry[0].errors[0].message).toMatch(/More than one link set records this framework as its source: iset-/);
+		expect(create).not.toHaveBeenCalled();
+		expect(modify).not.toHaveBeenCalled();
+		expect(files).toEqual(before);
+	});
+
+	it('does not adopt a set with two recorded parent values', async () => {
+		const { app, files } = makeApp();
+		const first = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		const setId = first.perEntry[0].importSetId;
+		const entry = notes(files).find(([, value]) => frontmatter(value).object_id === 'nist-csf-2:GV.OC-02')!;
+		const fm = frontmatter(entry[1]);
+		fm._crosswalker.import_set.parent_set = 'iset-fedcba';
+		const yaml = entry[1].match(/^---\n[\s\S]*?\n---/)![0];
+		files.set(entry[0], entry[1].replace(yaml, `---\n${dump(fm).trimEnd()}\n---`));
+		expect((await discoverImportSets(app)).find((set) => set.id === setId)?.parentSets).toEqual(['iset-abcdef', 'iset-fedcba']);
+		const second = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		expect(second.perEntry[0].importSetId).not.toBe(setId);
+		expect(second.errors).toEqual([]);
+	});
+
+	it('reports a dropped edge as an orphan on a reused Replace refresh', async () => {
+		const { app, files } = makeApp();
+		const initial = {
+			entries: [ENTRY], sourceOntology: 'cri-profile', recipeId: 'synthetic-orphans',
+			producerSetId: 'iset-abcdef', inputs: INPUTS, overwriteMode: 'replace' as const,
+		};
+		const first = await runCrosswalkEdgePass(app, initial, debug);
+		const old = [...files.entries()].find(([, value]) => frontmatter(value).object_id === 'nist-csf-2:GV.OC-02')!;
+		const refreshed = await runCrosswalkEdgePass(app, {
+			...initial, inputs: [{ ...INPUTS[0], row: { [ENTRY.column]: 'GV.OC-01' } }],
+		}, debug);
+		expect(refreshed.errors).toEqual([]);
+		expect(refreshed.perEntry[0].importSetId).toBe(first.perEntry[0].importSetId);
+		expect(refreshed.perEntry[0].orphans).toContainEqual({ curie: frontmatter(old[1]).curie, path: old[0] });
+		expect(files.get(old[0])).toBe(old[1]);
+	});
+
+	it('keeps set-qualified curies stable on replace refresh', async () => {
+		const { app, files } = makeApp();
+		await runCrosswalkEdgePass(app, args(), debug); // Occupy endpoint-v1; next minted set is set-qualified-v1.
+		const first = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		const edgeSetId = first.perEntry[0].importSetId;
+		const curies = notes(files).map(([, value]) => frontmatter(value))
+			.filter((fm) => fm._crosswalker.import_set.id === edgeSetId).map((fm) => fm.curie).sort();
+		expect(curies).toHaveLength(2);
+		expect(curies.every((curie) => curie.startsWith(`sssom:cwset-${edgeSetId}-`))).toBe(true);
+		const refreshed = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
+		expect(refreshed.perEntry[0].importSetId).toBe(edgeSetId);
+		const after = notes(files).map(([, value]) => frontmatter(value))
+			.filter((fm) => fm._crosswalker.import_set.id === edgeSetId).map((fm) => fm.curie).sort();
+		expect(after).toEqual(curies);
+		expect(notes(files)).toHaveLength(4);
 	});
 });
