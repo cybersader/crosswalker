@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: a framework stack shows its file count before it writes (2026-09-28)
+
+- The stack's **Review before import** screen now counts what each framework and mapping will write (notes, crosswalk notes, folders) and shows a total line naming the destination folders. Estimates read "about"; Skip rows write nothing; Refresh rows read "rewrites up to N" and count toward the total.
+- **Import stack** carries the total. A run above the new **Stack file confirmation threshold** setting (default 1,000; 0 always confirms) opens a confirmation first, and **Back to review** writes nothing. An all-Skip run disables the button.
+- The count parses each source once and the import reuses that parse. On the real published downloads, counting the core stack took under 2 seconds, and every exact count matched what the import wrote.
+- Not counted: source files already copied into the vault when you added them, plugin settings, the debug log, and the query index (browser storage, not the vault).
+
 ### Fifth prerelease preparation, 0.1.4 (2026-09-24)
 
 - Prepared version `0.1.4` as the fifth BRAT prerelease, carrying the real-download framework stack fixes below on top of `0.1.3`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.4` entry. The user-facing notes live under `## [0.1.4]` near the end of this file, which is where the release job reads them.

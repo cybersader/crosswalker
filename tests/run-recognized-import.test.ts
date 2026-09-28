@@ -13,6 +13,8 @@ import {
 	visibleGenerationWarnings,
 } from '../src/import/run-recognized-import';
 import type { DebugLog } from '../src/utils/debug';
+import { planStack } from '../src/import/stack/stack-plan';
+import { prepareSourceStage } from '../src/source';
 
 class ByteFile {
 	readonly name: string;
@@ -167,6 +169,29 @@ describe('runRecognizedImport', () => {
 			.toEqual(['Row 2: Missing prefix piece', 'Row 2: Folder skipped', 'Row 2: Unexpected source shape']);
 		expect(visibleGenerationWarnings(warnings, NIST_NESTED, [{ Level: 'F' }, { Level: 'F' }])).toHaveLength(7);
 	});
+	it('plan-equals-actual on a synthetic nested framework with a top-level filter', async () => {
+		const csv = ['identifier,name,control_text,discussion,related',
+			'ZZ-1,Invented control,Invented body,,',
+			'ZZ-1(1),Invented enhancement,Invented body,,'].join('\n');
+		const harness = makeApp('Incoming/synthetic.csv', csv);
+		const parsed = await parseCSVFile(new File([csv], 'synthetic.csv'));
+		const where = "$not($contains(identifier, '('))";
+		const stage = await prepareSourceStage(parsed, { ...NIST_NESTED.recipe.source, where });
+		const selected: Record<string, unknown>[] = [];
+		for await (const row of stage.rows) selected.push(row);
+		stage.finalize();
+		// One selected control, plus its synthetic implied family note.
+		const plan = planStack({ slots: [{ id: 'synthetic', label: 'Synthetic', root: 'Ontologies/Synthetic',
+			mode: 'new', notes: { count: selected.length + 1, exact: false }, folders: { count: 2, exact: false } }], mappings: [] });
+		const outcome = await runRecognizedImport(harness.app, plugin(), {
+			file: harness.source, entry: NIST_NESTED, table: '', headerRow: 0, sourceWhere: where,
+			parsedData: parsed,
+		});
+		expect(outcome.ok).toBe(true);
+		expect(plan.slots[0].notes.count).toBeGreaterThanOrEqual(outcome.created);
+		expect(outcome.created).toBe(2);
+		expect(plan.slots[0].newFiles.count).toBeGreaterThanOrEqual(harness.create.mock.calls.length);
+	});
 	it('filters nested NIST enhancements per run, preserving the bundled recipe', async () => {
 		const rows = [
 			'identifier,name,control_text,discussion,related',
@@ -268,6 +293,9 @@ describe('runRecognizedImport', () => {
 			errors: [],
 			parsedRowCount: 6,
 		});
+		const flatPlan = planStack({ slots: [{ id: ENTRY.id, label: 'Synthetic flat', root: destination,
+			mode: 'new', notes: { count: parsed.rowCount, exact: true } }], mappings: [] });
+		expect(flatPlan.slots[0].notes.count).toBe(outcome.created);
 		expect(outcome.importSetId).toMatch(/^iset-[a-z0-9]{6}$/);
 		expect(runnerHarness.files.size).toBe(directHarness.files.size);
 		for (const content of runnerHarness.files.values()) {
