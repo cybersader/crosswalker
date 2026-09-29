@@ -966,6 +966,17 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 		summary.createSpan({ text: 'Advanced' });
 
 		new Setting(details)
+			.setName('Stack file confirmation threshold')
+			.setDesc('Confirm a stack import when planned new files and possible rewrites exceed this number. Set to 0 to always confirm.')
+			.addText((text) => text.setValue(String(this.plugin.settings.stackConfirmFileThreshold))
+				.onChange(async (value) => {
+					const threshold = Number(value);
+					if (!Number.isSafeInteger(threshold) || threshold < 0) return;
+					this.plugin.settings.stackConfirmFileThreshold = threshold;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(details)
 			.setName('Streaming threshold')
 			.setDesc('Files larger than this many megabytes are parsed with the streaming reader.')
 			.addSlider((slider) =>

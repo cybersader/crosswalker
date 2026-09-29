@@ -65,6 +65,59 @@ async function mustClick(label: string): Promise<void> {
 		throw new Error(`Button "${label}" missing or disabled. Modal: ${text.slice(0, 1500)}`);
 	}
 }
+
+interface PlannedRow { root: string; notes: number; exact: boolean; mainNotes: number; extraNotes: number; extraRoots: string[] }
+async function reviewPlan(label: string): Promise<{ rows: PlannedRow[]; countMs: number }> {
+	await browser.waitUntil(async () => browser.executeObsidian(() => {
+		const total = document.querySelector('.crosswalker-stack-total');
+		return !!total && !total.textContent?.includes('Counting files') && !total.textContent?.includes('Count pending');
+	}), { timeout: 300_000, interval: 1000, timeoutMsg: `${label}: review count did not settle` });
+	const plan = await browser.executeObsidian(() => {
+		const total = document.querySelector<HTMLElement>('.crosswalker-stack-total');
+		return { countMs: Number(total?.dataset.countMs ?? 0),
+			rows: Array.from(document.querySelectorAll<HTMLElement>('.crosswalker-stack-result[data-planned-notes]'))
+				.filter((row) => row.dataset.plannedRoot && !row.textContent?.includes('Skip: writes nothing'))
+				.map((row) => ({ root: row.dataset.plannedRoot!, notes: Number(row.dataset.plannedNotes), exact: row.dataset.plannedExact === 'true',
+					mainNotes: Number(row.dataset.plannedMainNotes ?? row.dataset.plannedNotes), extraNotes: Number(row.dataset.plannedExtraNotes ?? 0),
+					extraRoots: JSON.parse(row.dataset.plannedExtraRoots ?? '[]') as string[] })) };
+	});
+	log(`${label}-plan-aggregates`, { countMs: plan.countMs, rows: plan.rows.map((row) => ({ notes: row.notes, exact: row.exact })) });
+	if (plan.countMs > 10_000) log(`${label}-count-budget`, 'Review counting exceeded 10 seconds; no speculative caching applied');
+	return plan;
+}
+async function startImport(): Promise<void> {
+	const clicked = await browser.executeObsidian(() => {
+		const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-footer button'))
+			.find((item) => item.textContent?.startsWith('Import stack ('));
+		if (button && !button.disabled) button.click();
+		return !!button && !button.disabled;
+	});
+	if (!clicked) throw new Error('Count-bearing import button missing or disabled');
+	const confirm = await browser.executeObsidian(() => !!document.querySelector('.crosswalker-stack-confirm'));
+	if (confirm) {
+		const approved = await browser.executeObsidian(() => {
+			const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-confirm button'))
+				.find((item) => item.textContent?.trim() === 'Import');
+			button?.click(); return !!button;
+		});
+		if (!approved) throw new Error('Confirmation gate has no Import button');
+	}
+}
+async function checkPlanNotes(label: string, plan: { rows: PlannedRow[] }): Promise<void> {
+	const actual = await browser.executeObsidian(({ app }, rows) => rows.map((row) => {
+		const files = app.vault.getMarkdownFiles();
+		const main = files.filter((file) => file.path.startsWith(`${row.root}/`)).length;
+		const edges = row.extraRoots.reduce((sum, root) => sum + files.filter((file) => file.path.startsWith(`${root}/`)).length, 0);
+		return { main, edges, total: main + edges };
+	}), plan.rows);
+	log(`${label}-planned-vs-actual`, plan.rows.map((row, index) => ({ planned: row.notes, actual: actual[index].total,
+		mainPlanned: row.mainNotes, mainActual: actual[index].main, edgePlanned: row.extraNotes,
+		edgeActual: actual[index].edges, exact: row.exact })));
+	plan.rows.forEach((row, index) => {
+		if (row.exact) expect(actual[index].total).toBe(row.notes);
+		else expect(actual[index].total).toBeLessThanOrEqual(row.notes);
+	});
+}
 async function modalText(): Promise<string> {
 	return browser.executeObsidian((_obs, sanitize) => {
 		// eslint-disable-next-line no-new-func
@@ -333,10 +386,11 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 		await useAnyway('default');
 		await shot('03b-recognize-accepted');
 		await mustClick('Next: review');
+		const defaultPlan = await reviewPlan('default');
 		await shot('04-review');
 		log('default-review-text', await modalText());
 		await tapProblems();
-		await mustClick('Import stack');
+		await startImport();
 		try {
 			await waitForComplete('default');
 		} finally {
@@ -350,6 +404,7 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 			await logProblems('default');
 		}
 		await measure('default');
+		await checkPlanNotes('default', defaultPlan);
 		await assertNoPlaceholderLinks('default');
 		const criCsf = await browser.executeObsidian(({ app }) => {
 			const edges = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith('_crosswalker/mappings/cri-profile-to-nist-csf-2/'));
@@ -422,10 +477,15 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 		expect(choices.every((choice) => choice.selected?.toLowerCase().includes('skip'))).toBe(true);
 		log('rerun-review-text', await modalText());
 		expect(await modalText()).not.toContain('(new 2)');
+		await reviewPlan('rerun');
 		await shot('08-rerun-review');
-		await tapProblems();
-		await mustClick('Import stack');
-		try { await waitForComplete('rerun', 120_000); } finally { await shot('09-rerun-complete'); await logProblems('rerun'); }
+		const disabled = await browser.executeObsidian(() => {
+			const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-footer button'))
+				.find((item) => item.textContent?.trim() === 'Nothing to write');
+			return !!button?.disabled;
+		});
+		log('rerun-all-skip-disabled', disabled);
+		expect(disabled).toBe(true);
 		const after = await browser.executeObsidian(({ app }) => {
 			const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith('Frameworks/') || f.path.startsWith('_crosswalker/'));
 			return { count: files.length, mtimeMax: Math.max(...files.map((f) => f.stat.mtime)), sizeSum: files.reduce((s, f) => s + f.stat.size, 0) };
@@ -441,7 +501,7 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 			}
 			return byFolder;
 		}, before.mtimeMax));
-		await click('Done');
+		await browser.keys('Escape');
 		// Local opt-in profiles an explicitly selected refresh of an existing,
 		// populated mapping set. The ordinary Run again assertion stays all-skip.
 		if (process.env.LOCAL_STACK_PROFILE_REFRESH === '1') {
@@ -460,7 +520,7 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 			});
 			log('refresh-profile-offered', offered);
 			if (!offered) throw new Error('Explicit mapping refresh was unavailable');
-			await mustClick('Import stack');
+			await startImport();
 			await waitForComplete('refresh-profile', 300_000);
 			await shot('09b-refresh-profile-complete');
 			await click('Done');
@@ -493,12 +553,14 @@ describe('LOCAL real framework stack (gitignored publisher files)', function () 
 		await assertCriRecognized('optional');
 		await useAnyway('optional');
 		await mustClick('Next: review');
+		const optionalPlan = await reviewPlan('optional');
 		log('optional-review-text', await modalText());
 		await shot('13-optional-review');
 		await tapProblems();
-		await mustClick('Import stack');
+		await startImport();
 		try { await waitForComplete('optional'); } finally { await shot('14-optional-complete'); await logProblems('optional'); }
 		await measure('optional');
+		await checkPlanNotes('optional', optionalPlan);
 		await assertNoPlaceholderLinks('optional');
 		const direct = await browser.executeObsidian(({ app }) => app.vault.getMarkdownFiles()
 			.filter((file) => file.path.startsWith('_crosswalker/mappings/cri-profile-to-nist-800-53/')).length);

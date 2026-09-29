@@ -105,6 +105,8 @@ export interface CrosswalkerSettings {
 	/** Recipe compositions; vault-specific run facts are stored separately. */
 	stacks: StackDefinition[];
 	stackRuns: StackRunRecord[];
+	/** File-write confirmation gate for stack imports; zero confirms every nonempty run. */
+	stackConfirmFileThreshold: number;
 }
 
 export type KeyNamingStyle = 'as-is' | 'lowercase' | 'snake_case' | 'camelCase' | 'kebab-case';
@@ -169,5 +171,6 @@ export const DEFAULT_SETTINGS: CrosswalkerSettings = {
 	// Saved configs and stack recipe compositions (run facts kept separately)
 	savedConfigs: [],
 	stacks: [],
-	stackRuns: []
+	stackRuns: [],
+	stackConfirmFileThreshold: 1000
 };

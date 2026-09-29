@@ -7,7 +7,15 @@ import { discoverImportSets, settleVaultIndex } from '../../generation/import-se
 import { outputRootPath } from '../../settings/folder-settings';
 import { MAPPING_PRESETS } from '../recipe-registry';
 import { ImportWizardModal, recognizedDestination, refreshRootProblem } from '../import-wizard';
-import { runRecognizedImport } from '../run-recognized-import';
+import { parseRecognizedSource, runRecognizedImport } from '../run-recognized-import';
+import { applyHeaderAliases } from '../recipe-registry';
+import { prepareSourceStage } from '../../source';
+import { parseSssomTsv } from '../sssom-parser';
+import { readCtidJson, readOlirWorkbookDetails } from './mapping-readers';
+import { renderTemplate } from '../../render/template';
+import { deriveCrosswalkEdgeRows } from '../../generation/crosswalk-edge-pass';
+import type { ParsedData } from '../../types/config';
+import { planStack, requiresStackConfirmation, stackPlanRow, stackPlanSummary, stackPlanTotal, type StackPlan, type StackPlanInput } from './stack-plan';
 import { peekXLSXBytes } from '../parsers/xlsx-parser';
 import { peekCSV, peekJSON } from '../vault-source-scan';
 import { LARGE_FILE_BYTES } from '../vault-source-scan-runner';
@@ -52,6 +60,12 @@ export class StackSetupModal extends Modal {
 	private runWarnings: string[] = [];
 	private skipped = 0;
 	private pendingFrameworkLinks: Array<{ slot: ReturnType<typeof frameworkSlots>[number]; fill: StackCandidate; file: TFile; setId: string; folder: string }> = [];
+	private stackPlan: StackPlan | null = null;
+	private counting = false;
+	private frameworkCounts = new Map<string, { notes: number; edges: number; folders: number; exact: boolean; failed: boolean }>();
+	private mappingCounts = new Map<string, { notes: number; failed: boolean }>();
+	private parsedFrameworks = new Map<string, ParsedData>();
+	private reviewCountMs = 0;
 
 	constructor(app: App, private plugin: CrosswalkerPlugin, definition?: StackDefinition, private onChanged?: () => void) {
 		super(app);
@@ -334,6 +348,10 @@ export class StackSetupModal extends Modal {
 	}
 
 	private async openReview(): Promise<void> {
+		if (!this.revisiting && await settleVaultIndex(this.app) > 0) {
+			this.error = 'Vault index is still loading. Wait a moment, then review this stack again.';
+			this.render(); return;
+		}
 		if (this.revisiting) {
 			this.busy = true;
 			try {
@@ -368,8 +386,132 @@ export class StackSetupModal extends Modal {
 				this.screen = 'review';
 			} catch {
 				this.error = 'Could not check the vault import sets. Wait for indexing or repair unreadable notes, then review again.';
-			} finally { this.busy = false; this.render(); }
-		} else { this.screen = 'review'; this.render(); }
+			} finally { this.busy = false; this.render(); if (this.screen === 'review') void this.countReview(); }
+		} else { this.screen = 'review'; void this.countReview(); }
+	}
+
+	/** Count from the same parsed source and source-stage predicate used by generation. */
+	private async countReview(): Promise<void> {
+		this.counting = true; this.stackPlan = null; this.render();
+		const start = performance.now();
+		this.frameworkCounts.clear(); this.mappingCounts.clear(); this.parsedFrameworks.clear();
+		for (const slot of frameworkSlots(this.stackSelection)) {
+			const fill = this.recognition.fills.find((item) => item.slot.ontology === slot.ontology);
+			const file = fill && this.sourceFiles.get(fill.source.path);
+			if (!file || this.choices.get(slot.entry.id) === 'skip') continue;
+			try {
+				const source = new File([await this.app.vault.readBinary(file)], file.name);
+				let parsed = applyHeaderAliases(await parseRecognizedSource(source, { file, entry: slot.entry, table: fill!.table, headerRow: fill!.headerRow }), slot.entry);
+				if (!Array.isArray(parsed.rows)) {
+					const rows: Record<string, unknown>[] = [];
+					for await (const row of parsed.rows) rows.push(row);
+					parsed = { ...parsed, rows, rowCount: rows.length };
+				}
+				this.parsedFrameworks.set(slot.entry.id, parsed);
+				const recipe = slot.entry.recipe;
+				const where = stackSourceWhere(slot.ontology, this.stackSelection.detail);
+				const stage = await prepareSourceStage(parsed, where ? { ...recipe.source, where } : recipe.source);
+				const rows: Record<string, unknown>[] = [];
+				for await (const row of stage.rows) rows.push(row);
+				stage.finalize();
+				const paths = new Set<string>();
+				const impliedPaths = new Set<string>();
+				for (const row of rows) {
+					let path = '';
+					for (const level of recipe.target.layout) {
+						if (level.mechanism !== 'folder') continue;
+						try { const part = renderTemplate(level.template, row); if (!part) continue;
+							path = `${path}/${part}`; paths.add(path);
+							if (level.implied_concept) impliedPaths.add(path);
+						} catch { /* A rendering failure makes folders an estimate. */ }
+					}
+				}
+				let edgeCount = 0;
+				for (const edge of recipe.target.crosswalks ?? []) {
+					edgeCount += deriveCrosswalkEdgeRows(edge, slot.ontology, recipe.recipe,
+						rows.map((row, index) => ({ row, curie: `review-${index}` }))).rows.length;
+				}
+				// The base destination folder and each rendered folder path are estimated.
+				this.frameworkCounts.set(slot.entry.id, { notes: rows.length + impliedPaths.size, edges: edgeCount,
+					folders: paths.size + 1, exact: impliedPaths.size === 0, failed: false });
+			} catch {
+				this.frameworkCounts.set(slot.entry.id, { notes: 0, edges: 0, folders: 0, exact: false, failed: true });
+			}
+		}
+		for (const mapping of activeMappings(this.stackSelection)) {
+			if (mapping.kind === 'from-slot' || this.choices.get(mappingKey(mapping)) === 'skip') continue;
+			try {
+				let notes: number;
+				if (mapping.kind === 'built-in') notes = parseSssomTsv(builtInMappingTsv()).rows.length;
+				else {
+					const fill = this.recognition.mappingFills.find((item) => item.mapping.id === mapping.id);
+					const file = fill && this.sourceFiles.get(fill.source.path);
+					if (!file) continue;
+					const bytes = new Uint8Array(await this.app.vault.readBinary(file));
+					if (/\.json$/i.test(file.name)) notes = readCtidJson(new TextDecoder().decode(bytes), mapping.from).rows.length;
+					else notes = readOlirWorkbookDetails(bytes, { subjectOntology: mapping.from, objectOntology: mapping.to,
+						depad: mapping.id === 'cri-80053' ? 'subject' : 'object', reverse: mapping.id === 'cri-80053' }, [fill!.table], fill!.headerRow).rows.length;
+				}
+				this.mappingCounts.set(mapping.id, { notes, failed: false });
+			} catch { this.mappingCounts.set(mapping.id, { notes: 0, failed: true }); }
+		}
+		this.reviewCountMs = performance.now() - start;
+		this.plugin.debug.info('stack', 'count', `Stack review count: ${Math.round(this.reviewCountMs)} ms`);
+		this.counting = false; this.updatePlan();
+	}
+
+	private updatePlan(): void {
+		const slots: StackPlanInput['slots'][number][] = frameworkSlots(this.stackSelection).map((slot) => {
+			const fill = this.recognition.fills.find((item) => item.slot.ontology === slot.ontology);
+			const mode = this.choices.get(slot.entry.id) ?? 'new';
+			const fact = this.storedRun?.slotSets[slot.entry.id];
+			const root = mode === 'refresh' && fact ? this.knownSets.get(fact.importSetId)?.root ?? '' : fill ? this.destinationFor(fill) : '';
+			const count = this.frameworkCounts.get(slot.entry.id);
+			const extraRoots = (count?.edges ?? 0) ? [...new Set((slot.entry.recipe.target.crosswalks ?? []).map((edge) =>
+				`_crosswalker/mappings/${slot.ontology}-to-${edge.to_ontology}`))] : [];
+			return { id: slot.entry.id, label: slot.entry.label, root, extraRoots, mode: !fill && mode !== 'skip' ? 'skip' : mode,
+				notes: { count: count?.notes ?? 0, exact: count?.exact ?? false },
+				extraNotes: { count: count?.edges ?? 0, exact: (count?.edges ?? 0) === 0 },
+				folders: { count: (count?.folders ?? 0) + extraRoots.reduce((n, edgeRoot) =>
+					n + edgeRoot.split('/').reduce((m, _part, index, parts) =>
+						m + (this.app.vault.getAbstractFileByPath(parts.slice(0, index + 1).join('/')) ? 0 : 1), 0), 0), exact: false }, failed: count?.failed ?? false,
+				lateRefresh: slot.entry.recipe.target.crosswalks?.length && frameworkSlots(this.stackSelection).some((later) =>
+					later.ontology !== slot.ontology && slot.entry.recipe.target.crosswalks?.some((edge) => edge.to_ontology === later.ontology)
+					&& this.choices.get(later.entry.id) !== 'skip') ? slot.entry.label : undefined };
+		});
+		const mappings: StackPlanInput['mappings'][number][] = activeMappings(this.stackSelection)
+			.filter((mapping) => mapping.kind !== 'from-slot').map((mapping) => {
+				const mode = this.choices.get(mappingKey(mapping)) ?? 'new';
+				const fact = this.storedRun?.mappingSets[mappingKey(mapping)];
+				const root = mode === 'refresh' && fact ? this.knownSets.get(fact.importSetId)?.root ?? ''
+					: `_crosswalker/mappings/${mapping.from}-to-${mapping.to}`;
+				const count = this.mappingCounts.get(mapping.id);
+				return { id: mapping.id, label: mapping.label, root, mode: !count && mode !== 'skip' ? 'skip' : mode,
+					notes: { count: count?.notes ?? 0, exact: !!count && !count.failed },
+					folders: { count: root.split('/').reduce((n, _part, index, parts) =>
+						n + (this.app.vault.getAbstractFileByPath(parts.slice(0, index + 1).join('/')) ? 0 : 1), 0), exact: false },
+					failed: count?.failed ?? false };
+			});
+		this.stackPlan = planStack({ slots, mappings }); this.render();
+	}
+
+	private confirmImport(): void {
+		const plan = this.stackPlan;
+		if (!plan || this.counting || (!stackPlanTotal(plan) && !plan.failed)) return;
+		const threshold = this.plugin.settings.stackConfirmFileThreshold ?? 1000;
+		if (!requiresStackConfirmation(plan, threshold)) { void this.importFrameworks(); return; }
+		const dialog = new Modal(this.app);
+		dialog.modalEl.addClass('crosswalker-stack-confirm');
+		dialog.titleEl.setText('Confirm stack import');
+		dialog.contentEl.createEl('p', { text: stackPlanSummary(plan) });
+		const largest = [...plan.slots, ...plan.mappings].sort((a, b) =>
+			(b.newFiles.count + b.rewrites.count) - (a.newFiles.count + a.rewrites.count))[0];
+		if (largest) dialog.contentEl.createEl('p', { text: `Largest contributor: ${largest.label}, up to ${(largest.newFiles.count + largest.rewrites.count).toLocaleString()} files.` });
+		for (const root of plan.roots) dialog.contentEl.createEl('p', { text: `Destination: ${root}` });
+		dialog.contentEl.createEl('p', { cls: 'crosswalker-stack-muted', text: 'Counts the notes and folders this import writes. Source files you added are already in the vault and are not counted.' });
+		new Setting(dialog.contentEl).addButton((button) => button.setButtonText('Back to review').onClick(() => dialog.close()))
+			.addButton((button) => button.setButtonText('Import').setCta().onClick(() => { dialog.close(); void this.importFrameworks(); }));
+		dialog.open();
 	}
 
 	private renderRunChoice(row: HTMLElement, key: string, fact: SlotRunFact | undefined, digest: string | undefined,
@@ -386,7 +528,7 @@ export class StackSetupModal extends Modal {
 		selector.addDropdown((dropdown) => {
 			for (const mode of state.choices) dropdown.addOption(mode,
 				mode === 'skip' ? 'Skip (already imported, unchanged)' : mode === 'refresh' ? `Refresh set ${fact!.importSetId}` : 'New set');
-			dropdown.setValue(this.choices.get(key) ?? state.selected).onChange((mode) => this.choices.set(key, mode as RunChoice));
+			dropdown.setValue(this.choices.get(key) ?? state.selected).onChange((mode) => { this.choices.set(key, mode as RunChoice); this.updatePlan(); });
 		});
 	}
 
@@ -407,6 +549,17 @@ export class StackSetupModal extends Modal {
 			const row = scroll.createDiv({ cls: 'crosswalker-stack-result', attr: { 'data-slot': slot.ontology } });
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: slot.entry.label });
 			row.createDiv({ text: `${slotDetailSummary(slot, this.stackSelection.detail)} ${fill ? `Source: ${fill.source.name}.${rootPath ? ` Lands in ${rootPath}.` : ''}` : 'No source file added.'}` });
+			const planned = this.stackPlan?.slots.find((item) => item.id === slot.entry.id);
+			if (planned) {
+				row.dataset.plannedNotes = String(planned.notes.count + (planned.extraNotes?.count ?? 0));
+				row.dataset.plannedMainNotes = String(planned.notes.count);
+				row.dataset.plannedExtraNotes = String(planned.extraNotes?.count ?? 0);
+				row.dataset.plannedExtraRoots = JSON.stringify(planned.extraRoots ?? []);
+				row.dataset.plannedExact = String(planned.notes.exact && (planned.extraNotes?.exact ?? true));
+				row.dataset.plannedRoot = planned.root;
+			}
+			row.createDiv({ cls: 'crosswalker-stack-count', text: this.counting ? 'Counting files...' : planned ? stackPlanRow(planned) : 'Count pending.' });
+			if (planned?.lateRefresh) row.createDiv({ cls: 'crosswalker-stack-muted', text: `Also refreshes links in ${planned.lateRefresh}.` });
 			if (this.revisiting) {
 				this.renderRunChoice(row, slot.entry.id, this.storedRun?.slotSets[slot.entry.id],
 					fill && this.sourceDigests.get(fill.source.path), stackRecipeHash(slot, this.stackSelection.detail),
@@ -452,12 +605,24 @@ export class StackSetupModal extends Modal {
 			if (mapping.kind === 'from-slot') {
 				const sourceSlot = frameworkSlots(this.stackSelection).find((slot) => slot.ontology === mapping.from);
 				row.createDiv({ cls: 'crosswalker-stack-muted', text: `Comes with ${sourceSlot!.entry.label}. Not tracked separately.` });
+				const edges = this.frameworkCounts.get(sourceSlot!.entry.id)?.edges;
+				row.createDiv({ cls: 'crosswalker-stack-count', text: this.counting ? 'Counting files...'
+					: this.choices.get(sourceSlot!.entry.id) === 'skip' ? 'Skip: writes nothing.'
+						: edges === undefined ? 'Could not count this file. The import can still run.'
+							: `Writes about ${edges.toLocaleString()} crosswalk notes with ${sourceSlot!.entry.label}.` });
 				continue;
 			}
 			const fill = this.recognition.mappingFills.find((item) => item.mapping.id === mapping.id);
 			const source = fill?.source.path;
 			const ready = mapping.kind === 'built-in' || !!source;
 			row.createDiv({ cls: 'crosswalker-stack-muted', text: ready ? 'Ready' : 'Missing mapping file. Add the publisher export before importing.' });
+			const planned = this.stackPlan?.mappings.find((item) => item.id === mapping.id);
+			if (planned) {
+				row.dataset.plannedNotes = String(planned.notes.count);
+				row.dataset.plannedExact = String(planned.notes.exact);
+				row.dataset.plannedRoot = planned.root;
+			}
+			row.createDiv({ cls: 'crosswalker-stack-count', text: this.counting ? 'Counting files...' : planned ? stackPlanRow(planned) : 'Count pending.' });
 			if (this.revisiting) this.renderRunChoice(row, mappingKey(mapping), this.storedRun?.mappingSets[mappingKey(mapping)],
 				mapping.kind === 'built-in' ? computeSourceByteDigest(new TextEncoder().encode(builtInMappingTsv()))
 					: source && this.sourceDigests.get(source),
@@ -467,11 +632,15 @@ export class StackSetupModal extends Modal {
 		if (this.error) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: this.error });
 		if (this.indexing) scroll.createDiv({ cls: 'crosswalker-stack-muted', text: 'Waiting for the vault to index the notes just written...' });
 		if (this.completed.length) scroll.createDiv({ text: `${plural(this.completed.reduce((sum, item) => sum + item.created, 0), 'framework note')} created or updated. ${plural(this.skipped, 'slot')} skipped. Remaining mappings will run next.` });
+		root.createDiv({ cls: 'crosswalker-stack-total', attr: { 'data-count-ms': String(Math.round(this.reviewCountMs)) },
+			text: this.counting ? 'Counting files...' : this.stackPlan ? stackPlanSummary(this.stackPlan) : 'Count pending.' });
 		const footer = root.createDiv({ cls: 'crosswalker-stack-footer' });
 		new Setting(footer).addButton((button) => button.setButtonText('Back').setDisabled(this.busy)
 			.onClick(() => { this.screen = 'recognize'; this.render(); }))
-			.addButton((button) => button.setButtonText(this.completed.length ? 'Retry remaining' : 'Import stack').setCta()
-				.setDisabled(this.busy).onClick(() => { void this.importFrameworks(); }));
+			.addButton((button) => button.setButtonText(this.stackPlan && !stackPlanTotal(this.stackPlan) && !this.stackPlan.failed ? 'Nothing to write'
+				: this.stackPlan ? `Import stack (${this.stackPlan.totals.newFiles.exact && this.stackPlan.totals.rewrites.exact && !this.stackPlan.failed ? '' : '~'}${stackPlanTotal(this.stackPlan).toLocaleString()} files)` : 'Counting files...').setCta()
+				.setDisabled(this.busy || this.counting || !this.stackPlan || (!stackPlanTotal(this.stackPlan) && !this.stackPlan.failed))
+				.onClick(() => this.confirmImport()));
 	}
 
 	private async saveDefinition(): Promise<boolean> {
@@ -551,6 +720,7 @@ export class StackSetupModal extends Modal {
 					destination: mode === 'refresh' ? target!.root! : this.destinationFor(fill),
 					...(target && fact ? { refreshSetId: fact.importSetId, overwriteMode: 'replace' as const } : {}),
 					sourceWhere: stackSourceWhere(slot.ontology, this.stackSelection.detail),
+					parsedData: this.parsedFrameworks.get(slot.entry.id),
 				});
 				if (!outcome.ok) {
 					this.error = frameworkImportError(slot.entry.label, outcome.errors);
@@ -595,6 +765,7 @@ export class StackSetupModal extends Modal {
 				file: pending.file, entry: pending.slot.entry, table: pending.fill.table, headerRow: pending.fill.headerRow,
 				destination: pending.folder, refreshSetId: pending.setId, overwriteMode: 'replace',
 				sourceWhere: stackSourceWhere(pending.slot.ontology, this.stackSelection.detail),
+				parsedData: this.parsedFrameworks.get(pending.slot.entry.id),
 			});
 			if (!outcome.ok) {
 				this.error = frameworkImportError(`${pending.slot.entry.label} crosswalk links`, outcome.errors);

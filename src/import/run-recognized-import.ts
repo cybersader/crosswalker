@@ -28,6 +28,8 @@ export interface RecognizedImportRequest {
 	/** A run-scoped row predicate; the canonical bundled recipe is never mutated. */
 	sourceWhere?: string;
 	onProgress?: (current: number, total: number, message: string) => void;
+	/** Review-time parsed source, reused rather than parsing the publisher file twice. */
+	parsedData?: ParsedData;
 }
 
 export interface RecognizedImportOutcome {
@@ -69,7 +71,7 @@ async function sourceFileFromVault(app: App, file: TFile): Promise<File> {
 	return new File([bytes], file.name);
 }
 
-async function parseRecognizedSource(file: File, request: RecognizedImportRequest): Promise<ParsedData> {
+export async function parseRecognizedSource(file: File, request: RecognizedImportRequest): Promise<ParsedData> {
 	switch (request.file.extension.toLowerCase()) {
 		case 'csv':
 		case 'tsv':
@@ -158,8 +160,7 @@ export async function runRecognizedImport(
 
 	let parsedData: ParsedData;
 	try {
-		const sourceFile = await sourceFileFromVault(app, req.file);
-		parsedData = applyHeaderAliases(await parseRecognizedSource(sourceFile, req), req.entry);
+		parsedData = req.parsedData ?? applyHeaderAliases(await parseRecognizedSource(await sourceFileFromVault(app, req.file), req), req.entry);
 	} catch (error) {
 		const cause = error instanceof Error ? error.message : String(error);
 		return {

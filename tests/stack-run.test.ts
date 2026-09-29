@@ -1,6 +1,8 @@
 import type { DiscoveredImportSet } from '../src/generation/import-set';
 import { importMappingSlots, reconnectMappings, waitForIndexedDestination, type MappingRunDependencies, type CompletedMapping } from '../src/import/stack/stack-run';
 import { MAPPING_PRESETS } from '../src/import/recipe-registry';
+import { readCtidJson } from '../src/import/stack/mapping-readers';
+import { planStack } from '../src/import/stack/stack-plan';
 import type { App, TFile } from 'obsidian';
 import { TextDecoder } from 'node:util';
 Object.defineProperty(globalThis, 'TextDecoder', { value: TextDecoder, configurable: true });
@@ -43,12 +45,16 @@ it('records a successful mapping set and reports exact duplicate source rows', a
 	const file = { path: 'Sources/synthetic.json', name: 'synthetic.json' } as TFile;
 	let sets: DiscoveredImportSet[] = [];
 	const records: CompletedMapping[] = [];
+	const source = JSON.stringify({ metadata: { attack_version: '16.1' }, mapping_objects: [
+		{ capability_id: 'AC-01', attack_object_id: 'T1234', mapping_type: 'mitigates' },
+		{ capability_id: 'AC-01', attack_object_id: 'T1234', mapping_type: 'mitigates' },
+	] });
+	const parsed = readCtidJson(source, 'nist-800-53');
+	const plan = planStack({ slots: [], mappings: [{ id: mapping.id, label: mapping.label,
+		root: '_crosswalker/mappings/nist-800-53-to-mitre-attack', mode: 'new', notes: { count: parsed.rows.length, exact: true } }] });
 	const dependencies: MappingRunDependencies = {
 		log: jest.fn(), listSets: async () => sets,
-		readBytes: async () => Buffer.from(JSON.stringify({ metadata: { attack_version: '16.1' }, mapping_objects: [
-			{ capability_id: 'AC-01', attack_object_id: 'T1234', mapping_type: 'mitigates' },
-			{ capability_id: 'AC-01', attack_object_id: 'T1234', mapping_type: 'mitigates' },
-		] })),
+		readBytes: async () => Buffer.from(source),
 		importRows: async (tsv) => {
 			expect(tsv.split('\n').filter((line) => line.startsWith('nist-800-53:'))).toHaveLength(1);
 			sets = [set('iset-deduped', 1)];
@@ -61,6 +67,8 @@ it('records a successful mapping set and reports exact duplicate source rows', a
 	const completed = await importMappingSlots([mapping], [{ source: { path: file.path, name: file.name, peeks: [] }, mapping,
 		table: '$.mapping_objects[*]', headerRow: 0 }], new Map([[file.path, file]]), dependencies);
 	expect(completed).toMatchObject([{ setId: 'iset-deduped', duplicateRowsSkipped: 1, noteCount: 1 }]);
+	expect(plan.mappings[0].notes.exact).toBe(true);
+	expect(plan.mappings[0].notes.count).toBe(completed[0].noteCount);
 	expect(records).toEqual(completed);
 });
 
