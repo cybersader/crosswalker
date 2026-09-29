@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Sixth prerelease preparation, 0.1.5 (2026-09-29)
+
+- Prepared version `0.1.5` as the sixth BRAT prerelease, carrying the stack file-count preview below on top of `0.1.4`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.5` entry. The user-facing notes live under `## [0.1.5]` near the end of this file.
+
 ### Added: a framework stack shows its file count before it writes (2026-09-28)
 
 - The stack's **Review before import** screen now counts what each framework and mapping will write (notes, crosswalk notes, folders) and shows a total line naming the destination folders. Estimates read "about"; Skip rows write nothing; Refresh rows read "rewrites up to N" and count toward the total.
@@ -1662,6 +1666,22 @@ AJV (Ajv2020) + ajv-formats wired into plugin startup; `spec/*.schema.json` comp
 - Ch 26 — Transform engine depth + input formats (resolved 2026-05-05)
 
 ---
+
+## [0.1.5] - 2026-09-29
+
+Sixth public prerelease. Still intended for early testing in backup or test vaults, not production-critical use.
+
+### What changed since 0.1.4
+
+- **See the file count before a stack writes.** The review screen shows how many notes and folders each framework and mapping will create, plus a total. The import button carries the number.
+- **Confirmation for large runs.** A stack run above 1,000 files asks you to confirm first; **Back to review** writes nothing. Change the limit under Settings, Advanced, **Stack file confirmation threshold** (0 always confirms).
+- **Refresh is counted too.** Refresh rows show how many existing notes they may rewrite. A run where everything is skipped cannot start.
+- Not counted: source files you already added to the vault, and the query index, which lives outside the vault.
+
+### Requirements
+
+- Obsidian 1.10.0 or newer.
+- Install through BRAT (add `cybersader/crosswalker`) or copy `main.js`, `manifest.json`, and `styles.css` into `.obsidian/plugins/crosswalker/`.
 
 ## [0.1.4] - 2026-09-24
 
