@@ -5,6 +5,15 @@ import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '
 import { MAPPING_PRESETS, RECIPE_REGISTRY } from '../recipe-registry';
 import { StackSetupModal } from './stack-modal';
 import { deleteStackRecord, importStackDefinition, mappingKey, type SlotRunFact, type StackDefinition } from './stack-persistence';
+import {
+	MappingConversionModal,
+	cancelConversionForSet,
+	conversionCanCancel,
+	conversionStateText,
+	conversionTargetOf,
+	convertButtonLabel,
+	finishConversionForSet,
+} from './mapping-conversion-ui';
 
 function fromSlotText(stack: StackDefinition, from: string): string {
 	const slot = stack.slots.find((item) => RECIPE_REGISTRY.find((entry) => entry.id === item.presetId)?.ontology === from);
@@ -17,9 +26,12 @@ export function installedStackRow(fact: SlotRunFact | undefined, known: Readonly
 	if (!fact) return 'Not imported yet';
 	const set = known.get(fact.importSetId);
 	if (!set) return `Set ${fact.importSetId} is no longer in this vault. Import as a new set.`;
+	// Slice 4: while a conversion marker exists the row says so; the counts
+	// describe the form readers use right now (see DiscoveredImportSet.converting).
+	const converting = set.converting ? `. ${conversionStateText(set.converting)}` : '';
 	// A table-form set owns no notes; "0 notes" would read as an empty set.
-	if (set.mapping_form === 'table') return `set ${fact.importSetId}, 1 mapping table, ${plural(set.rowCount ?? 0, 'row')}`;
-	return `set ${fact.importSetId}${typeof set.noteCount === 'number' ? `, ${plural(set.noteCount, 'note')}` : ''}`;
+	if (set.mapping_form === 'table') return `set ${fact.importSetId}, 1 mapping table, ${plural(set.rowCount ?? 0, 'row')}${converting}`;
+	return `set ${fact.importSetId}${typeof set.noteCount === 'number' ? `, ${plural(set.noteCount, 'note')}` : ''}${converting}`;
 }
 
 /** Framework depth only; mapping form is reported separately so the two never contradict. */
@@ -35,15 +47,19 @@ export function stackSubtitle(stack: StackDefinition, run: CrosswalkerPlugin['se
 }
 
 export function stackSlotRows(stack: StackDefinition, run: CrosswalkerPlugin['settings']['stackRuns'][number] | undefined,
-	known: ReadonlyMap<string, DiscoveredImportSet>): Array<{ label: string; state: string }> {
+	known: ReadonlyMap<string, DiscoveredImportSet>): Array<{ label: string; state: string; mappingSet?: DiscoveredImportSet }> {
 	return [
 		...stack.slots.map((slot) => ({ label: RECIPE_REGISTRY.find((entry) => entry.id === slot.presetId)?.label ?? slot.presetId,
 			state: installedStackRow(run?.slotSets[slot.presetId], known) })),
 		...stack.mappings.map((slot) => {
 			const mapping = MAPPING_PRESETS.find((entry) => entry.id === slot.presetId);
+			const fact = slot.kind === 'from-slot' ? undefined : run?.mappingSets[mappingKey({ ...slot, id: slot.presetId })];
+			// Only a recorded, present mapping set can be converted; a from-slot
+			// link set stays notes (slice 4 out of scope).
+			const mappingSet = fact ? known.get(fact.importSetId) : undefined;
 			return { label: mapping?.label ?? slot.presetId,
-				state: slot.kind === 'from-slot' ? fromSlotText(stack, slot.from)
-					: installedStackRow(run?.mappingSets[mappingKey({ ...slot, id: slot.presetId })], known) };
+				state: slot.kind === 'from-slot' ? fromSlotText(stack, slot.from) : installedStackRow(fact, known),
+				...(mappingSet ? { mappingSet } : {}) };
 		}),
 	];
 }
@@ -94,6 +110,34 @@ class DeleteStackModal extends Modal {
 	}
 }
 
+/**
+ * One mapping set row with its conversion actions: Convert while no job
+ * exists; Finish, and Cancel before the source starts going to the trash,
+ * while one does. Slice 4 of the mapping table form.
+ */
+function renderMappingSetRow(rows: HTMLElement, app: App, plugin: CrosswalkerPlugin, label: string, state: string,
+	set: DiscoveredImportSet, redraw: () => void): void {
+	const row = rows.createDiv({ cls: 'crosswalker-stack-result crosswalker-mapping-set-row',
+		attr: { 'data-import-set': set.id, 'data-set-form': set.mapping_form, ...(set.converting ? { 'data-converting': set.converting.phase } : {}) } });
+	row.createSpan({ text: `${label}: ${state}` });
+	const actions = row.createDiv({ cls: 'crosswalker-conversion-actions' });
+	const name = `${label} (set ${set.id})`;
+	if (set.converting) {
+		actions.createEl('button', { text: 'Finish', cls: 'mod-cta' }).addEventListener('click', () => {
+			void finishConversionForSet(app, plugin, set.id, name, redraw);
+		});
+		if (conversionCanCancel(set.converting.phase)) {
+			actions.createEl('button', { text: 'Cancel' }).addEventListener('click', () => {
+				void cancelConversionForSet(app, set.id, name, redraw, plugin);
+			});
+		}
+		return;
+	}
+	const to = conversionTargetOf(set);
+	actions.createEl('button', { text: convertButtonLabel(to) }).addEventListener('click', () =>
+		new MappingConversionModal(app, plugin, { kind: 'start', set, to, label: name }, redraw).open());
+}
+
 /** Shared launchpad section; redrawn after a modal closes to show fresh settings and vault facts. */
 export function renderInstalledStacks(root: HTMLElement, app: App, plugin: CrosswalkerPlugin, redraw: () => void): void {
 	const host = root.createDiv({ cls: 'crosswalker-workspace-installed crosswalker-installed-stacks' });
@@ -135,8 +179,10 @@ export function renderInstalledStacks(root: HTMLElement, app: App, plugin: Cross
 				rows.empty();
 				const run = plugin.settings.stackRuns.find((entry) => entry.stackId === stack.id);
 				subtitle.textContent = stackSubtitle(stack, run, known);
-				for (const row of stackSlotRows(stack, run, known))
-					rows.createDiv({ cls: 'crosswalker-stack-result', text: `${row.label}: ${row.state}` });
+				for (const row of stackSlotRows(stack, run, known)) {
+					if (!row.mappingSet) { rows.createDiv({ cls: 'crosswalker-stack-result', text: `${row.label}: ${row.state}` }); continue; }
+					renderMappingSetRow(rows, app, plugin, row.label, row.state, row.mappingSet, redraw);
+				}
 			}
 		} catch {
 			if (host.isConnected) host.createDiv({ cls: 'crosswalker-stack-warning', text: 'Vault is still indexing. Wait a moment, then reopen the launchpad to check installed stacks.' });

@@ -3093,6 +3093,36 @@
 	font-size: var(--cw-fs-small);
 }
 
+/* Slice 4: convert, finish and cancel on a mapping set row. */
+.crosswalker-conversion-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--cw-s2);
+}
+
+.crosswalker-mapping-set-row[data-converting] {
+	border-left: 3px solid var(--interactive-accent);
+}
+
+.crosswalker-conversion-modal .crosswalker-conversion-set {
+	font-weight: var(--font-semibold);
+	overflow-wrap: anywhere;
+}
+
+.crosswalker-conversion-modal .crosswalker-conversion-progress {
+	font-variant-numeric: tabular-nums;
+}
+
+.crosswalker-conversion-modal .crosswalker-conversion-result {
+	border-left: 3px solid var(--text-success);
+	padding: 8px 12px;
+	background: var(--background-secondary);
+}
+
+.notice .crosswalker-conversion-finish {
+	margin-top: var(--cw-s2, 8px);
+}
+
 .crosswalker-installed-stacks .crosswalker-workspace-ontology-actions {
 	margin: var(--cw-s1) 0 0;
 	display: flex;
