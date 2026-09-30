@@ -13,18 +13,38 @@ import { normalizeFolderSetting } from '../settings/folder-settings';
 import { IDENTITY_SENTINELS } from './legacy-recipe-shim';
 import type { KnownSource } from '../import/vault-source-scan';
 import type { NestedRecordLevel } from '../types/generated/recipe';
+import { readMappingTables, tableRowsAsEdgeRecords } from '../mappings/mapping-table-reader';
+import {
+	IMPORT_SET_DERIVATIONS,
+	IMPORT_SET_ID_PATTERN,
+	IMPORT_SET_SCHEMES,
+	ImportSetProvenanceError,
+	MAPPING_FORMS,
+	assertImportSetBlockObject,
+	isImportSetDerivation,
+	isImportSetScheme,
+	readProvenanceString as readString,
+	validateImportSetBlock,
+	type ImportSetDerivation,
+	type ImportSetScheme,
+	type MappingForm,
+} from './import-set-block';
 
-export const IMPORT_SET_ID_PATTERN = /^iset-[a-z0-9]{6}$/;
-export const IMPORT_SET_SCHEMES = ['endpoint-v1', 'set-qualified-v1'] as const;
-export type ImportSetScheme = typeof IMPORT_SET_SCHEMES[number];
+// The block rules live in a pure module so the mapping table codec can share
+// them without the host runtime. Re-exported so existing importers keep working.
+export {
+	IMPORT_SET_DERIVATIONS,
+	IMPORT_SET_ID_PATTERN,
+	IMPORT_SET_SCHEMES,
+	ImportSetProvenanceError,
+	MAPPING_FORMS,
+	validateImportSetBlock,
+};
+export type { ImportSetDerivation, ImportSetScheme, MappingForm };
 
 /** Default for callers that do not deliberately choose a scheme. Kept at
  * endpoint-v1 so every pre-existing import path preserves its identities. */
 export const CURRENT_IMPORT_SET_SCHEME: ImportSetScheme = 'endpoint-v1';
-
-/** Mapping storage form is pinned per import set; legacy sets use notes. */
-export const MAPPING_FORMS = ['notes', 'table'] as const;
-export type MappingForm = typeof MAPPING_FORMS[number];
 
 /**
  * AM-27 (2026-08-31). HOW a set turns a source row into a CURIE local part.
@@ -43,9 +63,9 @@ export type MappingForm = typeof MAPPING_FORMS[number];
  * - `declared-facts-v1` is the rule every NEW set mints under: the source's own
  *   declared identity first, the filename stem only as a last resort, and any
  *   sanitization that does happen is injective.
+ *
+ * The enum itself (`IMPORT_SET_DERIVATIONS`) lives in `./import-set-block`.
  */
-export const IMPORT_SET_DERIVATIONS = ['filename-stem-v1', 'declared-facts-v1'] as const;
-export type ImportSetDerivation = typeof IMPORT_SET_DERIVATIONS[number];
 
 /**
  * What an UNSTAMPED set derives under. Absence is not "unknown", it is a fact:
@@ -144,7 +164,16 @@ export type ImportSetOption =
 	| 'new-set-qualified';
 
 export interface DiscoveredImportSet extends ImportSetReference {
+	/** Markdown notes the set owns. A table-form set owns none. */
 	noteCount: number;
+	/**
+	 * How the set stores its mapping rows, always answered: the stamped pin,
+	 * else 'notes' (absence is the legacy form). Note: `resolveImportSet` carries
+	 * only a 'table' pin forward, so a notes set is never newly stamped.
+	 */
+	mapping_form: MappingForm;
+	/** Mapping rows held in the set's table file; 0 for a notes-form set. */
+	rowCount: number;
 	paths: string[];
 	/**
 	 * Where this set's notes actually live: the recorded destination when it is
@@ -196,6 +225,14 @@ interface ImportSetObservation {
 	/** The derivation pinned in this note's import_set block, if any (AM-27). */
 	derivation: string | null;
 	mappingForm: string | null;
+	/**
+	 * Where this observation came from: one markdown note, or one mapping table
+	 * file (a whole table-form set). Kept so one set seen in both places is
+	 * refused instead of merged.
+	 */
+	storage: 'note' | 'table';
+	/** Rows in the table file for a table observation; 0 for a note. */
+	rowCount: number;
 	parentSet: string | null;
 	/** Nested level identity modes pinned in this note's import_set block, if any. */
 	nestIdentity: Record<string, 'global' | 'path'> | null;
@@ -203,14 +240,6 @@ interface ImportSetObservation {
 	sourceFile: string | null;
 	sourceHash: string | null;
 	producedAt: string | null;
-}
-
-/** Stored import-set provenance is malformed or disagrees within one set. */
-export class ImportSetProvenanceError extends Error {
-	constructor(message: string, public readonly paths: string[]) {
-		super(message);
-		this.name = 'ImportSetProvenanceError';
-	}
 }
 
 /**
@@ -495,7 +524,10 @@ export async function resolveImportSet(
 					...(option.parent_set ? { parent_set: option.parent_set } : (existing.parentSets?.length === 1 ? { parent_set: existing.parentSets[0] } : {})),
 					scheme: existing.scheme,
 					...(existing.derivation ? { derivation: existing.derivation } : {}),
-					...(existing.mapping_form ? { mapping_form: existing.mapping_form } : {}),
+					// Only a table pin is carried. Absence already means notes, and
+					// stamping 'notes' onto a legacy set would rewrite every one of its
+					// notes for no change in meaning.
+					...(existing.mapping_form === 'table' ? { mapping_form: 'table' as const } : {}),
 					...(existing.nest_identity ? { nest_identity: { ...existing.nest_identity } } : {}),
 				},
 				pinnedOntologyOf(existing, proposed),
@@ -591,65 +623,127 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 		if (!provenance || typeof provenance !== 'object') continue;
 		const raw = (provenance as Record<string, unknown>).import_set;
 		if (raw === undefined) continue;
-		if (!raw || typeof raw !== 'object') {
-			throw new ImportSetProvenanceError(`Invalid _crosswalker.import_set at ${file.path}: expected an object.`, [file.path]);
-		}
+		assertImportSetBlockObject(raw, file.path);
 
-		const id = readString((raw as Record<string, unknown>).id);
 		// Explicit refresh validates only the named set. Corrupt provenance for an
 		// unrelated set elsewhere in the vault cannot block this import.
-		if (onlyId !== undefined && id !== onlyId) continue;
-		const scheme = readString((raw as Record<string, unknown>).scheme);
-		if (!id || !IMPORT_SET_ID_PATTERN.test(id)) {
-			throw new ImportSetProvenanceError(`Invalid import set id at ${file.path}: expected iset- followed by 6 lowercase letters or digits.`, [file.path]);
-		}
-		const destination = readString((raw as Record<string, unknown>).destination);
-		const ontology = readString((raw as Record<string, unknown>).ontology);
-		const derivation = readString((raw as Record<string, unknown>).derivation);
-		const rawForm = (raw as Record<string, unknown>).mapping_form;
-		// Unlike a cache miss, a present but malformed pin cannot safely default.
-		if (rawForm !== undefined && !MAPPING_FORMS.includes(rawForm as MappingForm)) {
+		if (onlyId !== undefined && readString(raw.id) !== onlyId) continue;
+		// Scheme and derivation are checked per set below, where every note that
+		// disagrees can be named at once.
+		const block = validateImportSetBlock(raw, file.path, { schemeAndDerivation: 'set' });
+		observations.push(observationOf(
+			block,
+			provenance as Record<string, unknown>,
+			file.path,
+			readString((fm as Record<string, unknown>).curie),
+			'note',
+			0,
+		));
+	}
+	observations.push(...await collectTableObservations(app, basePath, onlyId));
+	return observations;
+}
+
+/**
+ * Slice 2 of the mapping table form. A table-form set has no notes, so its
+ * table header is the only record that the set exists: one observation per
+ * table file, read from `header.crosswalker_provenance` through the shared
+ * reader (never a second parser).
+ *
+ * The branch is on the reader's explicit `readable` and `provenance` fields,
+ * never on error wording:
+ * - no provenance line: not an owned set, the same way an unstamped note is
+ *   legacy. Skipped.
+ * - unreadable file, or a provenance line or block that would not parse or
+ *   validate: the owner may well be a set but cannot be known, and unknown
+ *   fails closed. Refused by name, unless its readable id says it belongs to a
+ *   different set than the one an explicit refresh asked for. Failure mode
+ *   prevented: refresh treating a table-form set as absent, dropping its pin,
+ *   and writing the set a second time as notes.
+ * - a usable pin with structural errors (no row could be read): refused the
+ *   same way, since the content of the set is unknown.
+ * - a usable pin with only row errors: recorded, counting the surviving rows.
+ *   Failure mode prevented: one bad row blocking the wizard, the stack modal
+ *   and the vault scan for every set in the vault.
+ */
+async function collectTableObservations(app: App, basePath?: string, onlyId?: string): Promise<ImportSetObservation[]> {
+	const observations: ImportSetObservation[] = [];
+	for (const table of await readMappingTables(app, basePath)) {
+		if (table.readable && table.provenance === 'absent') continue;
+		const provenance = table.header.crosswalker_provenance;
+		const rawBlock = provenance?.import_set;
+		const statedId = rawBlock && typeof rawBlock === 'object' && !Array.isArray(rawBlock)
+			? readString((rawBlock as Record<string, unknown>).id)
+			: null;
+		if (onlyId !== undefined && statedId !== null && statedId !== onlyId) continue;
+		if (!table.readable || table.provenance === 'invalid' || table.errors.length || !provenance || rawBlock === undefined) {
+			// The reader's own messages already name the cause and the fix.
+			const cause = !table.readable ? 'could not be read'
+				: table.provenance === 'invalid' ? 'has an unusable provenance header'
+				: 'has no readable rows';
 			throw new ImportSetProvenanceError(
-				`Invalid mapping form at ${file.path}: ${String(rawForm)}. Update Crosswalker or restore the import set provenance before refreshing.`,
-				[file.path],
+				`Mapping table ${table.path} ${cause}, so its import set is unknown: ${table.errors.join(' ')}`,
+				[table.path],
 			);
 		}
-		const mappingForm = rawForm as MappingForm | undefined;
-		const parentSet = readString((raw as Record<string, unknown>).parent_set);
-		const nestIdentity = readNestIdentity((raw as Record<string, unknown>).nest_identity, file.path);
-		// Two stamped facts about WHAT produced this note, kept beside the ownership
-		// id so a caller can ask "has this source written here before?" without
-		// re-deriving anything from the note's address. Both are optional: a note
-		// written by a producer that stamps neither simply contributes nothing.
-		const provenanceRecord = provenance as Record<string, unknown>;
-		const recipeBlock = provenanceRecord.recipe;
-		const recipeId = recipeBlock && typeof recipeBlock === 'object'
-			? readString((recipeBlock as Record<string, unknown>).id)
-			: null;
-		const sourceRef = provenanceRecord.source_ref;
-		const sourceRecord = sourceRef && typeof sourceRef === 'object' && !Array.isArray(sourceRef)
-			? sourceRef as Record<string, unknown>
-			: null;
-		observations.push({
-			id,
-			scheme,
-			path: file.path,
-			destination,
-			recipeId,
-			recipeHash: recipeBlock && typeof recipeBlock === 'object'
-				? readString((recipeBlock as Record<string, unknown>).hash) : null,
-			ontologyPrefix: curiePrefix(readString((fm as Record<string, unknown>).curie)),
-			ontology,
-			derivation,
-			mappingForm: mappingForm ?? null,
-			parentSet,
-			nestIdentity,
-			sourceFile: readString(sourceRecord?.file),
-			sourceHash: readString(sourceRecord?.source_hash),
-			producedAt: readString(provenanceRecord.produced_at),
-		});
+		const block = validateImportSetBlock(rawBlock, table.path, { schemeAndDerivation: 'set' });
+		// The prefix a row's edge would carry, so `ontologyPrefixes` answers for a
+		// table set the way it answers for the same rows as notes.
+		const firstCurie = tableRowsAsEdgeRecords({ ...table, rows: table.rows.slice(0, 1) })[0]?.frontmatter.curie;
+		observations.push(observationOf(
+			block,
+			provenance,
+			table.path,
+			readString(firstCurie),
+			'table',
+			table.rows.length,
+		));
 	}
 	return observations;
+}
+
+/**
+ * One observation from one validated ownership block. Two stamped facts about
+ * WHAT produced the record are kept beside the ownership id so a caller can ask
+ * "has this source written here before?" without re-deriving anything from an
+ * address. Both are optional: a producer that stamps neither contributes nothing.
+ */
+function observationOf(
+	block: ReturnType<typeof validateImportSetBlock>,
+	provenanceRecord: Record<string, unknown>,
+	path: string,
+	curie: string | null,
+	storage: 'note' | 'table',
+	rowCount: number,
+): ImportSetObservation {
+	const recipeBlock = provenanceRecord.recipe;
+	const recipeId = recipeBlock && typeof recipeBlock === 'object'
+		? readString((recipeBlock as Record<string, unknown>).id)
+		: null;
+	const sourceRef = provenanceRecord.source_ref;
+	const sourceRecord = sourceRef && typeof sourceRef === 'object' && !Array.isArray(sourceRef)
+		? sourceRef as Record<string, unknown>
+		: null;
+	return {
+		id: block.id,
+		scheme: block.scheme,
+		path,
+		destination: block.destination,
+		recipeId,
+		recipeHash: recipeBlock && typeof recipeBlock === 'object'
+			? readString((recipeBlock as Record<string, unknown>).hash) : null,
+		ontologyPrefix: curiePrefix(curie),
+		ontology: block.ontology,
+		derivation: block.derivation,
+		mappingForm: block.mappingForm,
+		storage,
+		rowCount,
+		parentSet: block.parentSet,
+		nestIdentity: block.nestIdentity,
+		sourceFile: readString(sourceRecord?.file),
+		sourceHash: readString(sourceRecord?.source_hash),
+		producedAt: readString(provenanceRecord.produced_at),
+	};
 }
 
 async function readRawFrontmatter(app: App, file: TFile): Promise<Record<string, unknown> | undefined> {
@@ -691,6 +785,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 			throw new ImportSetProvenanceError(`Import set ${id} has inconsistent or unsupported schemes: ${details}.`, paths);
 		}
 		const paths = group.map((entry) => entry.path).sort();
+		assertOneStorage(id, group);
 		const recorded = recordedDestination(group);
 		const pinnedOntology = agreedOntology(group);
 		const pinnedDerivation = agreedDerivation(id, group);
@@ -699,7 +794,9 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 		sets.push({
 			id,
 			scheme,
-			noteCount: paths.length,
+			noteCount: group.filter((entry) => entry.storage === 'note').length,
+			mapping_form: pinnedMappingForm ?? 'notes',
+			rowCount: group.reduce((sum, entry) => sum + entry.rowCount, 0),
 			paths,
 			root: resolveSetRoot(recorded, paths),
 			recipeIds: distinctSorted(group.map((entry) => entry.recipeId)),
@@ -711,16 +808,11 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 			...(recorded ? { destination: recorded } : {}),
 			...(pinnedOntology ? { ontology: pinnedOntology } : {}),
 			...(pinnedDerivation ? { derivation: pinnedDerivation } : {}),
-			...(pinnedMappingForm ? { mapping_form: pinnedMappingForm } : {}),
 			...(pinnedNestIdentity ? { nest_identity: pinnedNestIdentity } : {}),
 		});
 	}
 	sets.sort((a, b) => a.id.localeCompare(b.id));
 	return sets;
-}
-
-function isImportSetScheme(value: unknown): value is ImportSetScheme {
-	return typeof value === 'string' && (IMPORT_SET_SCHEMES as readonly string[]).includes(value);
 }
 
 function assertImportSetScheme(value: unknown): asserts value is ImportSetScheme {
@@ -771,33 +863,6 @@ function assertImportSetId(id: string): void {
 
 function nestIdentityOf(nest: readonly NestedRecordLevel[]): Record<string, 'global' | 'path'> {
 	return Object.fromEntries(nest.map((entry) => [entry.level, entry.identity ?? 'global']));
-}
-
-function readNestIdentity(value: unknown, path: string): Record<string, 'global' | 'path'> | null {
-	if (value === undefined) return null;
-	if (!value || typeof value !== 'object' || Array.isArray(value)) {
-		throw new ImportSetProvenanceError(
-			`Invalid _crosswalker.import_set.nest_identity at ${path}: expected an object of level names to global or path.`,
-			[path],
-		);
-	}
-	const out: Record<string, 'global' | 'path'> = {};
-	for (const [level, identity] of Object.entries(value as Record<string, unknown>)) {
-		if (identity !== 'global' && identity !== 'path') {
-			throw new ImportSetProvenanceError(
-				`Invalid _crosswalker.import_set.nest_identity at ${path}: level ${level} must be global or path.`,
-				[path],
-			);
-		}
-		out[level] = identity;
-	}
-	return out;
-}
-
-function readString(value: unknown): string | null {
-	if (typeof value !== 'string') return null;
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : null;
 }
 
 /** The ontology half of a curie (`nist-mini:AC-1` -> `nist-mini`), or null. */
@@ -904,6 +969,31 @@ function agreedDerivation(id: string, group: readonly ImportSetObservation[]): I
 	);
 }
 
+/**
+ * Slice 2. One set lives in one storage place. Failure mode prevented: a
+ * half-finished conversion leaving the same set as both notes and a table, so
+ * a refresh, a projection, or an export counts every mapping twice. The
+ * conversion job (slice 4) leans on this refusal to detect its own interrupted
+ * run. Two tables for one set are refused for the same reason.
+ */
+function assertOneStorage(id: string, group: readonly ImportSetObservation[]): void {
+	const tables = group.filter((entry) => entry.storage === 'table');
+	if (tables.length === 0) return;
+	const paths = group.map((entry) => entry.path).sort();
+	if (tables.length !== group.length) {
+		throw new ImportSetProvenanceError(
+			`Import set ${id} is recorded as both notes and a table. Finish or roll back its conversion before refreshing.`,
+			paths,
+		);
+	}
+	if (tables.length > 1) {
+		throw new ImportSetProvenanceError(
+			`Import set ${id} is recorded in ${tables.length} mapping tables: ${paths.join(', ')}. Keep one table per set, then refresh again.`,
+			paths,
+		);
+	}
+}
+
 /** Reject mixed forms rather than silently refreshing a table as notes or vice versa. */
 function agreedMappingForm(id: string, group: readonly ImportSetObservation[]): MappingForm | null {
 	const forms = new Set(group.map((entry) => entry.mappingForm ?? 'notes'));
@@ -939,10 +1029,6 @@ function agreedNestIdentity(
 		+ 'Restore the notes that disagree from a backup, or move them out of this folder, then run the import again.',
 		paths,
 	);
-}
-
-function isImportSetDerivation(value: unknown): value is ImportSetDerivation {
-	return typeof value === 'string' && (IMPORT_SET_DERIVATIONS as readonly string[]).includes(value);
 }
 
 /**

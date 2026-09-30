@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: foundation for storing a mapping set as one table file (2026-09-30)
+
+- A mapping set will be able to keep its rows either as one note per mapping (today's form) or as one SSSOM-shaped table file, `<name>.mapping-table.tsv`, that opens in any spreadsheet. This lands the read side only; nothing writes a table yet and nothing changes for existing vaults.
+- The table carries the set's own record (import set id, identity scheme, form pin) in its header, so the plugin can find, refresh, index and export a table set without any notes. Row ids come from the mapping's own facts, never from a file path, and repeated assertions that differ only in justification or set stay distinct.
+- The query index, the SSSOM and OLIR exporters, and import-set discovery all read the table form through one shared reader. A table with a bad row still counts as its set; the bad rows are reported by file and the index refuses to prune while any table is unreadable.
+- Tier 1 schema `1.6.0`: `import_set` gains an optional `mapping_form` (`notes` or `table`). Absent means notes; existing notes are not rewritten.
+- Stated trade-off for the table form, to be shown when it becomes selectable: a table set has no notes, so Bases views, graph view and backlinks do not see its mappings.
+
 ### Sixth prerelease preparation, 0.1.5 (2026-09-29)
 
 - Prepared version `0.1.5` as the sixth BRAT prerelease, carrying the stack file-count preview below on top of `0.1.4`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.5` entry. The user-facing notes live under `## [0.1.5]` near the end of this file.

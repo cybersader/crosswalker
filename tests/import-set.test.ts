@@ -61,6 +61,8 @@ describe('import-set ownership discovery and selection', () => {
 			id: 'iset-abc123',
 			scheme: CURRENT_IMPORT_SET_SCHEME,
 			noteCount: 2,
+			mapping_form: 'notes',
+			rowCount: 0,
 			paths: ['Frameworks/A.md', 'Frameworks/Sub/B.md'],
 			// No note recorded a destination (these predate the stamp), so the root
 			// is recovered from the paths: the deepest folder both notes sit under.
@@ -82,6 +84,8 @@ describe('import-set ownership discovery and selection', () => {
 			id: 'iset-abc123',
 			scheme: 'endpoint-v1',
 			noteCount: 1,
+			mapping_form: 'notes',
+			rowCount: 0,
 			paths: ['Frameworks/A.md'],
 			root: 'Frameworks',
 			recipeIds: [],
@@ -297,6 +301,8 @@ describe('import-set ownership discovery and selection', () => {
 			id: 'iset-abc123',
 			scheme: 'set-qualified-v1',
 			noteCount: 2,
+			mapping_form: 'notes',
+			rowCount: 0,
 			paths: ['Frameworks/A.md', 'Frameworks/B.md'],
 			root: 'Frameworks',
 			recipeIds: [],
