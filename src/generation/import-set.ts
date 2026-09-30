@@ -13,18 +13,37 @@ import { normalizeFolderSetting } from '../settings/folder-settings';
 import { IDENTITY_SENTINELS } from './legacy-recipe-shim';
 import type { KnownSource } from '../import/vault-source-scan';
 import type { NestedRecordLevel } from '../types/generated/recipe';
+import {
+	IMPORT_SET_DERIVATIONS,
+	IMPORT_SET_ID_PATTERN,
+	IMPORT_SET_SCHEMES,
+	ImportSetProvenanceError,
+	MAPPING_FORMS,
+	assertImportSetBlockObject,
+	isImportSetDerivation,
+	isImportSetScheme,
+	readProvenanceString as readString,
+	validateImportSetBlock,
+	type ImportSetDerivation,
+	type ImportSetScheme,
+	type MappingForm,
+} from './import-set-block';
 
-export const IMPORT_SET_ID_PATTERN = /^iset-[a-z0-9]{6}$/;
-export const IMPORT_SET_SCHEMES = ['endpoint-v1', 'set-qualified-v1'] as const;
-export type ImportSetScheme = typeof IMPORT_SET_SCHEMES[number];
+// The block rules live in a pure module so the mapping table codec can share
+// them without the host runtime. Re-exported so existing importers keep working.
+export {
+	IMPORT_SET_DERIVATIONS,
+	IMPORT_SET_ID_PATTERN,
+	IMPORT_SET_SCHEMES,
+	ImportSetProvenanceError,
+	MAPPING_FORMS,
+	validateImportSetBlock,
+};
+export type { ImportSetDerivation, ImportSetScheme, MappingForm };
 
 /** Default for callers that do not deliberately choose a scheme. Kept at
  * endpoint-v1 so every pre-existing import path preserves its identities. */
 export const CURRENT_IMPORT_SET_SCHEME: ImportSetScheme = 'endpoint-v1';
-
-/** Mapping storage form is pinned per import set; legacy sets use notes. */
-export const MAPPING_FORMS = ['notes', 'table'] as const;
-export type MappingForm = typeof MAPPING_FORMS[number];
 
 /**
  * AM-27 (2026-08-31). HOW a set turns a source row into a CURIE local part.
@@ -43,9 +62,9 @@ export type MappingForm = typeof MAPPING_FORMS[number];
  * - `declared-facts-v1` is the rule every NEW set mints under: the source's own
  *   declared identity first, the filename stem only as a last resort, and any
  *   sanitization that does happen is injective.
+ *
+ * The enum itself (`IMPORT_SET_DERIVATIONS`) lives in `./import-set-block`.
  */
-export const IMPORT_SET_DERIVATIONS = ['filename-stem-v1', 'declared-facts-v1'] as const;
-export type ImportSetDerivation = typeof IMPORT_SET_DERIVATIONS[number];
 
 /**
  * What an UNSTAMPED set derives under. Absence is not "unknown", it is a fact:
@@ -203,14 +222,6 @@ interface ImportSetObservation {
 	sourceFile: string | null;
 	sourceHash: string | null;
 	producedAt: string | null;
-}
-
-/** Stored import-set provenance is malformed or disagrees within one set. */
-export class ImportSetProvenanceError extends Error {
-	constructor(message: string, public readonly paths: string[]) {
-		super(message);
-		this.name = 'ImportSetProvenanceError';
-	}
 }
 
 /**
@@ -591,32 +602,14 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 		if (!provenance || typeof provenance !== 'object') continue;
 		const raw = (provenance as Record<string, unknown>).import_set;
 		if (raw === undefined) continue;
-		if (!raw || typeof raw !== 'object') {
-			throw new ImportSetProvenanceError(`Invalid _crosswalker.import_set at ${file.path}: expected an object.`, [file.path]);
-		}
+		assertImportSetBlockObject(raw, file.path);
 
-		const id = readString((raw as Record<string, unknown>).id);
 		// Explicit refresh validates only the named set. Corrupt provenance for an
 		// unrelated set elsewhere in the vault cannot block this import.
-		if (onlyId !== undefined && id !== onlyId) continue;
-		const scheme = readString((raw as Record<string, unknown>).scheme);
-		if (!id || !IMPORT_SET_ID_PATTERN.test(id)) {
-			throw new ImportSetProvenanceError(`Invalid import set id at ${file.path}: expected iset- followed by 6 lowercase letters or digits.`, [file.path]);
-		}
-		const destination = readString((raw as Record<string, unknown>).destination);
-		const ontology = readString((raw as Record<string, unknown>).ontology);
-		const derivation = readString((raw as Record<string, unknown>).derivation);
-		const rawForm = (raw as Record<string, unknown>).mapping_form;
-		// Unlike a cache miss, a present but malformed pin cannot safely default.
-		if (rawForm !== undefined && !MAPPING_FORMS.includes(rawForm as MappingForm)) {
-			throw new ImportSetProvenanceError(
-				`Invalid mapping form at ${file.path}: ${String(rawForm)}. Update Crosswalker or restore the import set provenance before refreshing.`,
-				[file.path],
-			);
-		}
-		const mappingForm = rawForm as MappingForm | undefined;
-		const parentSet = readString((raw as Record<string, unknown>).parent_set);
-		const nestIdentity = readNestIdentity((raw as Record<string, unknown>).nest_identity, file.path);
+		if (onlyId !== undefined && readString(raw.id) !== onlyId) continue;
+		// Scheme and derivation are checked per set below, where every note that
+		// disagrees can be named at once.
+		const block = validateImportSetBlock(raw, file.path, { schemeAndDerivation: 'set' });
 		// Two stamped facts about WHAT produced this note, kept beside the ownership
 		// id so a caller can ask "has this source written here before?" without
 		// re-deriving anything from the note's address. Both are optional: a note
@@ -631,19 +624,19 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 			? sourceRef as Record<string, unknown>
 			: null;
 		observations.push({
-			id,
-			scheme,
+			id: block.id,
+			scheme: block.scheme,
 			path: file.path,
-			destination,
+			destination: block.destination,
 			recipeId,
 			recipeHash: recipeBlock && typeof recipeBlock === 'object'
 				? readString((recipeBlock as Record<string, unknown>).hash) : null,
 			ontologyPrefix: curiePrefix(readString((fm as Record<string, unknown>).curie)),
-			ontology,
-			derivation,
-			mappingForm: mappingForm ?? null,
-			parentSet,
-			nestIdentity,
+			ontology: block.ontology,
+			derivation: block.derivation,
+			mappingForm: block.mappingForm,
+			parentSet: block.parentSet,
+			nestIdentity: block.nestIdentity,
 			sourceFile: readString(sourceRecord?.file),
 			sourceHash: readString(sourceRecord?.source_hash),
 			producedAt: readString(provenanceRecord.produced_at),
@@ -719,10 +712,6 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 	return sets;
 }
 
-function isImportSetScheme(value: unknown): value is ImportSetScheme {
-	return typeof value === 'string' && (IMPORT_SET_SCHEMES as readonly string[]).includes(value);
-}
-
 function assertImportSetScheme(value: unknown): asserts value is ImportSetScheme {
 	if (!isImportSetScheme(value)) {
 		throw new Error(`Unsupported import set scheme: ${String(value)}.`);
@@ -771,33 +760,6 @@ function assertImportSetId(id: string): void {
 
 function nestIdentityOf(nest: readonly NestedRecordLevel[]): Record<string, 'global' | 'path'> {
 	return Object.fromEntries(nest.map((entry) => [entry.level, entry.identity ?? 'global']));
-}
-
-function readNestIdentity(value: unknown, path: string): Record<string, 'global' | 'path'> | null {
-	if (value === undefined) return null;
-	if (!value || typeof value !== 'object' || Array.isArray(value)) {
-		throw new ImportSetProvenanceError(
-			`Invalid _crosswalker.import_set.nest_identity at ${path}: expected an object of level names to global or path.`,
-			[path],
-		);
-	}
-	const out: Record<string, 'global' | 'path'> = {};
-	for (const [level, identity] of Object.entries(value as Record<string, unknown>)) {
-		if (identity !== 'global' && identity !== 'path') {
-			throw new ImportSetProvenanceError(
-				`Invalid _crosswalker.import_set.nest_identity at ${path}: level ${level} must be global or path.`,
-				[path],
-			);
-		}
-		out[level] = identity;
-	}
-	return out;
-}
-
-function readString(value: unknown): string | null {
-	if (typeof value !== 'string') return null;
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : null;
 }
 
 /** The ontology half of a curie (`nist-mini:AC-1` -> `nist-mini`), or null. */
@@ -939,10 +901,6 @@ function agreedNestIdentity(
 		+ 'Restore the notes that disagree from a backup, or move them out of this folder, then run the import again.',
 		paths,
 	);
-}
-
-function isImportSetDerivation(value: unknown): value is ImportSetDerivation {
-	return typeof value === 'string' && (IMPORT_SET_DERIVATIONS as readonly string[]).includes(value);
 }
 
 /**
