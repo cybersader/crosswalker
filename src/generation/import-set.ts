@@ -468,6 +468,12 @@ export async function resolveImportSet(
 	proposedOntology?: string,
 	/** Nested identity declarations this run would pin if it mints a new set. */
 	proposedNest?: readonly NestedRecordLevel[],
+	/**
+	 * Slice 3 of the mapping table form. The storage form a MINT pins. Ignored on
+	 * a refresh: an existing set keeps the form it was minted with, and switching
+	 * is a conversion job. Only 'table' is stamped; absence already means notes.
+	 */
+	proposedMappingForm?: MappingForm,
 ): Promise<ImportSetReference> {
 	// Where this run writes is stamped onto every note it writes. Recorded, not
 	// inferred: without it a later refresh has no way to ask where its own set
@@ -492,6 +498,7 @@ export async function resolveImportSet(
 		scheme,
 		derivation: CURRENT_IMPORT_SET_DERIVATION,
 		...(proposedNest?.length ? { nest_identity: nestIdentityOf(proposedNest) } : {}),
+		...(proposedMappingForm === 'table' ? { mapping_form: 'table' as const } : {}),
 	});
 
 	if (option === 'new') {

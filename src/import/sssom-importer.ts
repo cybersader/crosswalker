@@ -42,7 +42,27 @@ import {
 } from './sssom-parser';
 import { sha256Hex, computeRecipeHash } from '../generation/hash';
 import { readNoteFrontmatterState } from '../export/vault-reader';
-import { settleVaultIndex, type ImportSetOption } from '../generation/import-set';
+import {
+	discoverImportSets,
+	mappingFormOf,
+	resolveImportSet,
+	settleVaultIndex,
+	type ImportSetOption,
+	type ImportSetReference,
+	type MappingForm,
+} from '../generation/import-set';
+import { buildProvenance } from '../generation/provenance';
+import type { CrosswalkerProvenance } from '../generation/import-set-block';
+import {
+	MAPPING_TABLE_FORMAT,
+	assignMappingRowIds,
+	type MappingTableHeader,
+	type MappingTableRow,
+	type MappingTableRowFacts,
+} from '../mappings/mapping-table';
+import { readMappingTables } from '../mappings/mapping-table-reader';
+import { mappingTablePath, mergeReviewColumns, writeMappingTable } from '../mappings/mapping-table-writer';
+import manifest from '../../manifest.json';
 import { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../generation/crosswalk-identity';
 export { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../generation/crosswalk-identity';
 import {
@@ -66,6 +86,13 @@ export interface SssomImportOptions {
 	overwriteMode?: 'skip' | 'replace' | 'error';
 	/** Refresh an existing import set or deliberately mint a new one. */
 	importSet?: ImportSetOption;
+	/**
+	 * Slice 3 of the mapping table form. How a NEW set stores its mappings:
+	 * one note per mapping (default) or one `*.mapping-table.tsv`. A refresh must
+	 * request the form its set was minted with; a mismatch is refused, because
+	 * switching forms is a conversion job, never a refresh.
+	 */
+	mappingForm?: MappingForm;
 	/** Whether to trigger Tier 2 projection + closure precompute after generation.
 	 *  Default: true. Pass false in tests that don't have a sidecar handle. */
 	runTier2Projection?: boolean;
@@ -83,6 +110,16 @@ export interface SssomImportResult {
 	skipped?: 'parse-error' | 'no-rows';
 	unresolved: UnresolvedEndpoint[];
 	summary: string[];
+	/** The storage form this run wrote (or would have written). */
+	mappingForm?: MappingForm;
+	/** Table runs only: the one file written. */
+	tablePath?: string;
+	/** Table runs only: rows in the written table. */
+	rowsWritten?: number;
+	/** Table refresh only: rows whose review columns were carried from the old file. */
+	reviewCarried?: number;
+	/** Table refresh only: rows in the old file the new source no longer produces. */
+	rowsDropped?: number;
 }
 
 /**
@@ -133,6 +170,7 @@ async function runImportSssom(
 		folder: null,
 		unresolved: [],
 		summary: [],
+		mappingForm: options.mappingForm ?? 'notes',
 	};
 
 	// ----- Phase 1: Parse -----
@@ -259,6 +297,39 @@ async function runImportSssom(
 
 	result.summary = summarizeUnresolvedEndpoints(result.unresolved, unreadable);
 	const recipe = buildSyntheticRecipe(source, target);
+
+	if ((options.mappingForm ?? 'notes') === 'table') {
+		const gen = await writeTableSet(app, {
+			folder,
+			source,
+			target,
+			parsed,
+			rows: rowsForRecipe,
+			recipe,
+			sourceFileName: normalizedHeaderId || fallbackId,
+			mappingSetId: normalizedHeaderId || fallbackId,
+			importSet: options.importSet,
+			result,
+		}, debug);
+		result.generation = gen;
+		if (!gen.success) {
+			debug?.error('sssom-import', 'table-write-failed', 'SSSOM import: mapping table write failed', { errors: gen.errors });
+			return result;
+		}
+		await projectAndPrecompute(app, result, gen, source, target, pluginRunProjection, pluginPrecomputeClosure, options, debug);
+		options.onProgress?.(parsed.rows.length, parsed.rows.length, 'SSSOM import complete');
+		return result;
+	}
+
+	// The mirror guard of the table branch: a table-form set refreshed as notes
+	// would gain a second storage form and a second row population.
+	if (options.importSet && typeof options.importSet === 'object') {
+		const existing = await resolveImportSet(app, folder, options.importSet, SSSOM_CURIE_PREFIX, undefined);
+		if (mappingFormOf(existing) === 'table') {
+			result.generation = failedGeneration(existing.id, `Import set ${existing.id} stores its mappings as a table. Convert the set instead of refreshing it as notes.`);
+			return result;
+		}
+	}
 	const generatedColumns = [
 		'sssom_predicate',
 		'mapping_set_id',
@@ -298,6 +369,27 @@ async function runImportSssom(
 		return result;
 	}
 
+	await projectAndPrecompute(app, result, gen, source, target, pluginRunProjection, pluginPrecomputeClosure, options, debug);
+
+	options.onProgress?.(parsed.rows.length, parsed.rows.length, 'SSSOM import complete');
+	return result;
+}
+
+/**
+ * Tier 2 projection, then eager closure. Shared by the note and table branches
+ * so a table run settles the index and projects exactly as a note run does.
+ */
+async function projectAndPrecompute(
+	app: App,
+	result: SssomImportResult,
+	gen: GenerationResult,
+	source: string,
+	target: string,
+	pluginRunProjection: (() => Promise<unknown>) | null,
+	pluginPrecomputeClosure: ((sourceOnt: string, targetOnt: string) => Promise<number>) | null,
+	options: SssomImportOptions,
+	debug?: DebugLog,
+): Promise<void> {
 	// Full projection must not read a partially indexed import. A failed or
 	// deferred projection must never feed eager closure from partial data.
 	let projectionReady = true;
@@ -337,9 +429,192 @@ async function runImportSssom(
 			debug?.warn('sssom-import', 'precompute-failed', 'SSSOM import: precompute failed', { error: msg });
 		}
 	}
+}
 
-	options.onProgress?.(parsed.rows.length, parsed.rows.length, 'SSSOM import complete');
-	return result;
+const PLUGIN_VERSION: string = manifest.version;
+
+function failedGeneration(importSetId: string | undefined, message: string): GenerationResult {
+	return {
+		success: false,
+		...(importSetId ? { importSetId } : {}),
+		created: [],
+		upToDate: [],
+		skipped: [],
+		errors: [{ row: -1, message }],
+		duration: 0,
+		orphansChecked: false,
+	};
+}
+
+interface TableSetInput {
+	folder: string;
+	source: string;
+	target: string;
+	parsed: SssomParseResult;
+	rows: Array<Record<string, unknown>>;
+	recipe: Recipe;
+	sourceFileName: string;
+	mappingSetId: string;
+	importSet?: ImportSetOption;
+	result: SssomImportResult;
+}
+
+function optionalCell(value: unknown): string | undefined {
+	if (value === undefined || value === null) return undefined;
+	const text = String(value);
+	return text === '' ? undefined : text;
+}
+
+/**
+ * Slice 3 of the mapping table form. Write the whole set as one table instead of
+ * one note per mapping. Never throws for an expected refusal: every refusal and
+ * write failure comes back as a failed `GenerationResult`, the same channel the
+ * note branch uses, so every caller keeps one success check.
+ *
+ * Failure modes prevented:
+ * - a refresh changing a set's storage form (notes to table or back), which
+ *   would leave one set with two row populations. Refused; conversion is its
+ *   own job.
+ * - a refresh wiping the review columns a person typed into the file. They are
+ *   carried by `row_id` (`mergeReviewColumns`).
+ * - a new set overwriting a different set's table that happens to sit at the
+ *   same path. The new set takes a set-qualified name instead
+ *   (`<stem>.<import-set-id>.mapping-table.tsv`); only a taken qualified path
+ *   is refused.
+ */
+async function writeTableSet(app: App, input: TableSetInput, debug?: DebugLog): Promise<GenerationResult> {
+	const startTime = Date.now();
+	const { result } = input;
+	const refresh = !!input.importSet && typeof input.importSet === 'object';
+	let importSet: ImportSetReference = await resolveImportSet(
+		app, input.folder, input.importSet, SSSOM_CURIE_PREFIX, undefined, 'table',
+	);
+	if (refresh && mappingFormOf(importSet) !== 'table') {
+		// No table pin has two causes. Discovery found the set's notes: it really
+		// is a notes-form set. Discovery found nothing: the set's table was
+		// deleted or moved, so the owned-table lookup below names that instead of
+		// telling the user to convert a set that has no notes.
+		const discovered = (await discoverImportSets(app)).find((set) => set.id === importSet.id);
+		if (discovered && discovered.noteCount > 0) {
+			return failedGeneration(importSet.id, `Import set ${importSet.id} stores its mappings as notes. Convert the set instead of refreshing it as a table.`);
+		}
+		// Only reached with no notes seen; a table this set still owns (found by
+		// its header below) is the table form, so the rewrite keeps the pin.
+		importSet = { ...importSet, mapping_form: 'table' };
+	}
+
+	const provenance = buildProvenance(
+		{
+			sourceFile: input.sourceFileName,
+			recipeId: input.recipe.recipe,
+			recipeHash: computeRecipeHash(input.recipe.target, input.recipe.source),
+			importSet,
+		},
+		PLUGIN_VERSION,
+	) as CrosswalkerProvenance;
+	const sssomHeader = input.parsed.header;
+	const headerString = (key: 'mapping_provider' | 'mapping_date' | 'subject_source' | 'object_source' | 'license'): string | undefined => {
+		const value = sssomHeader[key];
+		return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+	};
+	const header: MappingTableHeader = {
+		mapping_set_id: input.mappingSetId,
+		...(headerString('mapping_provider') ? { mapping_provider: headerString('mapping_provider') } : {}),
+		...(headerString('mapping_date') ? { mapping_date: headerString('mapping_date') } : {}),
+		...(headerString('subject_source') ? { subject_source: headerString('subject_source') } : {}),
+		...(headerString('object_source') ? { object_source: headerString('object_source') } : {}),
+		...(headerString('license') ? { license: headerString('license') } : {}),
+		crosswalker_format: MAPPING_TABLE_FORMAT,
+		import_set: importSet.id,
+		source_framework: input.source,
+		target_framework: input.target,
+		tags: [`crosswalk/${input.source}-to-${input.target}`],
+		crosswalker_provenance: provenance,
+	};
+
+	// The fields an edge note carries, from the same prepared rows the note
+	// recipe would render. review_status is left unset: the note recipe stamps
+	// none either (it is user_preserve only).
+	const facts: MappingTableRowFacts[] = input.rows.map((row) => {
+		const fact: MappingTableRowFacts = {
+			subject_id: String(row.subject_id),
+			predicate_id: String(row.predicate_id),
+			object_id: String(row.object_id),
+		};
+		const cells: Array<[keyof MappingTableRowFacts, unknown]> = [
+			['sssom_predicate', row.sssom_predicate],
+			['mapping_justification', row.mapping_justification],
+			['confidence', row.confidence],
+			['subject_label', row.subject_label],
+			['object_label', row.object_label],
+			['subject_note', row.subject_note],
+			['object_note', row.object_note],
+			['mapping_provider', row.mapping_provider],
+			['mapping_set_id', row.mapping_set_id],
+		];
+		for (const [key, value] of cells) {
+			const text = optionalCell(value);
+			if (text !== undefined) (fact as unknown as Record<string, unknown>)[key] = text;
+		}
+		if (row.predicate_modifier === 'NOT') fact.predicate_modifier = 'NOT';
+		return fact;
+	});
+	let rows: MappingTableRow[] = assignMappingRowIds(facts, header.mapping_set_id);
+
+	let path = mappingTablePath(input.folder, input.source, input.target);
+	if (refresh) {
+		const owned = (await readMappingTables(app)).filter((table) => {
+			const block = table.header.crosswalker_provenance?.import_set;
+			return !!block && typeof block === 'object' && (block as Record<string, unknown>).id === importSet.id;
+		});
+		if (owned.length !== 1) {
+			return failedGeneration(importSet.id, owned.length === 0
+				? `Import set ${importSet.id} has no mapping table in the vault. Import the source as a new set instead.`
+				: `Import set ${importSet.id} has ${owned.length} mapping tables: ${owned.map((table) => table.path).join(', ')}. Delete or move all but one, then run the import again.`);
+		}
+		const [existing] = owned;
+		if (existing.errors.length || existing.rowErrors.length) {
+			// Rewriting would silently drop the reviews on rows that could not be read.
+			const problems = [...existing.errors, ...existing.rowErrors];
+			const detail = problems.length === 1 ? problems[0] : `${problems[0]} (and ${problems.length - 1} more)`;
+			return failedGeneration(importSet.id, `Mapping table ${existing.path} has rows Crosswalker could not read, so refreshing it would lose their reviews. Fix or remove those rows in the file, then run the import again. Detail: ${detail}`);
+		}
+		const merged = mergeReviewColumns(rows, existing.rows);
+		rows = merged.rows;
+		result.reviewCarried = merged.carried;
+		result.rowsDropped = merged.dropped;
+		path = existing.path;
+	} else if (app.vault.getAbstractFileByPath(path)) {
+		// Two sets for the same framework pair are legitimate (release isolation is
+		// a new set), so a taken default path means a set-qualified name, not a
+		// refusal. A freshly minted set owns no file yet, so whatever sits at
+		// either path is never this set's own table.
+		path = mappingTablePath(input.folder, input.source, input.target, importSet.id);
+		if (app.vault.getAbstractFileByPath(path)) {
+			return failedGeneration(importSet.id, `A file already exists at ${path}, so a new mapping table cannot be written there. Rename or move that file, or choose a different folder, then run the import again.`);
+		}
+	}
+
+	try {
+		const written = await writeMappingTable(app, { path, header, rows });
+		debug?.info('sssom-import', 'table-written', `SSSOM import: wrote mapping table ${path}`, {
+			path, rows: rows.length, bytes: written.bytes, created: written.created,
+		});
+	} catch (error) {
+		return failedGeneration(importSet.id, error instanceof Error ? error.message : String(error));
+	}
+	result.tablePath = path;
+	result.rowsWritten = rows.length;
+	return {
+		success: true,
+		importSetId: importSet.id,
+		created: [],
+		upToDate: [],
+		skipped: [],
+		errors: [],
+		duration: Date.now() - startTime,
+		orphansChecked: false,
+	};
 }
 
 /**
