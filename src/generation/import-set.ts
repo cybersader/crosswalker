@@ -22,6 +22,10 @@ export type ImportSetScheme = typeof IMPORT_SET_SCHEMES[number];
  * endpoint-v1 so every pre-existing import path preserves its identities. */
 export const CURRENT_IMPORT_SET_SCHEME: ImportSetScheme = 'endpoint-v1';
 
+/** Mapping storage form is pinned per import set; legacy sets use notes. */
+export const MAPPING_FORMS = ['notes', 'table'] as const;
+export type MappingForm = typeof MAPPING_FORMS[number];
+
 /**
  * AM-27 (2026-08-31). HOW a set turns a source row into a CURIE local part.
  *
@@ -58,6 +62,11 @@ export const CURRENT_IMPORT_SET_DERIVATION: ImportSetDerivation = 'declared-fact
  */
 export function derivationOf(reference?: Pick<ImportSetReference, 'derivation'>): ImportSetDerivation {
 	return reference?.derivation ?? LEGACY_IMPORT_SET_DERIVATION;
+}
+
+/** Absence is the recorded legacy form; a refresh must never guess table. */
+export function mappingFormOf(reference?: Pick<ImportSetReference, 'mapping_form'>): MappingForm {
+	return reference?.mapping_form ?? 'notes';
 }
 
 export interface ImportSetReference {
@@ -107,6 +116,13 @@ export interface ImportSetReference {
 	 * recorded state of every set minted before this pin, not a missing answer.
 	 */
 	derivation?: ImportSetDerivation;
+	/**
+	 * Slice 1 of the mapping table form (2026-09-29). How this set stores its
+	 * mapping rows: one note per mapping, or one table file. Pinned at mint like
+	 * `scheme`; a refresh keeps it; switching is a conversion job, never an edit.
+	 * Absent means 'notes' (every set minted before this existed).
+	 */
+	mapping_form?: MappingForm;
 	/**
 	 * AM-27. The identity mode of every nested-record level, pinned when the set
 	 * is minted beside `derivation`.
@@ -179,6 +195,7 @@ interface ImportSetObservation {
 	ontology: string | null;
 	/** The derivation pinned in this note's import_set block, if any (AM-27). */
 	derivation: string | null;
+	mappingForm: string | null;
 	parentSet: string | null;
 	/** Nested level identity modes pinned in this note's import_set block, if any. */
 	nestIdentity: Record<string, 'global' | 'path'> | null;
@@ -478,6 +495,7 @@ export async function resolveImportSet(
 					...(option.parent_set ? { parent_set: option.parent_set } : (existing.parentSets?.length === 1 ? { parent_set: existing.parentSets[0] } : {})),
 					scheme: existing.scheme,
 					...(existing.derivation ? { derivation: existing.derivation } : {}),
+					...(existing.mapping_form ? { mapping_form: existing.mapping_form } : {}),
 					...(existing.nest_identity ? { nest_identity: { ...existing.nest_identity } } : {}),
 				},
 				pinnedOntologyOf(existing, proposed),
@@ -588,6 +606,15 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 		const destination = readString((raw as Record<string, unknown>).destination);
 		const ontology = readString((raw as Record<string, unknown>).ontology);
 		const derivation = readString((raw as Record<string, unknown>).derivation);
+		const rawForm = (raw as Record<string, unknown>).mapping_form;
+		// Unlike a cache miss, a present but malformed pin cannot safely default.
+		if (rawForm !== undefined && !MAPPING_FORMS.includes(rawForm as MappingForm)) {
+			throw new ImportSetProvenanceError(
+				`Invalid mapping form at ${file.path}: ${String(rawForm)}. Update Crosswalker or restore the import set provenance before refreshing.`,
+				[file.path],
+			);
+		}
+		const mappingForm = rawForm as MappingForm | undefined;
 		const parentSet = readString((raw as Record<string, unknown>).parent_set);
 		const nestIdentity = readNestIdentity((raw as Record<string, unknown>).nest_identity, file.path);
 		// Two stamped facts about WHAT produced this note, kept beside the ownership
@@ -614,6 +641,7 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 			ontologyPrefix: curiePrefix(readString((fm as Record<string, unknown>).curie)),
 			ontology,
 			derivation,
+			mappingForm: mappingForm ?? null,
 			parentSet,
 			nestIdentity,
 			sourceFile: readString(sourceRecord?.file),
@@ -666,6 +694,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 		const recorded = recordedDestination(group);
 		const pinnedOntology = agreedOntology(group);
 		const pinnedDerivation = agreedDerivation(id, group);
+		const pinnedMappingForm = agreedMappingForm(id, group);
 		const pinnedNestIdentity = agreedNestIdentity(id, group);
 		sets.push({
 			id,
@@ -682,6 +711,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 			...(recorded ? { destination: recorded } : {}),
 			...(pinnedOntology ? { ontology: pinnedOntology } : {}),
 			...(pinnedDerivation ? { derivation: pinnedDerivation } : {}),
+			...(pinnedMappingForm ? { mapping_form: pinnedMappingForm } : {}),
 			...(pinnedNestIdentity ? { nest_identity: pinnedNestIdentity } : {}),
 		});
 	}
@@ -872,6 +902,19 @@ function agreedDerivation(id: string, group: readonly ImportSetObservation[]): I
 		+ 'Restore the notes that disagree from a backup, or move them out of this folder, then run the import again.',
 		paths,
 	);
+}
+
+/** Reject mixed forms rather than silently refreshing a table as notes or vice versa. */
+function agreedMappingForm(id: string, group: readonly ImportSetObservation[]): MappingForm | null {
+	const forms = new Set(group.map((entry) => entry.mappingForm ?? 'notes'));
+	if (forms.size !== 1) {
+		throw new ImportSetProvenanceError(
+			`Import set ${id} records different mapping forms. Restore consistent import set provenance before refreshing.`,
+			group.map((entry) => entry.path).sort(),
+		);
+	}
+	const form = [...forms][0];
+	return group.every((entry) => entry.mappingForm === null) ? null : form as MappingForm;
 }
 
 function agreedNestIdentity(
