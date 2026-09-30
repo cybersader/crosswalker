@@ -33,6 +33,7 @@ import type { App, TFile } from 'obsidian';
 import { parseYaml } from 'obsidian';
 import { normalizeMappingSetId, readStoredPredicateModifier } from '../utils/mapping-provenance';
 import { readMappingTables, tableRowsAsEdgeRecords } from '../mappings/mapping-table-reader';
+import { conversionReadRule, importSetIdOf, readConversionReadState, unusableMarkerMessage } from '../mappings/conversion-marker';
 
 export type VaultNoteKind = 'concept' | 'crosswalk-edge' | 'junction-note' | 'hub' | 'facet';
 
@@ -256,6 +257,18 @@ export async function readVaultTree(app: App, rootPath: string): Promise<ReadVau
 		skipped: [],
 	};
 
+	// Slice 4. A set mid-conversion exports from one storage form only (see
+	// `formToReadFor`). Markers are read vault-wide: a set's marker sits in its
+	// destination, which need not be under the exported root.
+	// A set whose marker cannot be read exports in neither form (reading both
+	// would double it), and the marker itself is reported with its fix.
+	const conversionState = await readConversionReadState(app);
+	const reads = conversionReadRule(conversionState.markers, conversionState.unusable);
+	const blockedSets = new Set(conversionState.unusable.flatMap((entry) => entry.setIds));
+	const blockedReason = 'mapping set has a conversion marker Crosswalker cannot read, so neither of its forms is exported';
+	for (const entry of conversionState.unusable) {
+		result.skipped.push({ path: entry.path, reason: unusableMarkerMessage(entry, 'neither form of {sets} is exported.') });
+	}
 	const files = listMarkdownFilesUnder(app, rootPath);
 	for (const file of files) {
 		const fm = await readNoteFrontmatter(app, file);
@@ -273,6 +286,10 @@ export async function readVaultTree(app: App, rootPath: string): Promise<ReadVau
 		const tags = asStringArray(fm.tags);
 
 		if (kind === 'crosswalk-edge') {
+			if (!reads(importSetIdOf(fm._crosswalker), 'notes')) {
+				result.skipped.push({ path: file.path, reason: blockedSets.has(importSetIdOf(fm._crosswalker) ?? '') ? blockedReason : 'mapping set is being converted; its table is read instead' });
+				continue;
+			}
 			const edge = crosswalkEdgeRowOf(file.path, curie, fm);
 			if ('reason' in edge) result.skipped.push(edge);
 			else result.crosswalkEdges.push(edge);
@@ -348,6 +365,10 @@ export async function readVaultTree(app: App, rootPath: string): Promise<ReadVau
 	// errors as the reason.
 	const root = normalizeFolderPath(rootPath);
 	for (const table of await readMappingTables(app, root === '' ? undefined : root)) {
+		if (!reads(importSetIdOf(table.header.crosswalker_provenance), 'table')) {
+			result.skipped.push({ path: table.path, reason: blockedSets.has(importSetIdOf(table.header.crosswalker_provenance) ?? '') ? blockedReason : 'mapping set is being converted; its notes are read instead' });
+			continue;
+		}
 		// Row errors skip the table whole too: exporting the surviving rows would
 		// ship a partial set that reads as complete.
 		const problems = [...table.errors, ...table.rowErrors];

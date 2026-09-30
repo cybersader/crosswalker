@@ -14,6 +14,7 @@ import { IDENTITY_SENTINELS } from './legacy-recipe-shim';
 import type { KnownSource } from '../import/vault-source-scan';
 import type { NestedRecordLevel } from '../types/generated/recipe';
 import { readMappingTables, tableRowsAsEdgeRecords } from '../mappings/mapping-table-reader';
+import { conversionReadRule, readConversionMarkers, type ConversionMarker, type ConversionPhase } from '../mappings/conversion-marker';
 import {
 	IMPORT_SET_DERIVATIONS,
 	IMPORT_SET_ID_PATTERN,
@@ -174,6 +175,12 @@ export interface DiscoveredImportSet extends ImportSetReference {
 	mapping_form: MappingForm;
 	/** Mapping rows held in the set's table file; 0 for a notes-form set. */
 	rowCount: number;
+	/**
+	 * Slice 4. Present while a conversion job's marker exists for this set. The
+	 * rest of this record then describes the form readers use right now (the
+	 * source until the target is verified, the target after), never both.
+	 */
+	converting?: { to: MappingForm; phase: ConversionPhase };
 	paths: string[];
 	/**
 	 * Where this set's notes actually live: the recorded destination when it is
@@ -248,7 +255,8 @@ interface ImportSetObservation {
  * sets. They remain valid and can never become orphans by inference.
  */
 export async function discoverImportSets(app: App, basePath?: string): Promise<DiscoveredImportSet[]> {
-	return buildDiscoveredSets(await collectObservations(app, basePath));
+	const markers = await readConversionMarkers(app);
+	return buildDiscoveredSets(await collectObservations(app, basePath, undefined, markers), markers);
 }
 
 /** Flatten discovered source provenance for vault-source reconciliation. */
@@ -474,6 +482,14 @@ export async function resolveImportSet(
 	 * is a conversion job. Only 'table' is stamped; absence already means notes.
 	 */
 	proposedMappingForm?: MappingForm,
+	/**
+	 * Slice 4. Only the conversion job passes `conversion`: it flips an existing
+	 * set's form pin to `to` for the artifacts the job writes (a table header, or
+	 * the new notes). Nothing else may ever flip a pin; a refresh carries it
+	 * forward unchanged. Converting to notes records the pin by absence, the same
+	 * way every notes-form set records it.
+	 */
+	overrides?: { conversion?: { to: MappingForm } },
 ): Promise<ImportSetReference> {
 	// Where this run writes is stamped onto every note it writes. Recorded, not
 	// inferred: without it a later refresh has no way to ask where its own set
@@ -509,6 +525,11 @@ export async function resolveImportSet(
 		return stamp(mint('set-qualified-v1'), proposed);
 	}
 
+	const conversion = overrides?.conversion;
+	if (conversion && !(option && typeof option === 'object')) {
+		throw new Error('A mapping set conversion must name the import set it converts.');
+	}
+
 	if (option && typeof option === 'object') {
 		assertImportSetId(option.id);
 		if (option.scheme !== undefined) assertImportSetScheme(option.scheme);
@@ -533,11 +554,20 @@ export async function resolveImportSet(
 					...(existing.derivation ? { derivation: existing.derivation } : {}),
 					// Only a table pin is carried. Absence already means notes, and
 					// stamping 'notes' onto a legacy set would rewrite every one of its
-					// notes for no change in meaning.
-					...(existing.mapping_form === 'table' ? { mapping_form: 'table' as const } : {}),
+					// notes for no change in meaning. A conversion names the new form.
+					...((conversion ? conversion.to : existing.mapping_form) === 'table' ? { mapping_form: 'table' as const } : {}),
 					...(existing.nest_identity ? { nest_identity: { ...existing.nest_identity } } : {}),
 				},
 				pinnedOntologyOf(existing, proposed),
+			);
+		}
+		if (conversion) {
+			// A conversion reads its source through this lookup. Falling through to
+			// the bare-id branch would stamp the default scheme onto a set pinned to
+			// another one, re-identifying every row the job writes.
+			throw new ImportSetProvenanceError(
+				`Import set ${option.id} was not found, so it cannot be converted. Wait for Obsidian to finish indexing, then finish the conversion.`,
+				[],
 			);
 		}
 		// AM-27. An explicit id whose notes this call did not see: emptied, wiped, or
@@ -614,7 +644,19 @@ export function mintImportSetId(existingIds: ReadonlySet<string> = new Set()): s
 	throw new Error('Could not mint a unique import set id after 100 attempts.');
 }
 
-async function collectObservations(app: App, basePath?: string, onlyId?: string): Promise<ImportSetObservation[]> {
+/**
+ * Slice 4. `markers` are the live conversion markers (read here when a caller
+ * did not). For a set with one, only the storage form `formToReadFor` names is
+ * observed, so a half-finished conversion reads as one consistent set instead
+ * of tripping the both-forms refusal in `assertOneStorage`.
+ */
+async function collectObservations(
+	app: App,
+	basePath?: string,
+	onlyId?: string,
+	markers?: readonly ConversionMarker[],
+): Promise<ImportSetObservation[]> {
+	const reads = conversionReadRule(markers ?? await readConversionMarkers(app));
 	const observations: ImportSetObservation[] = [];
 	for (const file of app.vault.getMarkdownFiles()) {
 		if (!isWithinDestination(file.path, basePath)) continue;
@@ -635,6 +677,7 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 		// Explicit refresh validates only the named set. Corrupt provenance for an
 		// unrelated set elsewhere in the vault cannot block this import.
 		if (onlyId !== undefined && readString(raw.id) !== onlyId) continue;
+		if (!reads(readString(raw.id), 'notes')) continue;
 		// Scheme and derivation are checked per set below, where every note that
 		// disagrees can be named at once.
 		const block = validateImportSetBlock(raw, file.path, { schemeAndDerivation: 'set' });
@@ -647,7 +690,7 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 			0,
 		));
 	}
-	observations.push(...await collectTableObservations(app, basePath, onlyId));
+	observations.push(...await collectTableObservations(app, basePath, onlyId, reads));
 	return observations;
 }
 
@@ -673,7 +716,12 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
  *   Failure mode prevented: one bad row blocking the wizard, the stack modal
  *   and the vault scan for every set in the vault.
  */
-async function collectTableObservations(app: App, basePath?: string, onlyId?: string): Promise<ImportSetObservation[]> {
+async function collectTableObservations(
+	app: App,
+	basePath?: string,
+	onlyId?: string,
+	reads: (setId: string | null, form: MappingForm) => boolean = () => true,
+): Promise<ImportSetObservation[]> {
 	const observations: ImportSetObservation[] = [];
 	for (const table of await readMappingTables(app, basePath)) {
 		if (table.readable && table.provenance === 'absent') continue;
@@ -683,6 +731,9 @@ async function collectTableObservations(app: App, basePath?: string, onlyId?: st
 			? readString((rawBlock as Record<string, unknown>).id)
 			: null;
 		if (onlyId !== undefined && statedId !== null && statedId !== onlyId) continue;
+		// A conversion's table that readers must not use yet (or any more) is not
+		// an observation, even if it is still being written.
+		if (statedId !== null && !reads(statedId, 'table')) continue;
 		if (!table.readable || table.provenance === 'invalid' || table.errors.length || !provenance || rawBlock === undefined) {
 			// The reader's own messages already name the cause and the fix.
 			const cause = !table.readable ? 'could not be read'
@@ -771,7 +822,8 @@ async function readRawFrontmatter(app: App, file: TFile): Promise<Record<string,
 	}
 }
 
-function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredImportSet[] {
+function buildDiscoveredSets(observations: ImportSetObservation[], markers: readonly ConversionMarker[] = []): DiscoveredImportSet[] {
+	const markerBySet = new Map(markers.map((marker) => [marker.import_set, marker]));
 	const byId = new Map<string, ImportSetObservation[]>();
 	for (const observation of observations) {
 		const group = byId.get(observation.id);
@@ -804,6 +856,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 			noteCount: group.filter((entry) => entry.storage === 'note').length,
 			mapping_form: pinnedMappingForm ?? 'notes',
 			rowCount: group.reduce((sum, entry) => sum + entry.rowCount, 0),
+			...(markerBySet.has(id) ? { converting: { to: markerBySet.get(id)!.to, phase: markerBySet.get(id)!.phase } } : {}),
 			paths,
 			root: resolveSetRoot(recorded, paths),
 			recipeIds: distinctSorted(group.map((entry) => entry.recipeId)),

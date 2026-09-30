@@ -7,7 +7,7 @@ import {
 } from '../src/mappings/mapping-table';
 import { readMappingTables, tableRowsAsEdgeRecords } from '../src/mappings/mapping-table-reader';
 import { discoverImportSets, mappingFormOf, resolveImportSet } from '../src/generation/import-set';
-import { sssomEdgeCurie } from '../src/generation/crosswalk-identity';
+import { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../src/generation/crosswalk-identity';
 
 const header: MappingTableHeader = {
 	crosswalker_format: MAPPING_TABLE_FORMAT,
@@ -294,7 +294,7 @@ describe('Mapping table slice 2: provenance header, occurrence ids, curie, reade
 		const parsed = parseMappingTable(serializeMappingTable(padded, [second]));
 		expect(parsed.errors).toEqual([]);
 		expect(tableRowToEdgeFrontmatter(parsed.rows[0], parsed.header).curie)
-			.toBe(sssomEdgeCurie(second, { id: 'iset-demo12', scheme: 'set-qualified-v1', derivation: 'declared-facts-v1' }));
+			.toBe(`${SSSOM_CURIE_PREFIX}:${sssomEdgeCurie(second, { id: 'iset-demo12', scheme: 'set-qualified-v1', derivation: 'declared-facts-v1' })}`);
 	});
 
 	it('refuses to read a vault table that carries no provenance header', async () => {
@@ -317,7 +317,7 @@ describe('Mapping table slice 2: provenance header, occurrence ids, curie, reade
 			subject_id: 'demo-a:X-7', predicate_id: 'intersects_with', object_id: 'demo-b:Y-7',
 			mapping_set_id: 'demo-map', source_framework: 'demo-a', target_framework: 'demo-b',
 		};
-		const derived = sssomEdgeCurie(base, { id: 'iset-demo12', scheme: 'endpoint-v1', derivation: 'declared-facts-v1' });
+		const derived = `${SSSOM_CURIE_PREFIX}:${sssomEdgeCurie(base, { id: 'iset-demo12', scheme: 'endpoint-v1', derivation: 'declared-facts-v1' })}`;
 		const kept = { ...base, curie: derived };
 		const keptRow = edgeFrontmatterToTableRow(kept, tableHeader).row!;
 		expect(keptRow.extra).not.toHaveProperty('curie');
@@ -333,9 +333,34 @@ describe('Mapping table slice 2: provenance header, occurrence ids, curie, reade
 		// A set-qualified set derives a set-qualified curie.
 		const qualified = withBlock({ ...provenance.import_set, scheme: 'set-qualified-v1' });
 		expect(tableRowToEdgeFrontmatter({ ...keptRow, row_id: 'm-demo' }, qualified).curie)
-			.toBe(sssomEdgeCurie(base, { id: 'iset-demo12', scheme: 'set-qualified-v1', derivation: 'declared-facts-v1' }));
+			.toBe(`${SSSOM_CURIE_PREFIX}:${sssomEdgeCurie(base, { id: 'iset-demo12', scheme: 'set-qualified-v1', derivation: 'declared-facts-v1' })}`);
 		// Without a header pin nothing is derived, so a curie is kept rather than dropped.
 		expect(edgeFrontmatterToTableRow(kept).row!.extra).toMatchObject({ curie: derived });
+	});
+
+	it('recognises the prefixed curie a real edge note stores as derived, and re-emits exactly it', () => {
+		// The shape the notes path stamps: the set's edge prefix, a colon, then the
+		// `sssomEdgeCurie` local part. Before the codec composed the prefix, this
+		// curie was kept in `extra` and a table row re-emitted it unprefixed.
+		const note = {
+			title: 'demo-a:X-7 -> demo-b:Y-7', tags: header.tags,
+			subject_id: 'demo-a:X-7', predicate_id: 'intersects_with', object_id: 'demo-b:Y-7',
+			mapping_set_id: 'demo-map', source_framework: 'demo-a', target_framework: 'demo-b',
+			curie: 'sssom:cw-demo-a-X-7--2e36104844-demo-b-Y-7--22e146e34d',
+		};
+		const row = edgeFrontmatterToTableRow(note, tableHeader).row!;
+		expect(row.extra).not.toHaveProperty('curie');
+		const [parsedRow] = parseMappingTable(serializeMappingTable(tableHeader, assignMappingRowIds([row]))).rows;
+		expect(tableRowToEdgeFrontmatter(parsedRow, tableHeader).curie).toBe(note.curie);
+
+		// A set pinned to another ontology space composes its own prefix the same way.
+		const legacy = withBlock({ ...provenance.import_set, ontology: 'xwalk' });
+		const legacyNote = { ...note, curie: 'xwalk:cw-demo-a-X-7--2e36104844-demo-b-Y-7--22e146e34d' };
+		expect(edgeFrontmatterToTableRow(legacyNote, legacy).row!.extra).not.toHaveProperty('curie');
+		expect(tableRowToEdgeFrontmatter(parsedRow, legacy).curie).toBe(legacyNote.curie);
+		// The bare local part is no longer the derived value, so it is kept as a user field.
+		const bare = { ...note, curie: 'cw-demo-a-X-7--2e36104844-demo-b-Y-7--22e146e34d' };
+		expect(edgeFrontmatterToTableRow(bare, tableHeader).row!.extra).toMatchObject({ curie: bare.curie });
 	});
 
 	it('reads tables by suffix, reports a malformed one without throwing, and adapts rows to edge records', async () => {
@@ -384,7 +409,7 @@ describe('Mapping table slice 2: provenance header, occurrence ids, curie, reade
 			...tableRowToEdgeFrontmatter(second, tableHeader),
 			_crosswalker: provenance,
 		});
-		expect(record.frontmatter.curie).toBe(sssomEdgeCurie(second, { id: 'iset-demo12', scheme: 'endpoint-v1', derivation: 'declared-facts-v1' }));
+		expect(record.frontmatter.curie).toBe(`${SSSOM_CURIE_PREFIX}:${sssomEdgeCurie(second, { id: 'iset-demo12', scheme: 'endpoint-v1', derivation: 'declared-facts-v1' })}`);
 		expect(tableRowsAsEdgeRecords(broken)).toEqual([]);
 	});
 });

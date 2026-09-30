@@ -153,6 +153,17 @@ export class CrosswalkerWorkspaceView extends ItemView {
 	// Home screen — launchpad + installed ontologies
 	// =========================================================================
 
+	/**
+	 * Redraw the home screen so the installed stacks panel shows fresh vault
+	 * facts after work that finished outside it (a mapping set conversion
+	 * resumed from the startup notice or the command). Leaves an import flow
+	 * alone: redrawing would throw the user's in-progress import away.
+	 */
+	refreshInstalledStacks(): void {
+		if (this.activeFlow) return;
+		void this.renderHome();
+	}
+
 	private async renderHome(): Promise<void> {
 		this.activeFlow = null;
 		const token = ++this.renderToken;

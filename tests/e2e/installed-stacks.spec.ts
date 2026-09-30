@@ -9,13 +9,32 @@ import { RECIPE_REGISTRY } from '../../src/import/recipe-registry';
 const OUT = path.resolve('test-screenshots');
 const HEADERS = ['Control Identifier', 'Control (or Enhancement) Name', 'Control Text', 'Discussion', 'Related Controls'];
 const select = { chosen: ['nist-800-53', 'cis-v8', 'scf'], optionalMappings: [], connectorExcluded: false, detail: 'max' as const };
+/** The review screen's import button label once counting settles ("Import stack (~N files)" or "Nothing to write"). */
+async function settledImportLabel(): Promise<string> {
+	let label = '';
+	await browser.waitUntil(async () => {
+		label = await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-modal .crosswalker-stack-footer button'))
+			.map((item) => item.textContent?.trim() ?? '').find((text) => text.startsWith('Import stack (') || text === 'Nothing to write') ?? '');
+		return label !== '';
+	}, { timeout: 30_000, timeoutMsg: 'Review counts did not finish' });
+	return label;
+}
 async function click(text: string): Promise<void> {
+	if (text === 'Import stack') await settledImportLabel();
 	const found = await browser.executeObsidian((_obs, label) => {
+		// The import button carries its planned file count ("Import stack (~13 files)")
+		// since the 2026-09-28 count work, so it is matched by its label prefix.
 		const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-modal button'))
-			.find((item) => item.textContent?.trim() === label);
+			.find((item) => item.textContent?.trim() === label
+				|| (label === 'Import stack' && item.textContent?.trim().startsWith('Import stack (')));
 		button?.click(); return !!button;
 	}, text);
 	expect(found).toBe(true);
+	if (text !== 'Import stack') return;
+	// Above the confirmation threshold the run waits on a separate dialog.
+	await browser.pause(200);
+	await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-confirm button'))
+		.find((candidate) => candidate.textContent?.trim() === 'Import')?.click());
 }
 async function home(): Promise<void> {
 	await browser.executeObsidian(async ({ app }) => {
@@ -126,12 +145,16 @@ describe('Installed stacks and revisit on synthetic data', function () {
 		});
 		expect(options.selected).toBe('Skip (already imported, unchanged)');
 		expect(options.text).toContain('Set iset-missing-synthetic is no longer in this vault. Import as a new set.');
-		await click('Import stack');
-		await browser.waitUntil(async () => browser.executeObsidian(() =>
-			document.querySelector('.crosswalker-stack-modal h2')?.textContent === 'Framework stack imported'),
-		{ timeout: 40_000, timeoutMsg: 'Write-free revisit did not finish' });
-		expect(await browser.executeObsidian(() => document.querySelector('.crosswalker-stack-modal')?.textContent ?? '')).toContain('0 framework notes created or updated');
-		await click('Done');
+		// Since the 2026-09-28 file count, a revisit that writes nothing says so on
+		// a disabled button instead of running an empty import.
+		expect(await settledImportLabel()).toBe('Nothing to write');
+		expect(await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-modal .crosswalker-stack-footer button'))
+			.find((item) => item.textContent?.trim() === 'Nothing to write')?.disabled)).toBe(true);
+		await browser.executeObsidian(() => document.querySelector<HTMLElement>('.crosswalker-stack-modal .modal-close-button, .crosswalker-stack-modal .modal-header-button')?.click());
+		await browser.pause(200);
+		if (await browser.executeObsidian(() => !!document.querySelector('.crosswalker-stack-modal'))) await browser.keys('Escape');
+		await browser.waitUntil(async () => browser.executeObsidian(() => !document.querySelector('.crosswalker-stack-modal')),
+			{ timeout: 10_000, timeoutMsg: 'Write-free revisit did not close' });
 		const bytesAfterSkip = await browser.executeObsidian(async ({ app }) => {
 			const file = app.vault.getMarkdownFiles().find((item) => item.path.includes('ZZ-1.md') && item.path.startsWith('Frameworks/'));
 			return file ? { path: file.path, text: await app.vault.read(file) } : null;

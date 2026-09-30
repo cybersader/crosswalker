@@ -45,8 +45,17 @@ export function resolveEdgeEndpoints(
 	const subject_note = resolve(subject);
 	const object_note = resolve(object);
 	const predicate = String(row.predicate_id ?? 'intersects_with');
-	const edge_body = `${subject_note || `\`${subject}\``} ${predicate} ${object_note || `\`${object}\``}`;
+	const edge_body = edgeBodyOf(subject, predicate, object, subject_note, object_note);
 	return { subject_note, object_note, edge_body, unresolved };
+}
+
+/**
+ * The one sentence an edge note's body states. Shared with the mapping set
+ * conversion job, which rebuilds notes from stored endpoint links. Failure mode
+ * prevented: a converted note's body drifting from an imported one's.
+ */
+export function edgeBodyOf(subject: string, predicate: string, object: string, subjectNote: string, objectNote: string): string {
+	return `${subjectNote || `\`${subject}\``} ${predicate} ${objectNote || `\`${object}\``}`;
 }
 
 /**

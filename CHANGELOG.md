@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: convert a mapping set between notes and a table, resumably (2026-09-30)
+
+- In **Installed stacks**, each mapping set row offers **Convert to table** or **Convert to notes**. The confirmation states what changes: to a table, that those mappings leave Bases views, graph view and backlinks; to notes, how many notes will be written (the file confirmation threshold applies).
+- The conversion is safe to interrupt. A visible `<set-id>.converting.json` marker records the phase; the new form is written and verified row by row (identities, assertion facts, every review and user field, tags and titles) **before** the old form is moved to the vault trash. Closing Obsidian mid-way leaves the vault readable; on the next start a notice offers **Finish converting**, and the command **Finish interrupted mapping conversions** does the same. **Cancel** is available until retirement begins.
+- Conversions that could not round-trip are refused up front with the row or note named: for example two mappings for the same pair (the notes form keeps one), a review status outside the allowed set, or a renamed mapping note.
+- A round trip notes to table to notes keeps every review value, and converted notes keep the set's original import recipe so a later refresh still matches.
+- Fixed: table rows now carry the same prefixed edge curie as mapping notes.
+
 ### Added: store a mapping set as one table file (2026-09-30)
 
 - On the framework stack's **Review before import** screen, each new mapping row has a **Store as** choice: **Notes** (one note per mapping, the default) or **Table** (one `<pair>.mapping-table.tsv` file that opens in any spreadsheet). The standalone crosswalk mapping import offers the same choice. A new setting, **Default mapping storage**, sets what the choice starts on.

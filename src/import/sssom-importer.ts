@@ -630,7 +630,7 @@ export function sssomRecipeDigest(source: string, target: string): string {
 	return computeRecipeHash(recipe.target, recipe.source);
 }
 
-function buildSyntheticRecipe(source: string, target: string): Recipe {
+export function buildSyntheticRecipe(source: string, target: string): Recipe {
 	// Note: template is RELATIVE to options.basePath (which is `folder`); the
 	// generation engine joins them. Don't repeat `folder` here or paths
 	// double-prefix.

@@ -13,6 +13,8 @@ import { RECIPE_REGISTRY } from './import/recipe-registry';
 import { SssomImportModal } from './import/sssom-import-modal';
 import { importSssom, type SssomImportOptions } from './import/sssom-importer';
 import { StackSetupModal } from './import/stack/stack-modal';
+import { announceInterruptedConversions, finishInterruptedConversions } from './import/stack/mapping-conversion-ui';
+import { settleVaultIndex } from './generation/import-set';
 import { normalizeStacks, normalizeStackRuns } from './import/stack/stack-persistence';
 import { MAPPING_FORMS } from './generation/import-set-block';
 import { VaultSourceScanModal } from './import/vault-source-scan-modal';
@@ -333,6 +335,14 @@ export default class CrosswalkerPlugin extends Plugin {
 			id: 'set-up-framework-stack',
 			name: 'Set up a framework stack',
 			callback: () => new StackSetupModal(this.app, this).open(),
+		});
+
+		// Slice 4 of the mapping table form: finish every mapping set conversion
+		// an interruption (Obsidian closed mid-job) left behind.
+		this.addCommand({
+			id: 'finish-mapping-conversions',
+			name: 'Finish interrupted mapping conversions',
+			callback: () => { void finishInterruptedConversions(this.app, this); },
 		});
 
 		this.addCommand({
@@ -1209,6 +1219,7 @@ export default class CrosswalkerPlugin extends Plugin {
 			// Discoverability entry point 3: now that the vault is indexed,
 			// derive installed frameworks from generated-note identity.
 			this.scheduleOntologyStatusBarRefresh(0);
+			void this.announceInterruptedConversionsOnLoad();
 		});
 
 		// Discoverability entry point 4: first-run / post-update notice. Fires
@@ -1220,6 +1231,23 @@ export default class CrosswalkerPlugin extends Plugin {
 		this.maybeShowFirstRunNotice();
 
 		this.debug.info('lifecycle', 'loaded', 'Crosswalker plugin loaded', { version: '0.1.6' });
+	}
+
+	/**
+	 * Slice 4 of the mapping table form. An interrupted conversion is the normal
+	 * case for a long job, so every load looks for conversion markers once the
+	 * index settles and posts a persistent notice with a Finish button for each.
+	 * Failure mode prevented: a half-converted set nothing ever offers to finish.
+	 */
+	private async announceInterruptedConversionsOnLoad(): Promise<void> {
+		try {
+			await settleVaultIndex(this.app, 30_000);
+			await announceInterruptedConversions(this.app, this);
+		} catch (error) {
+			this.debug.warn('mappings', 'conversion-check-failed', 'Could not check for interrupted mapping conversions', {
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	/** Whether a vault event can change discovery beneath the configured output root. */
@@ -1371,6 +1399,18 @@ export default class CrosswalkerPlugin extends Plugin {
 				);
 			}
 		});
+	}
+
+	/**
+	 * Redraw the installed stacks panel in every open Crosswalker workspace tab.
+	 * The panel's own buttons redraw it through their callbacks; this covers work
+	 * that finishes elsewhere, such as a mapping set conversion resumed from the
+	 * startup notice or the "finish interrupted mapping conversions" command.
+	 */
+	refreshInstalledStacksPanels(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CROSSWALKER_WORKSPACE)) {
+			if (leaf.view instanceof CrosswalkerWorkspaceView) leaf.view.refreshInstalledStacks();
+		}
 	}
 
 	/**
