@@ -1,0 +1,92 @@
+---
+title: "Mapping storage: two forms, notes or one table, pinned per set"
+description: "Decision record for dual-form mapping storage. A mapping set stores its rows either as one note per mapping (the default) or as one SSSOM-shaped table file, chosen once when the set is minted. Switching forms is a later resumable conversion job, never an edit. Slices 1 to 3 shipped the codec, the read side, and the write side with the choice on the stack."
+tags: [decision, mappings, sssom, import-set, stack, storage, portability]
+date: 2026-09-30
+sidebar:
+  label: "09-30 · Mapping storage: notes or one table"
+  order: -20260930
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="note" title="Status">
+Decided by the owner on 2026-09-29. Slices 1 to 3 implemented on 2026-09-30 in PRs [#21](https://github.com/cybersader/crosswalker/pull/21), [#22](https://github.com/cybersader/crosswalker/pull/22) and [#23](https://github.com/cybersader/crosswalker/pull/23), open for review at the time of writing. Slices 4 (conversion) and 5 (table review view) remain. Delivery detail lives in [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md), entries dated 2026-09-30. The machine contract for the pin is in the [schema spec](/crosswalker/agent-context/v0-1-schema-spec/#what-is-pinned-to-the-set-and-why).
+</Aside>
+
+## 1. In 30 seconds
+
+A [mapping set](/crosswalker/concepts/terminology/#mapping-set) (plain: one published crosswalk release, a list of "this concept corresponds to that concept" rows) used to become one note per row. That is right for review and Bases, and wrong for a set with tens of thousands of rows. Crosswalker now offers **two storage forms**: **Notes** (unchanged, still the default) and **Table** (one `.mapping-table.tsv` file that opens in any spreadsheet). The form is chosen once, when the [import set](/crosswalker/concepts/terminology/#import-set) (plain: the collection of files one import owns) is minted, and a refresh keeps it. Switching forms later will be a resumable conversion job, not an edit.
+
+## 2. The problem, with an example
+
+Take a synthetic mapping set from framework `demo-a` to framework `demo-b` with 40,000 rows. In Notes form that is 40,000 [crosswalk](/crosswalker/concepts/terminology/#crosswalk) edge notes, each with about 16 managed fields. Every one is a vault entry to index, sync and back up; on a shared network drive a refresh touches all 40,000. The same set in Table form is one file with 40,000 lines.
+
+The code survey behind the decision found that the note is the unit of storage everywhere: the query database projects one file to one `mappings` row, the SSSOM and OLIR exporters walk mapping notes, and the stack completion screen counts notes. Ownership is whole-note per import set. So a smaller footprint needed a real second form, not a tweak.
+
+Three options were weighed:
+
+| Option | Files for the example | Keeps per-row detail | Cost |
+|---|---|---|---|
+| A. Links written onto framework notes | 0 new, but rewrites framework notes | No, or only in the query database | New per-key ownership; refresh churns framework notes; reverses two logged decisions (the [edge-as-note model](/crosswalker/agent-context/zz-log/2026-04-10-evidence-link-edge-model-synthesis/) and "a crosswalk column writes nothing into the concept note") |
+| B. One table file per mapping set | 1 | Yes, full fidelity | Loses Obsidian-native views for that set |
+| C. One note per source concept, rows grouped | Hundreds to low thousands | Only as parallel arrays, not queryable per row | Partial Bases support |
+
+B was recommended. The owner accepted B and kept today's form beside it.
+
+## 3. The owner's direction (2026-09-29, in substance)
+
+- **Portability is the problem.** Notes are portable inside Obsidian (Bases, backlinks, graph). A standard table is portable outside it (spreadsheets, SSSOM tools). Neither wins for every user, so ship both.
+- **Locked per set.** The form is fixed when the set is minted and recorded in its provenance, the same way identity schemes are fixed. A refresh keeps it.
+- **No notes on demand in table form.** One source of truth per set: review happens in the table (or in a later plugin view), or the set is converted to notes.
+- **Lossless both ways.** Every managed and user-owned field has a place in both forms.
+- **Conversion only if resumable and fault tolerant.** An interruption at any step must be continuable by rerunning, the source is never deleted before parity is proven, and a half-finished conversion is never silently rolled back.
+- **Default stays Notes.** Table is opt-in.
+
+## 4. The decision
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | Two forms, `notes` and `table`, recorded as `_crosswalker.import_set.mapping_form` (Tier 1 schema 1.6.0, optional; absent means notes) | Existing sets are never rewritten to gain the field |
+| 2 | Pinned at mint, kept on refresh. A refresh through the wrong form is refused with an action ("Convert the set instead") | [Refresh is chosen, never guessed](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/): the plugin never switches form on its own |
+| 3 | Default Notes. Opt-in through the **Store as** choice on the stack review screen and the standalone mapping import, pre-filled from the **Default mapping storage** setting | UI first; no profile concept exists yet, so a setting is the opt-in |
+| 4 | The table is a **Crosswalker ledger that is SSSOM-shaped**, marked by a `crosswalker_format` header. `predicate_id` holds the [STRM](/crosswalker/reference/registry/strm/) predicate; `sssom_predicate` holds the original [SKOS](/crosswalker/reference/registry/skos/) predicate. The standards-pure export stays the [SSSOM](/crosswalker/reference/registry/sssom/) exporter | Keeping STRM in place needs no lossy reverse mapping on read |
+| 5 | The file header carries the set's whole provenance block once | A table set has no notes, so the header is the only record that the set exists |
+| 6 | Row identity is a hash of the assertion facts (subject, predicate, object, modifier, mapping set id) plus an occurrence ordinal ordered by assertion facts only. Never a file path | [Identity, never path](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/). Review columns are excluded from the ordering so a review edit never renumbers a sibling |
+| 7 | Review columns (`review_status`, `reviewer`, notes) live in the file and are carried across refresh by row id. Rows the source dropped are removed and counted | A refresh that wiped reviews would be the user-preserve regression in table form |
+| 8 | Discovery is by the `.mapping-table.tsv` suffix, never by folder. A set seen as both notes and a table, or in two tables, is refused by name | The conversion job will lean on this refusal |
+
+## 5. Trade-offs, stated at the point of choice
+
+| Lost in Table form | Why |
+|---|---|
+| Bases views for that set | Bases reads only Markdown file properties |
+| Graph view, backlinks, and the endpoint wikilinks | Obsidian resolves links only inside `.md` files |
+| Per-mapping notes to open, tag or link | None exist |
+
+Gained: one vault entry per set, a file any spreadsheet opens, review columns in the file. When Table is selected the review screen says: "One file that opens in a spreadsheet. These mappings will not appear in Bases views, graph view or backlinks." The setting description says the same.
+
+## 6. What shipped and what remains
+
+| Slice | PR | What it delivered |
+|---|---|---|
+| 1. Codec and form pin | [#21](https://github.com/cybersader/crosswalker/pull/21) | Pure table codec with a fixed column order, deterministic output, and lossless note-to-row-to-note conversion; the `mapping_form` type, reader and validation (unknown values refused, never coerced) |
+| 2. Read everywhere | [#22](https://github.com/cybersader/crosswalker/pull/22) | Provenance in the table header; occurrence-aware row ids; one shared reader used by the query database projector, the SSSOM and OLIR exporters, and import-set discovery; a bad row still counts its set and blocks pruning; schema 1.6.0 and the provenance writer stamp the pin |
+| 3. Write and choose | [#23](https://github.com/cybersader/crosswalker/pull/23) | Table writer with read-back verification; the importer branch covering stack, wizard and every mapping source kind; refresh with review carry-over; set-qualified file names when two sets map the same pair; **Store as** on the stack and the standalone import; the setting; file counts treat a table as one file |
+
+Remaining:
+
+- **Slice 4, conversion job.** Intent marker on the set record, target written idempotently by row id (table through temp-and-rename, then re-read, because rename is not trusted to be atomic on network shares), parity check (row count, identity set, user-owned values), retire the source only after parity passes, clear the marker. While the marker is set, readers use the source form; a stale marker prompts "Finish converting" on startup.
+- **Slice 5, table review view** in the plugin, since Bases cannot see table rows.
+- **Known gaps from slice 2:** table rows are not in the path-keyed identity index (a table refresh rewrites the file by row id instead), and edge curies from the shared edge-curie helper do not match the Tier 1 curie pattern in either form. The curie gap is tracked for the [audit-trail milestone](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/).
+- Inline crosswalk columns on a framework slot stay as notes for now.
+
+## Related
+
+- Terms: [mapping set](/crosswalker/concepts/terminology/#mapping-set), [import set](/crosswalker/concepts/terminology/#import-set), [crosswalk](/crosswalker/concepts/terminology/#crosswalk), [terminology](/crosswalker/concepts/terminology/)
+- Architecture: [system architecture](/crosswalker/concepts/system-architecture/) (Tier 1 storage and the projection layer both forms feed)
+- Machine contract: [v0.1 schema spec, what is pinned to the set](/crosswalker/agent-context/v0-1-schema-spec/#what-is-pinned-to-the-set-and-why)
+- Rules applied: [import set = ownership, refresh is chosen](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/), [re-import is identity reconciliation](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/)
+- Prior decisions kept intact: [evidence-link edge model synthesis](/crosswalker/agent-context/zz-log/2026-04-10-evidence-link-edge-model-synthesis/), [link sets record their producer](/crosswalker/agent-context/zz-log/2026-09-24-edge-set-producer-and-detail-refresh/)
+- Vocabulary: [SSSOM](/crosswalker/reference/registry/sssom/), [STRM](/crosswalker/reference/registry/strm/), [SKOS](/crosswalker/reference/registry/skos/)
+- Delivery detail: [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md)
