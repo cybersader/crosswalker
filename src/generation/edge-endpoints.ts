@@ -53,11 +53,11 @@ export function resolveEdgeEndpoints(
  * Each missing end is retained on its edge; this summary tells the user how to connect it later.
  * Counts are distinct concepts, so the headline and the per-cause lines agree.
  */
-export function summarizeUnresolvedEndpoints(endpoints: UnresolvedEndpoint[], unreadableNotes = 0): string[] {
+export function summarizeUnresolvedEndpoints(endpoints: UnresolvedEndpoint[], unreadableNotes = 0, storedAs: 'notes' | 'table' = 'notes'): string[] {
 	if (endpoints.length === 0) return [];
 	const distinct = new Map<string, UnresolvedEndpoint['cause']>();
 	for (const { curie, cause } of endpoints) distinct.set(curie, cause);
-	const messages = [`${plural(distinct.size, 'mapping endpoint')} could not link to concepts in this vault. The edge notes were kept.`];
+	const messages = [`${plural(distinct.size, 'mapping endpoint')} could not link to concepts in this vault. ${storedAs === 'table' ? 'Their rows were kept in the mapping table.' : 'The edge notes were kept.'}`];
 	const groups = new Map<string, number>();
 	for (const [curie, cause] of distinct) {
 		const ontology = curie.includes(':') ? curie.split(':', 1)[0] : 'unknown ontology';

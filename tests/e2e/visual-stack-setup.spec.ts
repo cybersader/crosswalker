@@ -2,8 +2,18 @@ import { browser } from '@wdio/globals';
 import { expect } from 'expect';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
+import * as XLSX from 'xlsx';
 
 const OUT = path.resolve('test-screenshots');
+// Synthetic 800-53 workbook so the review shows the built-in mapping row and its Store as control.
+const NIST_BYTES = (() => {
+	const book = XLSX.utils.book_new();
+	XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([
+		['Control Identifier', 'Control (or Enhancement) Name', 'Control Text', 'Discussion', 'Related Controls'],
+		['ZZ-1', 'Invented control', 'Invented control text.', 'Invented discussion.', ''],
+	]), 'Controls');
+	return Array.from(new Uint8Array(XLSX.write(book, { type: 'buffer', bookType: 'xlsx' })));
+})();
 
 describe('Visual — framework stack setup', function () {
 	this.timeout(120_000);
@@ -17,8 +27,12 @@ describe('Visual — framework stack setup', function () {
 		await browser.executeObsidian(async ({ app }) => {
 			// @ts-expect-error -- Obsidian internal plugin registry
 			app.plugins.plugins.crosswalker.settings.stackConfirmFileThreshold = 1000;
+			// @ts-expect-error -- Obsidian internal plugin registry
+			app.plugins.plugins.crosswalker.settings.defaultMappingForm = 'notes';
 			const file = app.vault.getAbstractFileByPath('Sources/Synthetic preview/preview.csv');
 			if (file) await app.vault.delete(file);
+			const nist = app.vault.getAbstractFileByPath('Sources/Synthetic preview/preview-nist.xlsx');
+			if (nist) await app.vault.delete(nist);
 		});
 		expect(await browser.executeObsidian(() => document.querySelectorAll('.crosswalker-stack-modal, .crosswalker-stack-confirm').length)).toBe(0);
 	});
@@ -61,7 +75,7 @@ describe('Visual — framework stack setup', function () {
 	}
 	for (const theme of ['light', 'dark'] as const) {
 		it(`captures review counts and confirmation in ${theme} theme`, async () => {
-			await browser.executeObsidian(async ({ app }, mode) => {
+			await browser.executeObsidian(async ({ app }, { mode, nistBytes }) => {
 				document.body.classList.toggle('theme-light', mode === 'light');
 				document.body.classList.toggle('theme-dark', mode === 'dark');
 				if (!app.vault.getAbstractFileByPath('Sources')) await app.vault.createFolder('Sources');
@@ -70,16 +84,22 @@ describe('Visual — framework stack setup', function () {
 				if (old) await app.vault.delete(old);
 				await app.vault.create('Sources/Synthetic preview/preview.csv',
 					'element_identifier,element_type,title,text\nGV,Function,Synthetic govern,Synthetic description\nGV.AA,Category,Synthetic category,Synthetic description\nGV.AA-01,Subcategory,Synthetic outcome,Synthetic description\n');
+				const oldNist = app.vault.getAbstractFileByPath('Sources/Synthetic preview/preview-nist.xlsx');
+				if (oldNist) await app.vault.delete(oldNist);
+				await app.vault.createBinary('Sources/Synthetic preview/preview-nist.xlsx', new Uint8Array(nistBytes).buffer);
+				// Table is pre-filled from the setting; the capture shows Store as and its trade-off line.
+				// @ts-expect-error -- Obsidian internal plugin registry
+				app.plugins.plugins.crosswalker.settings.defaultMappingForm = 'table';
 				// @ts-expect-error -- Obsidian internal plugin registry
 				app.plugins.plugins.crosswalker.settings.stackConfirmFileThreshold = 0;
 				// @ts-expect-error -- Obsidian internal command registry
 				app.commands.executeCommandById('crosswalker:set-up-framework-stack');
-			}, theme);
+			}, { mode: theme, nistBytes: NIST_BYTES });
 			await $('.crosswalker-stack-modal').waitForDisplayed();
 			await browser.executeObsidian(() => {
 				for (const ontology of ['cri-profile', 'mitre-attack', 'nist-800-53', 'nist-csf-2']) {
 					const box = document.querySelector<HTMLInputElement>(`.crosswalker-stack-choice input[data-ontology="${ontology}"]`);
-					if (box && box.checked !== (ontology === 'nist-csf-2')) box.click();
+					if (box && box.checked !== (ontology === 'nist-csf-2' || ontology === 'nist-800-53')) box.click();
 				}
 			});
 			await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-modal button')).find((b) => b.textContent === 'Next: download checklist')?.click());
@@ -94,21 +114,34 @@ describe('Visual — framework stack setup', function () {
 				(document.querySelector<HTMLInputElement>('.crosswalker-stack-modal input[placeholder="Sources"]')?.value ?? '') === 'Sources/Synthetic preview'));
 			await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-modal button')).find((b) => b.textContent === 'Choose folder')?.click());
 			expect(await browser.executeObsidian(() => document.querySelectorAll('.crosswalker-stack-modal').length)).toBe(1);
-			await browser.waitUntil(async () => browser.executeObsidian(() => {
-				const row = document.querySelector('.crosswalker-stack-modal [data-slot="nist-csf-2"]');
+			await browser.waitUntil(async () => browser.executeObsidian(() => ['nist-csf-2', 'nist-800-53'].every((slot) => {
+				const row = document.querySelector(`.crosswalker-stack-modal [data-slot="${slot}"]`);
 				return !!row?.textContent?.includes('Recognized') || !!row?.textContent?.includes('Might match');
-			}), { timeout: 30_000, timeoutMsg: 'Synthetic CSF source was not recognized' });
-			await browser.executeObsidian(() => document.querySelector<HTMLButtonElement>('.crosswalker-stack-modal [data-slot="nist-csf-2"] button')?.click());
+			})), { timeout: 30_000, timeoutMsg: 'Synthetic CSF and 800-53 sources were not recognized' });
+			for (const slot of ['nist-csf-2', 'nist-800-53']) {
+				await browser.executeObsidian((_obs, id) => {
+					const row = document.querySelector(`.crosswalker-stack-modal [data-slot="${id}"]`);
+					if (row?.textContent?.includes('Might match')) row.querySelector<HTMLButtonElement>('button')?.click();
+				}, slot);
+			}
 			await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-modal button')).find((b) => b.textContent === 'Next: review')?.click());
 			await browser.waitUntil(async () => browser.executeObsidian(() =>
 				!!document.querySelector('.crosswalker-stack-total')?.textContent?.includes('files')),
 			{ timeout: 30_000 });
 			const planned = await browser.executeObsidian(() => ({
-				rows: document.querySelectorAll('.crosswalker-stack-modal [data-planned-notes]').length,
+				rows: document.querySelectorAll('.crosswalker-stack-modal [data-slot][data-planned-notes]').length,
 				total: document.querySelector('.crosswalker-stack-total')?.textContent ?? '',
+				form: document.querySelector<HTMLSelectElement>('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form-select')?.value,
+				tradeOff: document.querySelector('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form-trade-off')?.textContent ?? '',
+				mappingCount: document.querySelector('.crosswalker-stack-result[data-mapping] .crosswalker-stack-count')?.textContent ?? '',
 			}));
-			expect(planned.rows).toBe(1);
+			expect(planned.rows).toBe(2);
 			expect(planned.total).toContain('new files');
+			expect(planned.form).toBe('table');
+			expect(planned.tradeOff).toBe('One file that opens in a spreadsheet. These mappings will not appear in Bases views, graph view or backlinks.');
+			expect(planned.mappingCount).toMatch(/^Writes 1 mapping table \(~[\d,]+ rows\) in _crosswalker\/mappings\/nist-csf-2-to-nist-800-53\.$/);
+			// Scroll the mapping row into view so the capture shows the control and its trade-off line.
+			await browser.executeObsidian(() => document.querySelector('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form')?.scrollIntoView({ block: 'center' }));
 			await browser.saveScreenshot(path.join(OUT, `visual-stack-03-review-${theme}.png`));
 			await browser.executeObsidian(() => {
 				Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-footer button'))
@@ -136,8 +169,12 @@ describe('Visual — framework stack setup', function () {
 			await browser.executeObsidian(async ({ app }) => {
 				// @ts-expect-error -- Obsidian internal plugin registry
 				app.plugins.plugins.crosswalker.settings.stackConfirmFileThreshold = 1000;
+				// @ts-expect-error -- Obsidian internal plugin registry
+				app.plugins.plugins.crosswalker.settings.defaultMappingForm = 'notes';
 				const file = app.vault.getAbstractFileByPath('Sources/Synthetic preview/preview.csv');
 				if (file) await app.vault.delete(file);
+				const nist = app.vault.getAbstractFileByPath('Sources/Synthetic preview/preview-nist.xlsx');
+				if (nist) await app.vault.delete(nist);
 			});
 		});
 	}

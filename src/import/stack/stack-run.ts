@@ -1,3 +1,4 @@
+import { plural } from '../../utils/plural';
 import type { App, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
 import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
@@ -8,6 +9,7 @@ import { readCtidJson, readOlirWorkbookDetails, mappingRowsToTsv } from './mappi
 import type { MappingCandidate } from './stack-recognize';
 import type { MappingPreset } from '../recipe-registry';
 import { ATTACK_MAPPING_RELEASE } from '../recipe-registry';
+import type { MappingForm } from '../../generation/import-set-block';
 
 /** Wait for notes written by one framework slot before the next slot's vault-wide
  * import-set qualification. A single `resolved` event can precede those notes;
@@ -44,7 +46,16 @@ export interface CompletedMapping {
 	label: string;
 	setId: string;
 	folder: string;
+	/** Mapping notes the set owns; 0 for a table-form set (see `rowCount`). */
 	noteCount: number;
+	/** How the set stores its mappings. Absent on records from before slice 3: notes. */
+	form?: MappingForm;
+	/** Table sets only: rows in the one table file. */
+	rowCount?: number;
+	/** Table refresh only: rows whose review columns were carried over. */
+	reviewCarried?: number;
+	/** Table refresh only: rows the new source no longer produces. */
+	rowsDropped?: number;
 	upToDate?: number;
 	duplicateRowsSkipped?: number;
 	sheetSkips?: { sheet: string; reason: string }[];
@@ -57,8 +68,22 @@ export interface CompletedMapping {
 	sourceName?: string;
 }
 
+/**
+ * The mapping clauses of the completion headline. Note clauses count only notes-form sets,
+ * and a run whose separately imported sets are all tables reports only the tables written.
+ */
+export function mappingCompletionText(mappingSets: readonly CompletedMapping[]): string {
+	const tables = mappingSets.filter((item) => item.form === 'table');
+	const notes = mappingSets.filter((item) => item.form !== 'table');
+	const tableText = tables.length ? `${plural(tables.length, 'mapping table')} written. ` : '';
+	if (tables.length && !notes.length) return tableText;
+	const upToDate = notes.reduce((sum, item) => sum + (item.upToDate ?? 0), 0);
+	const written = notes.reduce((sum, item) => sum + item.noteCount, 0) - upToDate;
+	return `${plural(written, 'separately imported mapping note')} created or updated; ${plural(upToDate, 'separately imported mapping note')} already up to date. ${tableText}`;
+}
+
 export interface MappingRunDependencies {
-	importRows(tsv: string, options: { importSet: 'new-set-qualified' | { id: string }; outputFolder?: string; overwriteMode?: 'skip' | 'replace' }): Promise<SssomImportResult>;
+	importRows(tsv: string, options: { importSet: 'new-set-qualified' | { id: string }; outputFolder?: string; overwriteMode?: 'skip' | 'replace'; mappingForm?: MappingForm }): Promise<SssomImportResult>;
 	listSets(root?: string): Promise<DiscoveredImportSet[]>;
 	readBytes(file: TFile): Promise<Uint8Array>;
 	log(stage: string, slot: string): void;
@@ -76,9 +101,15 @@ export async function reconnectMappings(
 		const set = known.get(item.setId);
 		if (!set || !set.root) throw new Error(`Mapping set ${item.setId} is no longer available. Import its source again as a new set.`);
 		dependencies.log('mapping-refresh', item.id);
-		const outcome = await dependencies.importRows(item.tsv, { importSet: { id: item.setId }, outputFolder: set.root, overwriteMode: 'replace' });
+		// Routed by the set's pinned form, never by a record or a setting: the
+		// importer refuses a refresh that asks for the other form.
+		const form = set.mapping_form ?? 'notes';
+		const outcome = await dependencies.importRows(item.tsv, { importSet: { id: item.setId }, outputFolder: set.root, overwriteMode: 'replace', mappingForm: form });
 		if (!outcome.generation?.success) throw new Error(`${item.label} could not reconnect. Check the mapping source and vault permissions, then try again.`);
-		refreshed.push({ ...item, noteCount: (outcome.generation.created.length + (outcome.generation.upToDate?.length ?? 0)), upToDate: (outcome.generation.upToDate?.length ?? 0), unresolved: outcome.summary });
+		refreshed.push(form === 'table'
+			? { ...item, form, noteCount: 0, rowCount: outcome.rowsWritten ?? 0, upToDate: 0,
+				reviewCarried: outcome.reviewCarried ?? 0, rowsDropped: outcome.rowsDropped ?? 0, unresolved: outcome.summary }
+			: { ...item, form, noteCount: (outcome.generation.created.length + (outcome.generation.upToDate?.length ?? 0)), upToDate: (outcome.generation.upToDate?.length ?? 0), unresolved: outcome.summary });
 	}
 	return refreshed;
 }
@@ -86,7 +117,12 @@ export async function reconnectMappings(
 export async function importMappingSlots(
 	mappings: readonly MappingPreset[], candidates: readonly MappingCandidate[], files: ReadonlyMap<string, TFile>,
 	dependencies: MappingRunDependencies, already: readonly CompletedMapping[] = [],
-	choices?: ReadonlyMap<string, { mode: RunChoice; setId?: string; folder?: string }>,
+	/**
+	 * `form` is the storage form: for a new set, the user's choice; for a
+	 * refresh, the set's pinned form (the caller reads it from discovery, never
+	 * from the review dropdown). Absent means notes.
+	 */
+	choices?: ReadonlyMap<string, { mode: RunChoice; setId?: string; folder?: string; form?: MappingForm }>,
 ): Promise<CompletedMapping[]> {
 	const completed = [...already];
 	for (const mapping of mappings) {
@@ -133,17 +169,29 @@ export async function importMappingSlots(
 		const selection = choices?.get(mapping.id);
 		const refresh = selection?.mode === 'refresh' ? selection : undefined;
 		if (refresh && (!refresh.setId || !refresh.folder)) throw new Error(`${mapping.label} has no confirmed refresh set. Import as a new set.`);
+		const form: MappingForm = selection?.form ?? 'notes';
 		const before = refresh ? new Set<string>() : new Set((await dependencies.listSets()).map((set) => set.id));
 		const outcome = await dependencies.importRows(tsv, refresh
-			? { importSet: { id: refresh.setId! }, outputFolder: refresh.folder, overwriteMode: 'replace' }
-			: { importSet: 'new-set-qualified', overwriteMode: 'skip' });
-		if (!outcome.generation?.success || !outcome.folder) throw new Error(`${mapping.label} could not be imported. Check the mapping file and destination, then try again.`);
+			? { importSet: { id: refresh.setId! }, outputFolder: refresh.folder, overwriteMode: 'replace', mappingForm: form }
+			: { importSet: 'new-set-qualified', overwriteMode: 'skip', mappingForm: form });
+		if (!outcome.generation?.success || !outcome.folder) {
+			// A table run's refusals (a notes set refreshed as a table, unreadable
+			// rows that would lose reviews) already name a cause and an action.
+			const first = outcome.generation?.errors?.[0]?.message;
+			const reason = first && (form === 'table' || first.includes('Convert the set')) ? first : undefined;
+			throw new Error(reason ? `${mapping.label} could not be imported. ${reason}`
+				: `${mapping.label} could not be imported. Check the mapping file and destination, then try again.`);
+		}
 		// The scoped delta is the runner's result for a new mapping; refresh uses the explicitly stored id.
 		const added = refresh ? [] : (await dependencies.listSets(outcome.folder)).filter((set) => !before.has(set.id) && set.root === outcome.folder);
-		if (!refresh && added.length !== 1) throw new Error(`${mapping.label} was written but its new import set could not be confirmed. Wait for vault indexing, then inspect the mapping notes before retrying.`);
-		const record = { id: mapping.id, label: mapping.label, setId: refresh ? refresh.setId! : added[0].id,
-			folder: outcome.folder, noteCount: refresh ? (outcome.generation.created.length + (outcome.generation.upToDate?.length ?? 0)) : added[0].noteCount,
-			upToDate: (outcome.generation.upToDate?.length ?? 0), duplicateRowsSkipped, sheetSkips, unresolved: outcome.summary, tsv, sourceDigest, sourceName,
+		if (!refresh && added.length !== 1) throw new Error(`${mapping.label} was written but its new import set could not be confirmed. Wait for vault indexing, then inspect the mapping ${form === 'table' ? 'table' : 'notes'} before retrying.`);
+		const counts = form === 'table'
+			? { form, noteCount: 0, rowCount: outcome.rowsWritten ?? (refresh ? 0 : added[0].rowCount), upToDate: 0,
+				...(refresh ? { reviewCarried: outcome.reviewCarried ?? 0, rowsDropped: outcome.rowsDropped ?? 0 } : {}) }
+			: { form, noteCount: refresh ? (outcome.generation.created.length + (outcome.generation.upToDate?.length ?? 0)) : added[0].noteCount,
+				upToDate: (outcome.generation.upToDate?.length ?? 0) };
+		const record: CompletedMapping = { id: mapping.id, label: mapping.label, setId: refresh ? refresh.setId! : added[0].id,
+			folder: outcome.folder, ...counts, duplicateRowsSkipped, sheetSkips, unresolved: outcome.summary, tsv, sourceDigest, sourceName,
 			recipeDigest: sssomRecipeDigest(mapping.from, mapping.to) };
 		completed.push(record);
 		await dependencies.onCompleted?.(record);

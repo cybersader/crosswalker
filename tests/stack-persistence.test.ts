@@ -6,7 +6,7 @@ import { DEFAULT_STACK_SELECTION, frameworkSlots, stackRecipeHash } from '../src
 import { checkpointFrameworkOutcome, deleteStackRecord, fromDefinition, importStackDefinition, mappingKey, normalizeStackRuns,
 	normalizeStacks, replaceStackDefinition, slotRunChoices, toDefinition, type SlotRunFact } from '../src/import/stack/stack-persistence';
 import { refreshRootProblem } from '../src/import/import-wizard';
-import { stackSlotRows } from '../src/import/stack/installed-stacks';
+import { stackDetailLabel, stackSlotRows, stackSubtitle } from '../src/import/stack/installed-stacks';
 import { importMappingSlots, type MappingRunDependencies } from '../src/import/stack/stack-run';
 
 const selection = { ...DEFAULT_STACK_SELECTION, chosen: ['cri-profile', 'nist-800-53'], optionalMappings: [] };
@@ -131,4 +131,19 @@ it('renders stored-id states, and a from-slot mapping has no fact or independent
 	expect(await importMappingSlots([fromSlot], [], new Map(), dependencies,
 		[], new Map([[fromSlot.id, { mode: 'refresh', setId: fact.importSetId }]]))).toEqual([]);
 	expect(dependencies.importRows).not.toHaveBeenCalled();
+});
+
+it('reports a table-form mapping set by its rows, never as an empty set of notes', () => {
+	const tableFact: SlotRunFact = { importSetId: 'iset-tbl010', sourceDigest: 'source-t', recipeDigest: 'recipe-t', sourceName: 'invented.tsv' };
+	const mapping = stack.mappings.find((slot) => slot.kind !== 'from-slot')!;
+	const tableRun = { ...run, mappingSets: { [mappingKey({ ...mapping, id: mapping.presetId })]: tableFact } };
+	const known = new Map([[tableFact.importSetId, { id: tableFact.importSetId, noteCount: 0, mapping_form: 'table', rowCount: 42 } as DiscoveredImportSet]]);
+	const rows = stackSlotRows(stack, tableRun, known);
+	expect(rows.some((row) => row.state === 'set iset-tbl010, 1 mapping table, 42 rows')).toBe(true);
+	expect(rows.some((row) => row.state.includes('0 notes'))).toBe(false);
+	// The detail label is about framework depth, so a table mapping beneath it is named separately.
+	expect(stackSubtitle({ ...stack, detail: 'max' }, tableRun, known)).toBe('Every framework level as notes. Mappings: table');
+	expect(stackSubtitle({ ...stack, detail: 'max' }, run, known)).toBe('Every framework level as notes');
+	expect(stackSubtitle({ ...stack, detail: 'max' }, tableRun, new Map())).toBe('Every framework level as notes');
+	expect(stackDetailLabel('top-levels')).toBe('Top framework levels as notes');
 });

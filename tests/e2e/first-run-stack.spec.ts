@@ -19,10 +19,18 @@ async function button(label: string): Promise<void> {
 	const clicked = await browser.executeObsidian((_obs, target) => {
 		const root = document.querySelector('.crosswalker-stack-modal');
 		const found = Array.from(root?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-			.find((candidate) => candidate.textContent?.trim() === target);
+			// The import button carries its planned file count ("Import stack (~13 files)")
+			// since the 2026-09-28 count work, so it is matched by its label prefix.
+			.find((candidate) => candidate.textContent?.trim() === target
+				|| (target === 'Import stack' && candidate.textContent?.trim().startsWith('Import stack (')));
 		found?.click(); return !!found;
 	}, label);
 	expect(clicked).toBe(true);
+	if (label !== 'Import stack') return;
+	// Above the confirmation threshold the run waits on a separate dialog.
+	await browser.pause(200);
+	await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-confirm button'))
+		.find((candidate) => candidate.textContent?.trim() === 'Import')?.click());
 }
 async function openStack(): Promise<void> {
 	await browser.executeObsidian(({ app }) => {
@@ -259,5 +267,107 @@ describe('First run: synthetic framework stack', function () {
 		}));
 		expect(result.text).toContain('1 mapping set');
 		expect(result.edges).toBeGreaterThan(100);
+	});
+
+	// Slice 3 of the mapping table form. Reuses the synthetic CSF and NIST files the
+	// tests above added; the bundled mapping is public-domain NIST content shipped in
+	// the plugin, not a copied fixture.
+	it('imports the bundled mapping as one table file when Store as is Table', async () => {
+		const folder = '_crosswalker/mappings/nist-csf-2-to-nist-800-53';
+		const before = await browser.executeObsidian(({ app }, root) => ({
+			notes: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(`${root}/`)).length,
+			tables: app.vault.getFiles().filter((file) => file.path.endsWith('.mapping-table.tsv')).map((file) => file.path),
+		}), folder);
+		expect(before.tables).toEqual([]);
+		// The previous test ends on its completion screen; close it so the helpers
+		// address this run's modal, not that one.
+		await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-modal button'))
+			.find((candidate) => candidate.textContent?.trim() === 'Done')?.click());
+		await browser.waitUntil(async () => (await browser.executeObsidian(() => document.querySelectorAll('.crosswalker-stack-modal').length)) === 0,
+			{ timeout: 10_000, timeoutMsg: 'Previous stack modal did not close' });
+		await browser.executeObsidian(({ app }) => {
+			// @ts-expect-error -- Obsidian internal command registry
+			app.commands.executeCommandById('crosswalker:set-up-framework-stack');
+		});
+		await $('.crosswalker-stack-modal').waitForDisplayed();
+		await browser.executeObsidian(() => {
+			for (const id of ['cri-profile', 'mitre-attack']) {
+				document.querySelector<HTMLInputElement>(`.crosswalker-stack-choice input[data-ontology="${id}"]`)?.click();
+			}
+			document.querySelector<HTMLInputElement>('.crosswalker-stack-choice input[data-ontology="nist-csf-2"]')?.click();
+		});
+		await button('Next: download checklist');
+		await button('Next: add the files');
+		await browser.executeObsidian(() => {
+			const input = document.querySelector<HTMLInputElement>('.crosswalker-stack-modal input[placeholder="Sources"]');
+			if (input) { input.value = 'Sources'; input.dispatchEvent(new Event('input', { bubbles: true })); }
+		});
+		await button('Choose folder');
+		await browser.waitUntil(async () => (await browser.executeObsidian(() =>
+			document.querySelectorAll('.crosswalker-stack-result[data-slot]').length === 2 &&
+			Array.from(document.querySelectorAll('.crosswalker-stack-result[data-slot]')).every((row) => row.textContent?.includes('Recognized')))),
+		{ timeout: 20_000, timeoutMsg: 'Synthetic CSF and NIST framework files did not recognize' });
+		await button('Next: review');
+		await browser.waitUntil(async () => (await browser.executeObsidian(() =>
+			!!document.querySelector('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form-select')
+			&& !(document.querySelector('.crosswalker-stack-total')?.textContent ?? '').includes('Counting'))),
+		{ timeout: 30_000, timeoutMsg: 'Store as control did not render on the mapping row' });
+		await browser.executeObsidian(() => {
+			const select = document.querySelector<HTMLSelectElement>('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form-select');
+			if (select) { select.value = 'table'; select.dispatchEvent(new Event('change', { bubbles: true })); }
+		});
+		await browser.waitUntil(async () => (await browser.executeObsidian(() =>
+			(document.querySelector('.crosswalker-stack-result[data-mapping] .crosswalker-stack-count')?.textContent ?? '').startsWith('Writes 1 mapping table'))),
+		{ timeout: 10_000, timeoutMsg: 'Review count did not switch to one mapping table' });
+		const review = await browser.executeObsidian(() => ({
+			tradeOff: document.querySelector('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form-trade-off')?.textContent ?? '',
+			value: document.querySelector<HTMLSelectElement>('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form-select')?.value,
+		}));
+		expect(review.value).toBe('table');
+		expect(review.tradeOff).toContain('will not appear in Bases views, graph view or backlinks');
+		await browser.executeObsidian(() => document.querySelector('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form')?.scrollIntoView({ block: 'center' }));
+		for (const mode of ['light', 'dark'] as const) await themeCapture(mode, `visual-stack-07-store-as-table-${mode}.png`);
+		await button('Import stack');
+		await browser.waitUntil(async () => (await browser.executeObsidian(() => {
+			const modal = document.querySelector('.crosswalker-stack-modal');
+			return (modal?.querySelector('h2')?.textContent ?? '') === 'Framework stack imported' ||
+				!!modal?.querySelector('.crosswalker-stack-warning');
+		})), { timeout: 180_000, timeoutMsg: 'Bundled mapping table import did not finish' });
+		const after = await browser.executeObsidian(({ app }, root) => ({
+			text: document.querySelector('.crosswalker-stack-modal')?.textContent ?? '',
+			notes: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(`${root}/`)).length,
+			tables: app.vault.getFiles().filter((file) => file.path.endsWith('.mapping-table.tsv')).map((file) => file.path),
+			tableRow: document.querySelector('.crosswalker-stack-result[data-mapping-form="table"]')?.textContent ?? '',
+		}), folder);
+		expect(after.text).toContain('Framework stack imported');
+		expect(after.text).toContain('1 mapping table written');
+		expect(after.tables).toHaveLength(1);
+		expect(after.tables[0].startsWith(`${folder}/`)).toBe(true);
+		// No mapping notes: the folder holds exactly the notes the earlier notes-form import wrote.
+		expect(after.notes).toBe(before.notes);
+		const rows = Number(/1 mapping table, ([\d,]+) rows/.exec(after.tableRow)?.[1]?.replace(/,/g, '') ?? '0');
+		expect(rows).toBeGreaterThan(100);
+		await themeCapture('light', 'visual-stack-07-complete-table.png');
+		await themeCapture('dark', 'visual-stack-07-complete-table-dark.png');
+		await button('Done');
+		await browser.executeObsidian(async ({ app }) => {
+			for (const leaf of app.workspace.getLeavesOfType('crosswalker-workspace')) leaf.detach();
+			const leaf = app.workspace.getLeaf(true);
+			await leaf.setViewState({ type: 'crosswalker-workspace', active: true });
+			await app.workspace.revealLeaf(leaf);
+		});
+		await browser.waitUntil(async () => (await browser.executeObsidian(() =>
+			Array.from(document.querySelectorAll('.crosswalker-workspace-view .crosswalker-installed-stacks .crosswalker-stack-result'))
+				.some((row) => (row.textContent ?? '').includes('1 mapping table')))),
+		{ timeout: 30_000, timeoutMsg: 'Installed stacks view did not report the table set' });
+		const installed = await browser.executeObsidian(() => Array.from(
+			document.querySelectorAll('.crosswalker-workspace-view .crosswalker-installed-stacks .crosswalker-stack-result'))
+			.map((row) => row.textContent ?? '').find((text) => text.includes('1 mapping table')) ?? '');
+		expect(installed).toContain(`1 mapping table, ${rows.toLocaleString()} rows`);
+		expect(after.tableRow).toContain('Their rows were kept in the mapping table.');
+		await browser.executeObsidian(() => Array.from(
+			document.querySelectorAll('.crosswalker-workspace-view .crosswalker-installed-stacks .crosswalker-stack-result'))
+			.find((row) => (row.textContent ?? '').includes('1 mapping table'))?.scrollIntoView({ block: 'center' }));
+		await themeCapture('light', 'visual-stack-07-installed-table.png');
 	});
 });
