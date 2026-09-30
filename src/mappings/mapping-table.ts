@@ -16,6 +16,16 @@ import { mappingOccurrenceContentKey, normalizeMappingSetId } from '../utils/map
 
 export const MAPPING_TABLE_FORMAT = 'crosswalker-mapping-table-v1';
 
+/**
+ * The review statuses a mapping can carry (source: spec/tier1.schema.json,
+ * crosswalk edge `review_status` enum). The one code copy: the conversion job
+ * and the review view both read it here. Failure mode prevented: a second
+ * hand-kept list drifting from the schema, so the view offers a status the
+ * notes form then refuses to store.
+ */
+export const REVIEW_STATUSES = ['proposed', 'in_review', 'approved', 'deprecated'] as const;
+export type ReviewStatus = typeof REVIEW_STATUSES[number];
+
 export interface MappingTableHeader {
 	mapping_set_id?: string;
 	mapping_provider?: string;
