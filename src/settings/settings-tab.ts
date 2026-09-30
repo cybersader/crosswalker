@@ -966,6 +966,20 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 		summary.createSpan({ text: 'Advanced' });
 
 		new Setting(details)
+			.setName('Default mapping storage')
+			// Bases is the Obsidian product name, not title-case UI copy.
+			// eslint-disable-next-line obsidianmd/ui/sentence-case
+			.setDesc('How a new mapping set is stored. Notes: one note per mapping. Table: one file that opens in a spreadsheet, not visible to Bases, graph view or backlinks.')
+			.addDropdown((dropdown) => dropdown
+				.addOption('notes', 'Notes')
+				.addOption('table', 'Table')
+				.setValue(this.plugin.settings.defaultMappingForm ?? 'notes')
+				.onChange(async (value) => {
+					this.plugin.settings.defaultMappingForm = value === 'table' ? 'table' : 'notes';
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(details)
 			.setName('Stack file confirmation threshold')
 			.setDesc('Confirm a stack import when planned new files and possible rewrites exceed this number. Set to 0 to always confirm.')
 			.addText((text) => text.setValue(String(this.plugin.settings.stackConfirmFileThreshold))

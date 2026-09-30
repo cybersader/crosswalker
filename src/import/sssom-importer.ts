@@ -295,7 +295,7 @@ async function runImportSssom(
 		rowCount: parsed.rows.length,
 	});
 
-	result.summary = summarizeUnresolvedEndpoints(result.unresolved, unreadable);
+	result.summary = summarizeUnresolvedEndpoints(result.unresolved, unreadable, options.mappingForm ?? 'notes');
 	const recipe = buildSyntheticRecipe(source, target);
 
 	if ((options.mappingForm ?? 'notes') === 'table') {

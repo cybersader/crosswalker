@@ -89,8 +89,8 @@ export function stackDetailDescription(selection: StackSelection): string {
 	const selected = selection.chosen.filter((ontology) => ontology === 'nist-800-53' || ontology === 'cri-profile');
 	if (!selected.length) return 'These frameworks use the same note detail at either setting.';
 	return selection.detail === 'max'
-		? 'Everything as notes: every level of each selected framework becomes a note. Other frameworks stay the same.'
-		: 'Notes for top levels only: 800-53 enhancements and CRI diagnostic statements are left out where selected. Other frameworks stay the same.';
+		? 'Every framework level as notes: every level of each selected framework becomes a note. Other frameworks stay the same.'
+		: 'Top framework levels as notes: 800-53 enhancements and CRI diagnostic statements are left out where selected. Other frameworks stay the same.';
 }
 
 /** Source selection is run-scoped but contributes to the stamped recipe hash. */

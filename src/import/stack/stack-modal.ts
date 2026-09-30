@@ -20,12 +20,14 @@ import { peekXLSXBytes } from '../parsers/xlsx-parser';
 import { peekCSV, peekJSON } from '../vault-source-scan';
 import { LARGE_FILE_BYTES } from '../vault-source-scan-runner';
 import { recognizeStackSources, type StackCandidate, type StackRecognition, type StackSource } from './stack-recognize';
-import { builtInMappingTsv, importMappingSlots, needsLateCrosswalkRefresh, reconnectMappings, stackMappingDependencies, waitForIndexedDestination, type CompletedMapping } from './stack-run';
+import { builtInMappingTsv, importMappingSlots, mappingCompletionText, needsLateCrosswalkRefresh, reconnectMappings, stackMappingDependencies, waitForIndexedDestination, type CompletedMapping } from './stack-run';
 import { frameworkImportError } from './stack-errors';
 import { sssomRecipeDigest } from '../sssom-importer';
 import { checkpointFrameworkOutcome, fromDefinition, mappingKey, replaceStackDefinition, slotRunChoices, toDefinition,
 	type RunChoice, type StackDefinition, type StackRunRecord, type SlotRunFact } from './stack-persistence';
 import type { DiscoveredImportSet } from '../../generation/import-set';
+import type { MappingForm } from '../../generation/import-set-block';
+import { refreshFormText, renderMappingFormChoice } from '../mapping-form-choice';
 import { STACK_PRESETS, type MappingPreset } from '../recipe-registry';
 import {
 	CONNECTOR_ONTOLOGY, CONNECTOR_REASON, DEFAULT_STACK_SELECTION,
@@ -64,6 +66,8 @@ export class StackSetupModal extends Modal {
 	private counting = false;
 	private frameworkCounts = new Map<string, { notes: number; edges: number; folders: number; exact: boolean; failed: boolean }>();
 	private mappingCounts = new Map<string, { notes: number; failed: boolean }>();
+	/** Store as choice per mapping id, for rows that will mint a NEW set only. */
+	private mappingForms = new Map<string, MappingForm>();
 	private parsedFrameworks = new Map<string, ParsedData>();
 	private reviewCountMs = 0;
 
@@ -157,8 +161,8 @@ export class StackSetupModal extends Modal {
 			}
 		}
 		new Setting(scroll).setName('Detail').setDesc(stackDetailDescription(this.stackSelection))
-			.addDropdown((dropdown) => dropdown.addOption('max', 'Everything as notes')
-				.addOption('top-levels', 'Notes for top levels only')
+			.addDropdown((dropdown) => dropdown.addOption('max', 'Every framework level as notes')
+				.addOption('top-levels', 'Top framework levels as notes')
 				.setValue(this.stackSelection.detail).onChange((value) => {
 				this.stackSelection.detail = value as StackSelection['detail']; this.render();
 			}));
@@ -487,6 +491,7 @@ export class StackSetupModal extends Modal {
 					: `_crosswalker/mappings/${mapping.from}-to-${mapping.to}`;
 				const count = this.mappingCounts.get(mapping.id);
 				return { id: mapping.id, label: mapping.label, root, mode: !count && mode !== 'skip' ? 'skip' : mode,
+					form: this.mappingFormFor(mapping),
 					notes: { count: count?.notes ?? 0, exact: !!count && !count.failed },
 					folders: { count: root.split('/').reduce((n, _part, index, parts) =>
 						n + (this.app.vault.getAbstractFileByPath(parts.slice(0, index + 1).join('/')) ? 0 : 1), 0), exact: false },
@@ -512,6 +517,24 @@ export class StackSetupModal extends Modal {
 		new Setting(dialog.contentEl).addButton((button) => button.setButtonText('Back to review').onClick(() => dialog.close()))
 			.addButton((button) => button.setButtonText('Import').setCta().onClick(() => { dialog.close(); void this.importFrameworks(); }));
 		dialog.open();
+	}
+
+	/**
+	 * The storage form a mapping row will run with. A refresh answers with its
+	 * set's pinned form, never the dropdown or the setting: the importer refuses
+	 * a refresh in the other form, and switching forms is a conversion job.
+	 */
+	private mappingFormFor(mapping: MappingPreset): MappingForm {
+		const set = this.mappingRefreshSet(mapping);
+		if (set) return set.mapping_form ?? 'notes';
+		return this.mappingForms.get(mapping.id) ?? this.plugin.settings.defaultMappingForm ?? 'notes';
+	}
+
+	/** The discovered set a mapping row refreshes, or undefined for a new set or skip. */
+	private mappingRefreshSet(mapping: MappingPreset): DiscoveredImportSet | undefined {
+		if (!this.revisiting || this.choices.get(mappingKey(mapping)) !== 'refresh') return undefined;
+		const fact = this.storedRun?.mappingSets[mappingKey(mapping)];
+		return fact ? this.knownSets.get(fact.importSetId) : undefined;
 	}
 
 	private renderRunChoice(row: HTMLElement, key: string, fact: SlotRunFact | undefined, digest: string | undefined,
@@ -604,7 +627,8 @@ export class StackSetupModal extends Modal {
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: mapping.label });
 			if (mapping.kind === 'from-slot') {
 				const sourceSlot = frameworkSlots(this.stackSelection).find((slot) => slot.ontology === mapping.from);
-				row.createDiv({ cls: 'crosswalker-stack-muted', text: `Comes with ${sourceSlot!.entry.label}. Not tracked separately.` });
+				row.createDiv({ cls: 'crosswalker-stack-muted', text: `Comes with ${sourceSlot!.entry.label}. Not tracked separately.${
+					(this.plugin.settings.defaultMappingForm ?? 'notes') === 'table' ? ' Inline links stay as notes.' : ''}` });
 				const edges = this.frameworkCounts.get(sourceSlot!.entry.id)?.edges;
 				row.createDiv({ cls: 'crosswalker-stack-count', text: this.counting ? 'Counting files...'
 					: this.choices.get(sourceSlot!.entry.id) === 'skip' ? 'Skip: writes nothing.'
@@ -628,6 +652,14 @@ export class StackSetupModal extends Modal {
 					: source && this.sourceDigests.get(source),
 				sssomRecipeDigest(mapping.from, mapping.to),
 				`sssom-${mapping.from}-to-${mapping.to}`, ready);
+			const refreshSet = this.mappingRefreshSet(mapping);
+			if (refreshSet) row.createDiv({ cls: 'crosswalker-stack-muted crosswalker-mapping-form-fixed', text: refreshFormText(refreshSet.mapping_form ?? 'notes') });
+			else if (ready && (!this.revisiting || (this.choices.get(mappingKey(mapping)) ?? 'new') === 'new')) {
+				renderMappingFormChoice(row, this.mappingFormFor(mapping), (form) => {
+					this.mappingForms.set(mapping.id, form);
+					this.updatePlan();
+				});
+			}
 		}
 		if (this.error) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: this.error });
 		if (this.indexing) scroll.createDiv({ cls: 'crosswalker-stack-muted', text: 'Waiting for the vault to index the notes just written...' });
@@ -783,7 +815,7 @@ export class StackSetupModal extends Modal {
 					if (!found && this.revisiting) this.runWarnings.push(`${mapping.label} needs its mapping file. Add the file and run again to import this slot.`);
 					return found;
 				});
-				const mappingChoices = new Map<string, { mode: RunChoice; setId?: string; folder?: string }>();
+				const mappingChoices = new Map<string, { mode: RunChoice; setId?: string; folder?: string; form?: MappingForm }>();
 				for (const mapping of available.filter((item) => item.kind !== 'from-slot')) {
 					const key = mappingKey(mapping);
 					const mode = this.revisiting ? this.choices.get(key) ?? 'new' : 'new';
@@ -798,8 +830,8 @@ export class StackSetupModal extends Modal {
 					const legal = slotRunChoices(fact, !!set, digest, hash,
 						set ? refreshRootProblem(set) ?? refreshRecipeProblem(`sssom-${mapping.from}-to-${mapping.to}`, set.recipeIds, hash, set.recipeHashes) : null);
 					if (this.revisiting && !legal.choices.includes(mode)) throw new Error(`${mapping.label} import choice is no longer available. Review the stack again before importing.`);
-					mappingChoices.set(mapping.id, { mode, ...(mode === 'refresh' && set && fact
-						? { setId: fact.importSetId, folder: set.root ?? undefined } : {}) });
+					mappingChoices.set(mapping.id, { mode, form: mode === 'refresh' && set ? set.mapping_form ?? 'notes' : this.mappingFormFor(mapping),
+						...(mode === 'refresh' && set && fact ? { setId: fact.importSetId, folder: set.root ?? undefined } : {}) });
 				}
 				this.mappingSets = await importMappingSlots(available, this.recognition.mappingFills,
 					this.sourceFiles, { ...stackMappingDependencies(this.app, this.plugin),
@@ -823,7 +855,7 @@ export class StackSetupModal extends Modal {
 				const roots = new Set([...this.completed.map((item) => item.folder), ...this.mappingSets.map((item) => item.folder)]);
 				const discovered = (await Promise.all([...roots].map((folder) => discoverImportSets(this.app, folder))))
 					.flat().filter((set) => ids.has(set.id));
-				const byId = new Map(discovered.map((set) => [set.id, set.noteCount]));
+				const byId = new Map(discovered.map((set) => [set.id, set.mapping_form === 'table' ? set.rowCount : set.noteCount]));
 				this.discoveredSets = byId.size === ids.size ? byId.size : null;
 				this.discoveredCounts = byId;
 			} catch { this.discoveredSets = null; }
@@ -834,7 +866,7 @@ export class StackSetupModal extends Modal {
 
 	private renderComplete(root: HTMLElement): void {
 		root.createEl('h2', { text: 'Framework stack imported' });
-		root.createEl('p', { text: `${plural(this.completed.length, 'framework set')} and ${plural(this.mappingSets.length, 'mapping set')}. ${plural(this.completed.reduce((sum, item) => sum + item.created, 0), 'framework note')} created or updated; ${plural(this.completed.reduce((sum, item) => sum + item.upToDate, 0), 'framework note')} already up to date. ${plural(this.mappingSets.reduce((sum, item) => sum + item.noteCount - (item.upToDate ?? 0), 0), 'separately imported mapping note')} created or updated; ${plural(this.mappingSets.reduce((sum, item) => sum + (item.upToDate ?? 0), 0), 'separately imported mapping note')} already up to date. ${plural(this.completed.reduce((sum, item) => sum + item.crosswalkLinks, 0), 'framework crosswalk link')} created or updated; ${plural(this.completed.reduce((sum, item) => sum + item.crosswalkLinksUpToDate, 0), 'framework crosswalk link')} already up to date. ${plural(this.skipped, 'slot')} skipped. ${this.discoveredSets === null ? 'Vault index is still loading; set counts cannot be confirmed yet.' : `${plural(this.discoveredSets, 'set')} confirmed in the vault.`}` });
+		root.createEl('p', { text: `${plural(this.completed.length, 'framework set')} and ${plural(this.mappingSets.length, 'mapping set')}. ${plural(this.completed.reduce((sum, item) => sum + item.created, 0), 'framework note')} created or updated; ${plural(this.completed.reduce((sum, item) => sum + item.upToDate, 0), 'framework note')} already up to date. ${mappingCompletionText(this.mappingSets)}${plural(this.completed.reduce((sum, item) => sum + item.crosswalkLinks, 0), 'framework crosswalk link')} created or updated; ${plural(this.completed.reduce((sum, item) => sum + item.crosswalkLinksUpToDate, 0), 'framework crosswalk link')} already up to date. ${plural(this.skipped, 'slot')} skipped. ${this.discoveredSets === null ? 'Vault index is still loading; set counts cannot be confirmed yet.' : `${plural(this.discoveredSets, 'set')} confirmed in the vault.`}` });
 		if (this.stackSelection.detail === 'top-levels' && this.completed.some((item) =>
 			item.label === frameworkChoices().find((choice) => choice.ontology === 'nist-800-53')?.label ||
 			item.label === frameworkChoices().find((choice) => choice.ontology === 'cri-profile')?.label)) {
@@ -854,8 +886,17 @@ export class StackSetupModal extends Modal {
 		for (const item of this.mappingSets) {
 			const row = scroll.createDiv({ cls: 'crosswalker-stack-result' });
 			row.createDiv({ cls: 'crosswalker-stack-choice-title', text: item.label });
-			const count = this.discoveredCounts.get(item.setId) ?? item.noteCount;
-			row.createDiv({ cls: 'crosswalker-stack-muted', text: `${count} edge ${count === 1 ? 'note' : 'notes'} · Set ${item.setId}` });
+			if (item.form === 'table') {
+				const rows = this.discoveredCounts.get(item.setId) ?? item.rowCount ?? 0;
+				row.dataset.mappingForm = 'table';
+				row.createDiv({ cls: 'crosswalker-stack-muted', text: `1 mapping table, ${plural(rows, 'row')} · Set ${item.setId}` });
+				if (item.reviewCarried !== undefined || item.rowsDropped !== undefined) {
+					row.createDiv({ cls: 'crosswalker-stack-muted', text: `${plural(item.reviewCarried ?? 0, 'review')} carried, ${plural(item.rowsDropped ?? 0, 'row')} dropped` });
+				}
+			} else {
+				const count = this.discoveredCounts.get(item.setId) ?? item.noteCount;
+				row.createDiv({ cls: 'crosswalker-stack-muted', text: `${count} edge ${count === 1 ? 'note' : 'notes'} · Set ${item.setId}` });
+			}
 			if (item.duplicateRowsSkipped) row.createDiv({ cls: 'crosswalker-stack-muted', text: `${plural(item.duplicateRowsSkipped, 'duplicate row')} skipped` });
 			for (const skip of item.sheetSkips ?? []) row.createDiv({ cls: 'crosswalker-stack-warning', text: `Sheet ${skip.sheet} skipped: ${skip.reason}. Choose a workbook with matching Focal/Reference columns to include it.` });
 			for (const message of item.unresolved) row.createDiv({ cls: 'crosswalker-stack-warning', text: message });
@@ -869,7 +910,7 @@ export class StackSetupModal extends Modal {
 					try {
 						this.mappingSets = await reconnectMappings(this.mappingSets, stackMappingDependencies(this.app, this.plugin));
 						const sets = await discoverImportSets(this.app);
-						this.discoveredCounts = new Map(sets.map((set) => [set.id, set.noteCount]));
+						this.discoveredCounts = new Map(sets.map((set) => [set.id, set.mapping_form === 'table' ? set.rowCount : set.noteCount]));
 					} catch (err) {
 						this.error = err instanceof Error ? err.message : 'Mappings could not reconnect. Check the source files and vault permissions, then try again.';
 					}

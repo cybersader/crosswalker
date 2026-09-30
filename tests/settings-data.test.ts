@@ -23,6 +23,10 @@ describe('DEFAULT_SETTINGS', () => {
     }
   });
 
+  it('stores new mapping sets as notes unless the user opts into tables', () => {
+    expect(DEFAULT_SETTINGS.defaultMappingForm).toBe('notes');
+  });
+
   it('starts with no vault-wide Connections defaults set (defers entirely to the preset)', () => {
     expect(DEFAULT_SETTINGS.defaultEnrichment).toEqual({});
   });

@@ -17,7 +17,21 @@ export function installedStackRow(fact: SlotRunFact | undefined, known: Readonly
 	if (!fact) return 'Not imported yet';
 	const set = known.get(fact.importSetId);
 	if (!set) return `Set ${fact.importSetId} is no longer in this vault. Import as a new set.`;
+	// A table-form set owns no notes; "0 notes" would read as an empty set.
+	if (set.mapping_form === 'table') return `set ${fact.importSetId}, 1 mapping table, ${plural(set.rowCount ?? 0, 'row')}`;
 	return `set ${fact.importSetId}${typeof set.noteCount === 'number' ? `, ${plural(set.noteCount, 'note')}` : ''}`;
+}
+
+/** Framework depth only; mapping form is reported separately so the two never contradict. */
+export function stackDetailLabel(detail: StackDefinition['detail']): string {
+	return detail === 'max' ? 'Every framework level as notes' : 'Top framework levels as notes';
+}
+
+/** Card subtitle: framework depth, plus "Mappings: table" when any recorded mapping set is a table. */
+export function stackSubtitle(stack: StackDefinition, run: CrosswalkerPlugin['settings']['stackRuns'][number] | undefined,
+	known: ReadonlyMap<string, DiscoveredImportSet>): string {
+	const anyTable = Object.values(run?.mappingSets ?? {}).some((fact) => known.get(fact.importSetId)?.mapping_form === 'table');
+	return anyTable ? `${stackDetailLabel(stack.detail)}. Mappings: table` : stackDetailLabel(stack.detail);
 }
 
 export function stackSlotRows(stack: StackDefinition, run: CrosswalkerPlugin['settings']['stackRuns'][number] | undefined,
@@ -89,7 +103,7 @@ export function renderInstalledStacks(root: HTMLElement, app: App, plugin: Cross
 	const cards = plugin.settings.stacks.map((stack) => {
 		const card = list.createDiv({ cls: 'crosswalker-workspace-ontology-item', attr: { 'data-stack-id': stack.id } });
 		card.createEl('h3', { text: stack.label });
-		card.createDiv({ cls: 'crosswalker-stack-muted', text: stack.detail === 'max' ? 'Everything as notes' : 'Notes for top levels only' });
+		const subtitle = card.createDiv({ cls: 'crosswalker-stack-muted', text: stackDetailLabel(stack.detail) });
 		const rows = card.createDiv({ cls: 'crosswalker-installed-stack-rows' });
 		const buttons = card.createDiv({ cls: 'crosswalker-workspace-ontology-actions' });
 		buttons.createEl('button', { text: 'Run again' }).addEventListener('click', () =>
@@ -110,16 +124,17 @@ export function renderInstalledStacks(root: HTMLElement, app: App, plugin: Cross
 		});
 		buttons.createEl('button', { text: 'Delete' }).addEventListener('click', () =>
 			new DeleteStackModal(app, plugin, stack, redraw).open());
-		return { stack, rows };
+		return { stack, rows, subtitle };
 	});
 	void (async () => {
 		try {
 			if (await settleVaultIndex(app) > 0) throw new Error('indexing');
 			const known = new Map((await discoverImportSets(app)).map((set) => [set.id, set]));
 			if (!host.isConnected) return;
-			for (const { stack, rows } of cards) {
+			for (const { stack, rows, subtitle } of cards) {
 				rows.empty();
 				const run = plugin.settings.stackRuns.find((entry) => entry.stackId === stack.id);
+				subtitle.textContent = stackSubtitle(stack, run, known);
 				for (const row of stackSlotRows(stack, run, known))
 					rows.createDiv({ cls: 'crosswalker-stack-result', text: `${row.label}: ${row.state}` });
 			}

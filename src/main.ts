@@ -14,6 +14,7 @@ import { SssomImportModal } from './import/sssom-import-modal';
 import { importSssom, type SssomImportOptions } from './import/sssom-importer';
 import { StackSetupModal } from './import/stack/stack-modal';
 import { normalizeStacks, normalizeStackRuns } from './import/stack/stack-persistence';
+import { MAPPING_FORMS } from './generation/import-set-block';
 import { VaultSourceScanModal } from './import/vault-source-scan-modal';
 import {
 	ExportFolderPickerModal,
@@ -1509,6 +1510,8 @@ export default class CrosswalkerPlugin extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 		this.settings.stacks = normalizeStacks(this.settings.stacks);
 		this.settings.stackRuns = normalizeStackRuns(this.settings.stackRuns, this.settings.stacks);
+		// A hand-edited or future value must not reach an import as an unknown form.
+		if (!(MAPPING_FORMS as readonly string[]).includes(this.settings.defaultMappingForm)) this.settings.defaultMappingForm = 'notes';
 	}
 
 	async saveSettings() {

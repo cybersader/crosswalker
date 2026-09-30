@@ -34,6 +34,8 @@ import {
 	type ImportSetOption,
 } from '../generation/import-set';
 import type { GenerationError, GenerationResult } from '../types/config';
+import type { MappingForm } from '../generation/import-set-block';
+import { refreshFormText, renderMappingFormChoice } from './mapping-form-choice';
 
 /**
  * AM-8. One row error, as a user can read it.
@@ -53,6 +55,13 @@ function formatGenerationErrors(errors: readonly GenerationError[] | undefined):
 	return errors.length > 3 ? `${shown} (and ${errors.length - 3} more)` : shown;
 }
 
+/** What a table run wrote, in one line: file, rows, and on refresh the review carry. */
+function tableOutcomeText(result: SssomImportResult): string {
+	const refresh = result.reviewCarried !== undefined || result.rowsDropped !== undefined;
+	return `Wrote 1 mapping table, ${plural(result.rowsWritten ?? 0, 'row')}${result.tablePath ? `, at ${result.tablePath}` : ''}.${
+		refresh ? ` ${plural(result.reviewCarried ?? 0, 'review')} carried, ${plural(result.rowsDropped ?? 0, 'row')} dropped.` : ''}`;
+}
+
 /** Source for the SSSOM TSV content. */
 type Source =
 	| { kind: 'vault-file'; path: string }
@@ -70,9 +79,11 @@ type Source =
  * many notes it owns and where they live. The id stays visible because it is what
  * appears in note frontmatter.
  */
-export function describeImportSet(set: { id: string; noteCount: number; paths: string[]; scheme?: string }): string {
+export function describeImportSet(set: { id: string; noteCount: number; paths: string[]; scheme?: string; mapping_form?: MappingForm; rowCount?: number }): string {
 	const folder = commonFolder(set.paths);
 	const where = folder ? ` in ${folder}` : '';
+	// A table-form set owns no notes; "0 notes" would read as an empty set.
+	if (set.mapping_form === 'table') return `${set.id}: mapping table, ${plural(set.rowCount ?? 0, 'row')}${where}`;
 	const noteWord = set.noteCount === 1 ? 'note' : 'notes';
 	return `${set.id}: ${set.noteCount} ${noteWord}${where}`;
 }
@@ -102,6 +113,10 @@ export class SssomImportModal extends Modal {
 	private parseErrors: string[] = [];
 	private importSetChoice: ImportSetOption | null = null;
 	private importSetChoiceBasePath: string = '';
+	/** Store as choice for a NEW set; null means the setting's default. */
+	private mappingFormChoice: MappingForm | null = null;
+	/** The set the last preview showed as being refreshed, or null for a new set. */
+	private previewRefreshSet: DiscoveredImportSet | null = null;
 
 	constructor(app: App, plugin: CrosswalkerPlugin) {
 		super(app);
@@ -225,12 +240,18 @@ export class SssomImportModal extends Modal {
 			this.dlEntry(list, 'Source ontology', this.detectedSource);
 			this.dlEntry(list, 'Target ontology', this.detectedTarget);
 			const outputFolder = `_crosswalker/mappings/${this.detectedSource}-to-${this.detectedTarget}`;
-			this.dlEntry(
-				list,
-				'Output organization',
-				`${outputFolder}/ with one junction note per assertion`,
-			);
+			const organization = this.dlEntry(list, 'Output organization', '');
 			importSetReady = await this.renderImportSetChoice(previewEl, outputFolder);
+			// A refresh keeps its set's form; only a new set offers the choice.
+			if (this.previewRefreshSet) {
+				previewEl.createEl('p', { cls: 'setting-item-description crosswalker-mapping-form-fixed', text: refreshFormText(this.previewRefreshSet.mapping_form ?? 'notes') });
+			} else if (importSetReady) {
+				renderMappingFormChoice(previewEl, this.newSetForm(), (form) => {
+					this.mappingFormChoice = form;
+					organization.setText(this.organizationText(outputFolder));
+				});
+			}
+			organization.setText(this.organizationText(outputFolder));
 		} else {
 			this.dlEntry(list, 'Ontology pair', '(could not detect; add subject_source/object_source to header)');
 		}
@@ -275,6 +296,7 @@ export class SssomImportModal extends Modal {
 	 * now, so the only answer that blocks is a discovery that threw.
 	 */
 	private async renderImportSetChoice(container: HTMLElement, basePath: string): Promise<boolean> {
+		this.previewRefreshSet = null;
 		let sets: DiscoveredImportSet[];
 		try {
 			sets = await this.importSetsForDestination(basePath);
@@ -288,13 +310,16 @@ export class SssomImportModal extends Modal {
 		if (sets.length === 0) return true;
 
 		const refreshing = this.refreshTargetSet(sets);
+		this.previewRefreshSet = refreshing;
 		const wrap = container.createDiv({ cls: 'crosswalker-import-set-review' });
 		wrap.createEl('h4', { text: 'Existing crosswalk imports' });
 
 		const line = wrap.createEl('p', { cls: 'setting-item-description' });
 		if (refreshing) {
 			line.setText(
-				`Refreshing ${refreshing.id} (${plural(refreshing.noteCount, 'existing note')}). This replaces that release while preserving its identities.`,
+				refreshing.mapping_form === 'table'
+					? `Refreshing ${refreshing.id} (a mapping table of ${plural(refreshing.rowCount, 'row')}). This rewrites that table and keeps its review columns by row.`
+					: `Refreshing ${refreshing.id} (${plural(refreshing.noteCount, 'existing note')}). This replaces that release while preserving its identities.`,
 			);
 		} else {
 			line.setText(sets.length === 1
@@ -419,9 +444,19 @@ export class SssomImportModal extends Modal {
 		if (btn) btn.disabled = !enabled;
 	}
 
-	private dlEntry(parent: HTMLElement, label: string, value: string) {
+	private dlEntry(parent: HTMLElement, label: string, value: string): HTMLElement {
 		parent.createEl('dt', { text: label });
-		parent.createEl('dd', { text: value });
+		return parent.createEl('dd', { text: value });
+	}
+
+	/** The form a new set would be stored in: the user's choice, else the setting. */
+	private newSetForm(): MappingForm {
+		return this.mappingFormChoice ?? this.plugin.settings.defaultMappingForm ?? 'notes';
+	}
+
+	private organizationText(outputFolder: string): string {
+		const form = this.previewRefreshSet ? this.previewRefreshSet.mapping_form ?? 'notes' : this.newSetForm();
+		return form === 'table' ? `${outputFolder}/ as one mapping table file` : `${outputFolder}/ with one junction note per assertion`;
 	}
 
 	private async runImport() {
@@ -444,6 +479,14 @@ export class SssomImportModal extends Modal {
 		// value is correct; a refresh is a click on a line that says it replaces
 		// that release, so replace is what that click means.
 		const refreshing = this.isExistingSetChoice(importSet);
+		// A refresh routes by its set's pinned form, read fresh from discovery, never
+		// by the Store as control: the importer refuses a refresh in the other form.
+		let mappingForm: MappingForm = this.newSetForm();
+		if (this.isExistingSetChoice(importSet) && this.detectedSource && this.detectedTarget) {
+			const refreshId = importSet.id;
+			const sets = await this.importSetsForDestination(`_crosswalker/mappings/${this.detectedSource}-to-${this.detectedTarget}`);
+			mappingForm = sets.find((set) => set.id === refreshId)?.mapping_form ?? 'notes';
+		}
 
 		const progressNotice = new Notice('SSSOM import: starting…', 0);
 		try {
@@ -455,6 +498,7 @@ export class SssomImportModal extends Modal {
 				{
 					importSet,
 					overwriteMode: refreshing ? 'replace' : 'skip',
+					mappingForm,
 					onProgress: (current, total, msg) => {
 						progressNotice.setMessage(`SSSOM import: ${msg} (${current}/${total})`);
 					},
@@ -492,7 +536,12 @@ export class SssomImportModal extends Modal {
 			}
 
 			if (result.summary.length > 0) {
-				this.renderImportErrors(gen, result.folder, result.summary);
+				this.renderImportErrors(gen, result.folder, result.summary, result);
+				return;
+			}
+			if (result.mappingForm === 'table') {
+				new Notice(`SSSOM import complete. ${tableOutcomeText(result)}`, 8000);
+				this.close();
 				return;
 			}
 			new Notice(
@@ -515,14 +564,16 @@ export class SssomImportModal extends Modal {
 	 * Notice truncates, expires, and cannot be scrolled, so a run with twenty
 	 * refusals reached the user as one line and then vanished.
 	 */
-	private renderImportErrors(gen: GenerationResult, folder: string | null | undefined, unresolved: string[] = []): void {
+	private renderImportErrors(gen: GenerationResult, folder: string | null | undefined, unresolved: string[] = [], result?: SssomImportResult): void {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.createEl('h2', { text: 'SSSOM import results' });
 
 		const summary = contentEl.createDiv({ cls: 'crosswalker-results-summary' });
 		summary.createEl('p', {
-			text: `Created or updated: ${plural(gen.created.length, 'junction note')}; already up to date: ${plural((gen.upToDate?.length ?? 0), 'junction note')}${folder ? ` under ${folder}` : ''}`,
+			text: result?.mappingForm === 'table' && gen.success
+				? tableOutcomeText(result)
+				: `Created or updated: ${plural(gen.created.length, 'junction note')}; already up to date: ${plural((gen.upToDate?.length ?? 0), 'junction note')}${folder ? ` under ${folder}` : ''}`,
 		});
 		if (gen.skipped.length > 0) {
 			summary.createEl('p', { text: `Skipped: ${plural(gen.skipped.length, 'existing note')}` });

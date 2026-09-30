@@ -8,6 +8,7 @@ import { SavedConfig } from '../types/config';
 import type { DebugLevel } from '../utils/debug';
 import type { Enrichment } from '../import/mapping/types';
 import type { StackDefinition, StackRunRecord } from '../import/stack/stack-persistence';
+import type { MappingForm } from '../generation/import-set-block';
 
 export interface CrosswalkerSettings {
 	// ==========================================================================
@@ -107,6 +108,12 @@ export interface CrosswalkerSettings {
 	stackRuns: StackRunRecord[];
 	/** File-write confirmation gate for stack imports; zero confirms every nonempty run. */
 	stackConfirmFileThreshold: number;
+	/**
+	 * Storage form a NEW mapping set is pre-filled with on the stack review and
+	 * the crosswalk mapping import. A refresh never reads this: it keeps the
+	 * form its set was minted with, because switching forms is a conversion.
+	 */
+	defaultMappingForm: MappingForm;
 }
 
 export type KeyNamingStyle = 'as-is' | 'lowercase' | 'snake_case' | 'camelCase' | 'kebab-case';
@@ -172,5 +179,6 @@ export const DEFAULT_SETTINGS: CrosswalkerSettings = {
 	savedConfigs: [],
 	stacks: [],
 	stackRuns: [],
-	stackConfirmFileThreshold: 1000
+	stackConfirmFileThreshold: 1000,
+	defaultMappingForm: 'notes'
 };

@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: store a mapping set as one table file (2026-09-30)
+
+- On the framework stack's **Review before import** screen, each new mapping row has a **Store as** choice: **Notes** (one note per mapping, the default) or **Table** (one `<pair>.mapping-table.tsv` file that opens in any spreadsheet). The standalone crosswalk mapping import offers the same choice. A new setting, **Default mapping storage**, sets what the choice starts on.
+- When Table is selected the screen says what you give up: those mappings will not appear in Bases views, graph view or backlinks. The file counts treat a table as one file, so a table set never trips the confirmation threshold on its own.
+- Refreshing a table set rewrites the one file and keeps the review columns (`review_status`, `reviewer`, notes) for every row that is still in the source; rows the source no longer has are dropped and counted. A set keeps the form it was created with; switching forms is a later conversion feature.
+- A second set for the same framework pair gets a set-qualified file name instead of overwriting the first. The write is verified by reading the file back; a mismatch fails that step with the action to take.
+
 ### Added: foundation for storing a mapping set as one table file (2026-09-30)
 
 - A mapping set will be able to keep its rows either as one note per mapping (today's form) or as one SSSOM-shaped table file, `<name>.mapping-table.tsv`, that opens in any spreadsheet. This lands the read side only; nothing writes a table yet and nothing changes for existing vaults.

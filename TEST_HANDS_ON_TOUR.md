@@ -181,6 +181,7 @@ bun tools/generate-fixtures.ts   --source "Frameworks/cprt_CSF_2_0_0_06-01-2026.
 - [ ] Command palette → **Crosswalker: Import SSSOM crosswalk**
 - [ ] Import the bundled fixture → 11 junction notes under `_crosswalker/mappings/csf-to-iso27001/`
 - [ ] Spot-check one note: `predicate_id` direction sane (broadMatch → `is_narrower_than` — the 2026-06-12 direction fix)
+- [ ] **Store as** (NEW 2026-09-30): on this modal and on the framework stack review, pick **Table** for a new mapping set → the trade-off line appears under the choice, the import writes one `*.mapping-table.tsv` and no junction notes, the stack completion reads **1 mapping table, N rows**, and a refresh of that set shows **Stored as: Table** with no control (default comes from Settings, Advanced, **Default mapping storage**)
 
 ## 4.5 Export commands (v0.1.7 portability)
 
