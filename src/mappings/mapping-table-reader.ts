@@ -69,45 +69,63 @@ export async function readMappingTables(app: App, basePath?: string): Promise<Ma
 		.filter((file: TFile) => file.path.endsWith(MAPPING_TABLE_SUFFIX) && isWithinBase(file.path, basePath))
 		.sort((a: TFile, b: TFile) => a.path.localeCompare(b.path));
 	const tables: MappingTableFile[] = [];
-	for (const file of files) {
-		let content: string;
-		try {
-			content = await app.vault.read(file);
-		} catch {
-			tables.push({
-				path: file.path,
-				header: { crosswalker_format: MAPPING_TABLE_FORMAT },
-				rows: [],
-				errors: [`Could not read mapping table ${file.path}. Check the file still exists and is not open in another program, then try again.`],
-				rowErrors: [],
-				warnings: [],
-				provenance: 'invalid',
-				readable: false,
-			});
-			continue;
-		}
-		const parsed = parseMappingTable(content);
-		// The header is a table set's only provenance record. Without it the rows
-		// would reach consumers as edges owned by no import set, so refuse here.
-		// The codec still parses such a file; only the vault reader refuses it.
-		if (!parsed.errors.length && parsed.header.crosswalker_provenance === undefined) {
-			parsed.errors.push(`Mapping table ${file.path} has no Crosswalker provenance header, so its import set is unknown. Convert the set again instead of creating the table by hand.`);
-		}
-		tables.push({
-			path: file.path,
-			header: parsed.header,
-			// A file with structural errors contributes no rows. With only row
-			// errors the surviving rows are kept so discovery can still count the
-			// set; edge consumers treat `rowErrors` as errors and skip the table.
-			rows: parsed.errors.length ? [] : parsed.rows,
-			errors: parsed.errors,
-			rowErrors: parsed.rowErrors,
-			warnings: parsed.warnings,
-			provenance: parsed.provenance,
-			readable: true,
-		});
-	}
+	for (const file of files) tables.push(await readMappingTableFile(app, file));
 	return tables;
+}
+
+/**
+ * Read one mapping table the way `readMappingTables` reads each of its files.
+ * Never throws: an unreadable file comes back with `readable: false` and an
+ * actionable error. Failure mode prevented: a single-table caller (the review
+ * view) parsing a table its own way and accepting a file the vault-wide reader
+ * refuses, such as one with no provenance header.
+ */
+export async function readMappingTableFile(app: App, file: TFile): Promise<MappingTableFile> {
+	let content: string;
+	try {
+		content = await app.vault.read(file);
+	} catch {
+		return unreadableMappingTable(file.path);
+	}
+	return mappingTableFromContent(file.path, content);
+}
+
+/** The record for a table whose bytes could not be read, so nothing about it is known. */
+export function unreadableMappingTable(path: string): MappingTableFile {
+	return {
+		path,
+		header: { crosswalker_format: MAPPING_TABLE_FORMAT },
+		rows: [],
+		errors: [`Could not read mapping table ${path}. Check the file still exists and is not open in another program, then try again.`],
+		rowErrors: [],
+		warnings: [],
+		provenance: 'invalid',
+		readable: false,
+	};
+}
+
+/** Parse bytes already read from `path` under the vault reader's rules. */
+export function mappingTableFromContent(path: string, content: string): MappingTableFile {
+	const parsed = parseMappingTable(content);
+	// The header is a table set's only provenance record. Without it the rows
+	// would reach consumers as edges owned by no import set, so refuse here.
+	// The codec still parses such a file; only the vault reader refuses it.
+	if (!parsed.errors.length && parsed.header.crosswalker_provenance === undefined) {
+		parsed.errors.push(`Mapping table ${path} has no Crosswalker provenance header, so its import set is unknown. Convert the set again instead of creating the table by hand.`);
+	}
+	return {
+		path,
+		header: parsed.header,
+		// A file with structural errors contributes no rows. With only row
+		// errors the surviving rows are kept so discovery can still count the
+		// set; edge consumers treat `rowErrors` as errors and skip the table.
+		rows: parsed.errors.length ? [] : parsed.rows,
+		errors: parsed.errors,
+		rowErrors: parsed.rowErrors,
+		warnings: parsed.warnings,
+		provenance: parsed.provenance,
+		readable: true,
+	};
 }
 
 /**

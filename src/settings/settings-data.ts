@@ -114,6 +114,13 @@ export interface CrosswalkerSettings {
 	 * form its set was minted with, because switching forms is a conversion.
 	 */
 	defaultMappingForm: MappingForm;
+	/**
+	 * Slice 5. Claim the `.tsv` extension so a mapping table opens in the mapping
+	 * review view from the file explorer. Read once at load: Obsidian has no way
+	 * to release an extension, so a change applies after a reload. Off lets a
+	 * user whose other plugin opens `.tsv` files keep that plugin.
+	 */
+	openMappingTablesInCrosswalker: boolean;
 }
 
 export type KeyNamingStyle = 'as-is' | 'lowercase' | 'snake_case' | 'camelCase' | 'kebab-case';
@@ -180,5 +187,6 @@ export const DEFAULT_SETTINGS: CrosswalkerSettings = {
 	stacks: [],
 	stackRuns: [],
 	stackConfirmFileThreshold: 1000,
-	defaultMappingForm: 'notes'
+	defaultMappingForm: 'notes',
+	openMappingTablesInCrosswalker: true,
 };

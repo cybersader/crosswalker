@@ -3263,3 +3263,226 @@
 	.crosswalker-stack-connection { grid-template-columns: minmax(0, 1fr); }
 	.crosswalker-stack-connection > :last-child:nth-child(3) { grid-column: 1; }
 }
+
+/* ============================================================================
+   Mapping review view (slice 5 of the mapping table form)
+   One windowed grid: rows are a fixed 34px (ROW_HEIGHT in
+   src/views/mapping-review-view.ts), so the window math and the layout agree.
+   Theme variables only, so light stays Obsidian's own warm background.
+   ============================================================================ */
+.crosswalker-mapping-review {
+	--cw-mr-row: 34px;
+	--cw-mr-columns: 34px minmax(190px, 1.3fr) 160px minmax(190px, 1.3fr) minmax(140px, 1fr) 90px 130px 150px minmax(160px, 1fr) 110px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	height: 100%;
+	padding: 12px 16px 0;
+	overflow: hidden;
+	background: var(--background-primary);
+}
+.crosswalker-mapping-review .crosswalker-mr-header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 8px 16px;
+	flex: 0 0 auto;
+}
+.crosswalker-mapping-review .crosswalker-mr-title { margin: 0; font-size: var(--font-ui-large); overflow-wrap: anywhere; }
+.crosswalker-mapping-review .crosswalker-mr-meta { color: var(--text-muted); font-size: var(--font-ui-small); overflow-wrap: anywhere; }
+.crosswalker-mapping-review .crosswalker-mr-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.crosswalker-mapping-review .crosswalker-mr-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: auto;
+	padding: 2px 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 999px;
+	background: var(--background-secondary);
+	box-shadow: none;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-normal);
+	cursor: pointer;
+}
+.crosswalker-mapping-review .crosswalker-mr-pill:hover { background: var(--background-modifier-hover); }
+.crosswalker-mapping-review .crosswalker-mr-pill:disabled { cursor: default; opacity: 0.8; }
+.crosswalker-mapping-review .crosswalker-mr-pill-count { font-variant-numeric: tabular-nums; font-weight: 600; }
+.crosswalker-mapping-review .crosswalker-mr-pill::before {
+	content: "";
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--text-faint);
+}
+.crosswalker-mapping-review .crosswalker-mr-pill.is-proposed::before { background: var(--color-blue); }
+.crosswalker-mapping-review .crosswalker-mr-pill.is-in-review::before { background: var(--color-yellow); }
+.crosswalker-mapping-review .crosswalker-mr-pill.is-approved::before { background: var(--color-green); }
+.crosswalker-mapping-review .crosswalker-mr-pill.is-deprecated::before { background: var(--color-red); }
+.crosswalker-mapping-review .crosswalker-mr-pill.is-other::before { background: var(--color-purple); }
+
+.crosswalker-mapping-review .crosswalker-mr-banner {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 8px 12px;
+	border-left: 3px solid var(--text-warning);
+	border-radius: 4px;
+	background: var(--background-secondary);
+	overflow-wrap: anywhere;
+}
+.crosswalker-mapping-review .crosswalker-mr-banner-copy { flex: 1 1 auto; display: grid; gap: 4px; min-width: 0; }
+.crosswalker-mapping-review .crosswalker-mr-banner-action { color: var(--text-muted); font-size: var(--font-ui-small); }
+.crosswalker-mapping-review .crosswalker-mr-banner-icon { color: var(--text-warning); display: inline-flex; }
+
+.crosswalker-mapping-review .crosswalker-mr-toolbar,
+.crosswalker-mapping-review .crosswalker-mr-bulk {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	flex: 0 0 auto;
+}
+.crosswalker-mapping-review .crosswalker-mr-search { flex: 1 1 260px; min-width: 180px; }
+.crosswalker-mapping-review .crosswalker-mr-count,
+.crosswalker-mapping-review .crosswalker-mr-selection { color: var(--text-muted); font-size: var(--font-ui-small); font-variant-numeric: tabular-nums; }
+.crosswalker-mapping-review .crosswalker-mr-status {
+	margin-left: auto;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	overflow-wrap: anywhere;
+	max-width: 100%;
+}
+.crosswalker-mapping-review .crosswalker-mr-status[data-state="saved"] { color: var(--text-success); }
+.crosswalker-mapping-review .crosswalker-mr-status.is-error { color: var(--text-error); }
+.crosswalker-mapping-review .crosswalker-mr-bulk {
+	padding: 6px 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
+}
+.crosswalker-mapping-review .crosswalker-mr-bulk-reviewer { width: 180px; }
+
+.crosswalker-mapping-review .crosswalker-mr-body {
+	display: flex;
+	flex: 1 1 auto;
+	min-height: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px 6px 0 0;
+	overflow: hidden;
+}
+/* The frame holds the scroller so the focus ring can be drawn above the rows:
+   a ring on the scroller itself paints under the opaque, composited rows. */
+.crosswalker-mapping-review .crosswalker-mr-frame {
+	position: relative;
+	display: flex;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+}
+.crosswalker-mapping-review .crosswalker-mr-scroller {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: auto;
+	outline: none;
+}
+.crosswalker-mapping-review .crosswalker-mr-frame:has(> .crosswalker-mr-scroller:focus-visible)::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	pointer-events: none;
+	box-shadow: inset 0 0 0 2px var(--interactive-accent);
+}
+.crosswalker-mapping-review .crosswalker-mr-inner { min-width: 1360px; }
+.crosswalker-mapping-review .crosswalker-mr-grid-row {
+	display: grid;
+	grid-template-columns: var(--cw-mr-columns);
+	height: var(--cw-mr-row);
+	box-sizing: border-box;
+	border-bottom: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-small);
+}
+.crosswalker-mapping-review .crosswalker-mr-head {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	background: var(--background-secondary);
+	font-weight: 600;
+	color: var(--text-muted);
+}
+.crosswalker-mapping-review .crosswalker-mr-grid-body { position: relative; }
+.crosswalker-mapping-review .crosswalker-mr-rows { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
+.crosswalker-mapping-review .crosswalker-mr-cell {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	padding: 0 8px;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.crosswalker-mapping-review .crosswalker-mr-check { justify-content: center; padding: 0; }
+.crosswalker-mapping-review .crosswalker-mr-sortable { cursor: pointer; user-select: none; }
+.crosswalker-mapping-review .crosswalker-mr-sortable:hover { color: var(--text-normal); }
+.crosswalker-mapping-review .crosswalker-mr-sortable.is-sorted { color: var(--text-accent); }
+.crosswalker-mapping-review .crosswalker-mr-sort-arrow { display: inline-flex; --icon-size: 14px; }
+.crosswalker-mapping-review .crosswalker-mr-row { cursor: default; background: var(--background-primary); }
+.crosswalker-mapping-review .crosswalker-mr-row:hover { background: var(--background-modifier-hover); }
+.crosswalker-mapping-review .crosswalker-mr-row.is-selected { background: var(--background-secondary); }
+/* Active is its own look, never the hover color: a hovered row must not read as the active one. */
+.crosswalker-mapping-review .crosswalker-mr-row.is-active,
+.crosswalker-mapping-review .crosswalker-mr-row.is-active:hover { box-shadow: inset 3px 0 0 var(--interactive-accent); background: var(--background-modifier-active-hover); }
+.crosswalker-mapping-review .crosswalker-mr-endpoint { display: block; line-height: calc(var(--cw-mr-row) - 1px); }
+.crosswalker-mapping-review .crosswalker-mr-id,
+.crosswalker-mapping-review .crosswalker-mr-link { font-family: var(--font-monospace); font-size: var(--font-ui-smaller); }
+.crosswalker-mapping-review .crosswalker-mr-link { color: var(--text-accent); text-decoration: none; }
+.crosswalker-mapping-review .crosswalker-mr-link:hover { text-decoration: underline; }
+.crosswalker-mapping-review .crosswalker-mr-label { margin-left: 6px; color: var(--text-muted); }
+.crosswalker-mapping-review .crosswalker-mr-number { justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.crosswalker-mapping-review .crosswalker-mr-muted { color: var(--text-muted); }
+.crosswalker-mapping-review .crosswalker-mr-cell select,
+.crosswalker-mapping-review .crosswalker-mr-cell input[type="text"] {
+	width: 100%;
+	height: 26px;
+	min-width: 0;
+	padding: 0 6px;
+	font-size: var(--font-ui-smaller);
+}
+.crosswalker-mapping-review .crosswalker-mr-empty,
+.crosswalker-mapping-review .crosswalker-mr-loading { padding: 16px; color: var(--text-muted); }
+
+.crosswalker-mapping-review .crosswalker-mr-drawer { display: none; }
+.crosswalker-mapping-review .crosswalker-mr-drawer.is-open {
+	display: block;
+	flex: 0 0 340px;
+	max-width: 45%;
+	overflow-y: auto;
+	padding: 10px 14px;
+	border-left: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+}
+.crosswalker-mapping-review .crosswalker-mr-drawer-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.crosswalker-mapping-review .crosswalker-mr-drawer h3 { margin: 0; font-size: var(--font-ui-medium); }
+.crosswalker-mapping-review .crosswalker-mr-drawer h4 { margin: 14px 0 4px; font-size: var(--font-ui-small); color: var(--text-muted); }
+.crosswalker-mapping-review .crosswalker-mr-details { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 10px 0; font-size: var(--font-ui-small); }
+.crosswalker-mapping-review .crosswalker-mr-details dt { color: var(--text-muted); }
+.crosswalker-mapping-review .crosswalker-mr-details dd { margin: 0; overflow-wrap: anywhere; }
+.crosswalker-mapping-review .crosswalker-mr-drawer-hint { font-size: var(--font-ui-smaller); margin-top: 8px; }
+.crosswalker-mapping-review .crosswalker-mr-preview {
+	flex: 1 1 auto;
+	margin: 0 0 12px;
+	padding: 10px;
+	overflow: auto;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
+	font-size: var(--font-ui-smaller);
+	white-space: pre;
+}
+@media (max-width: 700px) {
+	.crosswalker-mapping-review .crosswalker-mr-drawer.is-open { flex-basis: 260px; }
+	.crosswalker-mapping-review .crosswalker-mr-status { margin-left: 0; }
+}

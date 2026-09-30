@@ -56,7 +56,7 @@ import type {
 	Enrichment,
 	CrosswalkPredicate,
 } from './mapping/types';
-import { CROSSWALK_PREDICATES, toSourceRefs, isConstantRef } from './mapping/types';
+import { CROSSWALK_PREDICATES, CROSSWALK_PREDICATE_LABELS, toSourceRefs, isConstantRef } from './mapping/types';
 import { deriveFacetMemberships } from './mapping/facets';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import { isTier1CuriePrefix } from '../validation/validator';
@@ -165,13 +165,6 @@ const SHAPE_CARD_COPY: Record<ShapeCardId, { icon: string; afford: string; whisp
 	},
 };
 
-const CROSSWALK_PREDICATE_LABELS: Record<CrosswalkPredicate, string> = {
-	is_approximate_to: 'Roughly the same requirement',
-	is_equivalent_to: 'Exactly the same requirement',
-	is_broader_than: 'This one is broader',
-	is_narrower_than: 'This one is narrower',
-	intersects_with: 'They partly overlap',
-};
 
 /** Only claim a level has no own rows when expanded rows carry explicit level evidence. */
 export function impliedConceptControlState(

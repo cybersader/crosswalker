@@ -34,6 +34,12 @@ jest.mock('../src/views/workspace-view', () => ({
 	toMinimalNode: jest.fn(),
 }));
 jest.mock('../src/views/recipe-picker-modal', () => ({ RecipePickerModal: class {} }));
+jest.mock('../src/views/mapping-review-view', () => ({
+	MappingReviewView: class {},
+	VIEW_TYPE_MAPPING_REVIEW: 'crosswalker-mapping-review',
+	statusLabel: jest.fn(),
+}));
+jest.mock('../src/views/mapping-table-picker', () => ({ MappingTablePickerModal: class {} }));
 jest.mock('../src/views/evidence-link-modal', () => ({ EvidenceLinkModal: class {} }));
 
 import CrosswalkerPlugin from '../src/main';

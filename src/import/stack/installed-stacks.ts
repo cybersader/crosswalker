@@ -3,6 +3,7 @@ import { App, Modal, Notice, Setting } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
 import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
 import { MAPPING_PRESETS, RECIPE_REGISTRY } from '../recipe-registry';
+import { MAPPING_TABLE_SUFFIX } from '../../mappings/mapping-table-reader';
 import { StackSetupModal } from './stack-modal';
 import { deleteStackRecord, importStackDefinition, mappingKey, type SlotRunFact, type StackDefinition } from './stack-persistence';
 import {
@@ -133,9 +134,24 @@ function renderMappingSetRow(rows: HTMLElement, app: App, plugin: CrosswalkerPlu
 		}
 		return;
 	}
+	// Slice 5: a table set has no notes to edit, so its review happens in the
+	// mapping review view. Not offered mid-conversion (the branch above), where
+	// the view would open read-only anyway.
+	const tablePath = mappingTablePathOf(set);
+	if (tablePath) {
+		actions.createEl('button', { text: 'Review mappings', cls: 'mod-cta crosswalker-review-mappings' }).addEventListener('click', () => {
+			void plugin.openMappingReview(tablePath);
+		});
+	}
 	const to = conversionTargetOf(set);
 	actions.createEl('button', { text: convertButtonLabel(to) }).addEventListener('click', () =>
 		new MappingConversionModal(app, plugin, { kind: 'start', set, to, label: name }, redraw).open());
+}
+
+/** The table file of a table-form set, or undefined for a notes-form set. */
+export function mappingTablePathOf(set: Pick<DiscoveredImportSet, 'mapping_form' | 'paths'>): string | undefined {
+	if (set.mapping_form !== 'table') return undefined;
+	return set.paths.find((path) => path.endsWith(MAPPING_TABLE_SUFFIX));
 }
 
 /** Shared launchpad section; redrawn after a modal closes to show fresh settings and vault facts. */

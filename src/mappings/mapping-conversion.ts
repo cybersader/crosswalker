@@ -46,6 +46,7 @@ import {
 	derivedEdgeCurie,
 	edgeFrontmatterToTableRow,
 	parseMappingTable,
+	REVIEW_STATUSES,
 	serializeMappingTable,
 	type MappingTableHeader,
 	type MappingTableRow,
@@ -399,8 +400,8 @@ async function ownedTable(app: App, setId: string): Promise<{ table: MappingTabl
 	return { table };
 }
 
-/** Review statuses a note can store (source: spec/tier1.schema.json, crosswalk edge `review_status` enum). */
-const NOTE_REVIEW_STATUSES = new Set(['proposed', 'in_review', 'approved', 'deprecated']);
+/** Review statuses a note can store (source: spec/tier1.schema.json via `REVIEW_STATUSES`). */
+const NOTE_REVIEW_STATUSES = new Set<string>(REVIEW_STATUSES);
 
 /** Keys a converted note derives itself; a table row may not carry its own. */
 const DERIVED_NOTE_KEYS = new Set(['curie', 'kind', 'title', 'tags', '_crosswalker', '_crosswalker_managed_keys']);

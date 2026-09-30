@@ -35,6 +35,8 @@ import {
 } from './views/bases-api';
 import { writeReferenceBaseFiles } from './views/reference-base-files';
 import { CrosswalkerWorkspaceView, VIEW_TYPE_CROSSWALKER_WORKSPACE, toMinimalNode } from './views/workspace-view';
+import { MappingReviewView, VIEW_TYPE_MAPPING_REVIEW } from './views/mapping-review-view';
+import { MappingTablePickerModal } from './views/mapping-table-picker';
 import { deriveInstalledOntologies } from './views/workspace-view-helpers';
 import { DebugLog } from './utils/debug';
 import { DraftStore } from './import/draft-store';
@@ -1127,6 +1129,32 @@ export default class CrosswalkerPlugin extends Plugin {
 		this.addRibbonIcon('network', 'Open Crosswalker workspace', () => {
 			void this.activateWorkspaceView();
 		});
+		// Slice 5 of the mapping table form: the mapping review view.
+		this.registerView(
+			VIEW_TYPE_MAPPING_REVIEW,
+			(leaf) => new MappingReviewView(leaf, this),
+		);
+		if (this.settings.openMappingTablesInCrosswalker) {
+			// Obsidian claims extensions, not suffixes, so this claims every .tsv;
+			// the view shows any other .tsv read-only. A second claimant throws, and
+			// that must not stop the plugin from loading.
+			try {
+				this.registerExtensions(['tsv'], VIEW_TYPE_MAPPING_REVIEW);
+			} catch (error) {
+				this.debug?.warn('view', 'register-tsv-failed', 'Could not claim the .tsv extension for the mapping review', {
+					error: error instanceof Error ? error.message : String(error),
+				});
+				// eslint-disable-next-line obsidianmd/ui/sentence-case -- names the plugin, a command and a setting as the user sees them
+				new Notice('Crosswalker could not open .tsv files from the file explorer because another plugin already opens them. Use Review a mapping table from the command palette, or turn off Open mapping tables in Crosswalker under Advanced settings.', 12000);
+			}
+		}
+		this.addCommand({
+			id: 'review-mapping-table',
+			name: 'Review a mapping table',
+			callback: () => {
+				new MappingTablePickerModal(this.app, (file) => { void this.openMappingReview(file.path); }).openOrExplain();
+			},
+		});
 		this.addCommand({
 			id: 'open-crosswalker-workspace',
 			name: 'Start here: open workspace',
@@ -1430,6 +1458,48 @@ export default class CrosswalkerPlugin extends Plugin {
 		workspace.revealLeaf(leaf);
 		return leaf;
 	}
+
+	/**
+	 * Open the mapping review view for one table, reusing a tab that already
+	 * shows it. Failure mode prevented: two tabs on one table, each saving its
+	 * own edits, which the store would reconcile but the reviewer could not follow.
+	 */
+	async openMappingReview(path: string): Promise<WorkspaceLeaf> {
+		const { workspace } = this.app;
+		for (const leaf of workspace.getLeavesOfType(VIEW_TYPE_MAPPING_REVIEW)) {
+			if (leaf.view instanceof MappingReviewView && leaf.view.getPath() === path) {
+				await workspace.revealLeaf(leaf);
+				return leaf;
+			}
+		}
+		const leaf = workspace.getLeaf('tab');
+		await leaf.setViewState({ type: VIEW_TYPE_MAPPING_REVIEW, state: { path }, active: true });
+		await workspace.revealLeaf(leaf);
+		return leaf;
+	}
+
+	/**
+	 * Re-project one mapping table into the query index after a review save
+	 * (projector `pathFilter` = that path, a partial pass, so nothing else is
+	 * pruned). Waits for a full pass already running instead of racing it.
+	 * Skipped while the index is being torn down, and when automatic projection
+	 * is off and the index is not open, so a review never opens it on its own.
+	 */
+	projectMappingTable = async (path: string): Promise<void> => {
+		if (this.tier2TeardownInProgress || this.tier2Unloaded) return;
+		if (!this.settings.enableTier2Projection && !this.tier2Handle) return;
+		if (this.tier2InFlightProjection) await this.tier2InFlightProjection.catch(() => undefined);
+		const handle = await this.openTier2();
+		const result = await projectFromTier1(this.app, handle.db, {
+			debug: this.debug,
+			projectionMode: 'partial',
+			pathFilter: (candidate) => candidate === path,
+			shouldAbort: () => this.tier2TeardownInProgress,
+		});
+		if (!result.success) {
+			throw new Error(result.errors[0]?.message ?? `Could not update the query index for ${path}.`);
+		}
+	};
 
 	onunload() {
 		// Cancel startup waiters and ask any active projector to stop at its next
