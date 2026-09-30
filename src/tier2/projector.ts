@@ -27,6 +27,7 @@ import { DebugLog } from '../utils/debug';
 import { extractTier1Curie } from '../validation/validator';
 import { normalizeMappingSetId, readStoredPredicateModifier } from '../utils/mapping-provenance';
 import { readReviewGroupCids } from '../generation/hash';
+import { readMappingTables, tableRowsAsEdgeRecords } from '../mappings/mapping-table-reader';
 
 /**
  * Result of a projection pass. Counts per Tier 2 table + skipped (files
@@ -39,6 +40,8 @@ export interface ProjectionResult {
 		mappings: number;
 		junction_notes: number;
 		ontologies: number;
+		/** Mapping table files read (slice 2); their rows count in `mappings`. */
+		mapping_tables: number;
 		skipped: number;
 		errors: number;
 	};
@@ -113,6 +116,7 @@ export async function projectFromTier1(
 			mappings: 0,
 			junction_notes: 0,
 			ontologies: 0,
+			mapping_tables: 0,
 			skipped: 0,
 			errors: 0,
 		},
@@ -205,7 +209,7 @@ export async function projectFromTier1(
 					});
 					throw error;
 				}
-				upsertMapping(db, file, fm, predicateModifier);
+				upsertMapping(db, file.path, fm, predicateModifier);
 				if (fullProjection) markMappingSeen(db, file.path);
 				result.counts.mappings += 1;
 			} else {
@@ -223,6 +227,10 @@ export async function projectFromTier1(
 			result.counts.errors += 1;
 			options.debug?.warn('tier2', 'projection-row-error', `Projection row error at ${file.path}`, { path: file.path, error: msg });
 		}
+	}
+
+	if (!result.aborted) {
+		await projectMappingTables(app, db, options, fullProjection, ontologiesSeen, result);
 	}
 
 	let prunedRows = 0;
@@ -284,6 +292,75 @@ export async function projectFromTier1(
 	});
 
 	return result;
+}
+
+// ============================================================================
+// Mapping tables (slice 2 of the mapping table form)
+// ============================================================================
+
+/**
+ * Project every table-form mapping set. A table set has no notes, so the
+ * markdown walk above never sees it; without this pass its mappings would be
+ * missing from every query, and a full projection would prune them.
+ *
+ * Each row goes through the same `upsertMapping` as an edge note, addressed
+ * `<table path>#<row_id>`, and is marked seen under that address, so a row
+ * dropped from the file, or a whole deleted table, is pruned like a deleted
+ * note. A table that would not read contributes an error per problem and marks
+ * nothing seen, and any error refuses the prune for the run. Failure mode
+ * prevented: one hand-edited table deleting every projected row of its set.
+ */
+async function projectMappingTables(
+	app: App,
+	db: any,
+	options: ProjectionOptions,
+	fullProjection: boolean,
+	ontologiesSeen: Set<string>,
+	result: ProjectionResult,
+): Promise<void> {
+	let tables: Awaited<ReturnType<typeof readMappingTables>>;
+	try {
+		tables = await readMappingTables(app);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		result.errors.push({ vault_path: '<mapping-tables>', message: msg });
+		result.counts.errors += 1;
+		return;
+	}
+	for (const table of tables) {
+		if (options.pathFilter && !options.pathFilter(table.path)) continue;
+		// Checked per table because a table read is a yield point: the database
+		// under us can be closed while it is in flight.
+		if (options.shouldAbort?.()) {
+			result.aborted = true;
+			return;
+		}
+		result.counts.mapping_tables += 1;
+		// Row errors count as errors here: a partly read set projected as if whole
+		// would let the prune delete the dropped rows' projections.
+		const problems = [...table.errors, ...table.rowErrors];
+		if (problems.length) {
+			for (const message of problems) {
+				result.errors.push({ vault_path: table.path, message });
+				result.counts.errors += 1;
+			}
+			options.debug?.warn('tier2', 'projection-table-error', `Mapping table unreadable at ${table.path}`, { path: table.path, errors: problems });
+			continue;
+		}
+		for (const record of tableRowsAsEdgeRecords(table)) {
+			try {
+				const fm = record.frontmatter as Record<string, any>;
+				ensureOntologyForKind(db, fm, ontologiesSeen, table.path, 'crosswalk-edge');
+				upsertMapping(db, record.source_path, fm, readStoredPredicateModifier(fm));
+				if (fullProjection) markMappingSeen(db, record.source_path);
+				result.counts.mappings += 1;
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				result.errors.push({ vault_path: record.source_path, message: msg });
+				result.counts.errors += 1;
+			}
+		}
+	}
 }
 
 // ============================================================================
@@ -559,7 +636,7 @@ function upsertJunctionNote(db: any, file: TFile, fm: Record<string, any>): void
 
 function upsertMapping(
 	db: any,
-	file: TFile,
+	sourcePath: string,
 	fm: Record<string, any>,
 	predicateModifier: '' | 'NOT',
 ): void {
@@ -609,7 +686,7 @@ function upsertMapping(
 			$mapping_date: stringOrNull(fm.mapping_date),
 			$creator_id: stringOrNull(fm.creator_id),
 			$review_status: stringOrNull(fm.review_status),
-			$source_path: file.path,
+			$source_path: sourcePath,
 			$source_hash: sourceHash,
 		},
 	});

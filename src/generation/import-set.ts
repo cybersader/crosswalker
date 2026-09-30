@@ -13,6 +13,7 @@ import { normalizeFolderSetting } from '../settings/folder-settings';
 import { IDENTITY_SENTINELS } from './legacy-recipe-shim';
 import type { KnownSource } from '../import/vault-source-scan';
 import type { NestedRecordLevel } from '../types/generated/recipe';
+import { readMappingTables, tableRowsAsEdgeRecords } from '../mappings/mapping-table-reader';
 import {
 	IMPORT_SET_DERIVATIONS,
 	IMPORT_SET_ID_PATTERN,
@@ -163,7 +164,16 @@ export type ImportSetOption =
 	| 'new-set-qualified';
 
 export interface DiscoveredImportSet extends ImportSetReference {
+	/** Markdown notes the set owns. A table-form set owns none. */
 	noteCount: number;
+	/**
+	 * How the set stores its mapping rows, always answered: the stamped pin,
+	 * else 'notes' (absence is the legacy form). Note: `resolveImportSet` carries
+	 * only a 'table' pin forward, so a notes set is never newly stamped.
+	 */
+	mapping_form: MappingForm;
+	/** Mapping rows held in the set's table file; 0 for a notes-form set. */
+	rowCount: number;
 	paths: string[];
 	/**
 	 * Where this set's notes actually live: the recorded destination when it is
@@ -215,6 +225,14 @@ interface ImportSetObservation {
 	/** The derivation pinned in this note's import_set block, if any (AM-27). */
 	derivation: string | null;
 	mappingForm: string | null;
+	/**
+	 * Where this observation came from: one markdown note, or one mapping table
+	 * file (a whole table-form set). Kept so one set seen in both places is
+	 * refused instead of merged.
+	 */
+	storage: 'note' | 'table';
+	/** Rows in the table file for a table observation; 0 for a note. */
+	rowCount: number;
 	parentSet: string | null;
 	/** Nested level identity modes pinned in this note's import_set block, if any. */
 	nestIdentity: Record<string, 'global' | 'path'> | null;
@@ -506,7 +524,10 @@ export async function resolveImportSet(
 					...(option.parent_set ? { parent_set: option.parent_set } : (existing.parentSets?.length === 1 ? { parent_set: existing.parentSets[0] } : {})),
 					scheme: existing.scheme,
 					...(existing.derivation ? { derivation: existing.derivation } : {}),
-					...(existing.mapping_form ? { mapping_form: existing.mapping_form } : {}),
+					// Only a table pin is carried. Absence already means notes, and
+					// stamping 'notes' onto a legacy set would rewrite every one of its
+					// notes for no change in meaning.
+					...(existing.mapping_form === 'table' ? { mapping_form: 'table' as const } : {}),
 					...(existing.nest_identity ? { nest_identity: { ...existing.nest_identity } } : {}),
 				},
 				pinnedOntologyOf(existing, proposed),
@@ -610,39 +631,119 @@ async function collectObservations(app: App, basePath?: string, onlyId?: string)
 		// Scheme and derivation are checked per set below, where every note that
 		// disagrees can be named at once.
 		const block = validateImportSetBlock(raw, file.path, { schemeAndDerivation: 'set' });
-		// Two stamped facts about WHAT produced this note, kept beside the ownership
-		// id so a caller can ask "has this source written here before?" without
-		// re-deriving anything from the note's address. Both are optional: a note
-		// written by a producer that stamps neither simply contributes nothing.
-		const provenanceRecord = provenance as Record<string, unknown>;
-		const recipeBlock = provenanceRecord.recipe;
-		const recipeId = recipeBlock && typeof recipeBlock === 'object'
-			? readString((recipeBlock as Record<string, unknown>).id)
+		observations.push(observationOf(
+			block,
+			provenance as Record<string, unknown>,
+			file.path,
+			readString((fm as Record<string, unknown>).curie),
+			'note',
+			0,
+		));
+	}
+	observations.push(...await collectTableObservations(app, basePath, onlyId));
+	return observations;
+}
+
+/**
+ * Slice 2 of the mapping table form. A table-form set has no notes, so its
+ * table header is the only record that the set exists: one observation per
+ * table file, read from `header.crosswalker_provenance` through the shared
+ * reader (never a second parser).
+ *
+ * The branch is on the reader's explicit `readable` and `provenance` fields,
+ * never on error wording:
+ * - no provenance line: not an owned set, the same way an unstamped note is
+ *   legacy. Skipped.
+ * - unreadable file, or a provenance line or block that would not parse or
+ *   validate: the owner may well be a set but cannot be known, and unknown
+ *   fails closed. Refused by name, unless its readable id says it belongs to a
+ *   different set than the one an explicit refresh asked for. Failure mode
+ *   prevented: refresh treating a table-form set as absent, dropping its pin,
+ *   and writing the set a second time as notes.
+ * - a usable pin with structural errors (no row could be read): refused the
+ *   same way, since the content of the set is unknown.
+ * - a usable pin with only row errors: recorded, counting the surviving rows.
+ *   Failure mode prevented: one bad row blocking the wizard, the stack modal
+ *   and the vault scan for every set in the vault.
+ */
+async function collectTableObservations(app: App, basePath?: string, onlyId?: string): Promise<ImportSetObservation[]> {
+	const observations: ImportSetObservation[] = [];
+	for (const table of await readMappingTables(app, basePath)) {
+		if (table.readable && table.provenance === 'absent') continue;
+		const provenance = table.header.crosswalker_provenance;
+		const rawBlock = provenance?.import_set;
+		const statedId = rawBlock && typeof rawBlock === 'object' && !Array.isArray(rawBlock)
+			? readString((rawBlock as Record<string, unknown>).id)
 			: null;
-		const sourceRef = provenanceRecord.source_ref;
-		const sourceRecord = sourceRef && typeof sourceRef === 'object' && !Array.isArray(sourceRef)
-			? sourceRef as Record<string, unknown>
-			: null;
-		observations.push({
-			id: block.id,
-			scheme: block.scheme,
-			path: file.path,
-			destination: block.destination,
-			recipeId,
-			recipeHash: recipeBlock && typeof recipeBlock === 'object'
-				? readString((recipeBlock as Record<string, unknown>).hash) : null,
-			ontologyPrefix: curiePrefix(readString((fm as Record<string, unknown>).curie)),
-			ontology: block.ontology,
-			derivation: block.derivation,
-			mappingForm: block.mappingForm,
-			parentSet: block.parentSet,
-			nestIdentity: block.nestIdentity,
-			sourceFile: readString(sourceRecord?.file),
-			sourceHash: readString(sourceRecord?.source_hash),
-			producedAt: readString(provenanceRecord.produced_at),
-		});
+		if (onlyId !== undefined && statedId !== null && statedId !== onlyId) continue;
+		if (!table.readable || table.provenance === 'invalid' || table.errors.length || !provenance || rawBlock === undefined) {
+			// The reader's own messages already name the cause and the fix.
+			const cause = !table.readable ? 'could not be read'
+				: table.provenance === 'invalid' ? 'has an unusable provenance header'
+				: 'has no readable rows';
+			throw new ImportSetProvenanceError(
+				`Mapping table ${table.path} ${cause}, so its import set is unknown: ${table.errors.join(' ')}`,
+				[table.path],
+			);
+		}
+		const block = validateImportSetBlock(rawBlock, table.path, { schemeAndDerivation: 'set' });
+		// The prefix a row's edge would carry, so `ontologyPrefixes` answers for a
+		// table set the way it answers for the same rows as notes.
+		const firstCurie = tableRowsAsEdgeRecords({ ...table, rows: table.rows.slice(0, 1) })[0]?.frontmatter.curie;
+		observations.push(observationOf(
+			block,
+			provenance,
+			table.path,
+			readString(firstCurie),
+			'table',
+			table.rows.length,
+		));
 	}
 	return observations;
+}
+
+/**
+ * One observation from one validated ownership block. Two stamped facts about
+ * WHAT produced the record are kept beside the ownership id so a caller can ask
+ * "has this source written here before?" without re-deriving anything from an
+ * address. Both are optional: a producer that stamps neither contributes nothing.
+ */
+function observationOf(
+	block: ReturnType<typeof validateImportSetBlock>,
+	provenanceRecord: Record<string, unknown>,
+	path: string,
+	curie: string | null,
+	storage: 'note' | 'table',
+	rowCount: number,
+): ImportSetObservation {
+	const recipeBlock = provenanceRecord.recipe;
+	const recipeId = recipeBlock && typeof recipeBlock === 'object'
+		? readString((recipeBlock as Record<string, unknown>).id)
+		: null;
+	const sourceRef = provenanceRecord.source_ref;
+	const sourceRecord = sourceRef && typeof sourceRef === 'object' && !Array.isArray(sourceRef)
+		? sourceRef as Record<string, unknown>
+		: null;
+	return {
+		id: block.id,
+		scheme: block.scheme,
+		path,
+		destination: block.destination,
+		recipeId,
+		recipeHash: recipeBlock && typeof recipeBlock === 'object'
+			? readString((recipeBlock as Record<string, unknown>).hash) : null,
+		ontologyPrefix: curiePrefix(curie),
+		ontology: block.ontology,
+		derivation: block.derivation,
+		mappingForm: block.mappingForm,
+		storage,
+		rowCount,
+		parentSet: block.parentSet,
+		nestIdentity: block.nestIdentity,
+		sourceFile: readString(sourceRecord?.file),
+		sourceHash: readString(sourceRecord?.source_hash),
+		producedAt: readString(provenanceRecord.produced_at),
+	};
 }
 
 async function readRawFrontmatter(app: App, file: TFile): Promise<Record<string, unknown> | undefined> {
@@ -684,6 +785,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 			throw new ImportSetProvenanceError(`Import set ${id} has inconsistent or unsupported schemes: ${details}.`, paths);
 		}
 		const paths = group.map((entry) => entry.path).sort();
+		assertOneStorage(id, group);
 		const recorded = recordedDestination(group);
 		const pinnedOntology = agreedOntology(group);
 		const pinnedDerivation = agreedDerivation(id, group);
@@ -692,7 +794,9 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 		sets.push({
 			id,
 			scheme,
-			noteCount: paths.length,
+			noteCount: group.filter((entry) => entry.storage === 'note').length,
+			mapping_form: pinnedMappingForm ?? 'notes',
+			rowCount: group.reduce((sum, entry) => sum + entry.rowCount, 0),
 			paths,
 			root: resolveSetRoot(recorded, paths),
 			recipeIds: distinctSorted(group.map((entry) => entry.recipeId)),
@@ -704,7 +808,6 @@ function buildDiscoveredSets(observations: ImportSetObservation[]): DiscoveredIm
 			...(recorded ? { destination: recorded } : {}),
 			...(pinnedOntology ? { ontology: pinnedOntology } : {}),
 			...(pinnedDerivation ? { derivation: pinnedDerivation } : {}),
-			...(pinnedMappingForm ? { mapping_form: pinnedMappingForm } : {}),
 			...(pinnedNestIdentity ? { nest_identity: pinnedNestIdentity } : {}),
 		});
 	}
@@ -864,6 +967,31 @@ function agreedDerivation(id: string, group: readonly ImportSetObservation[]): I
 		+ 'Restore the notes that disagree from a backup, or move them out of this folder, then run the import again.',
 		paths,
 	);
+}
+
+/**
+ * Slice 2. One set lives in one storage place. Failure mode prevented: a
+ * half-finished conversion leaving the same set as both notes and a table, so
+ * a refresh, a projection, or an export counts every mapping twice. The
+ * conversion job (slice 4) leans on this refusal to detect its own interrupted
+ * run. Two tables for one set are refused for the same reason.
+ */
+function assertOneStorage(id: string, group: readonly ImportSetObservation[]): void {
+	const tables = group.filter((entry) => entry.storage === 'table');
+	if (tables.length === 0) return;
+	const paths = group.map((entry) => entry.path).sort();
+	if (tables.length !== group.length) {
+		throw new ImportSetProvenanceError(
+			`Import set ${id} is recorded as both notes and a table. Finish or roll back its conversion before refreshing.`,
+			paths,
+		);
+	}
+	if (tables.length > 1) {
+		throw new ImportSetProvenanceError(
+			`Import set ${id} is recorded in ${tables.length} mapping tables: ${paths.join(', ')}. Keep one table per set, then refresh again.`,
+			paths,
+		);
+	}
 }
 
 /** Reject mixed forms rather than silently refreshing a table as notes or vice versa. */

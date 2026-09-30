@@ -43,6 +43,7 @@ const EMPTY_COUNTS = {
 	mappings: 0,
 	junction_notes: 0,
 	ontologies: 0,
+	mapping_tables: 0,
 	skipped: 0,
 	errors: 0,
 };

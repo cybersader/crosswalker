@@ -32,6 +32,7 @@
 import type { App, TFile } from 'obsidian';
 import { parseYaml } from 'obsidian';
 import { normalizeMappingSetId, readStoredPredicateModifier } from '../utils/mapping-provenance';
+import { readMappingTables, tableRowsAsEdgeRecords } from '../mappings/mapping-table-reader';
 
 export type VaultNoteKind = 'concept' | 'crosswalk-edge' | 'junction-note' | 'hub' | 'facet';
 
@@ -272,48 +273,9 @@ export async function readVaultTree(app: App, rootPath: string): Promise<ReadVau
 		const tags = asStringArray(fm.tags);
 
 		if (kind === 'crosswalk-edge') {
-			const subject_id = asString(fm.subject_id);
-			const predicate_id = asString(fm.predicate_id);
-			const object_id = asString(fm.object_id);
-			let predicateModifier: '' | 'NOT';
-			try {
-				predicateModifier = readStoredPredicateModifier(fm);
-			} catch (error) {
-				result.skipped.push({
-					path: file.path,
-					reason: error instanceof Error ? error.message : 'invalid explicit predicate_modifier',
-				});
-				continue;
-			}
-			if (!subject_id || !predicate_id || !object_id) {
-				result.skipped.push({
-					path: file.path,
-					reason: 'crosswalk-edge note missing one of subject_id/predicate_id/object_id',
-				});
-				continue;
-			}
-			result.crosswalkEdges.push({
-				kind: 'crosswalk-edge',
-				path: file.path,
-				curie,
-				subject_id,
-				predicate_id,
-				object_id,
-				mapping_set_id:
-					typeof fm.mapping_set_id === 'string'
-						? normalizeMappingSetId(fm.mapping_set_id) || undefined
-						: undefined,
-				predicate_modifier: predicateModifier || undefined,
-				match_type: asString(fm.match_type),
-				match_confidence: asNumber(fm.match_confidence),
-				mapping_justification: asString(fm.mapping_justification),
-				mapping_provider: asString(fm.mapping_provider),
-				mapping_date: asString(fm.mapping_date),
-				creator_id: asString(fm.creator_id),
-				review_status: asString(fm.review_status),
-				tags,
-				frontmatter: fm,
-			});
+			const edge = crosswalkEdgeRowOf(file.path, curie, fm);
+			if ('reason' in edge) result.skipped.push(edge);
+			else result.crosswalkEdges.push(edge);
 			continue;
 		}
 
@@ -378,5 +340,81 @@ export async function readVaultTree(app: App, rootPath: string): Promise<ReadVau
 		});
 	}
 
+	// Slice 2 of the mapping table form. A table-form set has no notes, so the
+	// walk above cannot see it; its rows join `crosswalkEdges` through the one
+	// shared adapter and the same field mapping as an edge note, so every
+	// exporter treats a table set exactly as it treats the same rows as notes.
+	// A table that would not read, or has any bad row, is skipped whole, with its
+	// errors as the reason.
+	const root = normalizeFolderPath(rootPath);
+	for (const table of await readMappingTables(app, root === '' ? undefined : root)) {
+		// Row errors skip the table whole too: exporting the surviving rows would
+		// ship a partial set that reads as complete.
+		const problems = [...table.errors, ...table.rowErrors];
+		if (problems.length) {
+			result.skipped.push({ path: table.path, reason: problems.join(' ') });
+			continue;
+		}
+		for (const record of tableRowsAsEdgeRecords(table)) {
+			const curie = asString(record.frontmatter.curie);
+			if (!curie) {
+				result.skipped.push({ path: record.source_path, reason: 'mapping table row has no derivable `curie` (its header records no usable import set)' });
+				continue;
+			}
+			const edge = crosswalkEdgeRowOf(record.source_path, curie, record.frontmatter);
+			if ('reason' in edge) result.skipped.push(edge);
+			else result.crosswalkEdges.push(edge);
+		}
+	}
+	result.crosswalkEdges.sort((a, b) => a.path.localeCompare(b.path));
+
 	return result;
+}
+
+/**
+ * One crosswalk edge from its frontmatter, whether it came from a note or a
+ * mapping table row. One mapping for both sources, so the two storage forms
+ * cannot drift into exporting different rows.
+ */
+function crosswalkEdgeRowOf(path: string, curie: string, fm: Record<string, unknown>): CrosswalkEdgeRow | SkippedNote {
+	const subject_id = asString(fm.subject_id);
+	const predicate_id = asString(fm.predicate_id);
+	const object_id = asString(fm.object_id);
+	let predicateModifier: '' | 'NOT';
+	try {
+		predicateModifier = readStoredPredicateModifier(fm);
+	} catch (error) {
+		return {
+			path,
+			reason: error instanceof Error ? error.message : 'invalid explicit predicate_modifier',
+		};
+	}
+	if (!subject_id || !predicate_id || !object_id) {
+		return {
+			path,
+			reason: 'crosswalk edge missing one of subject_id/predicate_id/object_id',
+		};
+	}
+	return {
+		kind: 'crosswalk-edge',
+		path,
+		curie,
+		subject_id,
+		predicate_id,
+		object_id,
+		mapping_set_id:
+			typeof fm.mapping_set_id === 'string'
+				? normalizeMappingSetId(fm.mapping_set_id) || undefined
+				: undefined,
+		predicate_modifier: predicateModifier || undefined,
+		match_type: asString(fm.match_type),
+		match_confidence: asNumber(fm.match_confidence),
+		mapping_justification: asString(fm.mapping_justification),
+		mapping_provider: asString(fm.mapping_provider),
+		mapping_date: asString(fm.mapping_date),
+		creator_id: asString(fm.creator_id),
+		review_status: asString(fm.review_status),
+		tags: asStringArray(fm.tags),
+		frontmatter: fm,
+	};
 }

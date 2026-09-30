@@ -50,7 +50,7 @@ describe('Crosswalker mapping-table ledger', () => {
 		const parsed = parseMappingTable(serializeMappingTable(header, [second, first]));
 		expect(parsed).toEqual({
 			header, rows: [first, second].sort((a, b) => a.row_id.localeCompare(b.row_id)),
-			errors: [], warnings: [],
+			errors: [], rowErrors: [], warnings: [], provenance: 'absent',
 		});
 	});
 	it('sorts records for byte-deterministic output', () => {
@@ -115,8 +115,12 @@ describe('Crosswalker mapping-table ledger', () => {
 		expect(parseMappingTable(encoded.replace('row_id\t', 'other_id\t')).errors.join(' '))
 			.toContain('Missing required mapping table column: row_id');
 		const duplicate = `${encoded}${encoded.slice(encoded.indexOf(`${first.row_id}\t`))}`;
-		expect(parseMappingTable(duplicate).errors.join(' '))
+		// A duplicate is a row error: the first occurrence survives.
+		const parsedDuplicate = parseMappingTable(duplicate);
+		expect(parsedDuplicate.errors).toEqual([]);
+		expect(parsedDuplicate.rowErrors.join(' '))
 			.toContain(`Duplicate mapping table row_id: ${first.row_id}`);
+		expect(parsedDuplicate.rows.map((row) => row.row_id).sort()).toEqual([first.row_id, second.row_id].sort());
 	});
 	it('skips rows with empty required cells and reports the affected row', () => {
 		const encoded = serializeMappingTable(header, [second]);
@@ -124,7 +128,8 @@ describe('Crosswalker mapping-table ledger', () => {
 		const missingSubject = encoded.replace(`${second.subject_id}\t`, '\t');
 		for (const invalid of [missingId, missingSubject]) {
 			const parsed = parseMappingTable(`${encoded}${invalid.slice(invalid.indexOf('\nrow_id\t') + 1).split('\n').slice(1).join('\n')}`);
-			expect(parsed.errors.join(' ')).toMatch(/Missing required mapping table value .* on row 2/);
+			expect(parsed.errors).toEqual([]);
+			expect(parsed.rowErrors.join(' ')).toMatch(/Missing required mapping table value .* on row 2/);
 			expect(parsed.warnings.join(' ')).toMatch(/Skipped 1/);
 			expect(parsed.rows).toEqual([second]);
 		}
@@ -135,7 +140,8 @@ describe('Crosswalker mapping-table ledger', () => {
 		expect(bad).not.toBe(encoded);
 		const parsed = parseMappingTable(bad);
 		// Row order follows row_id, so the bad row's number depends on the id hash.
-		expect(parsed.errors.join(' ')).toMatch(/Invalid JSON in crosswalker_notes on row [12]\./);
+		expect(parsed.errors).toEqual([]);
+		expect(parsed.rowErrors.join(' ')).toMatch(/Invalid JSON in crosswalker_notes on row [12]\./);
 		expect(parsed.warnings.join(' ')).toMatch(/Skipped 1/);
 		expect(parsed.rows).toHaveLength(1);
 	});
@@ -300,6 +306,7 @@ describe('Mapping table slice 2: provenance header, occurrence ids, curie, reade
 		} as unknown as App;
 		const [bare] = await readMappingTables(app);
 		expect(bare.rows).toEqual([]);
+		expect(bare.provenance).toBe('absent');
 		expect(bare.errors.join(' ')).toMatch(/Mapping table Maps\/bare\.mapping-table\.tsv has no Crosswalker provenance header/);
 		expect(tableRowsAsEdgeRecords(bare)).toEqual([]);
 	});
@@ -363,6 +370,8 @@ describe('Mapping table slice 2: provenance header, occurrence ids, curie, reade
 		expect(unreadable.rows).toEqual([]);
 		expect(unreadable.errors.join(' ')).toMatch(/Could not read mapping table Maps\/unreadable\.mapping-table\.tsv\. Check/);
 		expect(unreadable.errors.join(' ')).not.toContain('locked');
+		expect(unreadable).toMatchObject({ readable: false, provenance: 'invalid' });
+		expect(ok).toMatchObject({ readable: true, provenance: 'valid', rowErrors: [] });
 		expect(ok.errors).toEqual([]);
 		expect(ok.header).toEqual(tableHeader);
 		expect((await readMappingTables(app)).map((table) => table.path)).toContain('Elsewhere/mappings.mapping-table.tsv');

@@ -19,6 +19,7 @@ import {
 	parseMappingTable,
 	tableRowToEdgeFrontmatter,
 	type MappingTableHeader,
+	type MappingTableProvenanceState,
 	type MappingTableRow,
 } from './mapping-table';
 
@@ -28,9 +29,21 @@ export const MAPPING_TABLE_SUFFIX = '.mapping-table.tsv';
 export interface MappingTableFile {
 	path: string;
 	header: MappingTableHeader;
+	/** Surviving rows: empty when `errors` is non-empty, partial when only `rowErrors` is. */
 	rows: MappingTableRow[];
+	/** Header or structural problems; when non-empty no row was read. */
 	errors: string[];
+	/** Per-row problems; the named rows are dropped and the rest survive. */
+	rowErrors: string[];
 	warnings: string[];
+	/**
+	 * Whether the provenance header is missing, unusable, or a usable pin.
+	 * Discovery branches on this, never on error wording. An unreadable file
+	 * reports `'invalid'`: its owner cannot be known.
+	 */
+	provenance: MappingTableProvenanceState;
+	/** False only when `vault.read` threw, so nothing about the file is known. */
+	readable: boolean;
 }
 
 function isWithinBase(path: string, basePath?: string): boolean {
@@ -43,11 +56,16 @@ function isWithinBase(path: string, basePath?: string): boolean {
 /**
  * Read every mapping table under `basePath` (the whole vault when omitted),
  * sorted by path. Never throws for one bad file: an unreadable or malformed
- * table comes back with `rows: []` and its errors, and the caller decides.
+ * table comes back with `rows: []` and its errors (a table with only row
+ * errors keeps its surviving rows), and the caller decides.
  * Failure mode prevented: one hand-edited table hiding every other set.
  */
 export async function readMappingTables(app: App, basePath?: string): Promise<MappingTableFile[]> {
-	const files = app.vault.getFiles()
+	// A vault double that lists only markdown has no table files to offer. The
+	// real vault always has `getFiles`; this keeps every markdown-only caller and
+	// test double working without pretending a listing failed.
+	const listFiles = typeof app.vault.getFiles === 'function' ? app.vault.getFiles.bind(app.vault) : (): TFile[] => [];
+	const files = listFiles()
 		.filter((file: TFile) => file.path.endsWith(MAPPING_TABLE_SUFFIX) && isWithinBase(file.path, basePath))
 		.sort((a: TFile, b: TFile) => a.path.localeCompare(b.path));
 	const tables: MappingTableFile[] = [];
@@ -61,7 +79,10 @@ export async function readMappingTables(app: App, basePath?: string): Promise<Ma
 				header: { crosswalker_format: MAPPING_TABLE_FORMAT },
 				rows: [],
 				errors: [`Could not read mapping table ${file.path}. Check the file still exists and is not open in another program, then try again.`],
+				rowErrors: [],
 				warnings: [],
+				provenance: 'invalid',
+				readable: false,
 			});
 			continue;
 		}
@@ -75,11 +96,15 @@ export async function readMappingTables(app: App, basePath?: string): Promise<Ma
 		tables.push({
 			path: file.path,
 			header: parsed.header,
-			// A file with errors contributes no rows: a partly read set is worse
-			// than a set the caller knows it could not read.
+			// A file with structural errors contributes no rows. With only row
+			// errors the surviving rows are kept so discovery can still count the
+			// set; edge consumers treat `rowErrors` as errors and skip the table.
 			rows: parsed.errors.length ? [] : parsed.rows,
 			errors: parsed.errors,
+			rowErrors: parsed.rowErrors,
 			warnings: parsed.warnings,
+			provenance: parsed.provenance,
+			readable: true,
 		});
 	}
 	return tables;

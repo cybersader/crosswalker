@@ -195,10 +195,36 @@ function provenanceErrors(header: MappingTableHeader): string[] {
 	return errors;
 }
 
+/**
+ * State of a table's provenance header: no line at all, a line or block that
+ * would not parse or validate, or a usable pin. Callers branch on this instead
+ * of matching error text. Failure mode prevented: a reworded message silently
+ * changing which tables fail closed.
+ */
+export type MappingTableProvenanceState = 'absent' | 'invalid' | 'valid';
+
+export interface ParsedMappingTable {
+	header: MappingTableHeader;
+	/** Surviving rows. Empty whenever `errors` is non-empty. */
+	rows: MappingTableRow[];
+	/** Header or structural problems. When non-empty, no row was read. */
+	errors: string[];
+	/**
+	 * Per-row problems (missing required value, duplicate row_id, malformed JSON
+	 * cell). The offending rows are dropped; every other row is still returned,
+	 * so one bad row does not hide the rest of the set from its owner.
+	 */
+	rowErrors: string[];
+	warnings: string[];
+	provenance: MappingTableProvenanceState;
+}
+
 /** Refuse unknown ledgers instead of treating STRM predicate_id as SKOS. */
-export function parseMappingTable(tsv: string): { header: MappingTableHeader; rows: MappingTableRow[]; errors: string[]; warnings: string[] } {
+export function parseMappingTable(tsv: string): ParsedMappingTable {
 	const errors: string[] = [];
+	const rowErrors: string[] = [];
 	const warnings: string[] = [];
+	let provenanceLineInvalid = false;
 	const header: MappingTableHeader = { crosswalker_format: MAPPING_TABLE_FORMAT };
 	let offset = 0;
 	let lineNumber = 0;
@@ -226,19 +252,23 @@ export function parseMappingTable(tsv: string): { header: MappingTableHeader; ro
 					(header as unknown as Record<string, unknown>)[match[1]] = value;
 				}
 			} catch {
+				if (match[1] === 'crosswalker_provenance') provenanceLineInvalid = true;
 				errors.push(`Invalid mapping table header ${match[1]} on line ${lineNumber}. Fix its JSON-quoted value.`);
 			}
 		}
 		offset = end === -1 ? tsv.length : end + 1;
 	}
 	if (!formatSeen) errors.push('This file is not a Crosswalker mapping table. Import it as a crosswalk mapping file instead.');
-	if (header.crosswalker_provenance) errors.push(...provenanceErrors(header));
+	const blockErrors = header.crosswalker_provenance ? provenanceErrors(header) : [];
+	errors.push(...blockErrors);
+	const provenance: MappingTableProvenanceState = provenanceLineInvalid || blockErrors.length ? 'invalid'
+		: header.crosswalker_provenance ? 'valid' : 'absent';
 	// Do not split/rejoin the body: quoted cell data may contain literal CRLF.
 	const parsed = Papa.parse<Record<string, string>>(tsv.slice(offset), { header: true, delimiter: '\t', newline: '\n', skipEmptyLines: true });
 	const columns = parsed.meta.fields ?? [];
 	for (const key of REQUIRED) if (!columns.includes(key)) errors.push(`Missing required mapping table column: ${key}.`);
 	for (const problem of parsed.errors) errors.push(`Invalid mapping table TSV near row ${(problem.row ?? 0) + 1}: ${problem.message}`);
-	if (errors.length) return { header, rows: [], errors, warnings };
+	if (errors.length) return { header, rows: [], errors, rowErrors, warnings, provenance };
 	const rows: MappingTableRow[] = [];
 	const seen = new Set<string>();
 	let skipped = 0;
@@ -246,13 +276,13 @@ export function parseMappingTable(tsv: string): { header: MappingTableHeader; ro
 		const rowNumber = index + 1;
 		const missing = REQUIRED.filter((key) => typeof record[key] !== 'string' || !record[key]);
 		if (missing.length) {
-			errors.push(`Missing required mapping table value ${missing.join(', ')} on row ${rowNumber}. Fill these cells before importing that row.`);
+			rowErrors.push(`Missing required mapping table value ${missing.join(', ')} on row ${rowNumber}. Fill these cells before importing that row.`);
 			skipped++;
 			continue;
 		}
 		const id = record.row_id;
 		if (seen.has(id)) {
-			errors.push(`Duplicate mapping table row_id: ${id}. Give each mapping a distinct row identity.`);
+			rowErrors.push(`Duplicate mapping table row_id: ${id}. Give each mapping a distinct row identity.`);
 			continue;
 		}
 		seen.add(id);
@@ -267,7 +297,7 @@ export function parseMappingTable(tsv: string): { header: MappingTableHeader; ro
 					|| (key === 'notes' && Object.values(value).some((v) => typeof v !== 'string'))) throw new Error('expected a JSON object');
 				result[key] = value;
 			} catch {
-				errors.push(`Invalid JSON in ${column} on row ${rowNumber}. Fix this cell before importing that row.`);
+				rowErrors.push(`Invalid JSON in ${column} on row ${rowNumber}. Fix this cell before importing that row.`);
 				malformed = true;
 			}
 		}
@@ -275,7 +305,7 @@ export function parseMappingTable(tsv: string): { header: MappingTableHeader; ro
 		rows.push(result as unknown as MappingTableRow);
 	}
 	if (skipped) warnings.push(`Skipped ${skipped} mapping table row${skipped === 1 ? '' : 's'} with missing required values or malformed JSON.`);
-	return { header, rows, errors, warnings };
+	return { header, rows, errors, rowErrors, warnings, provenance };
 }
 
 /**

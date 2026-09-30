@@ -226,7 +226,7 @@ export default class CrosswalkerPlugin extends Plugin {
 			return {
 				success: true,
 				aborted: true,
-				counts: { concepts: 0, mappings: 0, junction_notes: 0, ontologies: 0, skipped: 0, errors: 0 },
+				counts: { concepts: 0, mappings: 0, junction_notes: 0, ontologies: 0, mapping_tables: 0, skipped: 0, errors: 0 },
 				errors: [],
 				durationMs: 0,
 			};
