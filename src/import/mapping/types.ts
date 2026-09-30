@@ -157,6 +157,20 @@ export const CROSSWALK_PREDICATES = [
 export type CrosswalkPredicate = (typeof CROSSWALK_PREDICATES)[number];
 
 /**
+ * Plain wording for each crosswalk predicate, read from the subject's side.
+ * One copy shared by the import workbench and the mapping review view.
+ * Failure mode prevented: two screens describing the same relationship in
+ * different words.
+ */
+export const CROSSWALK_PREDICATE_LABELS: Record<CrosswalkPredicate, string> = {
+	is_approximate_to: 'Roughly the same requirement',
+	is_equivalent_to: 'Exactly the same requirement',
+	is_broader_than: 'This one is broader',
+	is_narrower_than: 'This one is narrower',
+	intersects_with: 'They partly overlap',
+};
+
+/**
  * A destination is one output role a level carries, plus that role's parameters
  * (spec §7c — the full ⊕ menu). A single level may carry
  * several destinations at once (folder AND property AND tag), which is why

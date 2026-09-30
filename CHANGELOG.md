@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: review a table-form mapping set inside Obsidian (2026-09-30)
+
+- A **Mapping review** view opens a mapping table: a searchable, sortable grid that stays smooth at 100,000 rows, with a status filter, status counts, and one-click links to each mapping's subject and object notes. Set **Review status**, **Reviewer** and **Review notes** per row, or select rows and set status or reviewer in bulk.
+- Edits save into the table file a moment after you make them and are verified by reading the file back; the status line shows Saving, Saved, or the error and what to do. If the file changed underneath, the view reloads it and reapplies your pending edits by row; if the set is being converted, or the file has rows Crosswalker cannot read, the view opens read-only and says why.
+- Open it from the **Review mappings** button on a table set in Installed stacks, from the command **Review a mapping table**, or by opening the `.mapping-table.tsv` file directly (the new **Open mapping tables in Crosswalker** setting, on by default, claims `.tsv` files; a `.tsv` that is not a Crosswalker table shows a read-only preview).
+- After a save, the query index is refreshed for that one table.
+
 ### Added: convert a mapping set between notes and a table, resumably (2026-09-30)
 
 - In **Installed stacks**, each mapping set row offers **Convert to table** or **Convert to notes**. The confirmation states what changes: to a table, that those mappings leave Bases views, graph view and backlinks; to notes, how many notes will be written (the file confirmation threshold applies).

@@ -184,6 +184,15 @@ export class TableReviewStore {
 		return this.table;
 	}
 
+	/**
+	 * Why the table cannot be edited right now, or undefined when it can. Set by
+	 * `load` and by a refused save, so the view can show its banner after a save
+	 * it did not start (the pause timer's) turns the table read-only.
+	 */
+	readOnlyReason(): ReadOnlyReason | undefined {
+		return this.readOnly;
+	}
+
 	/** How many rows have edits waiting to be saved. */
 	pendingCount(): number {
 		return this.pending.size;

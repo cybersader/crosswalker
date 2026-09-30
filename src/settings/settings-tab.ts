@@ -980,6 +980,21 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(details)
+			// eslint-disable-next-line obsidianmd/ui/sentence-case -- Crosswalker is the plugin's proper name
+			.setName('Open mapping tables in Crosswalker')
+			// eslint-disable-next-line obsidianmd/ui/sentence-case -- Crosswalker and Obsidian are proper names
+			.setDesc('Opens every .tsv file in the Crosswalker mapping review, including .tsv files that are not mapping tables, which show as plain text. Turn this off if another plugin opens your .tsv files. Takes effect after you reload Obsidian.')
+			.addToggle((toggle) => toggle
+				.setValue(this.plugin.settings.openMappingTablesInCrosswalker ?? true)
+				.onChange(async (value) => {
+					this.plugin.settings.openMappingTablesInCrosswalker = value;
+					await this.plugin.saveSettings();
+					new Notice(value
+						? 'Mapping tables will open in Crosswalker after you reload Obsidian.'
+						: 'Reload Obsidian to stop Crosswalker opening .tsv files. Mapping tables still open from Installed stacks and the command palette.', 8000);
+				}));
+
+		new Setting(details)
 			.setName('Stack file confirmation threshold')
 			.setDesc('Confirm a stack import when planned new files and possible rewrites exceed this number. Set to 0 to always confirm.')
 			.addText((text) => text.setValue(String(this.plugin.settings.stackConfirmFileThreshold))
