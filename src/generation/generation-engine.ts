@@ -60,7 +60,7 @@ import { normalizeFolderSetting } from '../settings/folder-settings';
 import { readNoteFrontmatterState, type NoteFrontmatterRead } from '../export/vault-reader';
 import { buildProvenance } from './provenance';
 import { derivationOf, resolveImportSet, type ImportSetDerivation, type ImportSetOption, type ImportSetReference } from './import-set';
-import { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from './crosswalk-identity';
+import { SSSOM_CURIE_PREFIX, crosswalkEdgeCuriePrefix, sssomEdgeCurie } from './crosswalk-identity';
 import {
 	computeConceptCid,
 	computeRecipeHash,
@@ -641,12 +641,12 @@ export async function generateNotes(
 		// for every hub enrichment derives from this prefix, which is what lets a
 		// second release of the same framework exist beside the first.
 		const curiePrefix = recipeNoteKind === 'crosswalk-edge'
-			? slugifyForCurie(ontologyId)
+			? crosswalkEdgeCuriePrefix(ontologyId)
 			: curiePrefixFor(importSet, ontologyId);
 		// Crosswalk release isolation lives in the edge local-part (`cwset-...`),
 		// while other note kinds qualify the prefix itself.
 		const basePrefix = recipeNoteKind === 'crosswalk-edge'
-			? slugifyForCurie(ontologyId)
+			? crosswalkEdgeCuriePrefix(ontologyId)
 			: baseCuriePrefixFor(importSet, ontologyId);
 		const crosswalkInputs: CrosswalkEdgeInput[] | null = declaredCrosswalks(recipe).length > 0 ? [] : null;
 		const enrichRecords: EnrichRecord[] = [];
@@ -2938,6 +2938,21 @@ export interface RecipeImportOptions {
 	importSet?: ImportSetOption;
 	/** Producing framework set for a declared crosswalk edge run; stamped after resolution. */
 	producerSetId?: string;
+	/**
+	 * Slice 4. Set only by the mapping set conversion job, which regenerates a
+	 * table-form set as notes. Flips the named set's form pin for the notes this
+	 * run writes (see `resolveImportSet`'s `overrides`). No other caller may pass
+	 * it: a pin changes only through a conversion.
+	 */
+	mappingConversion?: { to: 'notes' | 'table' };
+	/**
+	 * Slice 4. The recipe identity stamped into `_crosswalker.recipe` in place of
+	 * the running recipe's. The conversion job renders through a transport
+	 * variant of the set's import recipe (review columns carried as values), and
+	 * stamps the recipe that actually produced the set. Failure mode prevented: a
+	 * converted set reading as "recipe changed" and being refused a refresh.
+	 */
+	provenanceRecipe?: { id: string; hash?: string };
 	/** How to handle existing files. */
 	overwriteMode: 'skip' | 'replace' | 'error';
 	/** Whether to create missing folders. Defaults to true. */
@@ -3025,7 +3040,10 @@ export async function generateFromRecipe(
 		: recipe.source?.ontology ?? recipe.recipe;
 	// Headless imports obey the same destination-discovery rules as the wizard.
 	// Callers can name a wiped/empty set explicitly or force a new mint.
-	const resolvedImportSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest);
+	const resolvedImportSet = await resolveImportSet(
+		app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest, undefined,
+		options.mappingConversion ? { conversion: options.mappingConversion } : undefined,
+	);
 	const importSet = options.producerSetId
 		? { ...resolvedImportSet, parent_set: options.producerSetId }
 		: resolvedImportSet;
@@ -3067,10 +3085,10 @@ export async function generateFromRecipe(
 	// prefix is the set-pinned ontology itself. Other note kinds keep the ordinary
 	// scheme-aware prefix and caller override behavior.
 	const curiePrefix = recipeNoteKind === 'crosswalk-edge'
-		? slugifyForCurie(ontologyId)
+		? crosswalkEdgeCuriePrefix(ontologyId)
 		: options.curiePrefix ?? curiePrefixFor(importSet, ontologyId);
 	const baseCuriePrefix = recipeNoteKind === 'crosswalk-edge'
-		? slugifyForCurie(ontologyId)
+		? crosswalkEdgeCuriePrefix(ontologyId)
 		: options.curiePrefix ?? baseCuriePrefixFor(importSet, ontologyId);
 	const ownedIdentityIndex = await buildIdentityIndex(app, { importSetId: importSet.id });
 
@@ -3078,7 +3096,10 @@ export async function generateFromRecipe(
 	// src/generation/hash.ts's doc comments for the exact field-set definition.
 	// `recipe.source` participates only through its shaping declarations; a
 	// recipe declaring none hashes byte-identically to its pre-1.9.0 self.
-	const recipeHash = computeRecipeHash(recipe.target, recipe.source);
+	const recipeHash = options.provenanceRecipe
+		? options.provenanceRecipe.hash
+		: computeRecipeHash(recipe.target, recipe.source);
+	const provenanceRecipeId = options.provenanceRecipe?.id ?? recipe.recipe;
 	// See generateNotes above: recipe declaration, not row output, decides ownership.
 	const declaredManagedKeys = computeDeclaredManagedKeys(recipe.target.also_emit?.frontmatter);
 	// Resolve existing notes by canonical identity before considering their current
@@ -3518,7 +3539,7 @@ export async function generateFromRecipe(
 					sourceFile: options.sourceFileName,
 					sourceVersion: options.sourceVersion ?? recipe.source?.version,
 					sourceHash: parsedData.sourceByteDigest,
-					recipeId: recipe.recipe,
+					recipeId: provenanceRecipeId,
 					recipeHash,
 					importSet,
 					conceptCid: computeConceptCid({ curie, scope: identityScope }),

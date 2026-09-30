@@ -5,7 +5,7 @@
  */
 import Papa from 'papaparse';
 import { sha256Hex } from '../generation/hash';
-import { sssomEdgeCurie } from '../generation/crosswalk-identity';
+import { crosswalkEdgeCuriePrefix, sssomEdgeCurie } from '../generation/crosswalk-identity';
 import {
 	validateImportSetBlock,
 	type CrosswalkerProvenance,
@@ -310,9 +310,11 @@ export function parseMappingTable(tsv: string): ParsedMappingTable {
 
 /**
  * The curie a table row's edge note would carry, derived from the set's pinned
- * identity rules, or undefined when the header records no usable pin.
+ * identity rules, or undefined when the header records no usable pin. It is the
+ * full prefixed curie (`sssom:<local part>`) the notes path stamps, composed the
+ * same way: the set's edge prefix, a colon, then `sssomEdgeCurie`.
  */
-function derivedEdgeCurie(row: { subject_id: string; object_id: string }, header?: MappingTableHeader): string | undefined {
+export function derivedEdgeCurie(row: { subject_id: string; object_id: string }, header?: MappingTableHeader): string | undefined {
 	const block = header?.crosswalker_provenance?.import_set;
 	if (block === undefined) return undefined;
 	// The same validated, trimmed facts the parser checked, so the curie matches
@@ -323,7 +325,7 @@ function derivedEdgeCurie(row: { subject_id: string; object_id: string }, header
 	} catch {
 		return undefined;
 	}
-	return sssomEdgeCurie(
+	const localPart = sssomEdgeCurie(
 		{ subject_id: row.subject_id, object_id: row.object_id },
 		{
 			id: facts.id,
@@ -331,6 +333,7 @@ function derivedEdgeCurie(row: { subject_id: string; object_id: string }, header
 			...(facts.derivation !== null ? { derivation: facts.derivation as ImportSetDerivation } : {}),
 		},
 	);
+	return `${crosswalkEdgeCuriePrefix(facts.ontology)}:${localPart}`;
 }
 
 /**

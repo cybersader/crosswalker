@@ -28,6 +28,7 @@ import { extractTier1Curie } from '../validation/validator';
 import { normalizeMappingSetId, readStoredPredicateModifier } from '../utils/mapping-provenance';
 import { readReviewGroupCids } from '../generation/hash';
 import { readMappingTables, tableRowsAsEdgeRecords } from '../mappings/mapping-table-reader';
+import { conversionReadRule, importSetIdOf, readConversionReadState, unusableMarkerMessage, type ConversionReadRule } from '../mappings/conversion-marker';
 
 /**
  * Result of a projection pass. Counts per Tier 2 table + skipped (files
@@ -134,6 +135,21 @@ export async function projectFromTier1(
 	const ontologiesSeen = new Set<string>();
 	if (fullProjection) initializeProjectionMarks(db);
 
+	// Slice 4. A set mid-conversion is projected from one storage form only (see
+	// `formToReadFor`); the other form's artifacts are skipped and, in a full
+	// run, left unseen so the prune drops their stale rows. A set whose marker
+	// cannot be read is projected in neither form, and the marker is reported
+	// as an error: that fails the pass and so blocks the prune, leaving the
+	// set's last good rows in place instead of doubling or dropping them.
+	const conversionState = await readConversionReadState(app);
+	const reads = conversionReadRule(conversionState.markers, conversionState.unusable);
+	for (const entry of conversionState.unusable) {
+		const message = unusableMarkerMessage(entry, 'the mappings of {sets} are left out of the query database.');
+		result.errors.push({ vault_path: entry.path, message });
+		result.counts.errors += 1;
+		options.debug?.warn('tier2', 'projection-conversion-marker', message, { path: entry.path });
+	}
+
 	const files = app.vault.getMarkdownFiles();
 	const filtered = options.pathFilter ? files.filter((f) => options.pathFilter!(f.path)) : files;
 
@@ -194,6 +210,9 @@ export async function projectFromTier1(
 				upsertJunctionNote(db, file, fm);
 				if (fullProjection) markJunctionNoteSeen(db, file.path);
 				result.counts.junction_notes += 1;
+			} else if (kind === 'crosswalk-edge' && !reads(importSetIdOf(fm._crosswalker), 'notes')) {
+				result.counts.skipped += 1;
+				continue;
 			} else if (kind === 'crosswalk-edge') {
 				// Crosswalk-edges span two ontologies — register both subject + object.
 				ensureOntologyForKind(db, fm, ontologiesSeen, file.path, 'crosswalk-edge');
@@ -230,7 +249,7 @@ export async function projectFromTier1(
 	}
 
 	if (!result.aborted) {
-		await projectMappingTables(app, db, options, fullProjection, ontologiesSeen, result);
+		await projectMappingTables(app, db, options, fullProjection, ontologiesSeen, result, reads);
 	}
 
 	let prunedRows = 0;
@@ -317,6 +336,7 @@ async function projectMappingTables(
 	fullProjection: boolean,
 	ontologiesSeen: Set<string>,
 	result: ProjectionResult,
+	reads: ConversionReadRule,
 ): Promise<void> {
 	let tables: Awaited<ReturnType<typeof readMappingTables>>;
 	try {
@@ -329,6 +349,7 @@ async function projectMappingTables(
 	}
 	for (const table of tables) {
 		if (options.pathFilter && !options.pathFilter(table.path)) continue;
+		if (!reads(importSetIdOf(table.header.crosswalker_provenance), 'table')) continue;
 		// Checked per table because a table read is a yield point: the database
 		// under us can be closed while it is in flight.
 		if (options.shouldAbort?.()) {

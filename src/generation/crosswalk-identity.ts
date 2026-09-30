@@ -1,4 +1,4 @@
-import { injectiveEndpointToken } from './curie';
+import { injectiveEndpointToken, slugifyForCurie } from './curie';
 import type { ImportSetReference } from './import-set';
 
 export type CrosswalkIdentitySetReference = Pick<
@@ -8,6 +8,16 @@ export type CrosswalkIdentitySetReference = Pick<
 
 /** The identity space for every newly minted crosswalk edge. */
 export const SSSOM_CURIE_PREFIX = 'sssom';
+
+/**
+ * The prefix every crosswalk edge curie in a set carries: the set-pinned
+ * ontology (a legacy set keeps its frozen space), else the SSSOM space. The
+ * notes path and the mapping table codec both compose through this, so a table
+ * row and its note form answer to the same curie.
+ */
+export function crosswalkEdgeCuriePrefix(ontology: string | null | undefined): string {
+	return slugifyForCurie(ontology ?? SSSOM_CURIE_PREFIX);
+}
 
 /** The derivation every newly minted crosswalk import set records. */
 export const CURRENT_CROSSWALK_DERIVATION = 'declared-facts-v1';
