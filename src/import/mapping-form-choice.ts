@@ -13,13 +13,15 @@
  */
 import { Setting } from 'obsidian';
 import { MAPPING_FORMS, type MappingForm } from '../generation/import-set-block';
+import { MAPPING_TABLE_HIDDEN_FROM, MAPPING_TABLE_TRADE_OFF } from './mapping-form-copy';
 
 export const MAPPING_FORM_LABELS: Record<MappingForm, string> = {
 	notes: 'Notes',
 	table: 'Table',
 };
 
-export const MAPPING_TABLE_TRADE_OFF = 'One file that opens in a spreadsheet. These mappings will not appear in Bases views, graph view or backlinks.';
+/** Re-exported from the pure copy module so existing importers keep working. */
+export { MAPPING_TABLE_HIDDEN_FROM, MAPPING_TABLE_TRADE_OFF };
 
 /** Text shown on a refresh row in place of the control. */
 export function refreshFormText(form: MappingForm): string {

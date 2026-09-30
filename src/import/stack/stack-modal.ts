@@ -33,7 +33,8 @@ import {
 	CONNECTOR_ONTOLOGY, CONNECTOR_REASON, DEFAULT_STACK_SELECTION,
 	activeMappings, checklistPlainText, checklistRows, frameworkChoices, frameworkSlots,
 	stackDetailDescription, slotDetailSummary, stackSourceWhere, stackRecipeHash, refreshRecipeProblem,
-	type StackSelection,
+	STACK_PROFILES, CUSTOM_PROFILE_LABEL, CUSTOM_PROFILE_DESCRIPTION, applyProfile, availableOptionalMappings, newMappingForm, profileOf,
+	type StackProfileId, type StackSelection,
 } from './stack-model';
 
 export class StackSetupModal extends Modal {
@@ -68,6 +69,11 @@ export class StackSetupModal extends Modal {
 	private mappingCounts = new Map<string, { notes: number; failed: boolean }>();
 	/** Store as choice per mapping id, for rows that will mint a NEW set only. */
 	private mappingForms = new Map<string, MappingForm>();
+	/**
+	 * Mapping form a chosen profile sets for this run's NEW mapping sets. Run
+	 * scoped: never persisted, cleared on close. Per-row choices still win.
+	 */
+	private runMappingForm: MappingForm | null = null;
 	private parsedFrameworks = new Map<string, ParsedData>();
 	private reviewCountMs = 0;
 
@@ -84,7 +90,7 @@ export class StackSetupModal extends Modal {
 	}
 
 	onOpen(): void { this.render(); }
-	onClose(): void { this.contentEl.empty(); this.onChanged?.(); }
+	onClose(): void { this.runMappingForm = null; this.contentEl.empty(); this.onChanged?.(); }
 
 	private render(): void {
 		const root = this.contentEl;
@@ -160,6 +166,7 @@ export class StackSetupModal extends Modal {
 				copy.createSpan({ cls: 'crosswalker-stack-muted', text: mapping.source });
 			}
 		}
+		this.renderProfile(scroll, slots.length, mappings.length);
 		new Setting(scroll).setName('Detail').setDesc(stackDetailDescription(this.stackSelection))
 			.addDropdown((dropdown) => dropdown.addOption('max', 'Every framework level as notes')
 				.addOption('top-levels', 'Top framework levels as notes')
@@ -170,6 +177,33 @@ export class StackSetupModal extends Modal {
 		new Setting(footer).addButton((button) => button.setButtonText('Cancel').onClick(() => this.close()))
 			.addButton((button) => button.setButtonText('Next: download checklist').setCta()
 				.setDisabled(slots.length === 0).onClick(() => { this.screen = 'checklist'; this.render(); }));
+	}
+
+	/**
+	 * Profile control. Its value is derived from the fields on every render, so
+	 * editing Detail or an optional mapping by hand shows Custom at once.
+	 */
+	private renderProfile(scroll: HTMLElement, frameworks: number, mappings: number): void {
+		const current = profileOf(this.stackSelection, this.runMappingForm, this.plugin.settings.defaultMappingForm);
+		const profile = STACK_PROFILES.find((item) => item.id === current);
+		const setting = new Setting(scroll).setName('Profile').setDesc(profile?.description ?? CUSTOM_PROFILE_DESCRIPTION)
+			.addDropdown((dropdown) => {
+				for (const item of STACK_PROFILES) dropdown.addOption(item.id, item.label);
+				dropdown.addOption('custom', CUSTOM_PROFILE_LABEL);
+				const custom = dropdown.selectEl.querySelector<HTMLOptionElement>('option[value="custom"]');
+				if (custom) custom.disabled = true;
+				dropdown.selectEl.addClass('crosswalker-stack-profile-select');
+				dropdown.setValue(current).onChange((value) => {
+					if (value === 'custom') return;
+					const next = applyProfile(this.stackSelection, value as StackProfileId, availableOptionalMappings(this.stackSelection));
+					this.stackSelection = next.selection;
+					this.runMappingForm = next.runMappingForm;
+					this.render();
+				});
+			});
+		setting.settingEl.addClass('crosswalker-stack-profile');
+		setting.descEl.createDiv({ cls: 'crosswalker-stack-profile-hint crosswalker-stack-muted',
+			text: `${plural(frameworks, 'framework')}, ${plural(mappings, 'mapping')} selected. Exact file counts appear on the review screen.` });
 	}
 
 	private renderChecklist(root: HTMLElement): void {
@@ -523,11 +557,13 @@ export class StackSetupModal extends Modal {
 	 * The storage form a mapping row will run with. A refresh answers with its
 	 * set's pinned form, never the dropdown or the setting: the importer refuses
 	 * a refresh in the other form, and switching forms is a conversion job.
+	 * A new set follows `newMappingForm`: per-row Store as choice, then the
+	 * profile form for this run, then the setting, then notes.
 	 */
 	private mappingFormFor(mapping: MappingPreset): MappingForm {
 		const set = this.mappingRefreshSet(mapping);
 		if (set) return set.mapping_form ?? 'notes';
-		return this.mappingForms.get(mapping.id) ?? this.plugin.settings.defaultMappingForm ?? 'notes';
+		return newMappingForm(this.mappingForms.get(mapping.id), this.runMappingForm, this.plugin.settings.defaultMappingForm);
 	}
 
 	/** The discovered set a mapping row refreshes, or undefined for a new set or skip. */
@@ -559,6 +595,8 @@ export class StackSetupModal extends Modal {
 		root.createEl('h2', { text: 'Review before import' });
 		root.createEl('p', { text: this.revisiting ? 'Check each source and import-set choice. Refresh is never selected automatically.'
 			: 'Frameworks import first, followed by each ready mapping. Every mapping gets a new import set. Missing mapping files stop the run before import.' });
+		root.createDiv({ cls: 'crosswalker-stack-muted crosswalker-stack-review-detail',
+			text: `Detail: ${this.stackSelection.detail === 'max' ? 'Every framework level as notes' : 'Top framework levels as notes'}.` });
 		new Setting(root).setName('Stack name').addText((text) => text.setValue(this.stackLabel)
 			.onChange((value) => { this.stackLabel = value; }));
 		const scroll = root.createDiv({ cls: 'crosswalker-stack-scroll' });
@@ -628,7 +666,7 @@ export class StackSetupModal extends Modal {
 			if (mapping.kind === 'from-slot') {
 				const sourceSlot = frameworkSlots(this.stackSelection).find((slot) => slot.ontology === mapping.from);
 				row.createDiv({ cls: 'crosswalker-stack-muted', text: `Comes with ${sourceSlot!.entry.label}. Not tracked separately.${
-					(this.plugin.settings.defaultMappingForm ?? 'notes') === 'table' ? ' Inline links stay as notes.' : ''}` });
+					newMappingForm(undefined, this.runMappingForm, this.plugin.settings.defaultMappingForm) === 'table' ? ' Inline links stay as notes.' : ''}` });
 				const edges = this.frameworkCounts.get(sourceSlot!.entry.id)?.edges;
 				row.createDiv({ cls: 'crosswalker-stack-count', text: this.counting ? 'Counting files...'
 					: this.choices.get(sourceSlot!.entry.id) === 'skip' ? 'Skip: writes nothing.'

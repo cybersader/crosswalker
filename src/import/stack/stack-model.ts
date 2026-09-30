@@ -1,5 +1,7 @@
 /** Pure stack-picker and download-checklist derivation. No Obsidian or filesystem state. */
 import { computeRecipeHash } from '../../generation/hash';
+import type { MappingForm } from '../../generation/import-set-block';
+import { MAPPING_TABLE_HIDDEN_FROM } from '../mapping-form-copy';
 import type { Recipe } from '../../render';
 import {
 	MAPPING_PRESETS, RECIPE_REGISTRY, STACK_PRESETS,
@@ -119,6 +121,105 @@ export function stackSourceWhere(ontology: string, detail: StackSelection['detai
 	if (ontology === 'cri-profile') return "Level != 'DS'";
 	if (ontology === 'nist-800-53') return "$not($contains(identifier, '('))";
 	return undefined;
+}
+
+/** Optional mapping ids whose two endpoints are both in the stack right now. */
+export function availableOptionalMappings(selection: StackSelection, slots: readonly FrameworkSlot[] = frameworkSlots(selection)): string[] {
+	const endpoints = new Set(slots.map((slot) => slot.ontology));
+	return MAPPING_PRESETS.filter((mapping) => mapping.optional && endpoints.has(mapping.from) && endpoints.has(mapping.to))
+		.map((mapping) => mapping.id);
+}
+
+/**
+ * Stack profiles: shorthand for three fields the stack already has (detail,
+ * the mapping form for this run's new sets, and whether optional mappings are
+ * included). A profile is never stored. It is derived from the fields every
+ * time the picker renders (`profileOf`), and choosing one only writes the
+ * fields (`applyProfile`). Failure mode prevented: a stored profile drifting
+ * from its fields, so the control says Light while the run imports every level
+ * as notes. Nothing here touches `StackDefinition`, `StackRunRecord` or the
+ * `defaultMappingForm` setting.
+ */
+export type StackProfileId = 'light' | 'standard' | 'complete';
+
+export interface StackProfile {
+	id: StackProfileId;
+	label: string;
+	description: string;
+	detail: StackSelection['detail'];
+	mappingForm: MappingForm;
+	optional: 'none' | 'all';
+}
+
+export const STACK_PROFILES: readonly StackProfile[] = [
+	{
+		id: 'light', label: 'Light', detail: 'top-levels', mappingForm: 'table', optional: 'none',
+		description: `Top framework levels as notes; mappings as one table each. Fewest files; mappings are not visible to ${MAPPING_TABLE_HIDDEN_FROM}.`,
+	},
+	{
+		id: 'standard', label: 'Standard', detail: 'max', mappingForm: 'notes', optional: 'none',
+		description: 'Every framework level as notes; one note per mapping. The default.',
+	},
+	{
+		id: 'complete', label: 'Complete', detail: 'max', mappingForm: 'notes', optional: 'all',
+		description: 'Everything in Standard plus the optional mappings.',
+	},
+];
+
+export const CUSTOM_PROFILE_LABEL = 'Custom';
+export const CUSTOM_PROFILE_DESCRIPTION = 'Fields set by hand.';
+
+/**
+ * The form a NEW mapping set runs with: an explicit per-row Store as choice,
+ * else the profile form for this run, else the setting, else notes. A profile
+ * therefore never overrides a choice made by hand on the review screen and
+ * never writes the setting. Refresh rows do not use this: they keep the form
+ * their set was minted with.
+ */
+export function newMappingForm(
+	explicit: MappingForm | undefined, runMappingForm: MappingForm | null, settingForm: MappingForm | undefined,
+): MappingForm {
+	return explicit ?? runMappingForm ?? settingForm ?? 'notes';
+}
+
+/**
+ * Which profile the current fields match, or 'custom'. Derived, never read
+ * from storage. `optionalIds` defaults to the optional mappings available for
+ * the selection; with none available Standard and Complete coincide and the
+ * first match (Standard) is reported.
+ */
+export function profileOf(
+	selection: StackSelection, runMappingForm: MappingForm | null, settingForm: MappingForm | undefined,
+	optionalIds: readonly string[] = availableOptionalMappings(selection),
+): StackProfileId | 'custom' {
+	const form = newMappingForm(undefined, runMappingForm, settingForm);
+	const included = optionalIds.filter((id) => selection.optionalMappings.includes(id));
+	for (const profile of STACK_PROFILES) {
+		if (profile.detail !== selection.detail || profile.mappingForm !== form) continue;
+		if (profile.optional === 'none' ? included.length === 0 : included.length === optionalIds.length) return profile.id;
+	}
+	return 'custom';
+}
+
+/**
+ * Apply a profile: returns a new selection with `detail` and `optionalMappings`
+ * set, plus the run-scoped mapping form. Frameworks and the connector choice
+ * are left exactly as they were. Pure; the inputs are not mutated.
+ */
+export function applyProfile(
+	selection: StackSelection, id: StackProfileId, optionalIds: readonly string[] = availableOptionalMappings(selection),
+): { selection: StackSelection; runMappingForm: MappingForm } {
+	const profile = STACK_PROFILES.find((item) => item.id === id);
+	if (!profile) throw new Error(`Unknown stack profile ${id}.`);
+	return {
+		selection: {
+			...selection,
+			chosen: [...selection.chosen],
+			detail: profile.detail,
+			optionalMappings: profile.optional === 'all' ? [...optionalIds] : [],
+		},
+		runMappingForm: profile.mappingForm,
+	};
 }
 
 export function activeMappings(selection: StackSelection, slots: readonly FrameworkSlot[] = frameworkSlots(selection)): MappingPreset[] {
