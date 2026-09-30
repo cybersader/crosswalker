@@ -476,12 +476,14 @@ describe('slice 2 B4: provenance stamps mapping_form and the schema accepts it',
 		const app = vaultApp({ files: { [TABLE_PATH]: text } });
 		const [table] = await readMappingTables(app, 'Maps');
 		expect(table.errors).toEqual([]);
-		// The stamped block a table row carries validates as Tier 1 provenance. The
-		// curie is swapped for a schema-shaped one because edge curies minted by
-		// `sssomEdgeCurie` (`cw-...`) predate the Tier 1 curie pattern in both forms.
+		// The stamped block a table row carries validates as Tier 1 provenance,
+		// including the derived edge curie: the sanitizers only emit characters
+		// the Tier 1 curie pattern admits, so no substitution is needed.
 		for (const record of tableRowsAsEdgeRecords(table)) {
 			expect(record.frontmatter._crosswalker).toEqual(stamped);
-			expect(validateTier1Frontmatter({ kind: 'crosswalk-edge', ...record.frontmatter, curie: 'demo:e' }).valid).toBe(true);
+			const result = validateTier1Frontmatter({ kind: 'crosswalk-edge', ...record.frontmatter });
+			expect(result.errors ?? []).toEqual([]);
+			expect(result.valid).toBe(true);
 		}
 		const reference = await resolveImportSet(app, 'Maps', { id: 'iset-demo12', scheme: 'endpoint-v1' });
 		expect(reference).toMatchObject({ id: 'iset-demo12', mapping_form: 'table', derivation: 'declared-facts-v1', destination: 'Maps' });
