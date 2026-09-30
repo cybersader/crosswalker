@@ -18,6 +18,16 @@
  * provenance block. A note a user wrote by hand is structurally unreachable from
  * here, so reconciliation can never move, rewrite, or orphan it.
  *
+ * MARKDOWN ONLY, BY RULING (2026-09-30) — the index reads `getMarkdownFiles()`
+ * and nothing else. A mapping set stored as a table (`*.mapping-table.tsv`) is
+ * reconciled inside its own file by `row_id`; its existence and ownership are
+ * answered by `discoverImportSets`, which reads both forms. Edge endpoints are
+ * always concept notes, never table rows. Failure mode prevented: a `#row_id`
+ * address claimed here would reach `fileManager.renameFile` during a notes
+ * refresh (the move-then-merge branch of `reconcile`), which cannot move part
+ * of a file and would move or rename the whole table. Guarded by the
+ * "Identity index and table sets" tests in `mapping-table-consumers.test.ts`.
+ *
  * COST — one pass over the vault's markdown list per generation run, reading
  * frontmatter from Obsidian's own metadata cache, plus a raw read of the files the
  * cache has not indexed yet (normally none). No second index of the vault is built;

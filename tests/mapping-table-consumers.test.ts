@@ -21,6 +21,11 @@ import { discoverImportSets, resolveImportSet, ImportSetProvenanceError } from '
 import { buildProvenance } from '../src/generation/provenance';
 import { sssomEdgeCurie } from '../src/generation/crosswalk-identity';
 import { initValidator, validateTier1Frontmatter } from '../src/validation/validator';
+import { buildIdentityIndex } from '../src/generation/identity-index';
+import { resolveEdgeEndpoints } from '../src/generation/edge-endpoints';
+import { generateFromRecipe } from '../src/generation/generation-engine';
+import type { Recipe } from '../src/render';
+import { TFolder } from 'obsidian';
 
 const { DatabaseSync } = require('node:sqlite');
 
@@ -489,5 +494,135 @@ describe('slice 2 B4: provenance stamps mapping_form and the schema accepts it',
 		expect(reference).toMatchObject({ id: 'iset-demo12', mapping_form: 'table', derivation: 'declared-facts-v1', destination: 'Maps' });
 		const restamped = buildProvenance({ sourceFile: 'demo.tsv', importSet: reference }, '0.0.0-test');
 		expect((restamped.import_set as Record<string, unknown>).mapping_form).toBe('table');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Identity index and table sets (ruling 2026-09-30)
+// ---------------------------------------------------------------------------
+
+/**
+ * Ruling: table rows are reconciled inside their file by `row_id`; the identity
+ * index stays markdown-only; `discoverImportSets` is the existence authority for
+ * both forms. These tests guard that the two populations never meet: a `#row_id`
+ * claim in the index would reach `renameFile` during a notes refresh.
+ */
+describe('Identity index and table sets', () => {
+	const FRAMEWORK_SET = 'iset-demo56';
+	const FRAMEWORK_RECIPE: Recipe = {
+		recipe: 'demo-a-import',
+		source: { ontology: 'demo-a', levels: ['leaf'] },
+		target: { layout: [{ level: 'leaf', mechanism: 'file', template: '{id}.md' }] },
+	};
+
+	/** A concept note of the notes-form framework set the table rows point at. */
+	const concept = (id: string): Record<string, unknown> => ({
+		curie: `demo-a:${id}`,
+		_crosswalker: { recipe: { id: 'demo-a-import' }, import_set: { id: FRAMEWORK_SET, scheme: 'endpoint-v1' } },
+	});
+	const conceptNotes = (): Record<string, Record<string, unknown>> => ({
+		'Frameworks/X-1.md': concept('X-1'),
+		'Frameworks/X-2.md': concept('X-2'),
+		'Frameworks/X-3.md': concept('X-3'),
+	});
+
+	it('buildIdentityIndex over a notes set and a table set claims only the notes', async () => {
+		const app = vaultApp({ notes: conceptNotes(), files: { [TABLE_PATH]: tableText() } });
+		const index = await buildIdentityIndex(app);
+		expect(index.curies().sort()).toEqual(['demo-a:X-1', 'demo-a:X-2', 'demo-a:X-3']);
+		expect(index.collisions).toEqual([]);
+		for (const curie of index.curies()) {
+			const path = index.get(curie)!.path;
+			expect(path).not.toContain('#');
+			expect(path.endsWith('.md')).toBe(true);
+		}
+		expect(index.provenanceAt(TABLE_PATH)).toBeNull();
+		// No row of the table is claimable by its edge curie or its address.
+		const parsed = parseMappingTable(tableText());
+		for (const record of tableRowsAsEdgeRecords({ path: TABLE_PATH, ...parsed, readable: true })) {
+			expect(typeof record.frontmatter.curie).toBe('string');
+			expect(index.get(String(record.frontmatter.curie))).toBeNull();
+			expect(index.provenanceAt(record.source_path)).toBeNull();
+		}
+	});
+
+	it('a refresh of the notes-form framework set with the table set present reports zero orphans and leaves the table byte-identical', async () => {
+		const table = tableText();
+		const notes: Record<string, string> = {};
+		const frontmatter = new Map<string, Record<string, unknown>>();
+		for (const [path, fm] of Object.entries(conceptNotes())) {
+			notes[path] = '---\n---\n';
+			frontmatter.set(path, fm);
+		}
+		const files = new Map<string, string>([...Object.entries(notes), [TABLE_PATH, table]]);
+		const folders = new Set<string>(['', 'Frameworks', 'Maps']);
+		const renamed: string[] = [];
+		const read = async (file: { path: string }) => {
+			if (!files.has(file.path)) throw new Error('missing');
+			return files.get(file.path)!;
+		};
+		const app = {
+			vault: {
+				getMarkdownFiles: () => [...files.keys()].filter((path) => path.endsWith('.md')).map((path) => new TFile(path)),
+				getFiles: () => [...files.keys()].map((path) => new TFile(path)),
+				getAbstractFileByPath: (path: string) => (files.has(path) ? new TFile(path) : folders.has(path) ? new TFolder(path) : null),
+				create: async (path: string, content: string) => { files.set(path, content); return new TFile(path); },
+				modify: async (file: { path: string }, content: string) => { files.set(file.path, content); },
+				read,
+				cachedRead: read,
+				createFolder: async (path: string) => { folders.add(path); },
+			},
+			fileManager: {
+				renameFile: async (file: TFile, newPath: string) => { renamed.push(`${file.path} -> ${newPath}`); },
+			},
+			metadataCache: {
+				getFileCache: (file: { path: string }) => ({ frontmatter: frontmatter.get(file.path) ?? {} }),
+			},
+		} as unknown as App;
+
+		// The table set is discoverable beside the framework set, each in its own form.
+		const sets = await discoverImportSets(app);
+		expect(sets.map((set) => [set.id, set.mapping_form]).sort()).toEqual([['iset-demo12', 'table'], [FRAMEWORK_SET, 'notes']]);
+
+		const rows = ['X-1', 'X-2', 'X-3'].map((id) => ({ id }));
+		const result = await generateFromRecipe(app, { columns: ['id'], rows, rowCount: rows.length }, FRAMEWORK_RECIPE, {
+			basePath: 'Frameworks', importSet: { id: FRAMEWORK_SET }, overwriteMode: 'replace', createFolders: true,
+		});
+		expect(result.errors).toEqual([]);
+		expect(result.success).toBe(true);
+		expect(result.orphansChecked).toBe(true);
+		expect(result.orphans ?? []).toEqual([]);
+		expect(result.moved ?? []).toEqual([]);
+		expect(renamed).toEqual([]);
+		expect(files.get(TABLE_PATH)).toBe(table);
+	});
+
+	it('resolveEdgeEndpoints never resolves an endpoint to a table row', async () => {
+		const table = tableText();
+		const parsed = parseMappingTable(table);
+		const records = tableRowsAsEdgeRecords({ path: TABLE_PATH, ...parsed, readable: true });
+
+		// Table only: every endpoint is unresolved, even the ids the rows carry.
+		const tableOnly = (await buildIdentityIndex(vaultApp({ files: { [TABLE_PATH]: table } })));
+		for (const record of records) {
+			const resolved = resolveEdgeEndpoints(tableOnly, record.frontmatter);
+			expect(resolved.subject_note).toBe('');
+			expect(resolved.object_note).toBe('');
+			expect(resolved.unresolved.map((entry) => entry.cause)).toEqual(['not in vault', 'not in vault']);
+			// A row's own edge curie is not an endpoint either.
+			const edgeCurie = String(record.frontmatter.curie);
+			expect(edgeCurie).toMatch(/^[a-z][a-z0-9_-]*:/);
+			expect(resolveEdgeEndpoints(tableOnly, { subject_id: edgeCurie, object_id: edgeCurie }).subject_note).toBe('');
+		}
+
+		// With the concept notes present, subjects resolve to those notes, never to the table.
+		const both = await buildIdentityIndex(vaultApp({ notes: conceptNotes(), files: { [TABLE_PATH]: table } }));
+		for (const record of records) {
+			const resolved = resolveEdgeEndpoints(both, record.frontmatter);
+			expect(resolved.subject_note).toMatch(/^\[\[Frameworks\/X-\d\|X-\d\]\]$/);
+			expect(resolved.subject_note).not.toContain('mapping-table');
+			expect(resolved.subject_note).not.toContain('#');
+			expect(resolved.object_note).toBe('');
+		}
 	});
 });

@@ -42,6 +42,8 @@ import {
 } from './sssom-parser';
 import { sha256Hex, computeRecipeHash } from '../generation/hash';
 import { readNoteFrontmatterState } from '../export/vault-reader';
+import { extractTier1Curie } from '../validation/validator';
+import { plural } from '../utils/plural';
 import {
 	discoverImportSets,
 	mappingFormOf,
@@ -251,6 +253,17 @@ async function runImportSssom(
 		group.forEach((prepared, index) => occurrenceByIndex.set(prepared.index, index + 1));
 	}
 
+	// Every edge, in either form, writes subject_id and object_id as they are,
+	// and strict validation refuses a value that is not a Tier 1 curie. Refuse
+	// here, by row, before endpoint resolution and before the form branch, so a
+	// user reads which rows to fix instead of a schema message after the parse.
+	const nonCurie = nonCurieEndpointRefusal(preparedRows.map((prepared) => prepared.record));
+	if (nonCurie) {
+		result.generation = failedGeneration(undefined, nonCurie);
+		debug?.error('sssom-import', 'non-curie-endpoints', 'SSSOM import refused: endpoint ids are not curies', { message: nonCurie });
+		return result;
+	}
+
 	const { index: endpointIndex, unreadable } = await edgeEndpointIndex(app);
 	const rowsForRecipe = preparedRows.map((prepared) => {
 		const resolved = resolveEdgeEndpoints(endpointIndex, { ...prepared.record, predicate_id: prepared.strm });
@@ -432,6 +445,39 @@ async function projectAndPrecompute(
 }
 
 const PLUGIN_VERSION: string = manifest.version;
+
+/** What a curie looks like, in words a user can check a source against. */
+const CURIE_SHAPE = 'lowercase prefix:local part, letters, digits, . _ - ( ) /';
+
+/**
+ * The refusal for mapping rows whose subject or object id is not a Tier 1
+ * curie, or null when every endpoint id is one. The pattern is the schema's own
+ * (`$defs.curie.pattern`, read by the validator module), never a copy, so this
+ * check and write-time validation cannot drift apart. Row numbers count mapping
+ * rows from 1. Names the offending row count and the first three values.
+ *
+ * Failure mode prevented: a source id with a space, an uppercase prefix, or no
+ * colon passing parse and endpoint resolution, then failing every write with a
+ * schema message that names neither the row nor what to change.
+ */
+export function nonCurieEndpointRefusal(records: ReadonlyArray<Record<string, unknown>>): string | null {
+	const offenders: string[] = [];
+	let rows = 0;
+	records.forEach((record, index) => {
+		let rowBad = false;
+		for (const [field, label] of [['subject_id', 'subject id'], ['object_id', 'object id']] as const) {
+			const value = String(record[field] ?? '');
+			if (extractTier1Curie(value) === value) continue;
+			rowBad = true;
+			offenders.push(`Row ${index + 1}: ${label} "${value}" is not a curie (${CURIE_SHAPE}).`);
+		}
+		if (rowBad) rows += 1;
+	});
+	if (offenders.length === 0) return null;
+	const more = offenders.length > 3 ? ` And ${offenders.length - 3} more.` : '';
+	return `${plural(rows, 'mapping row')} cannot be imported. ${offenders.slice(0, 3).join(' ')}${more} `
+		+ 'Fix the source, or map the column to an id that follows that shape, then import again.';
+}
 
 function failedGeneration(importSetId: string | undefined, message: string): GenerationResult {
 	return {

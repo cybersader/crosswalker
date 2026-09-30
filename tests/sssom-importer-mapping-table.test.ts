@@ -8,7 +8,7 @@
  */
 import type { App } from 'obsidian';
 import { TFile, TFolder, parseYaml } from 'obsidian';
-import { importSssom } from '../src/import/sssom-importer';
+import { importSssom, nonCurieEndpointRefusal } from '../src/import/sssom-importer';
 import { parseMappingTable, serializeMappingTable } from '../src/mappings/mapping-table';
 import { readMappingTables } from '../src/mappings/mapping-table-reader';
 import { discoverImportSets, resolveImportSet } from '../src/generation/import-set';
@@ -312,5 +312,61 @@ describe('resolveImportSet mapping form proposal', () => {
 		const refreshed = await resolveImportSet(app, FOLDER, { id: setId }, undefined, undefined, 'table');
 		expect(refreshed.id).toBe(setId);
 		expect('mapping_form' in refreshed).toBe(false);
+	});
+});
+
+describe('importSssom refuses endpoint ids that are not curies, early and by row', () => {
+	const SHAPE = 'lowercase prefix:local part, letters, digits, . _ - ( ) /';
+	// One bad row among good ones: a subject id with a space in it.
+	const BAD_ROW = 'demo-a:X 2\tDemo two\tskos:relatedMatch\tdemo-b:Y-2\tTarget two\tsemapv:ManualMappingCuration\t0.5';
+	const expected = `1 mapping row cannot be imported. Row 2: subject id "demo-a:X 2" is not a curie (${SHAPE}). `
+		+ 'Fix the source, or map the column to an id that follows that shape, then import again.';
+
+	it.each(['notes', 'table'] as const)('writes nothing and names the row, in the %s form', async (mappingForm) => {
+		const { app, written, folders } = makeVault();
+		const result = await importSssom(app, sssom([ROW_1, BAD_ROW, ROW_3]), null, null, {
+			runTier2Projection: false, importSet: 'new-set-qualified', mappingForm,
+		});
+		expect(result.generation?.success).toBe(false);
+		expect(result.generation?.errors).toEqual([{ row: -1, message: expected }]);
+		expect(result.skipped).toBeUndefined();
+		expect(result.unresolved).toEqual([]);
+		expect(written.size).toBe(0);
+		expect(folders.size).toBe(0);
+	});
+
+	it('refuses a refresh the same way, leaving the existing set byte-identical', async () => {
+		const { app, written } = makeVault();
+		const first = await importSssom(app, sssom([ROW_1, ROW_2]), null, null, { runTier2Projection: false, importSet: 'new-set-qualified', mappingForm: 'table' });
+		expect(first.generation?.success).toBe(true);
+		const snapshot = new Map(written);
+		const refused = await importSssom(app, sssom([ROW_1, BAD_ROW]), null, null, {
+			runTier2Projection: false, importSet: { id: first.generation!.importSetId! }, outputFolder: FOLDER, mappingForm: 'table',
+		});
+		expect(refused.generation?.errors[0].message).toBe(expected);
+		expect(written).toEqual(snapshot);
+	});
+
+	it('names the row count and the first three offending values, both endpoints checked', () => {
+		const message = nonCurieEndpointRefusal([
+			{ subject_id: 'demo-a:X-1', object_id: 'demo-b:Y-1' },
+			{ subject_id: 'Demo-A:X-2', object_id: 'demo-b:Y-2' },
+			{ subject_id: 'demo-a:X-3', object_id: 'no colon' },
+			{ subject_id: 'demo-a X-4', object_id: 'demo-b:Y 4' },
+		]);
+		expect(message).toBe(
+			`3 mapping rows cannot be imported. Row 2: subject id "Demo-A:X-2" is not a curie (${SHAPE}). `
+			+ `Row 3: object id "no colon" is not a curie (${SHAPE}). `
+			+ `Row 4: subject id "demo-a X-4" is not a curie (${SHAPE}). And 1 more. `
+			+ 'Fix the source, or map the column to an id that follows that shape, then import again.',
+		);
+		expect(message).not.toContain('\u2014');
+	});
+
+	it('accepts every shape the Tier 1 curie pattern admits', () => {
+		expect(nonCurieEndpointRefusal([
+			{ subject_id: 'demo-a:X-1', object_id: 'demo_b:Y.1(a)/2' },
+			{ subject_id: 'd:x', object_id: 'demo-b:Y_1' },
+		])).toBeNull();
 	});
 });
