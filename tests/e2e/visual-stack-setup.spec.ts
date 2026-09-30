@@ -59,6 +59,48 @@ describe('Visual — framework stack setup', function () {
 			await browser.executeObsidian(() => { const modal = document.querySelector<HTMLElement>('.crosswalker-stack-modal'); if (modal) modal.style.width = '640px'; });
 			await browser.saveScreenshot(path.join(OUT, `visual-stack-01-picker-${theme}-640.png`));
 			await browser.executeObsidian(() => { const modal = document.querySelector<HTMLElement>('.crosswalker-stack-modal'); if (modal) modal.style.removeProperty('width'); });
+			// Profile control: derived from the fields, Standard by default with the notes setting.
+			const readProfile = () => browser.executeObsidian(() => {
+				const setting = document.querySelector('.crosswalker-stack-modal .crosswalker-stack-profile');
+				const detail = Array.from(document.querySelectorAll('.crosswalker-stack-modal .setting-item'))
+					.find((item) => item.querySelector('.setting-item-name')?.textContent === 'Detail');
+				return {
+					value: setting?.querySelector<HTMLSelectElement>('.crosswalker-stack-profile-select')?.value,
+					desc: setting?.querySelector('.setting-item-description')?.textContent ?? '',
+					hint: setting?.querySelector('.crosswalker-stack-profile-hint')?.textContent ?? '',
+					detail: detail?.querySelector<HTMLSelectElement>('select')?.value,
+				};
+			});
+			const chooseProfile = (value: string) => browser.executeObsidian((_obs, next) => {
+				const select = document.querySelector<HTMLSelectElement>('.crosswalker-stack-modal .crosswalker-stack-profile-select');
+				if (select) { select.value = next; select.dispatchEvent(new Event('change')); }
+			}, value);
+			const standard = await readProfile();
+			expect(standard.value).toBe('standard');
+			expect(standard.desc).toContain('Every framework level as notes; one note per mapping. The default.');
+			expect(standard.hint).toBe('4 frameworks, 3 mappings selected. Exact file counts appear on the review screen.');
+			await browser.executeObsidian(() => document.querySelector('.crosswalker-stack-modal .crosswalker-stack-profile')?.scrollIntoView({ block: 'center' }));
+			await browser.saveScreenshot(path.join(OUT, `visual-stack-01b-profile-standard-${theme}.png`));
+			await chooseProfile('light');
+			const light = await readProfile();
+			expect(light.value).toBe('light');
+			expect(light.desc).toContain('Top framework levels as notes; mappings as one table each. Fewest files; mappings are not visible to Bases views, graph view or backlinks.');
+			expect(light.detail).toBe('top-levels');
+			await browser.executeObsidian(() => document.querySelector('.crosswalker-stack-modal .crosswalker-stack-profile')?.scrollIntoView({ block: 'center' }));
+			await browser.saveScreenshot(path.join(OUT, `visual-stack-01c-profile-light-${theme}.png`));
+			// Hand-editing Detail diverges from Light: the control reads Custom.
+			await browser.executeObsidian(() => {
+				const detail = Array.from(document.querySelectorAll('.crosswalker-stack-modal .setting-item'))
+					.find((item) => item.querySelector('.setting-item-name')?.textContent === 'Detail')?.querySelector<HTMLSelectElement>('select');
+				if (detail) { detail.value = 'max'; detail.dispatchEvent(new Event('change')); }
+			});
+			const custom = await readProfile();
+			expect(custom.value).toBe('custom');
+			expect(custom.desc).toContain('Fields set by hand.');
+			await browser.executeObsidian(() => document.querySelector('.crosswalker-stack-modal .crosswalker-stack-profile')?.scrollIntoView({ block: 'center' }));
+			await browser.saveScreenshot(path.join(OUT, `visual-stack-01d-profile-custom-${theme}.png`));
+			await chooseProfile('standard');
+			expect((await readProfile()).value).toBe('standard');
 			await modal.$('button=Next: download checklist').click();
 			const checklist = await browser.executeObsidian(() => ({
 				rows: document.querySelectorAll('.crosswalker-stack-checklist-row').length,
@@ -87,9 +129,9 @@ describe('Visual — framework stack setup', function () {
 				const oldNist = app.vault.getAbstractFileByPath('Sources/Synthetic preview/preview-nist.xlsx');
 				if (oldNist) await app.vault.delete(oldNist);
 				await app.vault.createBinary('Sources/Synthetic preview/preview-nist.xlsx', new Uint8Array(nistBytes).buffer);
-				// Table is pre-filled from the setting; the capture shows Store as and its trade-off line.
+				// The setting stays on notes; choosing Light below must still put every new mapping row on Table.
 				// @ts-expect-error -- Obsidian internal plugin registry
-				app.plugins.plugins.crosswalker.settings.defaultMappingForm = 'table';
+				app.plugins.plugins.crosswalker.settings.defaultMappingForm = 'notes';
 				// @ts-expect-error -- Obsidian internal plugin registry
 				app.plugins.plugins.crosswalker.settings.stackConfirmFileThreshold = 0;
 				// @ts-expect-error -- Obsidian internal command registry
@@ -101,7 +143,11 @@ describe('Visual — framework stack setup', function () {
 					const box = document.querySelector<HTMLInputElement>(`.crosswalker-stack-choice input[data-ontology="${ontology}"]`);
 					if (box && box.checked !== (ontology === 'nist-csf-2' || ontology === 'nist-800-53')) box.click();
 				}
+				const profile = document.querySelector<HTMLSelectElement>('.crosswalker-stack-modal .crosswalker-stack-profile-select');
+				if (profile) { profile.value = 'light'; profile.dispatchEvent(new Event('change')); }
 			});
+			expect(await browser.executeObsidian(() =>
+				document.querySelector<HTMLSelectElement>('.crosswalker-stack-modal .crosswalker-stack-profile-select')?.value)).toBe('light');
 			await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-modal button')).find((b) => b.textContent === 'Next: download checklist')?.click());
 			await browser.waitUntil(async () => browser.executeObsidian(() => !!document.querySelector('.crosswalker-stack-checklist-row')));
 			await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-stack-modal button')).find((b) => b.textContent === 'Next: add the files')?.click());
@@ -134,7 +180,14 @@ describe('Visual — framework stack setup', function () {
 				form: document.querySelector<HTMLSelectElement>('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form-select')?.value,
 				tradeOff: document.querySelector('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form-trade-off')?.textContent ?? '',
 				mappingCount: document.querySelector('.crosswalker-stack-result[data-mapping] .crosswalker-stack-count')?.textContent ?? '',
+				detail: document.querySelector('.crosswalker-stack-modal .crosswalker-stack-review-detail')?.textContent ?? '',
+				nistRow: document.querySelector('.crosswalker-stack-modal [data-slot="nist-800-53"]')?.textContent ?? '',
+				newRowForms: Array.from(document.querySelectorAll<HTMLSelectElement>('.crosswalker-stack-result[data-mapping] .crosswalker-mapping-form-select')).map((select) => select.value),
 			}));
+			expect(planned.detail).toBe('Detail: Top framework levels as notes.');
+			expect(planned.nistRow).toContain('Enhancements are left out.');
+			expect(planned.newRowForms.length).toBeGreaterThan(0);
+			expect(planned.newRowForms.every((form) => form === 'table')).toBe(true);
 			expect(planned.rows).toBe(2);
 			expect(planned.total).toContain('new files');
 			expect(planned.form).toBe('table');

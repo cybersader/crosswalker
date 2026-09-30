@@ -1,7 +1,8 @@
 import { ATTACK_MAPPING_RELEASE, MAPPING_PRESETS, RECIPE_REGISTRY } from '../src/import/recipe-registry';
+import { MAPPING_TABLE_TRADE_OFF } from '../src/import/mapping-form-choice';
 import {
-	CONNECTOR_ONTOLOGY, DEFAULT_STACK_SELECTION, activeMappings,
-	checklistPlainText, checklistRows, frameworkChoices, frameworkSlots,
+	CONNECTOR_ONTOLOGY, DEFAULT_STACK_SELECTION, STACK_PROFILES, activeMappings, applyProfile, availableOptionalMappings,
+	checklistPlainText, checklistRows, frameworkChoices, frameworkSlots, newMappingForm, profileOf,
 	type StackSelection,
 } from '../src/import/stack/stack-model';
 
@@ -79,5 +80,69 @@ describe('framework stack setup model', () => {
 		expect(text).toContain('No download needed');
 		expect(text).not.toMatch(/<[^>]+>|\]\(/);
 		expect(text.split('\n\n')).toHaveLength(8);
+	});
+
+	describe('stack profiles', () => {
+		const optional = ['cri-80053', 'cri-attack'];
+
+		it('the default stack reads Standard with the notes setting, Custom with the table setting', () => {
+			expect(availableOptionalMappings(selection())).toEqual(optional);
+			expect(profileOf(selection(), null, 'notes')).toBe('standard');
+			expect(profileOf(selection(), null, undefined)).toBe('standard');
+			expect(profileOf(selection(), null, 'table')).toBe('custom');
+		});
+
+		it('derives each profile from its three fields', () => {
+			expect(profileOf(selection({ detail: 'top-levels' }), 'table', 'notes')).toBe('light');
+			expect(profileOf(selection(), 'notes', 'table')).toBe('standard');
+			expect(profileOf(selection({ optionalMappings: optional }), 'notes', 'notes')).toBe('complete');
+		});
+
+		it('reads Custom when any one field diverges', () => {
+			expect(profileOf(selection({ detail: 'max' }), 'table', 'notes')).toBe('custom');
+			expect(profileOf(selection({ detail: 'top-levels' }), 'notes', 'notes')).toBe('custom');
+			expect(profileOf(selection({ optionalMappings: ['cri-80053'] }), 'notes', 'notes')).toBe('custom');
+			expect(profileOf(selection({ detail: 'top-levels', optionalMappings: optional }), 'table', 'notes')).toBe('custom');
+		});
+
+		it('ignores optional ids that are not available for the chosen frameworks', () => {
+			const noCri = selection({ chosen: ['mitre-attack', 'nist-800-53'], optionalMappings: optional });
+			expect(availableOptionalMappings(noCri)).toEqual([]);
+			expect(profileOf(noCri, null, 'notes')).toBe('standard');
+		});
+
+		it('applyProfile sets exactly detail, optional mappings and the run form, and mutates nothing', () => {
+			const start = selection({ chosen: ['cri-profile', 'nist-800-53'], connectorExcluded: true, optionalMappings: ['cri-80053'] });
+			const frozen = JSON.stringify(start);
+			for (const profile of STACK_PROFILES) {
+				const { selection: next, runMappingForm } = applyProfile(start, profile.id, optional);
+				expect(JSON.stringify(start)).toBe(frozen);
+				expect(next).not.toBe(start);
+				expect(next).toEqual({
+					chosen: start.chosen, connectorExcluded: true, detail: profile.detail,
+					optionalMappings: profile.optional === 'all' ? optional : [],
+				});
+				expect(runMappingForm).toBe(profile.mappingForm);
+				expect(profileOf(next, runMappingForm, 'table', optional)).toBe(profile.id);
+			}
+		});
+
+		it('an explicit per-row choice beats the profile form, which beats the setting', () => {
+			expect(newMappingForm('notes', 'table', 'table')).toBe('notes');
+			expect(newMappingForm(undefined, 'table', 'notes')).toBe('table');
+			expect(newMappingForm(undefined, null, 'table')).toBe('table');
+			expect(newMappingForm(undefined, null, undefined)).toBe('notes');
+			const light = applyProfile(selection(), 'light');
+			expect(newMappingForm('notes', light.runMappingForm, 'notes')).toBe('notes');
+			expect(newMappingForm(undefined, light.runMappingForm, 'notes')).toBe('table');
+		});
+
+		it('Light shares the table trade-off wording and no description uses numbers or em dashes', () => {
+			const light = STACK_PROFILES.find((profile) => profile.id === 'light')!;
+			const hiddenFrom = MAPPING_TABLE_TRADE_OFF.match(/appear in (.+)\.$/)?.[1];
+			expect(hiddenFrom).toBeTruthy();
+			expect(light.description).toContain(hiddenFrom!);
+			for (const profile of STACK_PROFILES) expect(profile.description).not.toMatch(/\d|\u2014/);
+		});
 	});
 });

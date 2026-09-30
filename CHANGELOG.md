@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: stack profiles, Light, Standard and Complete (2026-09-30)
+
+- **Set up a framework stack** now opens with a **Profile** choice: **Light** (top framework levels as notes, each mapping as one table; fewest files), **Standard** (every level as notes, one note per mapping; the default) or **Complete** (Standard plus the optional mappings). A profile is shorthand for three fields you can still change by hand (Detail, the Store as choice for new mapping sets, optional mappings); when they no longer match a profile the control reads **Custom**. Nothing new is saved: the profile is worked out from the fields each time.
+- A line under the control says how many frameworks and mappings are selected and that exact file counts appear on the review screen.
+- Refreshed mapping sets keep the form they were created with, whatever the profile.
+
 ### Added: review a table-form mapping set inside Obsidian (2026-09-30)
 
 - A **Mapping review** view opens a mapping table: a searchable, sortable grid that stays smooth at 100,000 rows, with a status filter, status counts, and one-click links to each mapping's subject and object notes. Set **Review status**, **Reviewer** and **Review notes** per row, or select rows and set status or reviewer in bulk.
