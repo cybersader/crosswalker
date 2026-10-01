@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: mapping rows with malformed ids are refused up front (2026-09-30)
+
+- A crosswalk mapping import now checks every subject and object id against the identifier shape Crosswalker stores (`lowercase prefix:local part`, letters, digits, `. _ - ( ) /`) before it resolves endpoints or writes anything, in both notes and table form. A bad row used to fail late with a raw validation message; it now stops the import with the row numbers, the offending values and what to do.
+- Recorded rulings: mapping edge identifiers already fit the Tier 1 identifier pattern (a stale test workaround was removed), and a table set is reconciled inside its file by row id, never through the note identity index. Guard tests pin both.
+
 ### Added: stack profiles, Light, Standard and Complete (2026-09-30)
 
 - **Set up a framework stack** now opens with a **Profile** choice: **Light** (top framework levels as notes, each mapping as one table; fewest files), **Standard** (every level as notes, one note per mapping; the default) or **Complete** (Standard plus the optional mappings). A profile is shorthand for three fields you can still change by hand (Detail, the Store as choice for new mapping sets, optional mappings); when they no longer match a profile the control reads **Custom**. Nothing new is saved: the profile is worked out from the fields each time.

@@ -205,6 +205,21 @@ it('surfaces the importer refusal when a table run is refused', async () => {
 		.rejects.toThrow('stores its mappings as notes. Convert the set');
 });
 
+it('surfaces the non-curie endpoint refusal for a notes-form run too', async () => {
+	const message = '1 mapping row cannot be imported. Row 2: subject id "zz-onto:ZZ 2" is not a curie (lowercase prefix:local part, letters, digits, . _ - ( ) /). '
+		+ 'Fix the source, or map the column to an id that follows that shape, then import again.';
+	const dependencies: MappingRunDependencies = {
+		log: jest.fn(), listSets: async () => [], readBytes: async () => syntheticCtid(),
+		importRows: async () => ({ ...tableOutcome(0), mappingForm: 'notes', generation: { success: false, created: [], upToDate: [], skipped: [],
+			errors: [{ row: -1, message }], duration: 0, orphansChecked: false } }),
+	};
+	const mapping = MAPPING_PRESETS.find((item) => item.id === '80053-attack')!;
+	const file = { path: 'Sources/synthetic.json', name: 'synthetic.json' } as TFile;
+	await expect(importMappingSlots([mapping], [{ source: { path: file.path, name: file.name, peeks: [] }, mapping,
+		table: '$.mapping_objects[*]', headerRow: 0 }], new Map([[file.path, file]]), dependencies, []))
+		.rejects.toThrow(`could not be imported. ${message}`);
+});
+
 it('says a table kept its unlinked rows instead of claiming edge notes were kept', () => {
 	const endpoints: UnresolvedEndpoint[] = [{ curie: 'zz-onto:ZZ-1', cause: 'not in vault' } as UnresolvedEndpoint];
 	expect(summarizeUnresolvedEndpoints(endpoints)[0]).toBe('1 mapping endpoint could not link to concepts in this vault. The edge notes were kept.');

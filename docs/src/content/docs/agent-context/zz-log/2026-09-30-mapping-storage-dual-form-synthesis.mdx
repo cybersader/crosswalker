@@ -78,7 +78,8 @@ Gained: one vault entry per set, a file any spreadsheet opens, review columns in
 
 Remaining:
 
-- **Known gaps from slice 2:** table rows are not in the path-keyed identity index (a table refresh rewrites the file by row id instead), and edge curies from the shared edge-curie helper do not match the Tier 1 curie pattern in either form. The curie gap is tracked for the [audit-trail milestone](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/).
+- **Table rows and the identity index (ruled 2026-09-30):** table rows are reconciled inside their file by `row_id`; the identity index stays markdown-only; import-set discovery is the existence authority for both forms. A `#row_id` claim in the index would reach the note rename step, so guard tests pin that the two never meet.
+- **Edge curies and the Tier 1 curie pattern (ruled 2026-09-30):** the recorded gap was false, since both edge-curie sanitizers emit a subset of the pattern. The real failure was a source `subject_id` or `object_id` that is not a curie, which failed at write time with a schema message; the importer now refuses those rows early, by row number and value, in both forms, and nothing is written.
 - Inline crosswalk columns on a framework slot stay as notes for now.
 
 ## Related

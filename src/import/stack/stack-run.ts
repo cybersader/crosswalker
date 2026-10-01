@@ -176,9 +176,10 @@ export async function importMappingSlots(
 			: { importSet: 'new-set-qualified', overwriteMode: 'skip', mappingForm: form });
 		if (!outcome.generation?.success || !outcome.folder) {
 			// A table run's refusals (a notes set refreshed as a table, unreadable
-			// rows that would lose reviews) already name a cause and an action.
+			// rows that would lose reviews) already name a cause and an action. So
+			// does the early refusal of non-curie endpoint ids, in either form.
 			const first = outcome.generation?.errors?.[0]?.message;
-			const reason = first && (form === 'table' || first.includes('Convert the set')) ? first : undefined;
+			const reason = first && (form === 'table' || first.includes('Convert the set') || first.includes('is not a curie')) ? first : undefined;
 			throw new Error(reason ? `${mapping.label} could not be imported. ${reason}`
 				: `${mapping.label} could not be imported. Check the mapping file and destination, then try again.`);
 		}
