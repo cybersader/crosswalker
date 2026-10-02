@@ -44,7 +44,7 @@ A reification engine for Markdown plus frontmatter: one source becomes whatever 
 ## Verifying before calling it done
 
 - Screenshot the surface in both themes and read the PNGs yourself. Never ask the owner to eyeball.
-- For a substantial new surface, run one Fable UX-consultant round over the screenshots (concrete fixes only: surface, file, exact current string, exact replacement).
+- For a substantial new surface, run one UX-consultant round over the screenshots (concrete fixes only: surface, file, exact current string, exact replacement). Prefer a Fable worker (per-launch approve-agent). When Fable is unavailable, run the same brief on an Opus worker; never skip the round or wait for Fable.
 - Unit tests plus the e2e spec for the flow.
 
 ## Asking (when escalation is genuinely required)
