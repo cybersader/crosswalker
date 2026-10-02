@@ -164,10 +164,15 @@ describeScale('Crosswalker plugin — CRI Profile v2.2 flat recipe corpus proof 
 		expect(generation.success).toBe(true);
 		expect(generation.created.length).toBe(EXPECTED_RECORD_COUNT);
 		expect(generation.skipped).toEqual([]);
-		expect(generation.crosswalkEdges).toEqual({
+		// The edge-pass result also carries `summary` (engine status messages)
+		// and `upToDate` since the mapping-storage work; match the stable fields.
+		expect(generation.crosswalkEdges).toMatchObject({
 			created: expectedCrosswalkEdgeCount,
+			upToDate: 0,
 			sets: [expect.stringMatching(/^iset-[a-z0-9]{6}$/)],
 		});
+		expect(generation.crosswalkEdges.sets.length).toBe(1);
+		expect(generation.crosswalkEdges.orphans).toBeUndefined();
 		metric('generated_note_count', generation.created.length);
 		metric('generated_crosswalk_edge_count', generation.crosswalkEdges.created);
 		metric('render_error_count', generation.errors.length);
