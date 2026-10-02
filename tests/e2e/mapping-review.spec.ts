@@ -391,6 +391,40 @@ describe('Mapping review view for a table-form set', function () {
 		await setSearch('');
 	});
 
+	it('shows selected rows distinctly from plain, hovered, and active rows in light and dark themes', async () => {
+		await setSearch('');
+		await browser.executeObsidian(() => {
+			document.querySelector<HTMLButtonElement>('.crosswalker-mapping-review .crosswalker-mr-clear-selection')?.click();
+			const filter = document.querySelector<HTMLSelectElement>('.crosswalker-mapping-review .crosswalker-mr-filter');
+			if (filter) { filter.value = 'any'; filter.dispatchEvent(new Event('change', { bubbles: true })); }
+		});
+		await browser.pause(200);
+		const state = await browser.executeObsidian(() => {
+			const rows = Array.from(document.querySelectorAll<HTMLElement>('.crosswalker-mapping-review .crosswalker-mr-row'));
+			for (const index of [1, 2]) {
+				const check = rows[index]?.querySelector<HTMLInputElement>('input[data-field="selected"]');
+				if (check && !check.checked) check.click();
+			}
+			rows[4]?.click();
+			document.querySelector<HTMLButtonElement>('.crosswalker-mapping-review .crosswalker-mr-drawer-close')?.click();
+			const after = Array.from(document.querySelectorAll<HTMLElement>('.crosswalker-mapping-review .crosswalker-mr-row'));
+			return {
+				selected: after.map((row, index) => row.classList.contains('is-selected') ? index : -1).filter((index) => index >= 0),
+				active: after.findIndex((row) => row.classList.contains('is-active')),
+				backgrounds: [0, 1, 4].map((index) => after[index] ? getComputedStyle(after[index]).backgroundColor : ''),
+			};
+		});
+		expect(state.selected).toEqual([1, 2]);
+		expect(state.active).toBe(4);
+		// Plain, selected, and active rows each paint a different background.
+		expect(new Set(state.backgrounds).size).toBe(3);
+		await capture('light', 'visual-mapping-review-04-selection.png');
+		await capture('dark', 'visual-mapping-review-04-selection-dark.png');
+		await browser.executeObsidian(() => {
+			document.querySelector<HTMLButtonElement>('.crosswalker-mapping-review .crosswalker-mr-clear-selection')?.click();
+		});
+	});
+
 	it('opens a .tsv that is not a mapping table as a read-only preview', async () => {
 		await browser.executeObsidian(async ({ app }) => {
 			await app.vault.create('Sources/synthetic-notes.tsv', 'name\tvalue\nalpha\t1\nbeta\t2\n');

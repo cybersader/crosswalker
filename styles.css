@@ -3431,10 +3431,15 @@
 .crosswalker-mapping-review .crosswalker-mr-sort-arrow { display: inline-flex; --icon-size: 14px; }
 .crosswalker-mapping-review .crosswalker-mr-row { cursor: default; background: var(--background-primary); }
 .crosswalker-mapping-review .crosswalker-mr-row:hover { background: var(--background-modifier-hover); }
-.crosswalker-mapping-review .crosswalker-mr-row.is-selected { background: var(--background-secondary); }
+/* Selected (checked) rows get an accent tint so they read clearly in light and dark themes;
+   --background-secondary was nearly identical to the row background in dark themes. */
+.crosswalker-mapping-review .crosswalker-mr-row.is-selected { background: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-primary)); }
+.crosswalker-mapping-review .crosswalker-mr-row.is-selected:hover { background: color-mix(in srgb, var(--interactive-accent) 26%, var(--background-primary)); }
 /* Active is its own look, never the hover color: a hovered row must not read as the active one. */
 .crosswalker-mapping-review .crosswalker-mr-row.is-active,
 .crosswalker-mapping-review .crosswalker-mr-row.is-active:hover { box-shadow: inset 3px 0 0 var(--interactive-accent); background: var(--background-modifier-active-hover); }
+.crosswalker-mapping-review .crosswalker-mr-row.is-active.is-selected,
+.crosswalker-mapping-review .crosswalker-mr-row.is-active.is-selected:hover { background: color-mix(in srgb, var(--interactive-accent) 30%, var(--background-primary)); }
 .crosswalker-mapping-review .crosswalker-mr-endpoint { display: block; line-height: calc(var(--cw-mr-row) - 1px); }
 .crosswalker-mapping-review .crosswalker-mr-id,
 .crosswalker-mapping-review .crosswalker-mr-link { font-family: var(--font-monospace); font-size: var(--font-ui-smaller); }

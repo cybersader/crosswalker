@@ -363,8 +363,18 @@ describe('Installed stacks and revisit on synthetic data', function () {
 		await browser.waitUntil(async () => browser.executeObsidian(() =>
 			document.querySelector('.crosswalker-stack-modal h2')?.textContent === 'Framework stack imported'),
 		{ timeout: 60_000, timeoutMsg: 'Synthetic from-slot refresh did not finish' });
-		expect(await browser.executeObsidian(() => document.querySelector('.crosswalker-stack-modal')?.textContent ?? ''))
-			.toContain('1 framework crosswalk link created or updated; 0 framework crosswalk links already up to date');
+		// Only the diagnostic statement changed. It feeds the concept body alone; the
+		// crosswalk edge (concept id, CSF id, title) is unchanged, so the link is
+		// correctly reported as already up to date while the concept note is rewritten.
+		const refreshText = await browser.executeObsidian(() => document.querySelector('.crosswalker-stack-modal')?.textContent ?? '');
+		expect(refreshText).toContain('1 framework note created or updated');
+		expect(refreshText).toContain('0 framework crosswalk links created or updated; 1 framework crosswalk link already up to date');
+		const concept = await browser.executeObsidian(async ({ app }) => {
+			const files = app.vault.getMarkdownFiles().filter((item) => !item.path.startsWith('_crosswalker/'));
+			return (await Promise.all(files.map((file) => app.vault.read(file)))).join('\n');
+		});
+		expect(concept).toContain('Changed invented statement.');
+		expect(concept).not.toContain('\nInvented statement.');
 		await click('Done'); await home();
 		expect(await browser.executeObsidian(() => document.querySelector('.crosswalker-installed-stacks')?.textContent ?? '')).toContain(fromSlot);
 		const after = await browser.executeObsidian(async ({ app }) => {
