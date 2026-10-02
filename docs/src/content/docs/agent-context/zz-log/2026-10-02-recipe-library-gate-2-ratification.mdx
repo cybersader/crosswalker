@@ -1,0 +1,52 @@
+---
+title: "Recipe library: Gate 2 settled (D5 fork lineage, D6 saved setups kept)"
+description: "The two Gate 2 decisions for save and exact replay are settled so the recipe library could ship: saving an edited recipe makes a new recipe that records what it was based on (no revision chains), and the older saved setups keep working beside recipes with no migration. Also records where saved recipes live and what the public term is."
+tags: [log, decision, architecture, recipe, replay, v0-1-7, ratification]
+date: 2026-10-02
+sidebar:
+  label: "10-02 · Replay Gate 2 settled"
+  order: -20261002
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="What this page is">
+A **decision record** closing Gate 2 of the [save-and-exact-replay register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) (the working log tracking how a saved import can be re-run later and produce the same result). Gate 1 (D1 to D4) closed on 2026-09-06 in the [Gate 1 ratification](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/).
+
+**How it was decided.** The owner's standing direction (2026-10-02) is that design choices which pass the project's recorded UX and architecture principles are made and logged by the implementing session rather than put to the owner as internal-vocabulary questions. D5 is the register's recommended option. D6 is narrower than the [owner review queue](/crosswalker/agent-context/zz-log/2026-07-25-owner-review-queue/) recommendation (an opt-in converter); see § 2. Both pass those principles. The owner can overturn either; both are reversible because nothing was migrated or deleted.
+</Aside>
+
+## 1. The verdict
+
+| # | Decision | Settled | Why in one line |
+|---|---|---|---|
+| **D5** | Lineage: what happens when you save an edited recipe | **(a)** Snapshots plus fork. Saving creates a **new** recipe carrying `metadata.based_on` (the record of which recipe, and which revision of it, this one started from). A recipe you saved yourself may also be **replaced in place**, behind a confirm, with the old file sent to the trash. A built-in recipe is never replaced | Additive, and adds no new artifact noun |
+| **D6** | Coexistence with the older saved setups | **(a)** for v0.1.7: keep both, no migration. Saved setups keep working exactly as before; recipes are the portable, shareable artifact. The opt-in converter (b) stays a tracked follow-up | Nothing a user already relies on changes |
+
+## 2. Why each answer
+
+**D5, fork rather than revision chains.** Revision chains would introduce a "logical recipe" with an active-revision pointer: a new identity, a new lifecycle and a new place for drift, with no user need behind it yet. That fails the [artifact-roles discipline](/crosswalker/concepts/artifact-roles-and-authority/) (a new noun needs independent identity, lifecycle, authority and consumers). Fork semantics already existed (customizing a recognized recipe stamps `based_on`), so the library reuses the one lineage field instead of inventing a second. Replace-in-place covers the common "I fixed my own recipe" case without a chain, and only for recipes the user owns. If chains are ever needed, they can be layered on top of `based_on` additively. The review queue's suggestion to group forks by ancestry in the library so they read as versions is not in this slice: each card shows its "Based on" line, and grouping waits until real libraries show the ten-forks pain the queue predicted.
+
+**D6, keep both.** A saved setup is matched to a source by fingerprint and lives in plugin settings; it is convenience state, not a portable recipe. Converting them would have to guess intent for setups that do not translate losslessly, and the project's chosen-never-guessed rule forbids guessing. The review queue recommended (b), an explicit opt-in converter that reports what cannot carry across, and deprecating new saved setups only after it ships. That sequencing is kept: (a) now is the first step of it, not a rejection of it. The converter is real UI work with its own test surface, so it is tracked as an additive follow-up rather than bundled into the library slice, and saved-setup creation is not deprecated.
+
+## 3. Two smaller calls made with it
+
+| Call | Ruling | Why |
+|---|---|---|
+| Where saved recipes live | One `.json` file per recipe in `_crosswalker/import-recipes/`, each file exactly a schema-valid import recipe (no wrapper). The `recipe` field is the identity; the file name is a readable label and is never read for meaning | A plain file is the escape hatch and the sharing unit. A sibling folder keeps the query-recipe loader, which reads `_crosswalker/recipes/`, from ever seeing import recipes. Identity follows the identity, never path rule ([first-run log](/crosswalker/agent-context/zz-log/2026-08-28-first-run-and-the-blind-spots-that-hid-it/)). This replaces the `_crosswalker/recipes/import/` path the milestone page originally sketched |
+| Public term | **Recipe** in the UI ("Save as recipe", "Browse import recipes"); `ImportRecipe` stays the machine-contract name | Short, already used in the wizard's recognized-source card, and it reads in any domain |
+
+## 4. What this unblocked
+
+The [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) Track 1 library slice: save from the wizard, a library match offered (never preselected) on Step 1, a browse/inspect/export/import/duplicate/rename/delete browser, and a settings entry. Delivery detail lives in [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present).
+
+Still open after this page: Track 2 run binding, "Run again" and source-drift status, the D4 opt-in source copy, and the full NIST CSF 2.0 and SP 800-53 replay proofs. Gate 3 (D7, D8) lands at [v0.1.8](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/).
+
+## Related
+
+- [Save and exact replay decision register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/): the options considered for D1 to D8
+- [Gate 1 ratification](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/): D1 to D4
+- [Portable import recipe fidelity synthesis](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/): why saving patches the original instead of rebuilding it
+- [Artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/): the noun discipline D5 follows
+- [Owner review queue](/crosswalker/agent-context/zz-log/2026-07-25-owner-review-queue/): the decision cards for D5 and D6
+- [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/)

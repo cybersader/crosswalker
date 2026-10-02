@@ -68,6 +68,8 @@ import {
 	updateRecipeDocumentMapping,
 	type RecipeDocument,
 	type RecipeDocumentOrigin,
+	type RecipePatchOptions,
+	type RecipePatchResult,
 } from './recipe-document';
 import {
 	SHAPE_CARDS,
@@ -628,6 +630,43 @@ export class MappingWorkbench {
 			...(nest?.length ? { source: { levels, nest } } : {}),
 			target: target as Recipe['target'],
 		};
+	}
+
+	/**
+	 * The exact patch inputs `buildRecipe()` uses, for saving the current setup
+	 * to the recipe library. The saved file is always the output of
+	 * `patchRecipeDocument()` over the canonical document; it is never rebuilt
+	 * from the workbench model. Does not throw: blocking diagnostics come back in
+	 * the result for the save dialog to show.
+	 */
+	patchForSave(): { document: RecipeDocument; options: RecipePatchOptions; result: RecipePatchResult } {
+		let options: RecipePatchOptions;
+		try {
+			options = { mapping: this.mapping, regions: this.buildFinalRegions() };
+		} catch {
+			options = { mapping: this.mapping };
+		}
+		return { document: this.recipeDocument, options, result: patchRecipeDocument(this.recipeDocument, options) };
+	}
+
+	/**
+	 * After "Save as recipe": make the just-saved recipe the canonical original
+	 * behind this workbench (origin `user`), keeping the current mapping and every
+	 * other workbench choice. The next save then offers to replace that recipe
+	 * instead of minting yet another one. Returns false, changing nothing, when
+	 * the saved recipe cannot be loaded over this source.
+	 */
+	rebindToSavedRecipe(recipe: CrosswalkerImportRecipe): boolean {
+		const loaded = loadRecipeDocument(recipe, { origin: 'user', sourceColumns: this.opts.parsedData.columns });
+		if (!loaded.ok) return false;
+		let regions: RecipeRegions | undefined;
+		try {
+			regions = this.buildFinalRegions();
+		} catch {
+			regions = undefined;
+		}
+		this.recipeDocument = updateRecipeDocumentMapping(loaded.document, this.mapping, regions);
+		return true;
 	}
 
 	/** A full canonical Recipe for render() / generation. */

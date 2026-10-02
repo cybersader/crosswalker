@@ -27,6 +27,8 @@ import {
 	runFolderTypedTableExport,
 } from './export';
 import { ConfigBrowserModal } from './config/config-browser-modal';
+import { RecipeLibraryModal } from './import/recipe-library-modal';
+import { VaultImportFilePicker } from './ui/vault-file-picker';
 import { buildCrosswalkerPivotViewFactory } from './views/crosswalker-pivot-view';
 import {
 	registerCrosswalkerBasesView,
@@ -812,6 +814,13 @@ export default class CrosswalkerPlugin extends Plugin {
 			},
 		});
 
+		// Saved import recipe library (browse, export, duplicate, rename, delete).
+		this.addCommand({
+			id: 'browse-import-recipes',
+			name: 'Browse import recipes',
+			callback: () => this.openRecipeLibrary(),
+		});
+
 		// Register config browser command
 		this.addCommand({
 			id: 'browse-saved-configs',
@@ -1500,6 +1509,22 @@ export default class CrosswalkerPlugin extends Plugin {
 			throw new Error(result.errors[0]?.message ?? `Could not update the query index for ${path}.`);
 		}
 	};
+
+	/**
+	 * Open the saved import recipe library. "Use for import" asks for the
+	 * source file, then opens the wizard with that recipe chosen.
+	 */
+	openRecipeLibrary(): void {
+		new RecipeLibraryModal(this.app, {
+			mode: 'browse',
+			outputRoot: outputRootPath(this.settings),
+			onUse: (id) => {
+				new VaultImportFilePicker(this.app, (file) => {
+					new ImportWizardModal(this.app, this, { prefillFile: file, presetLibraryRecipeId: id }).open();
+				}).open();
+			},
+		}).open();
+	}
 
 	onunload() {
 		// Cancel startup waiters and ask any active projector to stop at its next

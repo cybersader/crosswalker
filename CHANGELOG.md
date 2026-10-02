@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: save, reuse and share import recipes (2026-10-02)
+
+- **Save as recipe** in the import wizard (review step and results screen) saves how your columns become folders, notes, properties and links as a named recipe: one `.json` file in `_crosswalker/import-recipes/`. Saving keeps the original recipe intact with only your edits applied; an edit that cannot be saved without losing information blocks the save and says what to change. A recipe you started from is recorded as its **Based on** line. Your own recipes can be replaced in place behind a confirm (the old file goes to the trash); built-in recipes never are. Your source file is not saved.
+- **Reuse:** when a chosen file matches one of your recipes, Step 1 offers it as **Your recipe** (offered, never preselected). **Use a saved recipe** on Step 1 picks one by hand.
+- **Browse import recipes** (command, and an **Import recipes** section in settings) lists your recipes and the built-in ones with search and sort. Each card expands to show what the recipe expects and what each column becomes. Actions: use for import, export, import a recipe file, duplicate, rename, delete (to trash; built-in recipes cannot be deleted). Files that cannot be read are listed with the cause and what to do.
+- Decisions: editing makes a new recipe rather than a revision chain, and the older saved setups keep working unchanged ([Gate 2 record](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-02-recipe-library-gate-2-ratification/)). Run again, source-change detection and the full NIST replay proofs come in later slices.
+
 ### Seventh prerelease preparation, 0.1.6 (2026-10-02)
 
 - Prepared version `0.1.6` as the seventh BRAT prerelease, carrying the mapping storage choice (notes or one table per set), resumable conversion, the mapping review view, stack profiles and the early refusal of malformed mapping ids on top of `0.1.5`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.6` entry. The user-facing notes live under `## [0.1.6]` near the end of this file.

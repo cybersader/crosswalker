@@ -3491,3 +3491,204 @@
 	.crosswalker-mapping-review .crosswalker-mr-drawer.is-open { flex-basis: 260px; }
 	.crosswalker-mapping-review .crosswalker-mr-status { margin-left: 0; }
 }
+
+/* ============================================================================
+   Import recipe library (slice 1): browser, save dialog, wizard entry points
+   ============================================================================ */
+
+.crosswalker-recipe-library .crosswalker-browser-toolbar {
+	align-items: center;
+}
+.crosswalker-hidden-file-input {
+	display: none;
+}
+.crosswalker-library-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cw-s4, 16px);
+}
+.crosswalker-recipe-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cw-s2, 8px);
+}
+.crosswalker-recipe-group-title {
+	font-size: var(--font-ui-smaller);
+	font-weight: 600;
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+.crosswalker-recipe-group > .crosswalker-empty-state {
+	margin: 0;
+	padding: var(--cw-s3, 12px);
+	border: 1px dashed var(--background-modifier-border);
+	border-radius: var(--cw-radius-md, 6px);
+	text-align: left;
+}
+.crosswalker-library-card .crosswalker-card-header {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--cw-s3, 12px);
+	cursor: pointer;
+}
+.crosswalker-library-card .crosswalker-card-title-area {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.crosswalker-recipe-card-desc {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	margin-top: 2px;
+}
+.crosswalker-library-card .crosswalker-card-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	margin-top: 4px;
+}
+.crosswalker-library-card .crosswalker-card-actions {
+	margin-top: 0;
+	padding: var(--cw-s3, 12px) 1em;
+}
+.crosswalker-library-card .crosswalker-recipe-details {
+	padding-top: var(--cw-s3, 12px);
+}
+.crosswalker-recipe-source-line,
+.crosswalker-recipe-dest {
+	margin: 0 0 var(--cw-s2, 8px) 0;
+	font-size: var(--font-ui-small);
+}
+.crosswalker-recipe-dest {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-bottom: var(--cw-s3, 12px);
+}
+.crosswalker-recipe-dest-title {
+	color: var(--text-muted);
+	font-weight: 600;
+	margin-bottom: 2px;
+}
+.crosswalker-recipe-dest-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding-left: calc(var(--cw-dest-depth, 0) * 18px);
+}
+.crosswalker-recipe-dest-ico {
+	display: inline-flex;
+	flex: 0 0 auto;
+	color: var(--text-muted);
+}
+.crosswalker-recipe-dest-ico svg {
+	width: 14px;
+	height: 14px;
+}
+.crosswalker-recipe-dest code,
+.crosswalker-recipe-columns code {
+	font-size: var(--font-ui-smaller);
+	background: var(--background-modifier-hover);
+	border-radius: 4px;
+	padding: 1px 6px;
+}
+.crosswalker-recipe-columns {
+	border-collapse: collapse;
+	margin: 0 0 var(--cw-s2, 8px) 0;
+	font-size: var(--font-ui-small);
+}
+.crosswalker-recipe-columns th {
+	text-align: left;
+	color: var(--text-muted);
+	font-weight: 600;
+	padding: 2px 16px 4px 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+.crosswalker-recipe-columns td {
+	padding: 3px 16px 3px 0;
+	vertical-align: top;
+}
+.crosswalker-library-card .crosswalker-card-actions button.crosswalker-recipe-delete {
+	color: var(--text-error);
+	background: transparent;
+	box-shadow: none;
+	border: 1px solid var(--background-modifier-border);
+}
+.crosswalker-library-card .crosswalker-card-actions button.crosswalker-recipe-delete:hover {
+	background: var(--background-modifier-hover);
+}
+.crosswalker-recipe-problem {
+	padding: var(--cw-s3, 12px);
+	border: 1px solid var(--background-modifier-border);
+	border-left: 3px solid var(--text-warning);
+	border-radius: var(--cw-radius-md, 6px);
+	background: var(--background-secondary);
+}
+.crosswalker-recipe-problem p {
+	margin: 4px 0 0 0;
+}
+.crosswalker-recipe-problem-file {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-small);
+}
+.crosswalker-recipe-problem-ico {
+	display: inline-flex;
+	color: var(--text-warning);
+}
+
+/* Save dialog */
+.crosswalker-save-recipe-field {
+	flex-direction: column;
+	align-items: stretch;
+	gap: 6px;
+}
+.crosswalker-save-recipe-field .setting-item-control {
+	justify-content: flex-start;
+}
+.crosswalker-save-recipe-field .setting-item-control input[type="text"] {
+	width: 100%;
+}
+.crosswalker-save-recipe-collision {
+	margin: 0 0 var(--cw-s2, 8px) 0;
+	color: var(--text-muted);
+}
+.crosswalker-save-recipe-lineage {
+	margin: var(--cw-s2, 8px) 0 0 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+.crosswalker-save-recipe-note {
+	margin: 4px 0 var(--cw-s3, 12px) 0;
+}
+.crosswalker-save-recipe-blocked {
+	padding: var(--cw-s3, 12px);
+	margin-bottom: var(--cw-s3, 12px);
+	border-left: 3px solid var(--text-error);
+	border-radius: var(--cw-radius-md, 6px);
+	background: var(--background-secondary);
+}
+.crosswalker-save-recipe-blocked p {
+	margin: 0 0 4px 0;
+}
+.crosswalker-save-recipe-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--cw-s2, 8px);
+}
+
+/* Wizard entry points */
+.crosswalker-saved-recipe-row {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--cw-s3, 12px);
+	margin: calc(-1 * var(--cw-s2, 8px)) 0 var(--cw-s4, 16px) 0;
+}
+.crosswalker-recognized-card.is-yours {
+	border-color: var(--color-green, var(--interactive-accent));
+}

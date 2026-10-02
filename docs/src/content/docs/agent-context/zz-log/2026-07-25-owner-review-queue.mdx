@@ -305,6 +305,9 @@ From the [save-and-exact-replay register](/crosswalker/agent-context/zz-log/2026
 
 ### D5 — Decide whether editing a recipe makes a new version or a new recipe
 
+**Status: settled (a) 2026-10-02.** Fork lineage, plus replace-in-place for recipes the user saved. Fork grouping in the library deferred. See the [Gate 2 record](/crosswalker/agent-context/zz-log/2026-10-02-recipe-library-gate-2-ratification/).
+
+
 **What this is.** Today, customizing a recognized recipe **forks** it: a new recipe id with recorded ancestry pointing at the original. The replay proposal introduces an "active revision pointer", which blurs the line — is an edited recipe a new version of the same recipe, or a different recipe?
 
 **In practice.** (a) storage snapshots only, fork semantics unchanged; (b) true revision chains per logical recipe; (c) both, explicitly distinguished. Touches `src/import/recipe-document.ts` and the artifact-roles model. (a) small; (b) and (c) medium-to-large. Lineage semantics get written into shipped files, so changing them later means migrating stored ancestry.
@@ -316,6 +319,9 @@ From the [save-and-exact-replay register](/crosswalker/agent-context/zz-log/2026
 **Recommendation: (a) for v0.1.7**, with the library UI grouping forks by ancestry so they *read* as versions. Revisit (c) once the library UI exists and the pain is measured rather than predicted.
 
 ### D6 — Decide what happens to setups saved under the old system
+
+**Status: settled (a) for v0.1.7, 2026-10-02.** Keep both, no migration; the opt-in converter (b) is a tracked follow-up and saved-setup creation is not deprecated. See the [Gate 2 record](/crosswalker/agent-context/zz-log/2026-10-02-recipe-library-gate-2-ratification/).
+
 
 **What this is.** `SavedConfig` is the older "remember my setup" object: bound to a source's column fingerprint, convenience state rather than a portable, shareable recipe. Portable recipes now do the same job better and travel between vaults. The question is what happens to the setups users already saved.
 

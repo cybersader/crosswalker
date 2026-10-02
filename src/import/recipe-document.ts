@@ -238,12 +238,7 @@ export function patchRecipeDocument(
 		normalized.recipe = `${original.recipe}-custom`;
 		normalized.metadata = {
 			...(normalized.metadata ?? {}),
-			based_on: {
-				recipe: original.recipe,
-				hash: computeRecipeHash(original.target, original.source),
-				recipe_document_digest: computeRecipeDocumentDigest(original),
-				spec_version: original.spec_version ?? CURRENT_RECIPE_SPEC,
-			},
+			based_on: recipeBasedOn(original),
 		};
 	}
 
@@ -265,6 +260,23 @@ export function patchRecipeDocument(
 	}
 
 	return { ok: true, recipe: normalized, diagnostics, dirty: true };
+}
+
+/**
+ * The ancestry stamp for a recipe derived from `original`. This is the one
+ * lineage shape (`metadata.based_on`); patching a dirty document and copying a
+ * recipe into the saved library both use it, so there is never a second field.
+ */
+export function recipeBasedOn(
+	original: CrosswalkerImportRecipe,
+): NonNullable<NonNullable<CrosswalkerImportRecipe['metadata']>['based_on']> {
+	const normalized = normalizeRecipe(original);
+	return {
+		recipe: normalized.recipe,
+		hash: computeRecipeHash(normalized.target, normalized.source),
+		recipe_document_digest: computeRecipeDocumentDigest(normalized),
+		spec_version: normalized.spec_version ?? CURRENT_RECIPE_SPEC,
+	};
 }
 
 /** Return a document snapshot with current mapping/dirty state, preserving original. */
