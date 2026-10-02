@@ -501,6 +501,30 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 			expect(genInfo.hasReimportBtn).toBe(true);
 		}
 
+		// -- Stage G2: provenance proof. The home list is derived from note
+		//    provenance, so pin that at least one generated note under the
+		//    destination carries a `_crosswalker` block with a minted import set
+		//    and producer. Raw read, not metadataCache: the cache can lag the
+		//    just-written notes.
+		const provenance = await browser.executeObsidian(async ({ app }) => {
+			const notes = app.vault.getMarkdownFiles()
+				.filter((f) => /NIST[ -]CSF[ -]2\.0/.test(f.path));
+			if (notes.length === 0) return { noteCount: 0, hasBlock: false, hasImportSet: false, hasProducer: false };
+			const text = await app.vault.read(notes[0]);
+			const fm = text.startsWith('---') ? text.slice(0, text.indexOf('\n---', 3)) : '';
+			return {
+				noteCount: notes.length,
+				hasBlock: /^_crosswalker:/m.test(fm),
+				hasImportSet: /^ {2}import_set:/m.test(fm) && /iset-[a-z0-9]{6}/.test(fm),
+				hasProducer: /^ {2}producer:/m.test(fm),
+			};
+		});
+		console.log('[view] provenance → ' + JSON.stringify(provenance));
+		expect(provenance.noteCount).toBeGreaterThan(0);
+		expect(provenance.hasBlock).toBe(true);
+		expect(provenance.hasImportSet).toBe(true);
+		expect(provenance.hasProducer).toBe(true);
+
 		// -- Stage H: dark theme capture of the home screen (both-theme check).
 		const prevTheme = await browser.executeObsidian(() => {
 			const b = document.body;

@@ -513,40 +513,55 @@ describeScale('Crosswalker plugin — full NIST SP 800-53 Rev. 5 import scale pr
 		// Whatever else happens, the region markers must never render as visible text.
 		expect(previewState.commentLeak).toBe(false);
 
-		const relatedRender = await browser.execute(() => {
-			const previews = [...document.querySelectorAll<HTMLElement>('.markdown-preview-view')];
-			for (const preview of previews) {
-				const headings = [...preview.querySelectorAll<HTMLElement>('h2')];
-				const related = headings.find((heading) => heading.innerText.trim() === 'Related controls');
-				if (!related) continue;
-				// Obsidian's reading view wraps each top-level block in its own
-				// `div.el-*`, so the H2's own nextElementSibling is ALWAYS null and the
-				// old walk could never find the list. Walk the WRAPPER's siblings and
-				// look for the UL inside one. (Measured 2026-08-27: parent `DIV.el-h2`,
-				// h2 siblings `[]`.)
-				const block = (related.closest('.markdown-preview-section > *') as HTMLElement | null)
-					?? (related.parentElement as HTMLElement | null)
-					?? related;
-				let list: HTMLElement | null = null;
-				let cursor: HTMLElement | null = block.nextElementSibling as HTMLElement | null;
-				for (let i = 0; i < 6 && cursor && !list; i += 1) {
-					if (cursor.tagName === 'UL') list = cursor;
-					else if (cursor.querySelector('ul')) list = cursor.querySelector('ul');
-					else if (cursor.querySelector('h2')) break;
-					cursor = cursor.nextElementSibling as HTMLElement | null;
-				}
-				if (!list) continue;
+		// Deterministic proof (2026-10-02). The live reading view virtualizes a
+		// long document and can omit its tail, so the old walk over the live
+		// preview DOM was nondeterministic at corpus scale. Instead: take the
+		// note's `## Related controls` section from the file, render exactly that
+		// section with Obsidian's own MarkdownRenderer into a detached element,
+		// and check each rendered internal link against the metadata cache's
+		// link resolution. No lazily rendered tail is involved.
+		const relatedRender = await browser.executeObsidian(async ({ app, obsidian }, notePath) => {
+			const empty = { found: false, internalLinks: 0, unresolved: 0, listItems: 0, linkTexts: [] as string[], cacheUnresolved: -1 };
+			const file = app.vault.getAbstractFileByPath(notePath);
+			if (!file || !(file instanceof obsidian.TFile)) return empty;
+			const text = await app.vault.read(file);
+			const at = text.indexOf('## Related controls');
+			if (at === -1) return empty;
+			const rest = text.slice(at);
+			const nextHeading = rest.slice(1).search(/\n#{1,2} |\n<!-- crosswalker:body:end/);
+			const section = nextHeading === -1 ? rest : rest.slice(0, nextHeading + 1);
+			const host = document.createElement('div');
+			const component = new obsidian.Component();
+			component.load();
+			try {
+				await obsidian.MarkdownRenderer.render(app, section, host, notePath, component);
+				const list = host.querySelector('ul');
+				if (!list) return empty;
 				const anchors = [...list.querySelectorAll<HTMLElement>('a.internal-link')];
-				related.scrollIntoView({ block: 'start' });
+				const unresolved = anchors.filter((anchor) => {
+					const target = anchor.getAttribute('data-href') ?? anchor.getAttribute('href') ?? '';
+					return !app.metadataCache.getFirstLinkpathDest(target.split('#')[0], notePath);
+				}).length;
+				const cacheUnresolved = Object.keys(app.metadataCache.unresolvedLinks[notePath] ?? {}).length;
 				return {
 					found: true,
 					internalLinks: anchors.length,
-					unresolved: anchors.filter((anchor) => anchor.classList.contains('is-unresolved')).length,
+					unresolved,
 					listItems: list.querySelectorAll('li').length,
-					linkTexts: anchors.map((anchor) => anchor.innerText.trim()),
+					linkTexts: anchors.map((anchor) => (anchor.textContent ?? '').trim()),
+					cacheUnresolved,
 				};
+			} finally {
+				component.unload();
 			}
-			return { found: false, internalLinks: 0, unresolved: 0, listItems: 0, linkTexts: [] as string[] };
+		}, `${DESTINATION}/AC-1.md`);
+		metric('ac_1_related_cache_unresolved', relatedRender.cacheUnresolved);
+		// Best effort, for the capture only: bring the section into view if the
+		// live preview rendered it.
+		await browser.execute(() => {
+			const heading = [...document.querySelectorAll<HTMLElement>('.markdown-preview-view h2')]
+				.find((h) => h.innerText.trim() === 'Related controls');
+			heading?.scrollIntoView({ block: 'start' });
 		});
 		metric('ac_1_related_section_rendered', String(relatedRender.found));
 		metric('ac_1_related_internal_links_rendered', relatedRender.internalLinks);
@@ -558,6 +573,7 @@ describeScale('Crosswalker plugin — full NIST SP 800-53 Rev. 5 import scale pr
 		// that renders but points nowhere is the failure this proof exists to catch.
 		expect(relatedRender.internalLinks).toBe(policyRelated.length);
 		expect(relatedRender.unresolved).toBe(0);
+		expect(relatedRender.cacheUnresolved).toBe(0);
 		expect(relatedRender.linkTexts).toEqual(policyRelated);
 		await shot('b_related_links', 'nist-body-ac-1-related-links.png');
 
