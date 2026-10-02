@@ -37,7 +37,8 @@ The 2026-05-04 design phase concluded with five fresh-agent research challenges 
 │   ├── synthesis-log/     # Crosswalker zz-log discipline — architectural decisions
 │   ├── delivery-log/      # Per-milestone delivery-log discipline — what shipped + integration diagram
 │   ├── wikilink-crawl/    # Pre-design 2-hop crawl of linked docs (READ skill; pairs with WRITE skills)
-│   └── testing-patterns/  # Test pattern library
+│   ├── testing-patterns/  # Test pattern library
+│   └── ux-principles/     # Owner's product/UX principles as one checklist; passing it authorizes building UX
 ├── agents/                # Project-specific subagent definitions (committed)
 │   ├── pre-commit-reviewer.md  # Audits staged diff for alignment-with-conventions; flags CHANGELOG drift / missing logs / personal data / etc.
 │   └── milestone-starter.md    # Pre-work context briefing — crawls milestone page + dependencies + cited Ch NN sections; produces 1-page briefing before code starts
@@ -111,6 +112,7 @@ The canonical project KB is the docs site. For an agent new to the project:
 | **Pattern A test-vault structure** — repo root has src/ + docs/ + spec/ + test-vault/ as siblings; build outputs into `test-vault/.obsidian/plugins/crosswalker/` | Confirmed 2026-05-04 |
 | **Plugin ships only `main.js + manifest.json + styles.css`** — `tools/`, `spec/`, KB don't bloat releases | Confirmed 2026-05-04 |
 | **Manual testing entry point** — `TEST_HANDS_ON_TOUR.md` at repo root is the master surface-coverage checklist (supersedes per-phase TEST_*.md guides for full passes) | Added 2026-06-12 |
+| **Build UX that passes the principles; don't ask for direction** — load the `ux-principles` skill before any user-facing change. A design that passes its checklist is authorized: build, screenshot both themes, verify. Escalate only on a genuine principle conflict, an irreversible user-facing change, or a merge/release, and then as a decision card. Asking the owner to bless a direction the principles settle means the skill is missing something: add it there | Owner direction 2026-10-02; `.claude/skills/ux-principles/SKILL.md` |
 | **Screenshot Obsidian UI yourself — it IS automatable here** — real Obsidian runs via wdio + X11 (`bun run e2e:xvfb -- --spec tests/e2e/visual-*.spec.ts`; private Xvfb display since 2026-09-23 because `DISPLAY=:0` hangs on screenshots when the monitors sleep → PNGs in `test-screenshots/`, readable by agents; native Xwayland on Fedora since 2026-08-19, formerly WSLg). Visual-verify rendering with a screenshot before claiming "can't render headlessly" or asking the user to eyeball. Never conclude Obsidian can't be screenshotted. | Memory: `reference_obsidian_screenshots_via_wdio.md`; `testing-patterns` skill |
 
 ## Model tiering & delegation (how to spend the main session)
