@@ -48,11 +48,14 @@ import { outputRootPath, normalizeFolderSetting } from '../settings/folder-setti
 import { deriveFacetMemberships } from './mapping/facets';
 import {
 	bestRecognizedRecipe,
+	libraryRegistryEntry,
 	summarizeRecipeShapes,
 	RECIPE_REGISTRY,
 	type RecipeMatch,
 	type RecipeRegistryEntry,
 } from './recipe-registry';
+import { libraryRecognitionEntries, listLibrary, loadForImport } from './recipe-library';
+import { RecipeLibraryModal, SaveRecipeModal, obsidianRecipeLibraryFiles } from './recipe-library-modal';
 import { discoverImportSets, newSetSchemeFrom, settleVaultIndex, type DiscoveredImportSet, type ImportSetOption } from '../generation/import-set';
 import { suggestWorkbookBinding, type WorkbookSuggestion } from './workbook-suggestion';
 import { refreshRecipeProblem } from './stack/stack-model';
@@ -215,6 +218,17 @@ export class ImportFlow {
 	 *  again" affordance from the workspace view's installed-ontologies list,
 	 *  spec §7n item 3). Consumed once, on the first parsed file. */
 	presetRecipeId: string | null = null;
+	/** A saved or built-in recipe the user chose by hand (the recipe library's
+	 *  "Use for import", or Step 1 "Use a saved recipe"). Applied once a source
+	 *  is parsed. A deliberate choice, so it goes straight to review. */
+	presetLibraryRecipeId: string | null = null;
+	/** Display name of `presetLibraryRecipeId`, for the Step 1 hint line. */
+	private presetLibraryRecipeName: string | null = null;
+	/** Name of the recipe this session just saved, shown on the footer button
+	 *  until the next edit. */
+	private savedRecipeName: string | null = null;
+	/** Saved recipes as recognition candidates, refreshed before each recognition pass. */
+	private libraryRecognition: RecipeRegistryEntry[] = [];
 	/** Row selection handed off by the stack; never written into a bundled recipe. */
 	presetSourceWhere: string | null = null;
 	/** A vault file to pre-select on open (the file-explorer context-menu entry
@@ -421,6 +435,10 @@ export class ImportFlow {
 			this.jsonIterator = binding.iterator ?? '';
 		}
 		const ok = await this.reparseFromVault(file.path, file.name);
+		if (ok && this.presetLibraryRecipeId) {
+			await this.applyLibraryPreset();
+			return;
+		}
 		// The file-explorer context menu keeps its established Step-2 shortcut.
 		// A scan binding is an offer that must remain visible and editable in Step 1.
 		if (ok && binding === null) this.currentStep = 2;
@@ -764,8 +782,109 @@ export class ImportFlow {
 		const name = file.name.toLowerCase();
 		this.sourceType = name.endsWith('.csv') ? 'csv' : name.endsWith('.json') ? 'json' : 'xlsx';
 		const ok = await this.reparseFromVault(file.path, file.name);
+		if (ok && this.presetLibraryRecipeId) {
+			await this.applyLibraryPreset();
+			return;
+		}
 		if (ok) this.currentStep = 2;
 		this.renderStep();
+	}
+
+	/** Refresh saved recipes as recognition candidates. An unreadable library is empty here. */
+	private async loadLibraryRecognition(): Promise<void> {
+		try {
+			this.libraryRecognition = libraryRecognitionEntries(await listLibrary(obsidianRecipeLibraryFiles(this.app)));
+		} catch {
+			this.libraryRecognition = [];
+		}
+	}
+
+	/**
+	 * Apply a recipe the user chose by hand (library "Use for import" or Step 1
+	 * "Use a saved recipe") to the parsed source, then go to review. Returns
+	 * false, with an actionable notice, when the recipe is gone.
+	 */
+	private async applyLibraryPreset(): Promise<boolean> {
+		const id = this.presetLibraryRecipeId;
+		if (!id || !this.parsedData) return false;
+		this.presetLibraryRecipeId = null;
+		this.presetLibraryRecipeName = null;
+		const found = await loadForImport(obsidianRecipeLibraryFiles(this.app), id);
+		if (!found.ok) {
+			new Notice(`${found.cause} ${found.action}`, 8000);
+			this.renderStep();
+			return false;
+		}
+		const builtIn = found.origin === 'bundled' ? RECIPE_REGISTRY.find((e) => e.id === id) : undefined;
+		const entry = builtIn ?? libraryRegistryEntry(found.recipe);
+		this.recognizedMatch = { entry, score: 100 };
+		this.recognizedDismissed = false;
+		this.plugin.debug.info('wizard', 'library-recipe-chosen', `Chosen recipe "${id}"`, { recipeId: id, origin: found.origin });
+		await this.startRecognizedRecipe(3);
+		return true;
+	}
+
+	/** Step 1 "Use a saved recipe": pick from the library, then apply or wait for a source. */
+	private openSavedRecipePicker(): void {
+		new RecipeLibraryModal(this.app, {
+			mode: 'select',
+			outputRoot: outputRootPath(this.plugin.settings),
+			onUse: (id) => {
+				void (async () => {
+					const found = await loadForImport(obsidianRecipeLibraryFiles(this.app), id);
+					if (!found.ok) {
+						new Notice(`${found.cause} ${found.action}`, 8000);
+						return;
+					}
+					this.presetLibraryRecipeId = id;
+					this.presetLibraryRecipeName = found.name;
+					if (this.parsedData && !this.isParsing) await this.applyLibraryPreset();
+					else this.renderStep();
+				})();
+			},
+		}).open();
+	}
+
+	/** Step 3 and results screen "Save as recipe". */
+	private openSaveRecipe(): void {
+		if (!this.workbench) return;
+		const input = this.workbench.patchForSave();
+		const doc = input.document;
+		const stem = (this.sourceFile?.name ?? '').replace(/\.[^.]+$/, '');
+		const title = doc.origin === 'fresh' || doc.origin === 'legacy'
+			? null
+			: doc.original.metadata?.title ?? (this.recognizedMatch?.entry.label ?? null);
+		new SaveRecipeModal(this.app, input, {
+			defaultName: title ?? stem,
+			onSaved: (saved) => { void this.afterRecipeSaved(saved); },
+		}).open();
+	}
+
+	/**
+	 * Bind the workbench to the recipe just saved, so a second save in this
+	 * session prefills its name and offers `Replace "<name>"` instead of
+	 * quietly minting another recipe. The mapping stays exactly as it is.
+	 */
+	private async afterRecipeSaved(saved: { id: string; name: string }): Promise<void> {
+		const workbench = this.workbench;
+		if (!workbench) return;
+		const found = await loadForImport(obsidianRecipeLibraryFiles(this.app), saved.id);
+		if (!found.ok || found.origin !== 'user' || this.workbench !== workbench) return;
+		if (!workbench.rebindToSavedRecipe(found.recipe)) return;
+		this.savedRecipeName = found.name;
+		this.plugin.debug.info('wizard', 'recipe-saved-rebind', `Workbench bound to saved recipe "${saved.id}"`, { recipeId: saved.id });
+		this.scheduleDraftSave();
+		this.setSaveRecipeLabels();
+	}
+
+	private saveRecipeLabel(): string {
+		return this.savedRecipeName ? `Saved as "${this.savedRecipeName}"` : 'Save as recipe';
+	}
+
+	private setSaveRecipeLabels(): void {
+		const label = this.saveRecipeLabel();
+		this.host.containerEl.querySelectorAll<HTMLButtonElement>('button.crosswalker-save-as-recipe')
+			.forEach((button) => button.setText(label));
 	}
 
 	/**
@@ -891,6 +1010,29 @@ export class ImportFlow {
 			text: 'Finds CSV, XLSX, and JSON files even when the file explorer hides them.',
 			cls: 'setting-item-description',
 		});
+		const savedRow = container.createEl('div', { cls: 'crosswalker-saved-recipe-row' });
+		const savedBtn = savedRow.createEl('button', { text: 'Use a saved recipe', cls: 'crosswalker-use-saved-recipe' });
+		savedBtn.addEventListener('click', () => this.openSavedRecipePicker());
+		if (this.presetLibraryRecipeName) {
+			savedRow.createEl('span', {
+				cls: 'setting-item-description crosswalker-saved-recipe-pending',
+				text: `Using your recipe "${this.presetLibraryRecipeName}". Choose the source file.`,
+			});
+			const undo = savedRow.createEl('button', {
+				text: "Don't use it",
+				cls: 'mod-muted crosswalker-saved-recipe-clear',
+			});
+			undo.addEventListener('click', () => {
+				this.presetLibraryRecipeId = null;
+				this.presetLibraryRecipeName = null;
+				this.renderStep();
+			});
+		} else {
+			savedRow.createEl('span', {
+				cls: 'setting-item-description crosswalker-saved-recipe-hint',
+				text: 'Start from the shape of a recipe you saved before.',
+			});
+		}
 
 		// Secondary: a file from outside the vault via the OS picker.
 		const fileInputContainer = container.createEl('div', { cls: 'crosswalker-file-input' });
@@ -1369,7 +1511,7 @@ export class ImportFlow {
 				return;
 			}
 		}
-		this.recognizedMatch = bestRecognizedRecipe(this.parsedData.columns);
+		this.recognizedMatch = bestRecognizedRecipe(this.parsedData.columns, undefined, this.libraryRecognition);
 		if (this.recognizedMatch) {
 			this.plugin.debug.info('wizard', 'recognized-source', `Recognized "${this.recognizedMatch.entry.id}" (${this.recognizedMatch.score}% match)`, {
 				recipeId: this.recognizedMatch.entry.id,
@@ -1387,23 +1529,30 @@ export class ImportFlow {
 	private renderRecognizedSourceCard(container: HTMLElement): boolean {
 		if (!this.recognizedMatch || this.recognizedDismissed || this.appliedConfig) return false;
 		const { entry } = this.recognizedMatch;
+		const yours = entry.origin === 'user';
 
 		const card = container.createEl('div', { cls: 'crosswalker-recognized-card' });
+		if (yours) card.addClass('is-yours');
 
 		// Head — recognized name + provenance badge (Built-in vetted).
 		const head = card.createEl('div', { cls: 'crosswalker-recognized-head' });
 		const titleWrap = head.createEl('div', { cls: 'crosswalker-recognized-titlewrap' });
 		const icon = titleWrap.createSpan({ cls: 'crosswalker-recognized-ico' });
-		setIcon(icon, 'badge-check');
+		setIcon(icon, yours ? 'bookmark' : 'badge-check');
 		const titleText = titleWrap.createEl('div', { cls: 'crosswalker-recognized-titletext' });
 		titleText.createEl('div', { cls: 'crosswalker-recognized-eyebrow', text: 'Recognized source' });
-		titleText.createEl('div', { cls: 'crosswalker-recognized-title', text: entry.label });
-		const prov: Provenance = {
-			origin: 'built-in',
-			badge: 'Built-in',
-			recommended: true,
-			line: `${entry.label} · built-in configuration`,
-		};
+		titleText.createEl('div', {
+			cls: 'crosswalker-recognized-title',
+			text: yours ? `Looks like your recipe "${entry.label}". Use it?` : entry.label,
+		});
+		const prov: Provenance = yours
+			? { origin: 'yours', badge: 'Your recipe', recommended: false, line: `${entry.label} · your recipe` }
+			: {
+				origin: 'built-in',
+				badge: 'Built-in',
+				recommended: true,
+				line: `${entry.label} · built-in configuration`,
+			};
 		renderProvenanceBadge(head.createEl('div', { cls: 'crosswalker-recognized-badges' }), prov);
 
 		// What you get — one calm line: rows, the shapes, the destination, and
@@ -1412,7 +1561,7 @@ export class ImportFlow {
 		const shapes = summarizeRecipeShapes(entry);
 		const dest = resolveDestinationDefault(outputRootPath(this.plugin.settings), this.sourceFile?.name ?? null, entry);
 		const enrichment = honestEnrichment(entry);
-		card.createEl('p', { cls: 'crosswalker-recognized-desc', text: entry.description });
+		if (entry.description) card.createEl('p', { cls: 'crosswalker-recognized-desc', text: entry.description });
 		const summary = card.createEl('div', { cls: 'crosswalker-recognized-summary' });
 		summary.createSpan({ cls: 'crosswalker-recognized-metric', text: `${plural(rowCount, 'row')} to ${plural(rowCount, 'note')}` });
 		if (shapes.length) summary.createSpan({ cls: 'crosswalker-recognized-metric', text: shapes.join(', ') });
@@ -1429,7 +1578,7 @@ export class ImportFlow {
 
 		// Actions — one confident primary, escape hatches beside it.
 		const actions = card.createEl('div', { cls: 'crosswalker-recognized-actions' });
-		const importBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Import with this configuration' });
+		const importBtn = actions.createEl('button', { cls: 'mod-cta', text: yours ? 'Use this recipe' : 'Import with this configuration' });
 		importBtn.addEventListener('click', () => { void this.startRecognizedRecipe(3); });
 		const customizeBtn = actions.createEl('button', { text: 'Customize' });
 		customizeBtn.addEventListener('click', () => { void this.startRecognizedRecipe(2); });
@@ -1467,7 +1616,7 @@ export class ImportFlow {
 		// deferred/read-only field while exposing its editable mapping to the workbench.
 		// No curated overlay is applied here: an untouched recognized recipe must retain
 		// its original identity and target hash.
-		this.workbench = this.makeWorkbench(undefined, false, undefined, undefined, entry.recipe, 'bundled');
+		this.workbench = this.makeWorkbench(undefined, false, undefined, undefined, entry.recipe, entry.origin === 'user' ? 'user' : 'bundled');
 		this.pendingWorkbenchMapping = null;
 		this.pendingWorkbenchRecipe = null;
 		this.pendingWorkbenchRecipeOrigin = null;
@@ -1912,6 +2061,10 @@ export class ImportFlow {
 				// A user edit to a recipe-seeded workbench downgrades the fast-path
 				// provenance from "Built-in vetted" to "Custom (based on <recipe>)".
 				if (this.recognizedFastPath) this.recognizedEdited = true;
+				if (this.savedRecipeName) {
+					this.savedRecipeName = null;
+					this.setSaveRecipeLabels();
+				}
 				this.scheduleDraftSave();
 			},
 		});
@@ -2778,6 +2931,7 @@ export class ImportFlow {
 	private recognizedProvenance(): Provenance | null {
 		if (!this.recognizedFastPath || !this.recognizedMatch) return null;
 		const label = this.recognizedMatch.entry.label;
+		const yours = this.recognizedMatch.entry.origin === 'user';
 		if (this.recognizedEdited) {
 			return {
 				origin: 'custom',
@@ -2785,6 +2939,9 @@ export class ImportFlow {
 				recommended: false,
 				line: `${label} · custom · edited`,
 			};
+		}
+		if (yours) {
+			return { origin: 'yours', badge: 'Your recipe', recommended: false, line: `${label} · your recipe` };
 		}
 		return {
 			origin: 'built-in',
@@ -3610,6 +3767,10 @@ export class ImportFlow {
 		const footer = container.createEl('div', { cls: 'crosswalker-wizard-footer' });
 		// Back lives in the sticky top nav; the footer keeps a mirrored primary CTA
 		// so it's reachable after scrolling long content too (spec §7h #1).
+		if (this.currentStep === 3 && this.workbench) {
+			const saveBtn = footer.createEl('button', { text: this.saveRecipeLabel(), cls: 'crosswalker-save-as-recipe' });
+			saveBtn.addEventListener('click', () => this.openSaveRecipe());
+		}
 		footer.createEl('div', { cls: 'crosswalker-footer-spacer' });
 		this.createPrimaryButton(footer);
 	}
@@ -3906,9 +4067,15 @@ export class ImportFlow {
 				if (!this.parsedData) {
 					const parseSuccess = await this.parseSourceFile();
 					if (parseSuccess) {
+						// A recipe the user chose by hand wins over any guess.
+						if (this.presetLibraryRecipeId) {
+							await this.applyLibraryPreset();
+							return false;
+						}
 						// Recognized-source fast path (spec §7m): a confident vetted-recipe
 						// match holds on Step 1 to present the trust card as the lead.
 						if (!this.recognizedDismissed) {
+							await this.loadLibraryRecognition();
 							this.computeRecognizedMatch();
 							if (this.recognizedMatch) {
 								// Auto-apply gate (settings § Suggestions, "Skip the recognized
@@ -3917,7 +4084,9 @@ export class ImportFlow {
 								// configuration applied. Review stays mandatory either way —
 								// this never jumps straight to generate. Anything below 100
 								// always shows the card, regardless of this setting.
-								if (shouldAutoApplyRecognizedMatch(this.plugin.settings.autoApplyExactMatch, this.recognizedMatch.score)) {
+								// A saved recipe of yours is only ever offered, never applied silently.
+								if (this.recognizedMatch.entry.origin !== 'user'
+									&& shouldAutoApplyRecognizedMatch(this.plugin.settings.autoApplyExactMatch, this.recognizedMatch.score)) {
 									this.plugin.debug.info('wizard', 'recognized-auto-applied', `Auto-applied "${this.recognizedMatch.entry.id}" (100% match, card skipped)`, {
 										recipeId: this.recognizedMatch.entry.id,
 									});
@@ -4520,6 +4689,11 @@ export class ImportFlow {
 
 		// Close button
 		const footer = contentEl.createEl('div', { cls: 'crosswalker-wizard-footer' });
+		if (this.workbench) {
+			const saveBtn = footer.createEl('button', { text: this.saveRecipeLabel(), cls: 'crosswalker-save-as-recipe' });
+			saveBtn.addEventListener('click', () => this.openSaveRecipe());
+			footer.createEl('div', { cls: 'crosswalker-footer-spacer' });
+		}
 		const closeBtn = footer.createEl('button', { text: 'Close' });
 		closeBtn.addEventListener('click', () => this.host.close());
 	}
@@ -4535,7 +4709,7 @@ export class ImportFlow {
 export class ImportWizardModal extends Modal {
 	private flow: ImportFlow;
 
-	constructor(app: App, plugin: CrosswalkerPlugin, opts?: { presetRecipeId?: string; prefillFile?: TFile; prefillBinding?: PrefillBinding; sourceWhere?: string }) {
+	constructor(app: App, plugin: CrosswalkerPlugin, opts?: { presetRecipeId?: string; presetLibraryRecipeId?: string; prefillFile?: TFile; prefillBinding?: PrefillBinding; sourceWhere?: string }) {
 		super(app);
 		// Put workbench-specific shortcuts in a child scope. A child scope is consulted
 		// before its parent, so this wins over Modal's own Escape-to-close binding and
@@ -4559,6 +4733,7 @@ export class ImportWizardModal extends Modal {
 			},
 		});
 		if (opts?.presetRecipeId) this.flow.presetRecipeId = opts.presetRecipeId;
+		if (opts?.presetLibraryRecipeId) this.flow.presetLibraryRecipeId = opts.presetLibraryRecipeId;
 		if (opts?.sourceWhere) this.flow.presetSourceWhere = opts.sourceWhere;
 		if (opts?.prefillFile) this.flow.pendingPrefill = opts.prefillFile;
 		if (opts?.prefillBinding) this.flow.pendingPrefillBinding = opts.prefillBinding;

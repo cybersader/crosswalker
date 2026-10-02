@@ -191,6 +191,12 @@ export interface RecipeRegistryEntry {
 	headerAliases?: Record<string, string[]>;
 	/** The complete canonical recipe. Never trim this to workbench-only regions. */
 	recipe: CrosswalkerImportRecipe;
+	/**
+	 * Where the recipe comes from. Absent means built in (bundled). `user`
+	 * entries are the vault's saved recipe library: the wizard OFFERS them,
+	 * never auto-applies them, and starts their workbench with origin 'user'.
+	 */
+	origin?: 'built-in' | 'user';
 }
 
 /** Result of scoring one entry against a source. */
@@ -710,6 +716,33 @@ function toEntry(raw: unknown): RecipeRegistryEntry {
 }
 
 /**
+ * Build a registry entry for a recipe from the vault's saved recipe library.
+ * Reuses the bundled signature derivation so a saved recipe is recognized by
+ * exactly the same rule as a built-in one. Curated defaults (destination
+ * folder, header aliases, source guidance) are inherited from the recipe it
+ * was based on when that is a built-in recipe; the label is the saved name.
+ */
+export function libraryRegistryEntry(recipe: CrosswalkerImportRecipe): RecipeRegistryEntry {
+	const base = toEntry(recipe);
+	const ancestorId = recipe.metadata?.based_on?.recipe;
+	const ancestor = ancestorId ? RECIPE_REGISTRY.find((entry) => entry.id === ancestorId) : undefined;
+	const title = recipe.metadata?.title?.trim();
+	return {
+		...base,
+		label: title && title.length > 0 ? title : recipe.recipe,
+		description: recipe.metadata?.description?.trim() ?? '',
+		ontologyAliases: ancestor?.ontologyAliases ?? base.ontologyAliases,
+		idPattern: ancestor?.idPattern ?? base.idPattern,
+		suggestedFolder: ancestor?.suggestedFolder ?? base.suggestedFolder,
+		recommendedEnrichment: ancestor?.recommendedEnrichment ?? base.recommendedEnrichment,
+		sourceLink: ancestor?.sourceLink,
+		docsUrl: ancestor?.docsUrl ?? base.docsUrl,
+		...(ancestor?.headerAliases ? { headerAliases: ancestor.headerAliases } : {}),
+		origin: 'user',
+	};
+}
+
+/**
  * The recognized-source registry. Declaration order is the tiebreak for equal
  * scores, so richer/more-specific recipes (the nested CPRT export) are listed
  * before their flatter siblings.
@@ -785,8 +818,15 @@ export function isGenericRecipe(entry: RecipeRegistryEntry): boolean {
 export function findRecognizedRecipes(
 	columns: string[],
 	sampleRows?: Record<string, unknown>[],
+	library: RecipeRegistryEntry[] = [],
 ): RecipeMatch[] {
-	const scored: (RecipeMatch & { order: number })[] = RECIPE_REGISTRY.filter(isGenericRecipe).map((entry, order) => ({
+	// Saved library recipes come first so they outrank a built-in recipe at an
+	// equal score: a user's own saved setup is the more specific answer.
+	const candidates = [
+		...library.map((entry) => ({ ...entry, origin: 'user' as const })),
+		...RECIPE_REGISTRY.filter(isGenericRecipe),
+	];
+	const scored: (RecipeMatch & { order: number })[] = candidates.map((entry, order) => ({
 		entry,
 		score: matchScore(entry, columns, sampleRows),
 		order,
@@ -795,6 +835,9 @@ export function findRecognizedRecipes(
 		.filter((m) => m.score >= CANDIDATE_FLOOR)
 		.sort((a, b) => {
 			if (b.score !== a.score) return b.score - a.score;
+			const aUser = a.entry.origin === 'user' ? 1 : 0;
+			const bUser = b.entry.origin === 'user' ? 1 : 0;
+			if (aUser !== bUser) return bUser - aUser;
 			if (b.entry.structuralDepth !== a.entry.structuralDepth) {
 				return b.entry.structuralDepth - a.entry.structuralDepth;
 			}
@@ -810,8 +853,9 @@ export function findRecognizedRecipes(
 export function bestRecognizedRecipe(
 	columns: string[],
 	sampleRows?: Record<string, unknown>[],
+	library: RecipeRegistryEntry[] = [],
 ): RecipeMatch | null {
-	const best = findRecognizedRecipes(columns, sampleRows)[0];
+	const best = findRecognizedRecipes(columns, sampleRows, library)[0];
 	return best && best.score >= CONFIDENT_MATCH_THRESHOLD ? best : null;
 }
 

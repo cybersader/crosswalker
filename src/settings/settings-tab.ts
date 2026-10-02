@@ -36,6 +36,8 @@ import {
 	DEFAULT_TIER2_SIDECAR_PATH,
 	tier2SidecarPath,
 } from './folder-settings';
+import { builtInRecipes, listLibrary } from '../import/recipe-library';
+import { obsidianRecipeLibraryFiles } from '../import/recipe-library-modal';
 import type { Enrichment } from '../import/mapping/types';
 import {
 	buildParentPlacementPreview,
@@ -285,6 +287,13 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 					return n === 0 ? 'None saved yet' : `${n} saved`;
 				},
 				render: (root) => this.renderSavedConfigs(root),
+			},
+			{
+				id: 'import-recipes',
+				title: 'Import recipes',
+				icon: 'book-open',
+				summary: () => 'Reuse and share import setups',
+				render: (root) => this.renderImportRecipes(root),
 			},
 		];
 	}
@@ -1280,6 +1289,31 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 				cls: 'setting-item-description',
 			});
 		}
+	}
+
+	private renderImportRecipes(root: HTMLElement): void {
+		new Setting(root).setName('Import recipes').setHeading();
+		const row = new Setting(root)
+			.setName('Your recipes')
+			.setDesc('Counting saved recipes...')
+			.addButton((btn) =>
+				btn
+					.setButtonText('Open')
+					.setCta()
+					.onClick(() => this.plugin.openRecipeLibrary()),
+			);
+		void listLibrary(obsidianRecipeLibraryFiles(this.app)).then((listing) => {
+			const n = listing.entries.length;
+			const built = builtInRecipes().length;
+			const builtLabel = `${built} built-in recipe${built === 1 ? ' is' : 's are'}`;
+			const summary = n === 0
+				? `No saved recipes yet. ${builtLabel} ready to use; save your own from the import wizard review step.`
+				: `${n} saved recipe${n === 1 ? '' : 's'} and ${built} built in.`;
+			const unread = listing.problems.length > 0
+				? ` ${listing.problems.length} file${listing.problems.length === 1 ? '' : 's'} could not be read; open the list to see why.`
+				: '';
+			row.setDesc(`${summary}${unread}`);
+		});
 	}
 
 	// =========================================================================
