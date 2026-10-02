@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Seventh prerelease preparation, 0.1.6 (2026-10-02)
+
+- Prepared version `0.1.6` as the seventh BRAT prerelease, carrying the mapping storage choice (notes or one table per set), resumable conversion, the mapping review view, stack profiles and the early refusal of malformed mapping ids on top of `0.1.5`. `minAppVersion` stays `1.10.0`; `versions.json` gains the `0.1.6` entry. The user-facing notes live under `## [0.1.6]` near the end of this file.
+
+### Fixed: selected rows stand out in the mapping review (2026-10-02)
+
+- Selected rows in the **Mapping review** grid now carry an accent tint that reads clearly in both light and dark themes; before, the dark theme left them nearly indistinguishable from other rows.
+- Test fix: the from-slot refresh end-to-end test now expects the crosswalk link to stay "already up to date" when only a concept's statement text changes (the link's content does not depend on it), and proves the refresh ran by checking the updated concept note.
+
 ### Fixed: mapping rows with malformed ids are refused up front (2026-09-30)
 
 - A crosswalk mapping import now checks every subject and object id against the identifier shape Crosswalker stores (`lowercase prefix:local part`, letters, digits, `. _ - ( ) /`) before it resolves endpoints or writes anything, in both notes and table form. A bad row used to fail late with a raw validation message; it now stops the import with the row numbers, the offending values and what to do.
@@ -1707,6 +1716,23 @@ AJV (Ajv2020) + ajv-formats wired into plugin startup; `spec/*.schema.json` comp
 - Ch 26 — Transform engine depth + input formats (resolved 2026-05-05)
 
 ---
+
+## [0.1.6] - 2026-10-02
+
+Seventh public prerelease. Still intended for early testing in backup or test vaults, not production-critical use.
+
+### What changed since 0.1.5
+
+- **Store a mapping set as one table.** When a stack or a crosswalk import creates a mapping set, choose **Notes** (one note per mapping, the default) or **Table** (one `.mapping-table.tsv` file that opens in any spreadsheet). A table set does not appear in Bases views, graph view or backlinks; the screen says so when you pick it. A new setting, **Default mapping storage**, sets the starting choice.
+- **Switch a set between the two forms.** In Installed stacks, **Convert to table** or **Convert to notes**. The new form is written and checked before the old one moves to the vault trash, and an interrupted conversion can be finished or cancelled on the next start.
+- **Review a table inside Obsidian.** The **Mapping review** view is a searchable, sortable grid for setting review status, reviewer and notes, row by row or in bulk. Saves are checked by reading the file back.
+- **Stack profiles.** The stack setup opens with **Light**, **Standard** or **Complete**, shorthand for detail level, mapping storage and optional mappings.
+- **Bad mapping ids are caught early.** A mapping import with ids Crosswalker cannot store now stops before writing anything and names the rows and values to fix.
+
+### Requirements
+
+- Obsidian 1.10.0 or newer.
+- Install through BRAT (add `cybersader/crosswalker`) or copy `main.js`, `manifest.json`, and `styles.css` into `.obsidian/plugins/crosswalker/`.
 
 ## [0.1.5] - 2026-09-29
 
