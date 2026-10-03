@@ -340,7 +340,7 @@ describe('runRecognizedImport', () => {
 		expect(tier2Plugin.precomputeClosure).toHaveBeenCalledWith('cri-profile', 'nist-csf-2');
 		expect([...harness.files.keys()].filter((path) =>
 			path.startsWith('_crosswalker/mappings/cri-profile-to-nist-csf-2/'),
-		)).toHaveLength(5);
+		)).toHaveLength(6); // five links plus the link set's release record note
 	});
 
 	it('returns the indexing error and writes nothing while markdown remains unindexed', async () => {

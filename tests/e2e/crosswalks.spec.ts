@@ -420,7 +420,9 @@ describe('Crosswalker plugin — v0.1.4 junction notes + crosswalk edges', funct
 		expect(first.summary?.join(' ')).toMatch(/Import p2target concepts/);
 		const firstEdges = await browser.executeObsidian(async ({ app }, dir) => {
 			const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${dir}/`));
-			return Promise.all(files.map(async (file) => ({ path: file.path, body: await app.vault.read(file) })));
+			const read = await Promise.all(files.map(async (file) => ({ path: file.path, body: await app.vault.read(file) })));
+			// Edge notes only: the folder also holds the set's release record note (kind: mapping-set).
+			return read.filter((entry) => !/^kind: ["']?mapping-set["']?$/m.test(entry.body));
 		}, edgeDir);
 		expect(firstEdges).toHaveLength(2);
 		expect(firstEdges.some((e) => e.body.includes(`[[${subjectPath.replace(/\.md$/, '')}|Subject]] is_equivalent_to [[${firstObjectPath.replace(/\.md$/, '')}|First]]`))).toBe(true);
@@ -451,7 +453,8 @@ describe('Crosswalker plugin — v0.1.4 junction notes + crosswalk edges', funct
 		expect(second.summary).toEqual([]);
 		const skippedEdges = await browser.executeObsidian(async ({ app }, dir) => {
 			const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${dir}/`));
-			return Promise.all(files.map(async (file) => await app.vault.read(file)));
+			const bodies = await Promise.all(files.map(async (file) => await app.vault.read(file)));
+			return bodies.filter((body) => !/^kind: ["']?mapping-set["']?$/m.test(body));
 		}, edgeDir);
 		expect(skippedEdges).toHaveLength(2);
 		expect(skippedEdges.some((body) => body.includes('`p2target:Second`') && !body.includes('object_note:'))).toBe(true);
@@ -468,7 +471,8 @@ describe('Crosswalker plugin — v0.1.4 junction notes + crosswalk edges', funct
 		expect(replaced.summary).toEqual([]);
 		const refreshedEdges = await browser.executeObsidian(async ({ app }, dir) => {
 			const files = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${dir}/`));
-			return Promise.all(files.map(async (file) => await app.vault.read(file)));
+			const bodies = await Promise.all(files.map(async (file) => await app.vault.read(file)));
+			return bodies.filter((body) => !/^kind: ["']?mapping-set["']?$/m.test(body));
 		}, edgeDir);
 		expect(refreshedEdges).toHaveLength(2);
 		expect(refreshedEdges.every((body) => body.includes(`id: ${firstEdgeSet}`))).toBe(true);

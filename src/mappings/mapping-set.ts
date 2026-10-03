@@ -508,6 +508,84 @@ export async function writeMappingSetNote(
 	return path;
 }
 
+/** The `_crosswalker` block of one mapping note of `setId` under `folder`, read raw (never a stale cache). */
+export async function mappingNoteProvenance(app: App, setId: string, folder: string): Promise<Record<string, unknown> | undefined> {
+	const base = normalizeFolderSetting(folder);
+	const files = [...app.vault.getMarkdownFiles()]
+		.filter((file) => !base || file.path.startsWith(`${base}/`))
+		.sort((a, b) => a.path.localeCompare(b.path));
+	for (const file of files) {
+		const read = await readNoteFrontmatterState(app, file);
+		if (read.state !== 'ok') continue;
+		const fm = read.frontmatter;
+		if (fm.kind !== 'crosswalk-edge') continue;
+		if (importSetIdOf(fm._crosswalker) !== setId) continue;
+		return fm._crosswalker as Record<string, unknown>;
+	}
+	return undefined;
+}
+
+/** Key-sorted JSON, so two YAML round trips of one object compare equal. */
+function canonicalJson(value: unknown): string {
+	const sort = (item: unknown): unknown => {
+		if (Array.isArray(item)) return item.map(sort);
+		if (item && typeof item === 'object') {
+			return Object.fromEntries(Object.keys(item as Record<string, unknown>).sort()
+				.map((key) => [key, sort((item as Record<string, unknown>)[key])]));
+		}
+		return item;
+	};
+	return JSON.stringify(sort(value));
+}
+
+function withoutProducedAt(block: unknown): unknown {
+	if (!block || typeof block !== 'object') return block;
+	const rest = { ...(block as Record<string, unknown>) };
+	delete rest.produced_at;
+	return rest;
+}
+
+/** What writing a notes-form set's release record did. */
+export type ReleaseRecordNoteOutcome =
+	| { state: 'written' | 'unchanged'; path: string }
+	/** None of the set's mapping notes could be read yet, so the record has no provenance to carry. */
+	| { state: 'no-mapping-note' };
+
+/**
+ * Write the notes-form release record of `record`'s set in `folder`, once its
+ * mapping notes exist. The set note's `_crosswalker` block is the one a mapping
+ * note of the same set carries, so discovery reads one consistent set. A set
+ * note that already holds this record and provenance is left untouched, so a
+ * refresh that changes nothing writes nothing. Shared by every producer of a
+ * notes-form mapping set (the mapping file importer and recipe crosswalk
+ * columns); write errors propagate for the caller to phrase.
+ */
+export async function writeReleaseRecordForNoteSet(
+	app: App,
+	folder: string,
+	record: MappingSetRecord,
+): Promise<ReleaseRecordNoteOutcome> {
+	const edgeProvenance = await mappingNoteProvenance(app, record.importSetId, folder);
+	if (!edgeProvenance) return { state: 'no-mapping-note' };
+	const provenance = setNoteProvenance(edgeProvenance);
+	const existing = await findMappingSetNotes(app, record.importSetId, { folder });
+	if (existing.length === 1) {
+		let held: MappingSetRecord | undefined;
+		try {
+			held = mappingSetFromStored(existing[0].frontmatter, record.importSetId, existing[0].file.path);
+		} catch {
+			held = undefined; // A malformed record is rewritten below.
+		}
+		if (held
+			&& canonicalJson(storedMappingSet(held)) === canonicalJson(storedMappingSet(record))
+			&& canonicalJson(withoutProducedAt(existing[0].frontmatter._crosswalker)) === canonicalJson(withoutProducedAt(provenance))) {
+			return { state: 'unchanged', path: existing[0].file.path };
+		}
+	}
+	const path = await writeMappingSetNote(app, { folder, record, provenance });
+	return { state: 'written', path };
+}
+
 // ---------------------------------------------------------------------------
 // Observed participants (M7)
 // ---------------------------------------------------------------------------

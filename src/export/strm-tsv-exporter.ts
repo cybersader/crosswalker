@@ -37,6 +37,16 @@
  * equivalent — OLIR's five types are Subset / Superset / Equal / Intersects /
  * Not Related (see docs/.../reference/registry/olir.mdx), with no "close but
  * not equal" concept. Falls back to "intersects with", documented below.
+ *
+ * Release file (v0.1.7 Track 3 slice 2, ruling S1). The TSV stays the seven
+ * template columns and nothing else, so it opens cleanly in a spreadsheet.
+ * When the exported set has a release record, the caller writes a companion
+ * `<same stem>.mapping-set.json` beside it: the stored record (digests
+ * included) plus `format` and `typed_table`. `src/import/strm-importer.ts`
+ * reads it back. A set without a record gets no companion. The membership
+ * fingerprint is recomputed over the rows written (S6): explicit negations
+ * (`predicate_modifier: NOT`) and lineage rows are skipped above, so a set
+ * holding any of them always exports `recorded-partial`.
  */
 
 import Papa from 'papaparse';
@@ -46,6 +56,14 @@ import {
 	LINEAGE_NOT_REPRESENTABLE_REASON,
 	isLineagePredicate,
 } from '../tier2/predicate-characteristics';
+import { storedMappingSet, type MappingSetAssertionFacts, type MappingSetRecord } from '../mappings/mapping-set';
+import {
+	edgeConfidence,
+	edgeMembershipFacts,
+	recordOfExportedSet,
+	releaseRecordState,
+	type ReleaseRecordState,
+} from './exported-set-record';
 
 /**
  * STRM predicate_id → OLIR "Relationship" label. Reverse of the OLIR_TO_SKOS
@@ -59,7 +77,7 @@ import {
  * own explicit "no_relationship", respectively) — both fall back per OLIR's
  * closest available type, documented lossy.
  */
-const STRM_TO_OLIR: Record<string, string> = {
+export const STRM_TO_OLIR: Readonly<Record<string, string>> = {
 	is_equivalent_to: 'equal',
 	is_narrower_than: 'subset of',
 	is_broader_than: 'superset of',
@@ -68,7 +86,7 @@ const STRM_TO_OLIR: Record<string, string> = {
 	no_relationship: 'not related',
 };
 
-const STRM_COLUMNS = [
+export const STRM_COLUMNS = [
 	'Focal Document',
 	'Focal Document Element',
 	'Reference Document',
@@ -83,12 +101,36 @@ export interface StrmExportOptions {
 	focalDocument?: string;
 	/** Override the `Reference Document` column (default: per-row `target_framework` frontmatter, else the object CURIE prefix). */
 	referenceDocument?: string;
+	/** The exported set's release record, written as the companion release file (S1). */
+	record?: MappingSetRecord;
 }
 
 export interface StrmExportResult {
 	tsv: string;
 	rowCount: number;
 	skipped: SkippedNote[];
+	/** Absent only from hand-built results (test seams); read as `derived`. */
+	release_record?: ReleaseRecordState;
+	/** The release record the companion file carries; absent when the set has none. */
+	record?: MappingSetRecord;
+}
+
+/** The `format` value of a typed mapping table's release file. */
+export const STRM_RELEASE_FILE_FORMAT = 'crosswalker-mapping-set-v1';
+
+/** The release file beside a typed mapping table: `<same stem>.mapping-set.json` (S1). */
+export function releaseFilePathFor(tsvPath: string): string {
+	return `${tsvPath.replace(/\.tsv$/i, '')}.mapping-set.json`;
+}
+
+/**
+ * The release file's text: the stored record (exactly what a mapping table's
+ * `mapping_set` header key holds, digests included) with `format` and
+ * `typed_table` (the table's file name) first. Deterministic.
+ */
+export function strmReleaseFileContent(record: MappingSetRecord, typedTableBasename: string): string {
+	const content = { format: STRM_RELEASE_FILE_FORMAT, typed_table: typedTableBasename, ...storedMappingSet(record) };
+	return `${JSON.stringify(content, null, '\t')}\n`;
 }
 
 function localOf(curie: string): string {
@@ -112,6 +154,7 @@ function asString(v: unknown): string | undefined {
 export function crosswalkEdgesToStrmTsv(edges: CrosswalkEdgeRow[], options: StrmExportOptions = {}): StrmExportResult {
 	const skipped: SkippedNote[] = [];
 	const rows: Record<string, string>[] = [];
+	const exportedFacts: MappingSetAssertionFacts[] = [];
 
 	const sorted = [...edges].sort((a, b) => a.path.localeCompare(b.path));
 	for (const edge of sorted) {
@@ -134,9 +177,13 @@ export function crosswalkEdgesToStrmTsv(edges: CrosswalkEdgeRow[], options: Strm
 			continue;
 		}
 		const relationship = STRM_TO_OLIR[edge.predicate_id] ?? 'intersects with';
-		const strength =
-			edge.match_confidence !== undefined ? String(Math.round(edge.match_confidence * 10)) : '';
+		// Read like the crosswalk mapping file export does (slice 2): notes from
+		// that importer store confidence as `sssom_confidence`, and reading only
+		// `match_confidence` exported their strength as empty.
+		const confidence = edgeConfidence(edge);
+		const strength = confidence !== undefined ? String(Math.round(confidence * 10)) : '';
 
+		exportedFacts.push(edgeMembershipFacts(edge, ''));
 		rows.push({
 			'Focal Document': options.focalDocument ?? asString(edge.frontmatter.source_framework) ?? curiePrefix(edge.subject_id),
 			'Focal Document Element': localOf(edge.subject_id),
@@ -149,7 +196,13 @@ export function crosswalkEdgesToStrmTsv(edges: CrosswalkEdgeRow[], options: Strm
 	}
 
 	const body = Papa.unparse(rows, { columns: [...STRM_COLUMNS], delimiter: '\t', newline: '\n' });
-	return { tsv: `${body}\n`, rowCount: rows.length, skipped };
+	return {
+		tsv: `${body}\n`,
+		rowCount: rows.length,
+		skipped,
+		release_record: releaseRecordState(options.record, exportedFacts),
+		...(options.record ? { record: options.record } : {}),
+	};
 }
 
 /** Walk `rootPath` and export every crosswalk-edge note found under it as an OLIR/STRM-shaped TSV. */
@@ -159,7 +212,8 @@ export async function exportFolderAsStrmTsv(
 	options: StrmExportOptions = {},
 ): Promise<StrmExportResult> {
 	const tree = await readVaultTree(app, rootPath);
-	const result = crosswalkEdgesToStrmTsv(tree.crosswalkEdges, options);
+	const record = options.record ?? await recordOfExportedSet(app, tree.crosswalkEdges);
+	const result = crosswalkEdgesToStrmTsv(tree.crosswalkEdges, record ? { ...options, record } : options);
 	result.skipped.push(...tree.skipped);
 	return result;
 }

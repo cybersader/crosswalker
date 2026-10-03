@@ -14,7 +14,7 @@ import { importSssom } from '../src/import/sssom-importer';
 import { parseSssomTsv } from '../src/import/sssom-parser';
 import { parseMappingTable, serializeMappingTable } from '../src/mappings/mapping-table';
 import { discoverImportSets, type DiscoveredImportSet } from '../src/generation/import-set';
-import { readMappingSet, type MappingSetRecord } from '../src/mappings/mapping-set';
+import { computeMappingSetDigests, readMappingSet, type MappingSetRecord } from '../src/mappings/mapping-set';
 import { crosswalkEdgesToSssomTsv, exportFolderAsSssomTsv, releaseRecordLine } from '../src/export/sssom-exporter';
 import { NO_RELEASE_RECORD_TEXT, releaseSectionOf } from '../src/views/mapping-review-helpers';
 import { releaseListingLine } from '../src/import/stack/installed-stacks';
@@ -217,9 +217,10 @@ describe('exporter: recorded or derived', () => {
 			object_id: 'demo-b:Y-1', mapping_set_id: 'row-level-id', mapping_provider: 'Row provider', tags: [], frontmatter: {},
 		};
 		expect(crosswalkEdgesToSssomTsv([edge]).release_record).toBe('derived');
+		// Slice 2 (S6): the record must describe the exported rows to read `recorded`.
 		const record: MappingSetRecord = {
-			mapping_set_id: SET_ID, id_origin: 'declared', mapping_set_version: '2026.1', assertion_count: 1,
-			membership_digest: `sha256-${'0'.repeat(64)}`, content_digest: `sha256-${'0'.repeat(64)}`, importSetId: 'iset',
+			mapping_set_id: SET_ID, id_origin: 'declared', mapping_set_version: '2026.1', importSetId: 'iset',
+			...computeMappingSetDigests([{ subject_id: edge.subject_id, predicate_id: edge.predicate_id, object_id: edge.object_id }]),
 		};
 		const recorded = crosswalkEdgesToSssomTsv([edge], { record });
 		expect(recorded.release_record).toBe('recorded');

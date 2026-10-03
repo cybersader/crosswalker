@@ -23,10 +23,12 @@
  */
 import { plural } from '../utils/plural';
 
-import { App, Modal, Notice, Setting, TFile } from 'obsidian';
+import { App, ButtonComponent, Modal, Notice, Setting, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../main';
 import { detectOntologyPair, parseSssomTsv } from './sssom-parser';
 import { importSssom, SSSOM_CURIE_PREFIX, type SssomImportResult } from './sssom-importer';
+import { runImportStrm, strmToSssomDocument, type StrmReleaseFile } from './strm-importer';
+import { releaseFilePathFor } from '../export/strm-tsv-exporter';
 import {
 	discoverImportSets,
 	newSetSchemeFor,
@@ -60,6 +62,26 @@ function tableOutcomeText(result: SssomImportResult): string {
 	const refresh = result.reviewCarried !== undefined || result.rowsDropped !== undefined;
 	return `Wrote 1 mapping table, ${plural(result.rowsWritten ?? 0, 'row')}${result.tablePath ? `, at ${result.tablePath}` : ''}.${
 		refresh ? ` ${plural(result.reviewCarried ?? 0, 'review')} carried, ${plural(result.rowsDropped ?? 0, 'row')} dropped.` : ''}`;
+}
+
+/**
+ * Which file this modal imports. `typed-table` (v0.1.7 Track 3 slice 2) is the
+ * typed mapping table: the same destination, form and refresh choices, reached
+ * through the adapter in strm-importer.ts. Its preview runs on the converted
+ * crosswalk mapping file, so both kinds show the same facts.
+ */
+export type ImportFileKind = 'mapping-file' | 'typed-table';
+
+/**
+ * A shared importer message in typed mapping table words: the internal format
+ * names become the user-facing ones. Exported for tests.
+ */
+export function typedTableWording(text: string): string {
+	return text
+		.replace(/\bSSSOM (file|TSV)\b/g, 'table')
+		.replace(/\bSSSOM\b/g, 'crosswalk mapping file')
+		.replace(/SKOS→STRM/g, 'relationship')
+		.replace(/\bSTRM\b/g, 'Crosswalker');
 }
 
 /** Source for the SSSOM TSV content. */
@@ -117,34 +139,70 @@ export class SssomImportModal extends Modal {
 	private mappingFormChoice: MappingForm | null = null;
 	/** The set the last preview showed as being refreshed, or null for a new set. */
 	private previewRefreshSet: DiscoveredImportSet | null = null;
+	/** The Import button, enabled once a preview is ready. */
+	private importButton: ButtonComponent | null = null;
+	/** Typed tables only: the picked or pasted table as the user gave it. */
+	private typedTableText: string | null = null;
+	/** Typed tables only: the release file found beside the picked table. */
+	private releaseFile: StrmReleaseFile | null = null;
 
-	constructor(app: App, plugin: CrosswalkerPlugin) {
+	constructor(app: App, plugin: CrosswalkerPlugin, private readonly fileKind: ImportFileKind = 'mapping-file') {
 		super(app);
 		this.plugin = plugin;
 	}
 
+	private get typed(): boolean {
+		return this.fileKind === 'typed-table';
+	}
+
+	/**
+	 * Text from the shared importer, worded for the surface showing it. The
+	 * typed table path converts to a crosswalk mapping file internally, so a
+	 * message written for that path must not name the file formats there.
+	 */
+	private say(text: string): string {
+		return this.typed ? typedTableWording(text) : text;
+	}
+
+	/** The run's name in notices. */
+	private get runLabel(): string {
+		return this.typed ? 'Typed mapping table import' : 'SSSOM import';
+	}
+
 	onOpen() {
 		this.contentEl.empty();
-		this.contentEl.createEl('h2', { text: 'Import SSSOM mapping file' });
+		if (this.typed) {
+			this.contentEl.createEl('h2', { text: 'Import typed mapping table' });
+			this.contentEl.createEl('p', {
+				text:
+					'A typed mapping table lists one mapping per row: focal element, reference element, relationship, ' +
+					'strength and rationale. Crosswalker imports each row as a mapping in your vault. A release file ' +
+					'exported beside the table is read automatically and keeps the release name, version and license.',
+			});
+		} else {
+			this.contentEl.createEl('h2', { text: 'Import SSSOM mapping file' });
 
-		this.contentEl.createEl('p', {
-			text:
-				'SSSOM is the open-standard TSV format for sharing ontological mappings. ' +
-				'Used by BioPortal, OxO, OBO Foundry, and Biomappings. Crosswalker imports SSSOM ' +
-				'mappings as crosswalk-edge junction notes in your vault.',
-		});
+			this.contentEl.createEl('p', {
+				text:
+					'SSSOM is the open-standard TSV format for sharing ontological mappings. ' +
+					'Used by BioPortal, OxO, OBO Foundry, and Biomappings. Crosswalker imports SSSOM ' +
+					'mappings as crosswalk-edge junction notes in your vault.',
+			});
+		}
 
 		// Step 1: Source selection
 		new Setting(this.contentEl)
-			.setName('Source TSV file')
-			.setDesc('Pick a .sssom.tsv file from your vault, or paste TSV content directly.')
+			.setName(this.typed ? 'Source table file' : 'Source TSV file')
+			.setDesc(this.typed
+				? 'Pick a typed mapping table (.tsv) from your vault, or paste its content.'
+				: 'Pick a .sssom.tsv file from your vault, or paste TSV content directly.')
 			.addButton((btn) =>
 				btn.setButtonText('Pick from vault').onClick(() => {
 					this.openFilePicker();
 				}),
 			)
 			.addButton((btn) =>
-				btn.setButtonText('Paste TSV').onClick(() => {
+				btn.setButtonText(this.typed ? 'Paste table' : 'Paste TSV').onClick(() => {
 					this.openPasteEditor();
 				}),
 			);
@@ -156,7 +214,7 @@ export class SssomImportModal extends Modal {
 		const buttonBar = this.contentEl.createDiv({ cls: 'modal-button-container' });
 		new Setting(buttonBar)
 			.addButton((btn) =>
-				btn
+				(this.importButton = btn)
 					.setButtonText('Import')
 					.setCta()
 					.setDisabled(true)
@@ -168,20 +226,27 @@ export class SssomImportModal extends Modal {
 	}
 
 	private async openFilePicker() {
-		const tsvFiles = this.app.vault.getFiles().filter((f: TFile) => f.path.endsWith('.sssom.tsv') || f.path.endsWith('.tsv'));
+		// A typed table never is a crosswalk mapping file or Crosswalker's own
+		// stored mapping table, so those are left out of its list.
+		const tsvFiles = this.app.vault.getFiles().filter((f: TFile) => this.typed
+			? f.path.endsWith('.tsv') && !f.path.endsWith('.sssom.tsv') && !f.path.endsWith('.mapping-table.tsv')
+			: f.path.endsWith('.sssom.tsv') || f.path.endsWith('.tsv'));
 		if (tsvFiles.length === 0) {
-			new Notice('No .tsv or .sssom.tsv files found in this vault. Add one or use Paste TSV.');
+			new Notice(this.typed
+				? 'No .tsv files found in this vault. Add a typed mapping table to the vault, or use Paste table.'
+				: 'No .tsv or .sssom.tsv files found in this vault. Add one or use Paste TSV.');
 			return;
 		}
 
 		const pickerModal = new Modal(this.app);
-		pickerModal.contentEl.createEl('h3', { text: 'Pick SSSOM TSV file' });
+		pickerModal.contentEl.createEl('h3', { text: this.typed ? 'Pick a typed mapping table' : 'Pick SSSOM TSV file' });
 		for (const f of tsvFiles) {
 			new Setting(pickerModal.contentEl).setName(f.path).addButton((btn) =>
 				btn.setButtonText('Select').onClick(async () => {
 					const content = await this.app.vault.read(f);
 					this.source = { kind: 'vault-file', path: f.path };
-					this.parsedTsv = content;
+					if (this.typed) await this.useTypedTable(content, f.path);
+					else this.parsedTsv = content;
 					await this.refreshPreview();
 					pickerModal.close();
 				}),
@@ -190,19 +255,40 @@ export class SssomImportModal extends Modal {
 		pickerModal.open();
 	}
 
+	/**
+	 * Typed tables: keep the table, pick up the release file sitting beside it
+	 * (`<stem>.mapping-set.json`, the name the export writes), and convert the
+	 * pair for the preview. The release file's content carries the identity; its
+	 * name only pairs it with the table it was exported with.
+	 */
+	private async useTypedTable(content: string, path: string | null): Promise<void> {
+		this.typedTableText = content;
+		this.releaseFile = null;
+		if (path) {
+			const releasePath = releaseFilePathFor(path);
+			const release = this.app.vault.getAbstractFileByPath(releasePath);
+			if (release instanceof TFile) {
+				this.releaseFile = { name: release.name, text: await this.app.vault.read(release) };
+			}
+		}
+		const conversion = strmToSssomDocument(content, this.releaseFile ?? undefined);
+		this.parsedTsv = conversion.ok ? conversion.sssomTsv : content;
+	}
+
 	private openPasteEditor() {
 		const pasteModal = new Modal(this.app);
-		pasteModal.contentEl.createEl('h3', { text: 'Paste SSSOM TSV content' });
+		pasteModal.contentEl.createEl('h3', { text: this.typed ? 'Paste typed mapping table' : 'Paste SSSOM TSV content' });
 		const textarea = pasteModal.contentEl.createEl('textarea', {
-			attr: { rows: '20', cols: '80', placeholder: 'subject_id\\tpredicate_id\\tobject_id\\n...' },
+			attr: { rows: '20', cols: '80', placeholder: this.typed ? 'Focal Document\\tFocal Document Element\\t...' : 'subject_id\\tpredicate_id\\tobject_id\\n...' },
 		});
 		new Setting(pasteModal.contentEl).addButton((btn) =>
 			btn
-				.setButtonText('Use this TSV')
+				.setButtonText(this.typed ? 'Use this table' : 'Use this TSV')
 				.setCta()
 				.onClick(async () => {
 					this.source = { kind: 'paste', content: textarea.value };
-					this.parsedTsv = textarea.value;
+					if (this.typed) await this.useTypedTable(textarea.value, null);
+					else this.parsedTsv = textarea.value;
 					await this.refreshPreview();
 					pasteModal.close();
 				}),
@@ -215,6 +301,23 @@ export class SssomImportModal extends Modal {
 		if (!previewEl || !this.parsedTsv) return;
 
 		previewEl.empty();
+		if (this.typed) {
+			// First step for a typed table: say whether a release file came with it,
+			// then refuse here, before any choice, when the table cannot be read.
+			previewEl.createEl('p', {
+				cls: 'setting-item-description crosswalker-release-file-line',
+				text: this.releaseFile
+					? `Release file found: ${this.releaseFile.name}`
+					: 'No release file beside this table. The set will get an id assigned by Crosswalker.',
+			});
+			const conversion = strmToSssomDocument(this.typedTableText ?? '', this.releaseFile ?? undefined);
+			if (!conversion.ok) {
+				previewEl.createEl('p', { text: conversion.message, cls: 'mod-warning' });
+				this.setImportButtonEnabled(false);
+				return;
+			}
+			if (conversion.release_warning) previewEl.createEl('p', { text: conversion.release_warning, cls: 'mod-warning' });
+		}
 		const result = parseSssomTsv(this.parsedTsv);
 		this.parseWarnings = result.warnings;
 		this.parseErrors = result.errors;
@@ -227,7 +330,7 @@ export class SssomImportModal extends Modal {
 		if (result.errors.length > 0) {
 			previewEl.createEl('p', { text: 'Parse errors:', cls: 'mod-warning' });
 			const ul = previewEl.createEl('ul');
-			for (const err of result.errors) ul.createEl('li', { text: err });
+			for (const err of result.errors) ul.createEl('li', { text: this.say(err) });
 			this.setImportButtonEnabled(false);
 			return;
 		}
@@ -253,10 +356,11 @@ export class SssomImportModal extends Modal {
 			}
 			organization.setText(this.organizationText(outputFolder));
 		} else {
-			this.dlEntry(list, 'Ontology pair', '(could not detect; add subject_source/object_source to header)');
+			this.dlEntry(list, 'Ontology pair', this.typed ? '(could not detect; the element ids need a framework prefix, or export the table with its release file)' : '(could not detect; add subject_source/object_source to header)');
 		}
 		if (typeof result.header.mapping_set_id === 'string') {
-			this.dlEntry(list, 'Header mapping set id', `${result.header.mapping_set_id} (individual rows may override)`);
+			if (this.typed) this.dlEntry(list, 'Release id', result.header.mapping_set_id);
+			else this.dlEntry(list, 'Header mapping set id', `${result.header.mapping_set_id} (individual rows may override)`);
 		}
 		if (typeof result.header.mapping_provider === 'string') {
 			this.dlEntry(list, 'Mapping provider', result.header.mapping_provider);
@@ -265,7 +369,7 @@ export class SssomImportModal extends Modal {
 		if (result.warnings.length > 0) {
 			previewEl.createEl('h4', { text: `${result.warnings.length} warning(s)` });
 			const ul = previewEl.createEl('ul');
-			for (const w of result.warnings.slice(0, 10)) ul.createEl('li', { text: w });
+			for (const w of result.warnings.slice(0, 10)) ul.createEl('li', { text: this.say(w) });
 			if (result.warnings.length > 10) {
 				previewEl.createEl('p', { text: `(+ ${result.warnings.length - 10} more. Review the warnings above and correct the source before retrying.)` });
 			}
@@ -439,9 +543,14 @@ export class SssomImportModal extends Modal {
 		return !!choice && typeof choice === 'object' && 'id' in choice;
 	}
 
+	/**
+	 * Through the component, not the DOM attribute: Obsidian's ButtonComponent
+	 * keeps its own disabled flag and drops clicks while it is set, so toggling
+	 * only `button.disabled` left the Import button enabled-looking and dead in
+	 * real Obsidian (found by the typed mapping table end-to-end test, 2026-10-03).
+	 */
 	private setImportButtonEnabled(enabled: boolean) {
-		const btn = this.contentEl.querySelector('button.mod-cta') as HTMLButtonElement | null;
-		if (btn) btn.disabled = !enabled;
+		this.importButton?.setDisabled(!enabled);
 	}
 
 	private dlEntry(parent: HTMLElement, label: string, value: string): HTMLElement {
@@ -488,32 +597,44 @@ export class SssomImportModal extends Modal {
 			mappingForm = sets.find((set) => set.id === refreshId)?.mapping_form ?? 'notes';
 		}
 
-		const progressNotice = new Notice('SSSOM import: starting…', 0);
+		const label = this.runLabel;
+		const progressNotice = new Notice(`${label}: starting…`, 0);
 		try {
-			const result: SssomImportResult = await importSssom(
-				this.app,
-				this.parsedTsv,
-				this.plugin.runProjection,
-				this.plugin.precomputeClosure,
-				{
-					importSet,
-					overwriteMode: refreshing ? 'replace' : 'skip',
-					mappingForm,
-					onProgress: (current, total, msg) => {
-						progressNotice.setMessage(`SSSOM import: ${msg} (${current}/${total})`);
-					},
+			const importOptions = {
+				importSet,
+				overwriteMode: refreshing ? 'replace' as const : 'skip' as const,
+				mappingForm,
+				onProgress: (current: number, total: number, msg: string) => {
+					progressNotice.setMessage(`${label}: ${this.say(msg)} (${current}/${total})`);
 				},
-				this.plugin.debug,
-			);
+			};
+			const result: SssomImportResult = this.typed
+				? await runImportStrm(
+					this.app,
+					this.typedTableText ?? '',
+					this.releaseFile?.text,
+					this.plugin.runProjection,
+					this.plugin.precomputeClosure,
+					{ ...importOptions, ...(this.releaseFile ? { releaseFileName: this.releaseFile.name } : {}) },
+					this.plugin.debug,
+				)
+				: await importSssom(
+					this.app,
+					this.parsedTsv,
+					this.plugin.runProjection,
+					this.plugin.precomputeClosure,
+					importOptions,
+					this.plugin.debug,
+				);
 
 			progressNotice.hide();
 
 			if (result.skipped === 'parse-error') {
-				new Notice(`SSSOM import aborted: ${result.parse.errors.join('; ')}`);
+				new Notice(`${label} aborted: ${this.say(result.parse.errors.join('; '))}`);
 				return;
 			}
 			if (result.skipped === 'no-rows') {
-				new Notice('SSSOM file had no valid mapping rows.');
+				new Notice(this.typed ? 'The table had no mapping rows Crosswalker could read. Check its columns, then import again.' : 'SSSOM file had no valid mapping rows.');
 				return;
 			}
 
@@ -524,13 +645,13 @@ export class SssomImportModal extends Modal {
 			// default. Same family as the purge that reported success.
 			const gen = result.generation;
 			if (!gen?.success) {
-				new Notice(`SSSOM import failed: ${formatGenerationErrors(gen?.errors)}`, 10000);
+				new Notice(`${label} failed: ${this.say(formatGenerationErrors(gen?.errors))}`, 10000);
 				if (gen) this.renderImportErrors(gen, result.folder);
 				return;
 			}
 
 			if (gen.errors.length > 0) {
-				new Notice(`SSSOM import finished with ${gen.errors.length} errors. See results.`, 10000);
+				new Notice(`${label} finished with ${gen.errors.length} errors. See results.`, 10000);
 				this.renderImportErrors(gen, result.folder);
 				return;
 			}
@@ -540,19 +661,19 @@ export class SssomImportModal extends Modal {
 				return;
 			}
 			if (result.mappingForm === 'table') {
-				new Notice(`SSSOM import complete. ${tableOutcomeText(result)}`, 8000);
+				new Notice(`${label} complete. ${tableOutcomeText(result)}`, 8000);
 				this.close();
 				return;
 			}
 			new Notice(
-				`SSSOM import: ${plural(gen.created.length, 'junction note')} created or updated; ${plural((gen.upToDate?.length ?? 0), 'junction note')} already up to date under ${result.folder}`,
+				`${label}: ${plural(gen.created.length, 'junction note')} created or updated; ${plural((gen.upToDate?.length ?? 0), 'junction note')} already up to date under ${result.folder}`,
 				8000,
 			);
 			this.close();
 		} catch (err) {
 			progressNotice.hide();
 			const msg = err instanceof Error ? err.message : String(err);
-			new Notice(`SSSOM import error: ${msg}`);
+			new Notice(this.typed ? `${label} stopped unexpectedly: ${this.say(msg)} Check the table and its release file, then import again.` : `SSSOM import error: ${msg}`);
 			this.plugin.debug?.error('sssom-import', 'unhandled-error', 'SSSOM import: unhandled error', { error: msg });
 		}
 	}
@@ -567,7 +688,7 @@ export class SssomImportModal extends Modal {
 	private renderImportErrors(gen: GenerationResult, folder: string | null | undefined, unresolved: string[] = [], result?: SssomImportResult): void {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.createEl('h2', { text: 'SSSOM import results' });
+		contentEl.createEl('h2', { text: this.typed ? 'Typed mapping table import results' : 'SSSOM import results' });
 
 		const summary = contentEl.createDiv({ cls: 'crosswalker-results-summary' });
 		summary.createEl('p', {
@@ -579,12 +700,12 @@ export class SssomImportModal extends Modal {
 			summary.createEl('p', { text: `Skipped: ${plural(gen.skipped.length, 'existing note')}` });
 		}
 		summary.createEl('p', { text: `Errors: ${gen.errors.length}`, cls: 'mod-warning' });
-		for (const message of unresolved) summary.createEl('p', { text: message, cls: 'mod-warning' });
+		for (const message of unresolved) summary.createEl('p', { text: this.say(message), cls: 'mod-warning' });
 
 		if (gen.errors.length > 0) contentEl.createEl('h4', { text: 'Errors' });
 		const list = contentEl.createDiv({ cls: 'crosswalker-error-list' });
 		for (const error of gen.errors.slice(0, 20)) {
-			list.createEl('p', { text: formatGenerationError(error), cls: 'crosswalker-error-item' });
+			list.createEl('p', { text: this.say(formatGenerationError(error)), cls: 'crosswalker-error-item' });
 		}
 		if (gen.errors.length > 20) {
 			list.createEl('p', {

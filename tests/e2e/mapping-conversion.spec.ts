@@ -102,9 +102,15 @@ async function waitForResult(timeout = 240_000): Promise<string> {
 	return browser.executeObsidian(() => document.querySelector('.crosswalker-conversion-modal')?.textContent ?? '');
 }
 
-async function vaultState(): Promise<{ notes: number; tables: string[]; markers: string[] }> {
+/**
+ * notes: mapping notes under the folder (the set's release record note,
+ * kind: mapping-set, is not a mapping); files: every markdown file there.
+ */
+async function vaultState(): Promise<{ notes: number; files: number; tables: string[]; markers: string[] }> {
 	return browser.executeObsidian(({ app }, folder) => ({
-		notes: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(`${folder}/`)).length,
+		notes: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(`${folder}/`)
+			&& app.metadataCache.getFileCache(file)?.frontmatter?.kind !== 'mapping-set').length,
+		files: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(`${folder}/`)).length,
 		tables: app.vault.getFiles().filter((file) => file.path.endsWith('.mapping-table.tsv')).map((file) => file.path),
 		markers: app.vault.getFiles().filter((file) => file.path.endsWith('.converting.json')).map((file) => file.path),
 	}), FOLDER);
@@ -116,6 +122,7 @@ describe('Mapping set conversion between notes and a table', function () {
 
 	let setId = '';
 	let noteCount = 0;
+	let fileCount = 0;
 	let tablePath = '';
 	let sampledPath = '';
 
@@ -172,12 +179,14 @@ describe('Mapping set conversion between notes and a table', function () {
 		expect(setId).not.toBe('');
 		const state = await vaultState();
 		noteCount = state.notes;
+		fileCount = state.files;
 		expect(noteCount).toBeGreaterThan(100);
 		expect(state.tables).toEqual([]);
 
 		// One review on one mapping note, set the way a reviewer would.
 		sampledPath = await browser.executeObsidian(async ({ app }, folder) => {
-			const file = app.vault.getMarkdownFiles().filter((item) => item.path.startsWith(`${folder}/`)).sort((a, b) => a.path.localeCompare(b.path))[0];
+			const file = app.vault.getMarkdownFiles().filter((item) => item.path.startsWith(`${folder}/`)
+				&& app.metadataCache.getFileCache(item)?.frontmatter?.kind !== 'mapping-set').sort((a, b) => a.path.localeCompare(b.path))[0];
 			await app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
 				frontmatter.review_status = 'approved';
 				frontmatter.reviewer = 'Invented reviewer';
@@ -197,7 +206,8 @@ describe('Mapping set conversion between notes and a table', function () {
 		await $('.crosswalker-conversion-modal').waitForDisplayed();
 		const confirm = await browser.executeObsidian(() => document.querySelector('.crosswalker-conversion-modal')?.textContent ?? '');
 		expect(confirm).toContain('will not appear in Bases views, graph view or backlinks');
-		expect(confirm).toContain(`Moves ${noteCount.toLocaleString()} notes to the trash after the table is verified.`);
+		// Every note of the set goes, the release record note included: files, not mappings.
+		expect(confirm).toContain(`Moves ${fileCount.toLocaleString()} notes to the trash after the table is verified.`);
 		await capture('light', 'visual-conversion-01-confirm-table.png');
 		await capture('dark', 'visual-conversion-01-confirm-table-dark.png');
 		await modalButton('Convert to table');

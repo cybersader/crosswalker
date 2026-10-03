@@ -328,7 +328,9 @@ describe('Installed stacks and revisit on synthetic data', function () {
 		{ timeout: 60_000, timeoutMsg: 'Populated from-slot stack did not import' });
 		const before = await browser.executeObsidian(async ({ app }) => {
 			const files = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/cri-profile-to-nist-csf-2/'));
-			return Promise.all(files.map(async (file) => ({ path: file.path, text: await app.vault.read(file) })));
+			const read = await Promise.all(files.map(async (file) => ({ path: file.path, text: await app.vault.read(file) })));
+			// Mapping notes only: the set's release record note (kind: mapping-set) sits beside them.
+			return read.filter((entry) => !/^kind: ["']?mapping-set["']?$/m.test(entry.text));
 		});
 		expect(before).toHaveLength(1);
 		expect(before[0].text).toContain('import_set:');
@@ -379,7 +381,9 @@ describe('Installed stacks and revisit on synthetic data', function () {
 		expect(await browser.executeObsidian(() => document.querySelector('.crosswalker-installed-stacks')?.textContent ?? '')).toContain(fromSlot);
 		const after = await browser.executeObsidian(async ({ app }) => {
 			const files = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/cri-profile-to-nist-csf-2/'));
-			return Promise.all(files.map(async (file) => ({ path: file.path, text: await app.vault.read(file) })));
+			const read = await Promise.all(files.map(async (file) => ({ path: file.path, text: await app.vault.read(file) })));
+			// Mapping notes only: the set's release record note (kind: mapping-set) sits beside them.
+			return read.filter((entry) => !/^kind: ["']?mapping-set["']?$/m.test(entry.text));
 		});
 		expect(after).toHaveLength(1);
 		expect(after[0].path).toBe(before[0].path);

@@ -659,9 +659,65 @@ export interface CrosswalkColumnEntry {
 	 */
 	qualifier?: 'keep-as-justification' | 'strip';
 	/**
-	 * Default: <source ontology>-to-<to_ontology>-<recipe id>.
+	 * Legacy alias of mapping_set.id with the same meaning: the release id this column's mapping set declares. When neither is given, the id is assigned once at first import (urn:crosswalker:mapping-set:<10 base32>) and kept by every later refresh of the same link set; it is never derived from the recipe id, the ontology pair or the file. When both are given they must be equal. SchemaVer 1.18.0 changed only this description: link sets imported before 1.18.0 keep the id their edge notes already carry.
 	 */
 	mapping_set_id?: string;
+	mapping_set?: CrosswalkMappingSetDeclaration;
+}
+/**
+ * Optional release metadata for the mapping set one crosswalk column produces (additive SchemaVer 1.18.0). Every key is optional and declares a fact about the release; nothing here is inferred from rows. The engine writes these declared facts, plus a recomputed mapping count and membership and content digests, into the link set's release record (Tier 1 kind mapping-set). id is the declared release id (mapping_set_id is its legacy alias). A refresh whose declared id or version differs from the release the link set already holds is refused: a different release belongs in a new set.
+ */
+export interface CrosswalkMappingSetDeclaration {
+	/**
+	 * Declared release id (SSSOM mapping_set_id).
+	 */
+	id?: string;
+	/**
+	 * Declared release version (SSSOM mapping_set_version).
+	 */
+	version?: string;
+	/**
+	 * SSSOM mapping_set_title.
+	 */
+	title?: string;
+	/**
+	 * SSSOM mapping_set_description.
+	 */
+	description?: string;
+	/**
+	 * SSSOM license.
+	 */
+	license?: string;
+	/**
+	 * SSSOM mapping_provider.
+	 */
+	provider?: string;
+	/**
+	 * SSSOM mapping_date.
+	 */
+	date?: string;
+	/**
+	 * SSSOM creator_id.
+	 *
+	 * @minItems 1
+	 */
+	creator_id?: [string, ...string[]];
+	/**
+	 * SSSOM subject_source: the ontology the column's rows come from, as declared.
+	 */
+	subject_source?: string;
+	/**
+	 * SSSOM subject_source_version.
+	 */
+	subject_source_version?: string;
+	/**
+	 * SSSOM object_source: the ontology the column's ids point to, as declared.
+	 */
+	object_source?: string;
+	/**
+	 * SSSOM object_source_version.
+	 */
+	object_source_version?: string;
 }
 /**
  * Optional batch-scope enrichment applied after every row renders (additive SchemaVer 1.3.0). render() stays pure and per-row; enrichment derives cross-row artifacts (children lists on parents, materialized facet hub notes) that no single row can know. Deterministic: same rows in → same vault out, with every derived list sorted by curie so input order never leaks. Recipes without this block emit no enrichment and validate unchanged. Per the 2026-07-10 batch-enrichment design.

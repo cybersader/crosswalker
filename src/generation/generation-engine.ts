@@ -321,7 +321,7 @@ async function applyDeclaredCrosswalks(
 			? { orphans: pass.perEntry.flatMap((entry) => entry.orphans ?? []) }
 			: {}),
 	};
-	for (const warning of pass.summary.filter((message) => message.includes('Query results may be stale') || message.includes('Query database projection'))) {
+	for (const warning of pass.summary.filter((message) => message.includes('Query results may be stale') || message.includes('Query database projection') || message.startsWith('The release record for crosswalk links'))) {
 		result.warnings ??= [];
 		result.warnings.push({ row: -1, message: warning });
 	}
