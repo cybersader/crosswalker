@@ -59,12 +59,23 @@
  *     providers/set-ids on individual edges loses that per-edge variation —
  *     acceptable for the common case (one crosswalk file per folder) but
  *     worth knowing if you've hand-edited individual edges.
+ *
+ *   - Release record (v0.1.7 Track 3, 2026-10-03). When the exported import
+ *     set holds a release record (src/mappings/mapping-set.ts), the header is
+ *     written from that record on the standard SSSOM header keys only (M3):
+ *     nothing is inferred from rows, and the mode() promotion above applies
+ *     only to sets without a record, with `release_record: 'derived'` in the
+ *     result so the caller can say so. Digests are not exported; a re-import
+ *     recomputes them, and equality is the round-trip proof
+ *     (tests/mapping-set-roundtrip.test.ts).
  */
 
 import Papa from 'papaparse';
 import type { App } from 'obsidian';
 import { readVaultTree, type CrosswalkEdgeRow, type SkippedNote } from './vault-reader';
 import { normalizeMappingSetId, readStoredPredicateModifier } from '../utils/mapping-provenance';
+import { readMappingSet, type MappingSetRecord } from '../mappings/mapping-set';
+import { discoverImportSet } from '../generation/import-set';
 import {
 	LINEAGE_NOT_REPRESENTABLE_REASON,
 	isLineagePredicate,
@@ -111,12 +122,64 @@ export interface SssomExportOptions {
 	subjectSource?: string;
 	/** Override the header's `object_source` (default: mode of `target_framework` frontmatter field, else the object CURIE prefix). */
 	objectSource?: string;
+	/**
+	 * The exported set's release record. When present the header is written
+	 * from it (M3 keys only) and nothing is inferred from rows; the explicit
+	 * overrides above still win for the keys they name.
+	 */
+	record?: MappingSetRecord;
 }
+
+/** Where the header's release metadata came from: the set's release record, or inferred from rows (M5). */
+export type ReleaseRecordSource = 'recorded' | 'derived';
 
 export interface SssomExportResult {
 	tsv: string;
 	rowCount: number;
 	skipped: SkippedNote[];
+	release_record: ReleaseRecordSource;
+}
+
+/**
+ * The export's one line about where its release metadata came from (M5),
+ * shown in the export notice. Plain words only: "release record", never the
+ * file format's own vocabulary.
+ */
+export function releaseRecordLine(source: ReleaseRecordSource): string {
+	return source === 'recorded'
+		? 'Release record: recorded.'
+		: 'Release record: derived from rows (no release record). Import the set again to record one.';
+}
+
+/**
+ * One header line. Values are written double-quoted and unescaped, which is
+ * exactly what `parseSssomTsv` strips back off, so a value survives a round
+ * trip unchanged. Line breaks would end the header line, so they become spaces.
+ */
+function headerLine(key: string, value: string): string {
+	return `# ${key}: "${value.replace(/[\r\n]+/g, ' ')}"`;
+}
+
+/** The standard SSSOM header lines (M3) of a release record, in SSSOM's own order. */
+function recordHeaderLines(record: MappingSetRecord, options: SssomExportOptions): string[] {
+	const lines: string[] = [];
+	const add = (key: string, value: string | undefined) => { if (value) lines.push(headerLine(key, value)); };
+	add('mapping_set_id', options.mappingSetId === undefined ? record.mapping_set_id : normalizeMappingSetId(options.mappingSetId) || undefined);
+	add('mapping_set_version', record.mapping_set_version);
+	add('mapping_set_title', record.mapping_set_title);
+	add('mapping_set_description', record.mapping_set_description);
+	add('license', record.license);
+	add('mapping_provider', options.mappingProvider ?? record.mapping_provider);
+	add('mapping_date', options.mappingDate ?? record.mapping_date);
+	if (record.creator_id?.length) {
+		lines.push('# creator_id:');
+		for (const creator of record.creator_id) lines.push(`#   - "${creator.replace(/[\r\n]+/g, ' ')}"`);
+	}
+	add('subject_source', options.subjectSource ?? record.subject_source);
+	add('subject_source_version', record.subject_source_version);
+	add('object_source', options.objectSource ?? record.object_source);
+	add('object_source_version', record.object_source_version);
+	return lines;
 }
 
 function asOptionalString(v: unknown): string | undefined {
@@ -265,34 +328,60 @@ export function crosswalkEdgesToSssomTsv(
 		);
 	}
 
-	const subjectSource = options.subjectSource ?? mode(subjectSourceCounts);
-	const objectSource = options.objectSource ?? mode(objectSourceCounts);
-	const mappingProvider = options.mappingProvider ?? mode(providerCounts);
-	const mappingSetId = options.mappingSetId === undefined
-		? mode(setIdCounts)
-		: normalizeMappingSetId(options.mappingSetId) || undefined;
-
-	const headerLines: string[] = [];
-	if (subjectSource) headerLines.push(`# subject_source: "${subjectSource}"`);
-	if (objectSource) headerLines.push(`# object_source: "${objectSource}"`);
-	if (mappingSetId) headerLines.push(`# mapping_set_id: "${mappingSetId}"`);
-	if (mappingProvider) headerLines.push(`# mapping_provider: "${mappingProvider}"`);
-	if (options.mappingDate) headerLines.push(`# mapping_date: "${options.mappingDate}"`);
+	let headerLines: string[];
+	if (options.record) {
+		headerLines = recordHeaderLines(options.record, options);
+	} else {
+		// No release record (a set imported before records existed, or rows that
+		// belong to no import set): infer from rows, and say so in the result.
+		const subjectSource = options.subjectSource ?? mode(subjectSourceCounts);
+		const objectSource = options.objectSource ?? mode(objectSourceCounts);
+		const mappingProvider = options.mappingProvider ?? mode(providerCounts);
+		const mappingSetId = options.mappingSetId === undefined
+			? mode(setIdCounts)
+			: normalizeMappingSetId(options.mappingSetId) || undefined;
+		headerLines = [];
+		if (subjectSource) headerLines.push(`# subject_source: "${subjectSource}"`);
+		if (objectSource) headerLines.push(`# object_source: "${objectSource}"`);
+		if (mappingSetId) headerLines.push(`# mapping_set_id: "${mappingSetId}"`);
+		if (mappingProvider) headerLines.push(`# mapping_provider: "${mappingProvider}"`);
+		if (options.mappingDate) headerLines.push(`# mapping_date: "${options.mappingDate}"`);
+	}
 
 	const body = Papa.unparse(rows, { columns: [...SSSOM_COLUMNS], delimiter: '\t', newline: '\n' });
 	const tsv = headerLines.length > 0 ? `${headerLines.join('\n')}\n${body}\n` : `${body}\n`;
 
-	return { tsv, rowCount: rows.length, skipped };
+	return { tsv, rowCount: rows.length, skipped, release_record: options.record ? 'recorded' : 'derived' };
 }
 
-/** Walk `rootPath` and export every crosswalk-edge note found under it as an SSSOM TSV. */
+/**
+ * The release record of the one import set every exported row belongs to, or
+ * undefined: rows from no set, from several sets (the exporter refuses those),
+ * or from a set imported before records existed. Throws the reader's
+ * actionable error when the set's record is malformed.
+ */
+async function recordOfExportedSet(app: App, edges: CrosswalkEdgeRow[]): Promise<MappingSetRecord | undefined> {
+	const ids = new Set(edges.map((edge) => readImportSetId(edge.frontmatter) ?? ''));
+	if (ids.size !== 1) return undefined;
+	const [id] = [...ids];
+	if (!id) return undefined;
+	const set = await discoverImportSet(app, id);
+	return set ? readMappingSet(app, set) : undefined;
+}
+
+/**
+ * Walk `rootPath` and export every crosswalk-edge note found under it as an
+ * SSSOM TSV. The header comes from the exported set's release record when it
+ * has one (M5), else from the rows.
+ */
 export async function exportFolderAsSssomTsv(
 	app: App,
 	rootPath: string,
 	options: SssomExportOptions = {},
 ): Promise<SssomExportResult> {
 	const tree = await readVaultTree(app, rootPath);
-	const result = crosswalkEdgesToSssomTsv(tree.crosswalkEdges, options);
+	const record = options.record ?? await recordOfExportedSet(app, tree.crosswalkEdges);
+	const result = crosswalkEdgesToSssomTsv(tree.crosswalkEdges, record ? { ...options, record } : options);
 	result.skipped.push(...tree.skipped);
 	return result;
 }

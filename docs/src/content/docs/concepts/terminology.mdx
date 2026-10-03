@@ -8,7 +8,7 @@ sidebar:
 
 A **glossary**, not a textbook: one or two lines per term, with a link to the page that owns the depth. Formal words carry a plain-English gloss in *italics*.
 
-**Status last verified:** 2026-09-23 — implied concept checked against `spec/recipe.schema.json` `$defs/layout_entry.implied_concept`, `src/generation/enrich.ts`, and `src/generation/generation-engine.ts`; earlier glossary checked against `spec/tier1.schema.json`, `spec/recipe.schema.json`, and the current generation/reconciliation modules under `src/generation/`.
+**Status last verified:** 2026-10-03 — MappingSet record row checked against `spec/tier1.schema.json` SchemaVer 1.7.0 `$defs.mapping_set_frontmatter`; 2026-09-23 — implied concept checked against `spec/recipe.schema.json` `$defs/layout_entry.implied_concept`, `src/generation/enrich.ts`, and `src/generation/generation-engine.ts`; earlier glossary checked against `spec/tier1.schema.json`, `spec/recipe.schema.json`, and the current generation/reconciliation modules under `src/generation/`.
 
 Looking for the **two kinds of link** (concept ↔ concept *crosswalks* vs. document → concept *evidence links*)? The side-by-side diagram lives on [Mapping into Obsidian · the two kinds of link](/crosswalker/concepts/mapping-into-obsidian/#edge-models); the definitions are in [Core terms](#core-terms) below.
 
@@ -41,7 +41,7 @@ Roles *around* the [Recipe](#recipe) family — not four new artifact classes.
 
 | Term | Definition |
 |---|---|
-| <span id="mapping-set"></span>**MappingSet** | Plainly: **one published crosswalk release** — the whole collection of mapping assertions shipped together (e.g. NIST's 800-53 Rev 4 → Rev 5 mapping). Formally: a [Knowledge Set](#knowledge-set) subtype with its own identity, version, membership, provenance, license, and publication state. Not an [ImportRecipe](#import-recipe), and not a folder inferred from edge rows. |
+| <span id="mapping-set"></span>**MappingSet** | Plainly: **one published crosswalk release** — the whole collection of mapping assertions shipped together (e.g. NIST's 800-53 Rev 4 → Rev 5 mapping). Formally: a [Knowledge Set](#knowledge-set) subtype with its own identity, version, membership, provenance, license, and publication state. Not an [ImportRecipe](#import-recipe), and not a folder inferred from edge rows. Record: `kind: mapping-set` (source: spec/tier1.schema.json), one [release record](/crosswalker/agent-context/v0-1-schema-spec/#mapping-set-release-record-fields) per set. |
 | <span id="mapping-assertion"></span>**MappingAssertion** — *also:* assertion | Plainly: **one claimed fact about how two things relate** — a single crosswalk row, "AC-2 is equivalent to A.9.2.1." Someone asserted it, so it can be right, wrong, disputed, or superseded — which is why every assertion carries where it came from. Formally: one subject–predicate–object correspondence inside a MappingSet, optionally carrying confidence, justification, provenance, and review metadata. |
 | <span id="import-mapping"></span>**ImportMapping** | An editable, source-bound workbench projection of how source fields map into Recipe-owned regions. Implementation state around an ImportRecipe — not a MappingSet or a portable artifact. |
 

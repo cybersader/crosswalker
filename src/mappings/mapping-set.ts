@@ -296,16 +296,16 @@ export function storedMappingSet(record: MappingSetRecord): StoredMappingSet {
  */
 export function mappingSetFromStored(stored: Record<string, unknown>, importSetId: string, where: string): MappingSetRecord {
 	const fail = (detail: string): never => {
-		throw new Error(`The release record in ${where} ${detail}. Fix or delete that record, then try again.`);
+		throw new Error(`The release record in ${where} ${detail}. Import the set again to rewrite the record, or delete the record, then try again.`);
 	};
 	if (stored.kind !== MAPPING_SET_KIND) fail('is not marked as a mapping set release');
 	const id = normalizeMappingSetId(stored.mapping_set_id);
-	if (!id) fail('has no mapping_set_id');
-	if (stored.id_origin !== 'declared' && stored.id_origin !== 'minted') fail('has no valid id_origin');
+	if (!id) fail('has no release id (property mapping_set_id)');
+	if (stored.id_origin !== 'declared' && stored.id_origin !== 'minted') fail('does not say where its release id came from (property id_origin must be declared or minted)');
 	const count = stored.assertion_count;
-	if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) fail('has no valid assertion_count');
+	if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) fail('has no valid mapping count (property assertion_count)');
 	for (const key of ['membership_digest', 'content_digest'] as const) {
-		if (typeof stored[key] !== 'string' || !DIGEST_PATTERN.test(stored[key] as string)) fail(`has no valid ${key}`);
+		if (typeof stored[key] !== 'string' || !DIGEST_PATTERN.test(stored[key] as string)) fail(`has no valid ${key === 'membership_digest' ? 'membership fingerprint' : 'content fingerprint'} (property ${key})`);
 	}
 	const record: Partial<MappingSetRecord> = {
 		mapping_set_id: id,

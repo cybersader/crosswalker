@@ -22,6 +22,7 @@ import { VaultSourceScanModal } from './import/vault-source-scan-modal';
 import {
 	ExportFolderPickerModal,
 	exportFolderAsSssomTsv,
+	releaseRecordLine,
 	exportFolderAsCsv,
 	exportSiblingPath,
 	writeExportFile,
@@ -1064,7 +1065,15 @@ export default class CrosswalkerPlugin extends Plugin {
 			callback: () => {
 				new ExportFolderPickerModal(this.app, (folder) => {
 					void (async () => {
-						const result = await exportFolderAsSssomTsv(this.app, folder.path);
+						let result: Awaited<ReturnType<typeof exportFolderAsSssomTsv>>;
+						try {
+							result = await exportFolderAsSssomTsv(this.app, folder.path);
+						} catch (error) {
+							// The exporter's refusals (coexisting releases, an unreadable
+							// release record) already name the cause and the action.
+							new Notice(error instanceof Error ? error.message : `Could not export "${folder.path}". Check that its mapping notes are readable, then try again.`, 10000);
+							return;
+						}
 						if (result.rowCount === 0) {
 							new Notice(`No crosswalk mappings found under "${folder.path}". Nothing exported.`, 6000);
 							return;
@@ -1075,8 +1084,9 @@ export default class CrosswalkerPlugin extends Plugin {
 							`Exported ${result.rowCount} mapping${result.rowCount === 1 ? '' : 's'} to ${destPath}` +
 								(result.skipped.length > 0
 									? ` (${result.skipped.length} note${result.skipped.length === 1 ? '' : 's'} skipped)`
-									: ''),
-							6000,
+									: '') +
+								`.\n${releaseRecordLine(result.release_record)}`,
+							8000,
 						);
 					})();
 				}).open();

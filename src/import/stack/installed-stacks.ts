@@ -4,6 +4,7 @@ import type CrosswalkerPlugin from '../../main';
 import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
 import { MAPPING_PRESETS, RECIPE_REGISTRY } from '../recipe-registry';
 import { MAPPING_TABLE_SUFFIX } from '../../mappings/mapping-table-reader';
+import { readMappingSet, type MappingSetRecord } from '../../mappings/mapping-set';
 import { StackSetupModal } from './stack-modal';
 import { deleteStackRecord, importStackDefinition, mappingKey, type SlotRunFact, type StackDefinition } from './stack-persistence';
 import {
@@ -33,6 +34,26 @@ export function installedStackRow(fact: SlotRunFact | undefined, known: Readonly
 	// A table-form set owns no notes; "0 notes" would read as an empty set.
 	if (set.mapping_form === 'table') return `set ${fact.importSetId}, 1 mapping table, ${plural(set.rowCount ?? 0, 'row')}${converting}`;
 	return `set ${fact.importSetId}${typeof set.noteCount === 'number' ? `, ${plural(set.noteCount, 'note')}` : ''}${converting}`;
+}
+
+/**
+ * The listing line naming a mapping set's release, from its release record:
+ * "Release: <title or id> <version>". Sets without a record get no line; the
+ * review view says why.
+ */
+export function releaseListingLine(record: Pick<MappingSetRecord, 'mapping_set_id' | 'mapping_set_title' | 'mapping_set_version'>): string {
+	const name = record.mapping_set_title ?? record.mapping_set_id;
+	return `Release: ${name}${record.mapping_set_version ? ` ${record.mapping_set_version}` : ''}`;
+}
+
+/** The release line for one set, its reader's actionable message when the record is malformed, or undefined. */
+async function releaseLineOf(app: App, set: DiscoveredImportSet): Promise<{ text: string; warning?: true } | undefined> {
+	try {
+		const record = await readMappingSet(app, set);
+		return record ? { text: releaseListingLine(record) } : undefined;
+	} catch (error) {
+		return { text: error instanceof Error ? error.message : `The release record of set ${set.id} could not be read. Import the set again to record one.`, warning: true };
+	}
 }
 
 /** Framework depth only; mapping form is reported separately so the two never contradict. */
@@ -117,10 +138,11 @@ class DeleteStackModal extends Modal {
  * while one does. Slice 4 of the mapping table form.
  */
 function renderMappingSetRow(rows: HTMLElement, app: App, plugin: CrosswalkerPlugin, label: string, state: string,
-	set: DiscoveredImportSet, redraw: () => void): void {
+	set: DiscoveredImportSet, redraw: () => void, release?: { text: string; warning?: true }): void {
 	const row = rows.createDiv({ cls: 'crosswalker-stack-result crosswalker-mapping-set-row',
 		attr: { 'data-import-set': set.id, 'data-set-form': set.mapping_form, ...(set.converting ? { 'data-converting': set.converting.phase } : {}) } });
 	row.createSpan({ text: `${label}: ${state}` });
+	if (release) row.createDiv({ cls: `crosswalker-stack-muted crosswalker-mapping-set-release${release.warning ? ' is-warning' : ''}`, text: release.text });
 	const actions = row.createDiv({ cls: 'crosswalker-conversion-actions' });
 	const name = `${label} (set ${set.id})`;
 	if (set.converting) {
@@ -197,7 +219,9 @@ export function renderInstalledStacks(root: HTMLElement, app: App, plugin: Cross
 				subtitle.textContent = stackSubtitle(stack, run, known);
 				for (const row of stackSlotRows(stack, run, known)) {
 					if (!row.mappingSet) { rows.createDiv({ cls: 'crosswalker-stack-result', text: `${row.label}: ${row.state}` }); continue; }
-					renderMappingSetRow(rows, app, plugin, row.label, row.state, row.mappingSet, redraw);
+					const release = await releaseLineOf(app, row.mappingSet);
+					if (!host.isConnected) return;
+					renderMappingSetRow(rows, app, plugin, row.label, row.state, row.mappingSet, redraw, release);
 				}
 			}
 		} catch {
