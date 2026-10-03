@@ -6,11 +6,13 @@
  * unreadable file, an expanded recipe card with its "Where notes go" tree,
  * the Step 1 "Your recipe" offer card (offered, never preselected), the save
  * dialog with its lineage line, and the select-mode picker plus the Step 1
- * pending line with its "Don't use it" button.
+ * pending line with its "Don't use it" button. After one generation with the
+ * recipe: the card's "Last run" line, the expanded Runs section, and Run again
+ * Step 1 with a file that matches the last run and with one that changed.
  *
  *   bun run e2e:xvfb -- --spec tests/e2e/visual-recipe-library.spec.ts
  *
- * PNGs land in test-screenshots/ (rl-01 … rl-08, -light and -dark).
+ * PNGs land in test-screenshots/ (rl-01 … rl-12, -light and -dark).
  * Every column, id and value here is invented.
  */
 
@@ -135,6 +137,55 @@ async function injectSourceAndNext(): Promise<void> {
 	expect(await clickButton('Next')).toBe(true);
 }
 
+const CSV_CHANGED = CSV.replace('Invented item two,', 'Invented item two renamed,');
+const LIBRARY = '.crosswalker-recipe-library-modal';
+let generatedRoot: string | null = null;
+
+async function injectSource(csv: string): Promise<void> {
+	const ok = await browser.executeObsidian((_o, a) => {
+		const input = document.querySelector(a.wizard)?.querySelector('input[type=file]') as HTMLInputElement | null;
+		if (!input) return false;
+		const transfer = new DataTransfer();
+		transfer.items.add(new File([a.csv], 'visual-sample.csv'));
+		input.files = transfer.files;
+		input.dispatchEvent(new Event('change'));
+		return true;
+	}, { csv, wizard: WIZARD });
+	expect(ok).toBe(true);
+}
+
+async function closeLibrary(): Promise<void> {
+	await browser.executeObsidian((_o, library) => {
+		document.querySelectorAll(`${library} .modal-close-button, ${library} .modal-header-button`).forEach((b) => (b as HTMLElement).click());
+	}, LIBRARY);
+	await until(async () => browser.executeObsidian((_o, library) => !document.querySelector(library), LIBRARY), 3_000, 'library closed');
+}
+
+/** Open the library and wait until the recipe's card has a settled "Last run" line. */
+async function openLibraryWithRun(): Promise<string> {
+	await browser.executeObsidianCommand('crosswalker:browse-import-recipes');
+	return until(async () => browser.executeObsidian((_o, a) => {
+		const card = document.querySelector(a.library)?.querySelector(`[data-recipe-id="${a.id}"]`);
+		const line = card?.querySelector('.crosswalker-recipe-last-run')?.textContent?.trim() ?? '';
+		return line.startsWith('Last run') ? line : null;
+	}, { library: LIBRARY, id: RECIPE_ID }), 15_000, 'last run line');
+}
+
+async function runAgainStatus(): Promise<string[]> {
+	return browser.executeObsidian((_o, wizard) => (
+		Array.from(document.querySelector(wizard)?.querySelectorAll('.crosswalker-run-again-status p') ?? []).map((p) => p.className)
+	), WIZARD);
+}
+
+async function startRunAgain(): Promise<void> {
+	expect(await browser.executeObsidian((_o, a) => {
+		const button = document.querySelector(a.library)?.querySelector(`[data-recipe-id="${a.id}"] button.crosswalker-recipe-run-again`) as HTMLButtonElement | null;
+		button?.click();
+		return !!button;
+	}, { library: LIBRARY, id: RECIPE_ID })).toBe(true);
+	await until(async () => browser.executeObsidian((_o, a) => !document.querySelector(a.library) && !!document.querySelector(a.wizard), { library: LIBRARY, wizard: WIZARD }), 8_000, 'run again wizard');
+}
+
 async function cleanup(): Promise<void> {
 	await browser.executeObsidian(async ({ app }, a) => {
 		for (const file of [`${a.folder}/${a.id}.json`, a.broken]) {
@@ -169,15 +220,20 @@ describe('Visual: saved import recipes', function () {
 		});
 		await closeImportWizard();
 		await cleanup();
-		await browser.executeObsidian(async ({ app }) => {
+		await browser.executeObsidian(async ({ app }, a) => {
+			if (a.root) {
+				const folder = app.vault.getAbstractFileByPath(a.root);
+				if (folder) await app.vault.delete(folder, true);
+			}
 			// @ts-expect-error — internal plugins API
 			const plugin = app.plugins.plugins['crosswalker'];
 			if (!plugin) return;
+			plugin.settings.recipeRuns = (plugin.settings.recipeRuns ?? []).filter((r: { recipeId: string }) => r.recipeId !== a.id);
 			plugin.settings.enableShapeWorkbench = false;
 			plugin.settings.enableConfigSuggestions = true;
 			plugin.settings.enableDraftSessions = true;
 			await plugin.saveSettings();
-		});
+		}, { root: generatedRoot, id: RECIPE_ID });
 	});
 
 	it('save dialog on the review step', async () => {
@@ -420,5 +476,91 @@ describe('Visual: saved import recipes', function () {
 		}, WIZARD), 5_000, 'pending cleared');
 		expect(cleared).toBe('Start from the shape of a recipe you saved before.');
 		await closeImportWizard();
+	});
+	it('Run again: last run on the card, the Runs section, and Step 1 status', async () => {
+		// One generation with the saved recipe, picked in Step 1.
+		await requireImportWizard();
+		expect(await clickButton('Use a saved recipe', true)).toBe(true);
+		await until(async () => browser.executeObsidian((_o, id) => {
+			const button = Array.from(document.querySelector(`.crosswalker-recipe-library-modal [data-recipe-id="${id}"]`)?.querySelectorAll('button') ?? [])
+				.find((b) => b.textContent?.trim() === 'Use this recipe') as HTMLButtonElement | undefined;
+			button?.click();
+			return !!button;
+		}, RECIPE_ID), 8_000, 'picker');
+		await injectSource(CSV);
+		await browser.pause(500);
+		expect(await clickButton('Next')).toBe(true);
+		await until(async () => (await step()) >= 2, 15_000, 'workbench step');
+		if ((await step()) === 2) expect(await clickButton('Next')).toBe(true);
+		await until(async () => (await step()) >= 3, 15_000, 'review step');
+		expect(await clickButton('Next')).toBe(true);
+		await until(async () => (await step()) >= 4, 15_000, 'generate step');
+		generatedRoot = await browser.executeObsidian((_o, wizard) => {
+			const items = Array.from(document.querySelector(wizard)?.querySelectorAll('.setting-item') ?? []);
+			const select = items.find((i) => i.querySelector('.setting-item-name')?.textContent?.trim() === 'If files exist')?.querySelector('select') as HTMLSelectElement | null;
+			if (select) {
+				select.value = 'replace';
+				select.dispatchEvent(new Event('change'));
+			}
+			return (document.querySelector(wizard)?.querySelector('.crosswalker-gen-confirm .mono')?.textContent ?? '').trim();
+		}, WIZARD);
+		expect(generatedRoot).not.toBe('');
+		expect(await clickButton('Generate', true)).toBe(true);
+		await until(async () => browser.executeObsidian((_o, wizard) => {
+			const modal = document.querySelector(wizard);
+			return !modal || !!modal.querySelector('.crosswalker-results-summary')?.textContent?.trim();
+		}, WIZARD), 30_000, 'generation');
+		await closeImportWizard();
+		await waitForVaultIndexed();
+
+		const line = await openLibraryWithRun();
+		console.log('[visual-recipe-library] last run → ' + line);
+		expect(line).not.toContain('iset-');
+		expect(line).not.toContain(generatedRoot!);
+		await browser.executeObsidian((_o, a) => {
+			document.querySelector(a.library)?.querySelector(`[data-recipe-id="${a.id}"]`)?.scrollIntoView({ block: 'start' });
+		}, { library: LIBRARY, id: RECIPE_ID });
+		await bothThemes('rl-09-card-last-run');
+
+		await browser.executeObsidian((_o, a) => {
+			(document.querySelector(a.library)?.querySelector(`[data-recipe-id="${a.id}"] .crosswalker-card-header`) as HTMLElement | null)?.click();
+		}, { library: LIBRARY, id: RECIPE_ID });
+		// One run is already the card's meta line and its Run again button, so
+		// the expanded card shows no Runs list; the actions say which button
+		// leaves existing notes alone.
+		const expanded = await until(async () => browser.executeObsidian((_o, a) => {
+			const card = document.querySelector(a.library)?.querySelector(`[data-recipe-id="${a.id}"]`);
+			if (!card?.querySelector('.crosswalker-recipe-columns')) return null;
+			card.scrollIntoView({ block: 'start' });
+			return {
+				runsSection: !!card.querySelector('.crosswalker-recipe-runs'),
+				actions: Array.from(card.querySelectorAll('.crosswalker-card-actions button')).map((b) => b.textContent?.trim() ?? ''),
+				text: (card.textContent ?? '').replace(/\s+/g, ' ').trim(),
+			};
+		}, { library: LIBRARY, id: RECIPE_ID }), 5_000, 'expanded card with a run');
+		console.log('[visual-recipe-library] expanded with run → ' + JSON.stringify({ ...expanded, text: undefined }));
+		expect(expanded.runsSection).toBe(false);
+		expect(expanded.actions.slice(0, 2)).toEqual(['Run again', 'Import as a new set']);
+		expect(expanded.text).not.toContain('iset-');
+		expect(expanded.text).not.toContain('—');
+		await bothThemes('rl-10-expanded-runs');
+
+		await startRunAgain();
+		await injectSource(CSV);
+		await until(async () => (await runAgainStatus()).some((c) => c.includes('crosswalker-run-again-same')), 10_000, 'matches line');
+		const lead = await browser.executeObsidian((_o, wizard) => (document.querySelector(wizard)?.querySelector('.crosswalker-run-again-lead-line')?.textContent ?? '').trim(), WIZARD);
+		console.log('[visual-recipe-library] run again lead → ' + lead);
+		expect(lead).toMatch(/^Running ".+" again into .+\. /);
+		expect(lead).not.toContain('iset-');
+		await bothThemes('rl-11-step1-matches');
+		await closeImportWizard();
+
+		await openLibraryWithRun();
+		await startRunAgain();
+		await injectSource(CSV_CHANGED);
+		await until(async () => (await runAgainStatus()).some((c) => c.includes('crosswalker-run-again-changed')), 10_000, 'changed line');
+		await bothThemes('rl-12-step1-changed');
+		await closeImportWizard();
+		if (await browser.executeObsidian((_o, library) => !!document.querySelector(library), LIBRARY)) await closeLibrary();
 	});
 });

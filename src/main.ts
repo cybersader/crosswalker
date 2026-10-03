@@ -16,6 +16,7 @@ import { StackSetupModal } from './import/stack/stack-modal';
 import { announceInterruptedConversions, finishInterruptedConversions } from './import/stack/mapping-conversion-ui';
 import { settleVaultIndex } from './generation/import-set';
 import { normalizeStacks, normalizeStackRuns } from './import/stack/stack-persistence';
+import { normalizeRecipeRuns } from './import/recipe-runs';
 import { MAPPING_FORMS } from './generation/import-set-block';
 import { VaultSourceScanModal } from './import/vault-source-scan-modal';
 import {
@@ -1512,7 +1513,8 @@ export default class CrosswalkerPlugin extends Plugin {
 
 	/**
 	 * Open the saved import recipe library. "Use for import" asks for the
-	 * source file, then opens the wizard with that recipe chosen.
+	 * source file, then opens the wizard with that recipe chosen. "Run again"
+	 * refreshes a set the recipe already ran into.
 	 */
 	openRecipeLibrary(): void {
 		new RecipeLibraryModal(this.app, {
@@ -1522,6 +1524,18 @@ export default class CrosswalkerPlugin extends Plugin {
 				new VaultImportFilePicker(this.app, (file) => {
 					new ImportWizardModal(this.app, this, { prefillFile: file, presetLibraryRecipeId: id }).open();
 				}).open();
+			},
+			runs: {
+				get: () => this.settings.recipeRuns,
+				save: async (runs) => {
+					this.settings.recipeRuns = runs;
+					await this.saveSettings();
+				},
+			},
+			// Run again opens the wizard at Step 1 so the user can pick the file
+			// from the vault or from disk; the set and write policy are prefilled.
+			onRunAgain: (run, recipeName, set) => {
+				new ImportWizardModal(this.app, this, { runAgain: { run, recipeName, set } }).open();
 			},
 		}).open();
 	}
@@ -1645,6 +1659,7 @@ export default class CrosswalkerPlugin extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 		this.settings.stacks = normalizeStacks(this.settings.stacks);
 		this.settings.stackRuns = normalizeStackRuns(this.settings.stackRuns, this.settings.stacks);
+		this.settings.recipeRuns = normalizeRecipeRuns(this.settings.recipeRuns);
 		// A hand-edited or future value must not reach an import as an unknown form.
 		if (!(MAPPING_FORMS as readonly string[]).includes(this.settings.defaultMappingForm)) this.settings.defaultMappingForm = 'notes';
 	}

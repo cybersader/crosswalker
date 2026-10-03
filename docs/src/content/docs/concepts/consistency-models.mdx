@@ -330,6 +330,25 @@ This enables point-in-time queries ("what did this control look like when we imp
 4. **Version, don't overwrite**: [SCD Type 2](/crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions) (keep history) is safer than Type 1 (overwrite) because it preserves the ability to diff and rollback
 5. **Use Bases for detection**: [Obsidian Bases](/crosswalker/concepts/metadata-ecosystem/) can surface notes with stale `import_date` or missing `source_hash` — lazy consistency checking via tabular views
 
+## The replay promise
+
+Idempotency above is a design goal. For running a saved [recipe](/crosswalker/concepts/terminology/#recipe) again on the same source file, Crosswalker makes one specific, tested promise (decision D3 in the [Gate 1 ratification](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/)):
+
+**Running the same recipe on the same source file into the same import set leaves every note's managed content unchanged.**
+
+*Managed content* means what Crosswalker owns in a note: every frontmatter property it writes and the text inside each managed body region (between `<!-- crosswalker:NAME:start -->` and its `:end` marker). The comparison leaves out exactly the things a re-run is allowed to change:
+
+| Left out | Why |
+|---|---|
+| `_crosswalker.produced_at` | The time of the run |
+| `_crosswalker.producer.version` | The plugin build that ran |
+| Properties the recipe marks as user-owned (`user_preserve`) | Your edits, never overwritten |
+| Body text outside managed regions | Your prose, never overwritten |
+
+What is **not** promised: byte-identical files. A note you have edited is no longer byte-identical to what was generated, so that promise would be false in any real vault. Byte-identity is not offered as an opt-in check either.
+
+The promise has one definition in code, `managedContentEquivalent` in `src/generation/managed-equivalence.ts`, and the unit tests and the real-Obsidian **Run again** test both use it rather than their own comparison. If the source file or the recipe changed since the last run, the promise does not apply, and the wizard says so on its first step before anything is written. See the [Run again synthesis](/crosswalker/agent-context/zz-log/2026-10-02-recipe-run-again-synthesis/).
+
 ---
 
 ## Resources

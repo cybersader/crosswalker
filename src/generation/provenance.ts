@@ -27,6 +27,12 @@ export interface ProvenanceInput {
 	recipeId?: string;
 	/** Optional: hash of the recipe content (sha256-... format) */
 	recipeHash?: string;
+	/**
+	 * Optional: digest of the complete normalized canonical recipe that ran
+	 * (`computeRecipeDocumentDigest(normalizeRecipe(recipe))`). Written only
+	 * beside a recipe id, so a set can prove which recipe revision wrote it.
+	 */
+	recipeDocumentDigest?: string;
 	/** Optional: the source file the row came from */
 	sourceFile?: string;
 	/** Optional: source URL if fetched remotely */
@@ -79,6 +85,7 @@ export function buildProvenance(input: ProvenanceInput, pluginVersion: string): 
 		block.recipe = {
 			id: input.recipeId,
 			...(input.recipeHash ? { hash: input.recipeHash } : {}),
+			...(input.recipeDocumentDigest ? { recipe_document_digest: input.recipeDocumentDigest } : {}),
 		};
 	}
 

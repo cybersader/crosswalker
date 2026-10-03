@@ -3572,6 +3572,69 @@
 	font-weight: 600;
 	margin-bottom: 2px;
 }
+.crosswalker-recipe-runs {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 0 0 var(--cw-s3, 12px) 0;
+	font-size: var(--font-ui-small);
+}
+.crosswalker-recipe-run-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--cw-s2, 8px);
+	padding: 6px 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s, 4px);
+}
+.crosswalker-recipe-run-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.crosswalker-recipe-run-set {
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.crosswalker-recipe-run-date {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+.crosswalker-recipe-last-run {
+	margin-top: 2px;
+}
+.crosswalker-run-again-status p {
+	margin: 0 0 var(--cw-s2, 8px) 0;
+}
+.crosswalker-run-again-status .crosswalker-run-again-changed,
+.crosswalker-run-again-status .crosswalker-run-again-recipe-changed {
+	color: var(--text-normal);
+}
+/* A changed file is news, not an error: an accent edge, not the warning color. */
+.crosswalker-run-again-status .crosswalker-run-again-changed {
+	border-left: 3px solid var(--color-orange);
+	padding-left: 8px;
+}
+.crosswalker-run-again-lead {
+	margin-bottom: var(--cw-s3, 12px);
+}
+.crosswalker-run-again-lead p {
+	margin: 0 0 var(--cw-s2, 8px) 0;
+}
+.crosswalker-run-again-lead-line {
+	color: var(--text-normal);
+}
+.crosswalker-footer-hint {
+	margin-right: var(--cw-s3, 12px);
+	align-self: center;
+}
+.crosswalker-import-set-list summary {
+	cursor: pointer;
+	color: var(--text-muted);
+}
 .crosswalker-recipe-dest-row {
 	display: flex;
 	align-items: center;

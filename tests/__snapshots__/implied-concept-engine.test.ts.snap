@@ -18,6 +18,7 @@ _crosswalker:
   recipe:
     id: synthetic-implied
     hash: sha256-fcd23fb4355f9b1ad764c01509b695a03ab03b19e0d63d647d3265ead291bdf3
+    recipe_document_digest: sha256-5ea910d2407ca481fc1300baf2b85a789ce479e6e0d83073339c36b942fce2a5
   import_set:
     id: <set-id>
     scheme: endpoint-v1

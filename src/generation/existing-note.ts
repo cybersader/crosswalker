@@ -28,6 +28,7 @@
 
 import { App, TFile, parseYaml } from 'obsidian';
 import { mergeFrontmatter } from './frontmatter-merge';
+import { splitNoteText } from './note-text';
 import {
 	adoptLegacyBody,
 	findSpan,
@@ -72,21 +73,9 @@ export interface ExistingNote {
 	frontmatterText: string;
 }
 
-// Exactly the inverse of `buildNoteContent`: the fence, its YAML, the closing
-// fence, and the ONE blank line buildNoteContent puts between them and the body.
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n(?:\r?\n)?|$)/;
-
-/**
- * Split note text into its properties block and its body. THE one place that
- * knows where a note's frontmatter ends, so a second reader cannot disagree with
- * this one about it.
- */
-export function splitNoteText(text: string): { frontmatterText: string; body: string } {
-	const match = FRONTMATTER_RE.exec(text);
-	return match
-		? { frontmatterText: match[1], body: text.slice(match[0].length) }
-		: { frontmatterText: '', body: text };
-}
+// Moved to the pure `note-text.ts` so node-side callers (tests, the
+// equivalence helper) can split notes without importing obsidian.
+export { splitNoteText };
 
 /**
  * Read an existing note's frontmatter and body, failing closed.
@@ -110,9 +99,7 @@ export async function readExistingNote(app: App, file: TFile): Promise<ExistingN
 		);
 	}
 
-	const match = FRONTMATTER_RE.exec(text);
-	const body = match ? text.slice(match[0].length) : text;
-	const frontmatterText = match ? match[1] : '';
+	const { frontmatterText, body } = splitNoteText(text);
 
 	const cached = app.metadataCache?.getFileCache?.(file)?.frontmatter;
 	if (cached && typeof cached === 'object' && Object.keys(cached).some((k) => k !== 'position')) {
@@ -124,10 +111,10 @@ export async function readExistingNote(app: App, file: TFile): Promise<ExistingN
 	}
 
 	// Cache miss (or an empty cache entry). Parse the file ourselves.
-	if (!match) return { frontmatter: {}, body, frontmatterText };
+	if (!frontmatterText) return { frontmatter: {}, body, frontmatterText };
 	let parsed: unknown;
 	try {
-		parsed = parseYaml(match[1]);
+		parsed = parseYaml(frontmatterText);
 	} catch (err) {
 		throw new ExistingNoteReadError(
 			'frontmatter-unreadable',

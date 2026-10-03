@@ -497,12 +497,18 @@ interface FlowInternals {
 	hydrateFromDraft(draft: unknown): Promise<void>;
 	offeredRefreshSet(sets: readonly DiscoveredImportSet[]): DiscoveredImportSet | null;
 	chooseImportSet(choice: ImportSetOption | null): void;
+	// The readable name the review shows instead of the minted id.
+	setDisplayName(set: DiscoveredImportSet): string;
 	discoveredSets: DiscoveredImportSet[] | null;
 	indexingBlocked: string | null;
 	importSetChoice: ImportSetOption | null;
 }
 
 const inner = (flow: ImportFlow): FlowInternals => flow as unknown as FlowInternals;
+
+/** The refresh offer's label, as the review draws it: readable name and size, never the id. */
+const offerLabel = (flow: ImportFlow, set: DiscoveredImportSet): string =>
+	`Looks like ${inner(flow).setDisplayName(set)} (${set.noteCount === 1 ? '1 note' : `${set.noteCount} notes`}). Refresh it instead?`;
 
 /** One dropdown as the review screen built it, in the order the user sees it. */
 interface DropdownRecord {
@@ -574,7 +580,7 @@ function pressTheOffer(flow: ImportFlow): string {
 	const sets = inner(flow).discoveredSets ?? [];
 	const offer = inner(flow).offeredRefreshSet(sets);
 	const { clicks } = captureReview(flow);
-	const label = offer ? `Looks like ${offer.id}. Refresh it instead?` : null;
+	const label = offer ? offerLabel(flow, offer) : null;
 	if (!label || !clicks.has(label)) {
 		throw new Error(
 			`No refresh offer was drawn. Sets: ${sets.map((s) => s.id).join(', ') || 'none'}; `
@@ -1428,7 +1434,7 @@ describe('a new set refuses to mint into a folder another set already owns', () 
 		expect(inner(flow).selectedImportSet()).toBe('new');
 		expect(inner(flow).currentOutputPath()).toBe(DERIVED_ROOT);
 		expect(inner(flow).newSetOccupancyProblem())
-			.toMatch(/^Ontologies\/attack-mini already holds notes owned by import set iset-[a-z0-9]{6}\. Choose another folder for this import, or refresh that set instead\.$/);
+			.toMatch(/^Ontologies\/attack-mini already holds notes from the import set attack-mini\. Choose another folder for this import, or refresh that set instead\.$/);
 	});
 
 	it('blocks Generate instead of writing a second ontology into that folder', async () => {
@@ -2282,7 +2288,7 @@ describe('the refresh offer, which is a suggestion and never a decision', () => 
 		const match = sets.find((set) => set.ontologyPrefixes.includes(ONTOLOGY))!;
 
 		expect(inner(flow).offeredRefreshSet(sets)).toBe(match);
-		expect(captureReview(flow).texts).toContain(`Looks like ${match.id}. Refresh it instead?`);
+		expect(captureReview(flow).texts).toContain(offerLabel(flow, match));
 	});
 
 	it('appears for no set at all when nothing in the vault shares the ontology', async () => {
@@ -2352,9 +2358,13 @@ describe('every set in the vault is listed, so any of them can be refreshed on p
 		const { texts, dropdown } = captureReview(flow);
 
 		expect(inner(flow).offeredRefreshSet([legacy])).toBeNull();
-		const listed = texts.filter((line) => line.startsWith(`${legacy.id}: `));
+		// Named the way the library card names it, never by the minted id; the
+		// recipe that made it is not saved, so it is said plainly.
+		const name = inner(flow).setDisplayName(legacy);
+		const listed = texts.filter((line) => line.startsWith(`${name}: `));
 		expect(listed).toHaveLength(1);
-		expect(listed[0]).toBe(`${legacy.id}: ${legacy.noteCount} notes in ${SHARED_ROOT}, from ${LEGACY_RECIPE_ID_SENTINEL}`);
+		expect(listed[0]).toBe(`${name}: ${legacy.noteCount} notes, made by an unsaved recipe`);
+		expect(listed[0]).not.toContain(legacy.id);
 		expect(dropdown!.options.map((option) => option.value)).toEqual(['__new__', legacy.id]);
 	});
 

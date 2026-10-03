@@ -59,6 +59,9 @@ import { normalizeFolderSetting } from '../settings/folder-settings';
 // AM-33: the tri-state note read, for the hub value index's cache-cold fallback.
 import { readNoteFrontmatterState, type NoteFrontmatterRead } from '../export/vault-reader';
 import { buildProvenance } from './provenance';
+import { computeRecipeDocumentDigest } from './hash';
+import { normalizeRecipe } from '../import/recipe-document';
+import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import { derivationOf, resolveImportSet, type ImportSetDerivation, type ImportSetOption, type ImportSetReference } from './import-set';
 import { SSSOM_CURIE_PREFIX, crosswalkEdgeCuriePrefix, sssomEdgeCurie } from './crosswalk-identity';
 import {
@@ -545,6 +548,9 @@ export async function generateNotes(
 		// Never derive this id from recipe/source/path: all are allowed to change on
 		// a legitimate refresh, while the import set must remain the same.
 		const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest);
+		// Same as the recipe entry: callers (the wizard's Run again record) need
+		// the set this run wrote into, by minted id.
+		result.importSetId = importSet.id;
 		if (recipe.source?.nest && derivationOf(importSet) !== 'declared-facts-v1') {
 			result.errors.push({
 				row: 0,
@@ -1817,6 +1823,37 @@ function resolveWriteTarget(
  * because body templates haven't migrated to spec yet (deferred to a later
  * milestone where body becomes a recipe-defined `also_emit.body` or similar).
  */
+/**
+ * `_crosswalker.recipe.recipe_document_digest` for the recipe a run executes:
+ * the digest of the complete normalized canonical recipe, the same
+ * normalization `recipeBasedOn()` uses. Memoized per recipe object, because one
+ * run passes one recipe object to every note it writes. A recipe that cannot be
+ * normalized (a hand-built legacy shape) stamps nothing rather than a digest of
+ * something that is not a canonical recipe.
+ */
+const recipeDocumentDigests = new WeakMap<object, string | null>();
+function recipeDocumentDigestFor(recipe: object): string | undefined {
+	if (!recipeDocumentDigests.has(recipe)) {
+		let digest: string | null = null;
+		try {
+			digest = computeRecipeDocumentDigest(normalizeRecipe(recipe as unknown as CrosswalkerImportRecipe));
+		} catch {
+			digest = null;
+		}
+		recipeDocumentDigests.set(recipe, digest);
+	}
+	return recipeDocumentDigests.get(recipe) ?? undefined;
+}
+
+/**
+ * The digest stamped beside `provenanceRecipeId`. A caller that stamps another
+ * recipe's identity (`provenanceRecipe`, the conversion job) stamps that
+ * recipe's digest too, or none, never the digest of the transport variant.
+ */
+function stampedRecipeDocumentDigest(recipe: object, options: { provenanceRecipe?: { recipeDocumentDigest?: string } }): string | undefined {
+	return options.provenanceRecipe ? options.provenanceRecipe.recipeDocumentDigest : recipeDocumentDigestFor(recipe);
+}
+
 function buildNoteDataViaRender(
 	row: Record<string, any>,
 	rowNum: number,
@@ -1999,6 +2036,7 @@ function buildNoteDataViaRender(
 			sourceHash,
 			recipeId: provenanceRecipeId,
 			recipeHash,
+			recipeDocumentDigest: recipeDocumentDigestFor(recipe),
 			importSet,
 			// Raw source scope on purpose: mapping-only defaults must never enter
 			// concept identity, or every concept's content hash shifts.
@@ -2952,7 +2990,7 @@ export interface RecipeImportOptions {
 	 * stamps the recipe that actually produced the set. Failure mode prevented: a
 	 * converted set reading as "recipe changed" and being refused a refresh.
 	 */
-	provenanceRecipe?: { id: string; hash?: string };
+	provenanceRecipe?: { id: string; hash?: string; recipeDocumentDigest?: string };
 	/** How to handle existing files. */
 	overwriteMode: 'skip' | 'replace' | 'error';
 	/** Whether to create missing folders. Defaults to true. */
@@ -3541,6 +3579,7 @@ export async function generateFromRecipe(
 					sourceHash: parsedData.sourceByteDigest,
 					recipeId: provenanceRecipeId,
 					recipeHash,
+					recipeDocumentDigest: stampedRecipeDocumentDigest(recipe, options),
 					importSet,
 					conceptCid: computeConceptCid({ curie, scope: identityScope }),
 					reviewCid,
@@ -5020,7 +5059,7 @@ async function applyEnrichment(
 	// records no provenance at all, where writing one is a gain and not an
 	// overwrite.
 	const freshProvenance = buildProvenance(
-		{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, importSet },
+		{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, recipeDocumentDigest: recipeDocumentDigestFor(recipe), importSet },
 		PLUGIN_VERSION,
 	);
 	const enrichment = enrich(
@@ -5266,7 +5305,7 @@ async function applyEnrichment(
 		const fullPath = options.basePath ? normalizePath(`${options.basePath}/${hub.path}`) : normalizePath(hub.path);
 		const frontmatter: Record<string, any> = { ...hub.frontmatter };
 		frontmatter._crosswalker = buildProvenance(
-			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, importSet },
+			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, recipeDocumentDigest: recipeDocumentDigestFor(recipe), importSet },
 			PLUGIN_VERSION,
 		);
 		// Hub ownership and produced membership are recorded together. Splitting
@@ -5508,7 +5547,7 @@ async function applyEnrichment(
 				['implied_level', 'implied_levels', 'implied_values', ...ENGINE_PARENT_KEYS].filter((key) => note.frontmatter[key] !== undefined) } : {}),
 			_crosswalker: buildProvenance({ sourceFile: options.sourceFileName,
 				sourceVersion: options.sourceVersion, sourceHash: options.sourceHash,
-				recipeId: recipe.recipe, recipeHash, importSet }, PLUGIN_VERSION) };
+				recipeId: recipe.recipe, recipeHash, recipeDocumentDigest: recipeDocumentDigestFor(recipe), importSet }, PLUGIN_VERSION) };
 		const writePath = note.heldFolder && existing instanceof TFile ? existing.path
 			: await applyHubRelocation(app, target, curie, result, options.overwriteMode, producedThisRun, debug);
 		let body = note.body;
@@ -5569,7 +5608,7 @@ async function applyEnrichment(
 		const fullPath = normalizePath(hub.path);
 		const frontmatter: Record<string, any> = { ...hub.frontmatter };
 		frontmatter._crosswalker = buildProvenance(
-			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, importSet },
+			{ sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion, sourceHash: options.sourceHash, recipeId: recipe.recipe, recipeHash, recipeDocumentDigest: recipeDocumentDigestFor(recipe), importSet },
 			PLUGIN_VERSION,
 		);
 		// Hub ownership and produced membership are recorded together. Splitting

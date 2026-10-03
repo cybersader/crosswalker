@@ -366,3 +366,52 @@ describe('kept-host enrichment provenance', () => {
 		expect(sourceHashOf(files.get('Out/T1078/T1078.002.md')!)).toBe(DIGEST_B);
 	});
 });
+
+describe('recipe document digest provenance (run again R4)', () => {
+	// eslint-disable-next-line @typescript-eslint/no-var-requires
+	const { validateTier1Frontmatter } = require('../src/validation/validator') as typeof import('../src/validation/validator');
+	// eslint-disable-next-line @typescript-eslint/no-var-requires
+	const { recipeRunDigest } = require('../src/import/recipe-runs') as typeof import('../src/import/recipe-runs');
+
+	it.each(['generateNotes', 'generateFromRecipe'] as const)(
+		'%s stamps _crosswalker.recipe.recipe_document_digest on every note, and the notes validate',
+		async (entry) => {
+			const { app, files } = makeApp();
+			const result = await runEntry(entry, app, parsed(ENRICHED_ROWS, DIGEST_A), ENRICHED_RECIPE, 'replace');
+			expect(result.errors).toEqual([]);
+			// The wizard records Run again against the set the run wrote into.
+			expect(result.importSetId).toEqual(expect.any(String));
+			expect(importSetOf([...files.values()].find((t) => t.includes('import_set'))!).id).toBe(result.importSetId);
+			const expected = recipeRunDigest(ENRICHED_RECIPE as never);
+			expect(expected).toMatch(/^sha256-[a-f0-9]{64}$/);
+			const notes = [...files.entries()].filter(([path]) => path.endsWith('.md'));
+			expect(notes.length).toBeGreaterThan(0);
+			for (const [path, text] of notes) {
+				const fm = frontmatterOf(text);
+				expect({ path, digest: fm._crosswalker?.recipe?.recipe_document_digest }).toEqual({ path, digest: expected });
+				if (path === 'Out/Persistence/A-1.md') {
+					const check = validateTier1Frontmatter(fm);
+					expect(check.errors).toEqual([]);
+				}
+			}
+		},
+	);
+
+	it('the same recipe stamps the same digest on a second run, and a changed recipe stamps another', async () => {
+		const { app, files } = makeApp();
+		await generateFromRecipe(app, parsed([{ id: 'A-1', title: 'Alpha' }], DIGEST_A), FLAT_RECIPE, nativeOptions('replace'));
+		const first = frontmatterOf(files.get('Out/A-1.md')!)._crosswalker.recipe.recipe_document_digest;
+		const importSet = importSetOf(files.get('Out/A-1.md')!);
+		await generateFromRecipe(app, parsed([{ id: 'A-1', title: 'Alpha' }], DIGEST_A), FLAT_RECIPE, nativeOptions('replace', importSet));
+		expect(frontmatterOf(files.get('Out/A-1.md')!)._crosswalker.recipe.recipe_document_digest).toBe(first);
+
+		const edited: Recipe = {
+			...FLAT_RECIPE,
+			target: { ...FLAT_RECIPE.target, also_emit: { frontmatter: { managed: { title: '{title}', label: '{id}' } } } },
+		};
+		await generateFromRecipe(app, parsed([{ id: 'A-1', title: 'Alpha' }], DIGEST_A), edited, nativeOptions('replace', importSet));
+		const second = frontmatterOf(files.get('Out/A-1.md')!)._crosswalker.recipe.recipe_document_digest;
+		expect(second).toMatch(/^sha256-[a-f0-9]{64}$/);
+		expect(second).not.toBe(first);
+	});
+});
