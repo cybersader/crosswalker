@@ -33,6 +33,18 @@ import {
 	type LibraryListing,
 	type RecipeLibraryFiles,
 } from './recipe-library';
+import { discoverImportSets, settleVaultIndex } from '../generation/import-set';
+import {
+	CHECKING_VAULT_LINE,
+	displayRecipeRuns,
+	notesPhrase,
+	formatRunDate,
+	lastRunLine,
+	pruneRecipeRuns,
+	type RecipeRunDisplay,
+	type RecipeRunRecord,
+	type RecipeRunRow,
+} from './recipe-runs';
 
 // ============================================================================
 // Vault adapter
@@ -358,6 +370,26 @@ export class SaveRecipeModal extends Modal {
 // ============================================================================
 
 type BrowserMode = 'browse' | 'select';
+
+/** Run records the library reads, and how it writes back a pruned list. */
+export interface RecipeRunsSource {
+	get: () => RecipeRunRecord[];
+	save: (runs: RecipeRunRecord[]) => Promise<void>;
+}
+
+/** Expanded card: rows shown before "and N more". */
+const RUN_ROWS_SHOWN = 5;
+
+/** The set a Run again click refreshes, as the wizard names it before any vault scan. */
+export interface RunAgainSet {
+	name: string;
+	noteCount?: number;
+}
+
+/** Run again's accessible name: what it does to which set. */
+function refreshLabel(setName: string): string {
+	return `Refresh ${setName} with a new copy of the source file`;
+}
 type SortKey = 'name' | 'newest';
 
 interface CardItem {
@@ -384,24 +416,75 @@ export class RecipeLibraryModal extends Modal {
 	private listEl: HTMLElement | null = null;
 	private resolved = false;
 	private outputRoot: string | null;
+	private runSource: RecipeRunsSource | null;
+	private onRunAgain: ((run: RecipeRunRecord, recipeName: string, set: RunAgainSet) => void) | null;
+	/** Per recipe id. Absent while not yet resolved for a recipe that has records. */
+	private runDisplay = new Map<string, RecipeRunDisplay>();
+	private closed = false;
 
-	constructor(app: App, opts: { mode: BrowserMode; onUse: (id: string) => void; outputRoot?: string }) {
+	constructor(app: App, opts: {
+		mode: BrowserMode;
+		onUse: (id: string) => void;
+		outputRoot?: string;
+		/** Run again (slice 2). Browse mode only. */
+		runs?: RecipeRunsSource;
+		onRunAgain?: (run: RecipeRunRecord, recipeName: string, set: RunAgainSet) => void;
+	}) {
 		super(app);
 		this.files = obsidianRecipeLibraryFiles(app);
 		this.mode = opts.mode;
 		this.onUse = opts.onUse;
 		this.outputRoot = opts.outputRoot?.trim() ? opts.outputRoot.trim() : null;
+		this.runSource = opts.mode === 'browse' ? opts.runs ?? null : null;
+		this.onRunAgain = opts.onRunAgain ?? null;
 	}
 
 	async onOpen(): Promise<void> {
 		this.modalEl.addClass('crosswalker-config-browser-modal');
 		this.modalEl.addClass('crosswalker-recipe-library-modal');
+		this.closed = false;
 		await this.reload();
 		this.renderShell();
+		void this.resolveRuns();
 	}
 
 	onClose(): void {
+		this.closed = true;
 		this.contentEl.empty();
+	}
+
+	/**
+	 * R3. Which run records may be shown: only those whose set a settled vault
+	 * index still finds by id. Until then a card says "Checking your vault...",
+	 * never that a set is missing. A cold index is retried a few times while the
+	 * modal stays open. A settled answer also prunes records for gone sets.
+	 */
+	private async resolveRuns(): Promise<void> {
+		const source = this.runSource;
+		if (!source) return;
+		const runs = source.get();
+		const ids = [...new Set(runs.map((run) => run.recipeId))];
+		if (ids.length === 0) return;
+		for (let attempt = 0; attempt < 5 && !this.closed; attempt++) {
+			let settled: Promise<number> | null = null;
+			let discovered: ReturnType<typeof discoverImportSets> | null = null;
+			const vault = {
+				settle: () => (settled ??= settleVaultIndex(this.app)),
+				discover: () => (discovered ??= discoverImportSets(this.app, undefined)),
+			};
+			const next = new Map<string, RecipeRunDisplay>();
+			for (const id of ids) next.set(id, await displayRecipeRuns(runs, id, vault, this.outputRoot ?? undefined));
+			if (this.closed) return;
+			this.runDisplay = next;
+			this.renderList();
+			if ([...next.values()].every((display) => display.state === 'ready')) {
+				const live = new Set([...next.values()].flatMap((display) =>
+					display.state === 'ready' ? display.rows.map((row) => row.run.importSetId) : []));
+				const pruned = pruneRecipeRuns(runs, live);
+				if (pruned.length !== runs.length) await source.save(pruned);
+				return;
+			}
+		}
 	}
 
 	private async reload(): Promise<void> {
@@ -528,6 +611,13 @@ export class RecipeLibraryModal extends Modal {
 			if (lineage) meta.createSpan({ cls: 'crosswalker-meta-sep', text: '·' });
 			meta.createSpan({ text: `Saved ${new Date(item.savedAt).toLocaleDateString()}` });
 		}
+		const runs = this.runsFor(item);
+		if (runs) {
+			titleArea.createDiv({
+				cls: 'crosswalker-card-meta crosswalker-recipe-last-run',
+				text: runs.state === 'checking' ? CHECKING_VAULT_LINE : lastRunLine(runs.rows[0]),
+			});
+		}
 		const expandBtn = header.createEl('button', {
 			cls: 'crosswalker-expand-btn clickable-icon',
 			attr: { 'aria-label': open ? 'Hide details' : 'Show details' },
@@ -543,8 +633,52 @@ export class RecipeLibraryModal extends Modal {
 		this.renderActions(card, item);
 	}
 
+	/**
+	 * What the card may say about this recipe's runs: null when there is nothing
+	 * to show (no records, or every record's set is gone), "checking" while the
+	 * vault index has not settled.
+	 */
+	private runsFor(item: CardItem): RecipeRunDisplay | null {
+		if (!this.runSource) return null;
+		const display = this.runDisplay.get(item.id);
+		if (!display) return this.runSource.get().some((run) => run.recipeId === item.id) ? { state: 'checking' } : null;
+		if (display.state === 'ready' && display.rows.length === 0) return null;
+		return display;
+	}
+
+	private runAgain(row: RecipeRunRow, item: CardItem): void {
+		if (this.resolved || !this.onRunAgain) return;
+		this.resolved = true;
+		this.close();
+		this.onRunAgain(row.run, item.name, { name: row.setName, noteCount: row.noteCount });
+	}
+
+	/** Expanded card: one row per set this recipe ran into, newest first. */
+	private renderRuns(details: HTMLElement, item: CardItem): void {
+		const runs = this.runsFor(item);
+		// One run is already the card's meta line and its Run again button; a
+		// section repeating it is noise. The list earns its place at two sets.
+		if (!runs || runs.state !== 'ready' || !this.onRunAgain || runs.rows.length < 2) return;
+		const section = details.createDiv({ cls: 'crosswalker-recipe-runs' });
+		section.createDiv({ cls: 'crosswalker-recipe-dest-title', text: 'Runs' });
+		const shown = runs.rows.slice(0, RUN_ROWS_SHOWN);
+		for (const row of shown) {
+			const line = section.createDiv({ cls: 'crosswalker-recipe-run-row' });
+			const text = line.createDiv({ cls: 'crosswalker-recipe-run-text' });
+			text.createSpan({ cls: 'crosswalker-recipe-run-set', text: row.setName });
+			const size = row.noteCount === undefined ? '' : `, ${notesPhrase(row.noteCount)}`;
+			text.createSpan({ cls: 'crosswalker-recipe-run-date', text: `Last run ${formatRunDate(row.run.finishedAt)} from ${row.run.source.name}${size}` });
+			line.createEl('button', { text: 'Run again', attr: { 'aria-label': refreshLabel(row.setName) } })
+				.addEventListener('click', () => this.runAgain(row, item));
+		}
+		const more = runs.rows.length - shown.length;
+		if (more > 0) section.createDiv({ cls: 'setting-item-description', text: `and ${more} more` });
+	}
+
 	private renderDetails(card: HTMLElement, item: CardItem): void {
 		const details = card.createDiv({ cls: 'crosswalker-card-details crosswalker-recipe-details' });
+		// Where this recipe already ran comes first: it is what Run again acts on.
+		this.renderRuns(details, item);
 		details.createEl('p', { cls: 'crosswalker-recipe-source-line', text: sourceFormatLine(item.recipe) });
 		this.renderDestinationTree(details, destinationSteps(item.recipe));
 		const rows = summarizeRecipeColumns(item.recipe);
@@ -598,10 +732,22 @@ export class RecipeLibraryModal extends Modal {
 
 	private renderActions(card: HTMLElement, item: CardItem): void {
 		const actions = card.createDiv({ cls: 'crosswalker-card-actions' });
+		// Run again is the primary action once the recipe has run somewhere that
+		// still exists: it refreshes the newest set. "Use for import" stays as
+		// "start a new set with this recipe".
+		const runs = this.runsFor(item);
+		const newest = runs?.state === 'ready' && this.onRunAgain ? runs.rows[0] : null;
+		if (newest) {
+			actions.createEl('button', { text: 'Run again', cls: 'mod-cta crosswalker-recipe-run-again', attr: { 'aria-label': refreshLabel(newest.setName) } })
+				.addEventListener('click', () => this.runAgain(newest, item));
+		}
+		// Beside Run again, "Use for import" would not say which button touches
+		// existing notes. Name the safe one by what it does.
 		const use = actions.createEl('button', {
-			text: this.mode === 'select' ? 'Use this recipe' : 'Use for import',
-			cls: 'mod-cta',
+			text: this.mode === 'select' ? 'Use this recipe' : newest ? 'Import as a new set' : 'Use for import',
+			cls: newest ? '' : 'mod-cta',
 		});
+		if (newest && this.mode !== 'select') use.setAttr('aria-label', 'Start a new import set with this recipe. Your existing notes are not touched.');
 		use.addEventListener('click', () => {
 			if (this.resolved) return;
 			this.resolved = true;

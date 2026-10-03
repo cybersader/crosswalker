@@ -8,6 +8,7 @@ import { SavedConfig } from '../types/config';
 import type { DebugLevel } from '../utils/debug';
 import type { Enrichment } from '../import/mapping/types';
 import type { StackDefinition, StackRunRecord } from '../import/stack/stack-persistence';
+import type { RecipeRunRecord } from '../import/recipe-runs';
 import type { MappingForm } from '../generation/import-set-block';
 
 export interface CrosswalkerSettings {
@@ -106,6 +107,8 @@ export interface CrosswalkerSettings {
 	/** Recipe compositions; vault-specific run facts are stored separately. */
 	stacks: StackDefinition[];
 	stackRuns: StackRunRecord[];
+	/** Where each library recipe last ran, one per (recipe, import set). Vault-local; never in the recipe file. */
+	recipeRuns: RecipeRunRecord[];
 	/** File-write confirmation gate for stack imports; zero confirms every nonempty run. */
 	stackConfirmFileThreshold: number;
 	/**
@@ -186,6 +189,7 @@ export const DEFAULT_SETTINGS: CrosswalkerSettings = {
 	savedConfigs: [],
 	stacks: [],
 	stackRuns: [],
+	recipeRuns: [],
 	stackConfirmFileThreshold: 1000,
 	defaultMappingForm: 'notes',
 	openMappingTablesInCrosswalker: true,

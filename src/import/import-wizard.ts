@@ -59,7 +59,28 @@ import { RecipeLibraryModal, SaveRecipeModal, obsidianRecipeLibraryFiles } from 
 import { discoverImportSets, newSetSchemeFrom, settleVaultIndex, type DiscoveredImportSet, type ImportSetOption } from '../generation/import-set';
 import { suggestWorkbookBinding, type WorkbookSuggestion } from './workbook-suggestion';
 import { refreshRecipeProblem } from './stack/stack-model';
-import { computeRecipeHash } from '../generation/hash';
+import {
+	RECIPE_CHANGED_LINE,
+	pruneRecipeRuns,
+	STALE_SET_MESSAGE,
+	STALE_SET_NEXT_HINT,
+	STALE_SET_OPTION,
+	START_NEW_IMPORT_LABEL,
+	chooseFileLine,
+	readyToRefreshLine,
+	refreshingLine,
+	notesPhrase,
+	runAgainLeadLine,
+	runSetDisplayName,
+	normalizeRecipeRuns,
+	recipeChangedSinceRun,
+	recipeRunDigest,
+	sourceRunStatus,
+	sourceStatusLine,
+	upsertRecipeRun,
+	type RecipeRunRecord,
+} from './recipe-runs';
+import { computeRecipeHash, computeSourceByteDigest } from '../generation/hash';
 
 /**
  * Curated per-import root for a recognized recipe (spec §7m), or `null` when the
@@ -236,6 +257,29 @@ export class ImportFlow {
 	 *  re-parsed automatically and the flow jumps straight to Step 2. */
 	pendingPrefill: TFile | null = null;
 	pendingPrefillBinding: PrefillBinding | null = null;
+	/**
+	 * Run again (recipe library slice 2). The run record the user clicked. The
+	 * click IS the import set choice, so it is reapplied whenever a new source
+	 * resets the choice, until the user picks another set on review.
+	 */
+	private runAgain: RecipeRunRecord | null = null;
+	private runAgainSetOverridden = false;
+	/**
+	 * What the Run again click knew, for the Step 1 lead: the recipe's name
+	 * (kept apart from `presetLibraryRecipeName`, which is consumed once the
+	 * recipe is applied) and the set's readable name and size, so Step 1 names
+	 * the set without a vault scan.
+	 */
+	private runAgainContext: { recipeName: string; setName: string; noteCount?: number } | null = null;
+	/**
+	 * Run again only: the whole-file byte digest of the file just picked on
+	 * Step 1, before any parse. Same function the parsers use, so it equals the
+	 * parsed `sourceByteDigest`. Lets Step 1 say "matches" or "changed" at once.
+	 */
+	private pickedSourceDigest: string | null = null;
+	/** Facts of the last successful generation, so "Save as recipe" on the
+	 *  results screen can record the run under the new recipe id. */
+	private lastRunFacts: Omit<RecipeRunRecord, 'recipeId' | 'recipeDocumentDigest'> | null = null;
 
 	// Wizard state
 	sourceFile: File | null = null;
@@ -419,6 +463,175 @@ export class ImportFlow {
 			await this.consumePendingPrefill();
 			this.renderStep();
 		});
+	}
+
+	/**
+	 * Open the flow as "Run again": the recipe preset, the recorded write policy
+	 * and source settings prefilled, and the recorded import set chosen. Only the
+	 * source file is asked for.
+	 */
+	startRunAgain(run: RecipeRunRecord, recipeName: string, set?: { name: string; noteCount?: number }): void {
+		this.runAgain = run;
+		this.runAgainSetOverridden = false;
+		this.runAgainContext = { recipeName, setName: set?.name ?? 'the set from the last run', noteCount: set?.noteCount };
+		this.presetLibraryRecipeId = run.recipeId;
+		this.presetLibraryRecipeName = recipeName;
+		this.overwriteMode = run.overwriteMode;
+	}
+
+	/**
+	 * Leave Run again mode completely: the set choice the click made, the write
+	 * policy it prefilled, and the recipe it chose all go, so nothing from the
+	 * old run can refresh a set the user did not pick again (chosen, never
+	 * guessed). A recipe the run already applied to a parsed file goes too, so
+	 * Next starts a fresh import of the same file.
+	 */
+	private exitRunAgain(): void {
+		const applied = this.runAgain !== null && this.workbench?.getRecipeDocument().original.recipe === this.runAgain.recipeId;
+		this.runAgain = null;
+		this.runAgainSetOverridden = false;
+		this.runAgainContext = null;
+		this.pickedSourceDigest = null;
+		this.importSetChoice = null;
+		this.presetLibraryRecipeId = null;
+		this.presetLibraryRecipeName = null;
+		this.overwriteMode = 'skip';
+		if (applied) this.invalidateParse();
+	}
+
+	/** A readable name for a discovered set, the same one the library card uses. */
+	private setDisplayName(set: DiscoveredImportSet): string {
+		return runSetDisplayName(set, outputRootPath(this.plugin.settings));
+	}
+
+	/**
+	 * Reapply the recorded sheet, header row and record list after a new source
+	 * reset them. A sheet the new workbook does not have is dropped, so the
+	 * normal sheet suggestion runs instead of a parse that cannot succeed.
+	 */
+	private applyRunAgainBinding(): void {
+		const source = this.runAgain?.source;
+		if (!source) return;
+		if (this.sourceType === 'xlsx' && source.sheet !== undefined
+			&& (this.availableSheets.length === 0 || this.availableSheets.includes(source.sheet))) {
+			this.selectedSheet = source.sheet;
+			this.xlsxHeaderRow = source.headerRow ?? 0;
+			this.sheetSuggestion = null;
+		}
+		if (this.sourceType === 'json' && source.iterator !== undefined) {
+			const known = this.jsonStructure?.candidates.map((candidate) => candidate.iterator);
+			if (!known || known.includes(source.iterator)) this.jsonIterator = source.iterator;
+		}
+	}
+
+	/** The run-again set was chosen and a settled discovery no longer finds it. */
+	private runAgainSetMissing(): boolean {
+		const run = this.runAgain;
+		const choice = this.importSetChoice;
+		if (!run || !choice || typeof choice === 'string' || choice.id !== run.importSetId) return false;
+		if (this.discoveredSets === null) return false; // not asked yet is not missing
+		return !this.discoveredSets.some((set) => set.id === run.importSetId);
+	}
+
+	/** The current recipe revision, when it is the recipe being run again. */
+	private runAgainRecipeChanged(): boolean {
+		const run = this.runAgain;
+		if (!run || !this.workbench) return false;
+		const document = this.workbench.getRecipeDocument();
+		if (document.original.recipe !== run.recipeId) return false;
+		return recipeChangedSinceRun(run, recipeRunDigest(document.original));
+	}
+
+	/**
+	 * Run again, Step 1 lead (spec 4.2): which recipe runs into which set and
+	 * what happens to its notes, then the request for the file.
+	 */
+	private renderRunAgainLead(container: HTMLElement): void {
+		const run = this.runAgain;
+		const context = this.runAgainContext;
+		if (!run || !context) return;
+		const wrap = container.createDiv({ cls: 'crosswalker-run-again-lead' });
+		wrap.createEl('p', {
+			text: runAgainLeadLine(context.recipeName, context.setName, context.noteCount, this.overwriteMode),
+			cls: 'crosswalker-run-again-lead-line',
+		});
+		wrap.createEl('p', { text: chooseFileLine(run), cls: 'setting-item-description' });
+	}
+
+	/**
+	 * Run again status lines (spec 4.2): once a file is picked, whether its
+	 * content changed since the last run. Step 1 draws them inside the file
+	 * card; review repeats them. A different file name is never a warning:
+	 * identity is the content.
+	 */
+	private renderRunAgainStatus(container: HTMLElement): void {
+		const run = this.runAgain;
+		if (!run) return;
+		const wrap = container.createDiv({ cls: 'crosswalker-run-again-status' });
+		const recipeChanged = this.runAgainRecipeChanged();
+		const currentDigest = this.parsedData?.sourceByteDigest ?? this.pickedSourceDigest;
+		if (currentDigest) {
+			const status = sourceRunStatus(run, currentDigest);
+			const line = sourceStatusLine(run, status, this.sourceType === 'xlsx', recipeChanged, this.runAgainSetName(), this.overwriteMode);
+			if (line) wrap.createEl('p', { text: line, cls: `setting-item-description crosswalker-run-again-${status}` });
+		}
+		if (recipeChanged) wrap.createEl('p', { text: RECIPE_CHANGED_LINE, cls: 'setting-item-description crosswalker-run-again-recipe-changed' });
+		if (!wrap.childElementCount) wrap.remove();
+	}
+
+	/** The run-again set's readable name: discovered when known, else what the click knew. */
+	private runAgainSetName(): string | null {
+		const run = this.runAgain;
+		if (!run) return null;
+		const set = this.discoveredSets?.find((candidate) => candidate.id === run.importSetId);
+		return set ? this.setDisplayName(set) : this.runAgainContext?.setName ?? null;
+	}
+
+	/**
+	 * Section 3. After a successful generation with a saved or built-in recipe,
+	 * remember the run so the library card can offer Run again. Fresh mappings
+	 * are remembered too, so "Save as recipe" on the results screen can record
+	 * the run under the new recipe. Never throws: a run that wrote notes is not
+	 * undone by a settings write that failed.
+	 */
+	private async recordRecipeRun(importSetId: string | undefined, overwriteMode: RecipeRunRecord['overwriteMode']): Promise<void> {
+		this.lastRunFacts = null;
+		try {
+			if (!importSetId || !this.workbench || !this.parsedData || !this.sourceFile) return;
+			const source: RecipeRunRecord['source'] = { name: this.sourceFile.name };
+			if (this.parsedData.sourceByteDigest) source.digest = this.parsedData.sourceByteDigest;
+			if (this.sourceType === 'xlsx' && this.selectedSheet !== null) {
+				source.sheet = this.selectedSheet;
+				source.headerRow = this.xlsxHeaderRow;
+			}
+			if (this.sourceType === 'json' && this.jsonIterator) source.iterator = this.jsonIterator;
+			const facts = { importSetId, source, overwriteMode, finishedAt: new Date().toISOString(), sourceCopy: 'none' as const };
+			this.lastRunFacts = facts;
+			const document = this.workbench.getRecipeDocument();
+			if (document.origin !== 'user' && document.origin !== 'bundled') return;
+			const digest = recipeRunDigest(document.original);
+			if (!digest || !document.original.recipe) return;
+			await this.saveRecipeRun({ recipeId: document.original.recipe, recipeDocumentDigest: digest, ...facts });
+			if (this.runAgain?.recipeId === document.original.recipe) this.runAgain = null;
+		} catch (error) {
+			this.plugin.debug.warn('wizard', 'recipe-run-record-failed', 'Could not remember this recipe run', { error: String(error) });
+		}
+	}
+
+	/** Upsert one record and prune records whose set is gone (R3: only from a settled discovery). */
+	private async saveRecipeRun(record: RecipeRunRecord): Promise<void> {
+		let runs = upsertRecipeRun(normalizeRecipeRuns(this.plugin.settings.recipeRuns), record);
+		try {
+			if (await settleVaultIndex(this.app) === 0) {
+				const live = new Set((await discoverImportSets(this.app, undefined)).map((set) => set.id));
+				live.add(record.importSetId); // just written; the index may not show it yet
+				runs = pruneRecipeRuns(runs, live);
+			}
+		} catch {
+			// Keep every record when the vault cannot be read: absence is not proven.
+		}
+		this.plugin.settings.recipeRuns = runs;
+		await this.plugin.saveSettings();
 	}
 
 	private async consumePendingPrefill(): Promise<void> {
@@ -609,7 +822,8 @@ export class ImportFlow {
 				const buf = await this.app.vault.readBinary(tfile);
 				file = new File([buf], name);
 				this.availableSheets = await listXLSXSheets(file);
-				if (this.selectedSheet === null) {
+				if (this.selectedSheet === null || !this.availableSheets.includes(this.selectedSheet)) {
+					this.selectedSheet = null;
 					try {
 						this.chooseWorkbookDefaults(new Uint8Array(buf), name);
 					} catch (error) {
@@ -770,6 +984,7 @@ export class ImportFlow {
 		this.jsonStructure = null;
 		this.jsonIterator = '';
 		this.jsonNest = null;
+		this.pickedSourceDigest = null;
 	}
 
 	/**
@@ -781,6 +996,7 @@ export class ImportFlow {
 		this.resetForNewSource();
 		const name = file.name.toLowerCase();
 		this.sourceType = name.endsWith('.csv') ? 'csv' : name.endsWith('.json') ? 'json' : 'xlsx';
+		this.applyRunAgainBinding();
 		const ok = await this.reparseFromVault(file.path, file.name);
 		if (ok && this.presetLibraryRecipeId) {
 			await this.applyLibraryPreset();
@@ -836,6 +1052,9 @@ export class ImportFlow {
 						new Notice(`${found.cause} ${found.action}`, 8000);
 						return;
 					}
+					// Another recipe is a new import, not a run again of the old one:
+					// the old run's set choice must not carry over to it.
+					if (this.runAgain && this.runAgain.recipeId !== id) this.exitRunAgain();
 					this.presetLibraryRecipeId = id;
 					this.presetLibraryRecipeName = found.name;
 					if (this.parsedData && !this.isParsing) await this.applyLibraryPreset();
@@ -872,6 +1091,18 @@ export class ImportFlow {
 		if (!found.ok || found.origin !== 'user' || this.workbench !== workbench) return;
 		if (!workbench.rebindToSavedRecipe(found.recipe)) return;
 		this.savedRecipeName = found.name;
+		// Section 3: Save as recipe right after a fresh run records that run
+		// under the new recipe, so its card offers Run again into the same set.
+		const facts = this.lastRunFacts;
+		const digest = recipeRunDigest(found.recipe);
+		if (facts && digest) {
+			this.lastRunFacts = null;
+			try {
+				await this.saveRecipeRun({ recipeId: saved.id, recipeDocumentDigest: digest, ...facts });
+			} catch (error) {
+				this.plugin.debug.warn('wizard', 'recipe-run-record-failed', 'Could not remember this recipe run', { error: String(error) });
+			}
+		}
 		this.plugin.debug.info('wizard', 'recipe-saved-rebind', `Workbench bound to saved recipe "${saved.id}"`, { recipeId: saved.id });
 		this.scheduleDraftSave();
 		this.setSaveRecipeLabels();
@@ -969,48 +1200,8 @@ export class ImportFlow {
 		this.invalidateParse();
 	}
 
-	renderStep1_SelectFile(container: HTMLElement) {
-		container.createEl('h3', { text: 'Select source file' });
-		container.createEl('p', {
-			text: 'Choose a file containing your structured data.',
-			cls: 'setting-item-description'
-		});
-
-		// "I do not have the file yet" is the first place a new user stops, and the
-		// answer is not in the vault: which publisher page, which of several exports,
-		// which sheet. Several sources also fail SILENTLY when imported raw (a
-		// spreadsheet coerces safeguard 4.10 to 4.1 and one note vanishes with no
-		// error), so the moment before choosing a file is the only place a warning
-		// can still change what the user does.
-		const help = container.createEl('p', { cls: 'setting-item-description' });
-		help.appendText('Need a source file, or not sure which export to use? ');
-		help.createEl('a', {
-			text: 'Framework data sources',
-			href: 'https://cybersader.github.io/crosswalker/reference/framework-data-sources/',
-		});
-		help.appendText(' lists where to get each framework, which sheet to use, and the import gotchas.');
-
-		renderPresetGuide(container);
-
-		// Primary: pick from the vault. Obsidian's explorer hides csv/xlsx/json
-		// unless "Detect all file extensions" is on, so the vault picker must
-		// not depend on the explorer at all.
-		const vaultRow = container.createEl('div', { cls: 'crosswalker-vault-pick-row' });
-		const vaultBtn = vaultRow.createEl('button', {
-			text: 'Choose from vault',
-			cls: 'mod-cta',
-		});
-		vaultBtn.addEventListener('click', () => {
-			new VaultImportFilePicker(this.app, (file) => {
-				void this.selectVaultFile(file);
-			}).open();
-		});
-		vaultRow.createEl('span', {
-			// eslint-disable-next-line obsidianmd/ui/sentence-case -- CSV/XLSX/JSON are file-format acronyms
-			text: 'Finds CSV, XLSX, and JSON files even when the file explorer hides them.',
-			cls: 'setting-item-description',
-		});
-		const savedRow = container.createEl('div', { cls: 'crosswalker-saved-recipe-row' });
+	/** Step 1 "Use a saved recipe" row, outside Run again. */
+	private renderSavedRecipeRow(savedRow: HTMLElement): void {
 		const savedBtn = savedRow.createEl('button', { text: 'Use a saved recipe', cls: 'crosswalker-use-saved-recipe' });
 		savedBtn.addEventListener('click', () => this.openSavedRecipePicker());
 		if (this.presetLibraryRecipeName) {
@@ -1032,6 +1223,70 @@ export class ImportFlow {
 				cls: 'setting-item-description crosswalker-saved-recipe-hint',
 				text: 'Start from the shape of a recipe you saved before.',
 			});
+		}
+	}
+
+	renderStep1_SelectFile(container: HTMLElement) {
+		container.createEl('h3', { text: this.runAgain ? 'Run again' : 'Select source file' });
+		// Run again names the set, what happens to it, and the file it wants
+		// instead; two "choose a file" lines in a row read as noise.
+		if (!this.runAgain) {
+			container.createEl('p', {
+				text: 'Choose a file containing your structured data.',
+				cls: 'setting-item-description'
+			});
+		}
+		this.renderRunAgainLead(container);
+
+		// "I do not have the file yet" is the first place a new user stops, and the
+		// answer is not in the vault: which publisher page, which of several exports,
+		// which sheet. Several sources also fail SILENTLY when imported raw (a
+		// spreadsheet coerces safeguard 4.10 to 4.1 and one note vanishes with no
+		// error), so the moment before choosing a file is the only place a warning
+		// can still change what the user does.
+		// Run again already has the recipe and knows the file, so the first-import
+		// help and the presets would only compete with the one action left.
+		if (!this.runAgain) {
+			const help = container.createEl('p', { cls: 'setting-item-description' });
+			help.appendText('Need a source file, or not sure which export to use? ');
+			help.createEl('a', {
+				text: 'Framework data sources',
+				href: 'https://cybersader.github.io/crosswalker/reference/framework-data-sources/',
+			});
+			help.appendText(' lists where to get each framework, which sheet to use, and the import gotchas.');
+
+			renderPresetGuide(container);
+		}
+
+		// Primary: pick from the vault. Obsidian's explorer hides csv/xlsx/json
+		// unless "Detect all file extensions" is on, so the vault picker must
+		// not depend on the explorer at all.
+		const vaultRow = container.createEl('div', { cls: 'crosswalker-vault-pick-row' });
+		const vaultBtn = vaultRow.createEl('button', {
+			text: 'Choose from vault',
+			cls: 'mod-cta',
+		});
+		vaultBtn.addEventListener('click', () => {
+			new VaultImportFilePicker(this.app, (file) => {
+				void this.selectVaultFile(file);
+			}).open();
+		});
+		vaultRow.createEl('span', {
+			// eslint-disable-next-line obsidianmd/ui/sentence-case -- CSV/XLSX/JSON are file-format acronyms
+			text: 'Finds CSV, XLSX, and JSON files even when the file explorer hides them.',
+			cls: 'setting-item-description',
+		});
+		const savedRow = container.createEl('div', { cls: 'crosswalker-saved-recipe-row' });
+		if (this.runAgain) {
+			// The one way out of Run again, and it is a real exit: no set choice,
+			// write policy or recipe from the old run survives it.
+			const exit = savedRow.createEl('button', { text: START_NEW_IMPORT_LABEL, cls: 'mod-muted crosswalker-run-again-exit' });
+			exit.addEventListener('click', () => {
+				this.exitRunAgain();
+				this.renderStep();
+			});
+		} else {
+			this.renderSavedRecipeRow(savedRow);
 		}
 
 		// Secondary: a file from outside the vault via the OS picker.
@@ -1081,6 +1336,14 @@ export class ImportFlow {
 						new Notice(`Could not inspect JSON structure: ${cause}. Pick the record list by hand.`);
 					}
 				}
+				if (this.runAgain) {
+					try {
+						this.pickedSourceDigest = computeSourceByteDigest(new Uint8Array(await this.sourceFile.arrayBuffer()));
+					} catch {
+						this.pickedSourceDigest = null; // status stays unknown; the parse fills it in
+					}
+				}
+				this.applyRunAgainBinding();
 				this.renderStep(); // Re-render to show file info
 			}
 		});
@@ -1108,7 +1371,16 @@ export class ImportFlow {
 				text: `${this.sourceType?.toUpperCase()} · ${fmt(this.sourceFile.size)}`,
 				cls: 'setting-item-description'
 			});
-			fileInfo.createEl('p', { text: meta.how, cls: 'setting-item-description crosswalker-file-card-how' });
+			// A chosen recipe decides what each row becomes, so the generic "how"
+			// line would contradict it. Say which recipe reads the file instead and,
+			// in Run again, whether the file changed since the last run.
+			const recipeName = this.runAgainContext?.recipeName ?? this.presetLibraryRecipeName;
+			if (this.runAgain) this.renderRunAgainStatus(fileInfo);
+			if (recipeName) {
+				fileInfo.createEl('p', { text: `Read with your recipe "${recipeName}".`, cls: 'setting-item-description crosswalker-file-card-how' });
+			} else {
+				fileInfo.createEl('p', { text: meta.how, cls: 'setting-item-description crosswalker-file-card-how' });
+			}
 
 			// XLSX: sheet picker + header-row offset (banner rows above the real headers)
 			if (this.sourceType === 'xlsx' && this.availableSheets.length > 0) {
@@ -2305,7 +2577,7 @@ export class ImportFlow {
 		const prefix = `${root}/`;
 		const occupant = sets.find((set) => set.paths.some((path) => path.startsWith(prefix)));
 		if (!occupant) return null;
-		return `${root} already holds notes owned by import set ${occupant.id}. Choose another folder for this import, or refresh that set instead.`;
+		return `${root} already holds notes from the import set ${this.setDisplayName(occupant)}. Choose another folder for this import, or refresh that set instead.`;
 	}
 
 	/**
@@ -2480,6 +2752,10 @@ export class ImportFlow {
 			// ownership, and it would be a guess made about a different source.
 			this.step3SourceSignature = signature;
 			this.importSetChoice = null;
+			// Run again: the click on the set's row was the user's choice, made
+			// for whichever file they run again with. It holds until they pick
+			// another set on review.
+			if (this.runAgain && !this.runAgainSetOverridden) this.importSetChoice = { id: this.runAgain.importSetId };
 		}
 		// Recorded BEFORE the work, not after it succeeds. A throw that left this
 		// unset would re-run a whole-vault scan on every re-render of the review
@@ -2499,6 +2775,10 @@ export class ImportFlow {
 			try {
 				this.discoveredSets = await discoverImportSets(app, undefined);
 				this.setDiscoveryError = null;
+				// The set list names the recipe that made each set. Without the
+				// saved recipes loaded, a set made by one would read "an unsaved
+				// recipe", which is untrue.
+				await this.loadLibraryRecognition();
 			} catch (error) {
 				// Malformed provenance on any note in the vault throws here. Surface it
 				// instead of proceeding on a partial picture: choosing an owner from a
@@ -2575,6 +2855,9 @@ export class ImportFlow {
 	 * breadcrumb sitting above it.
 	 */
 	private renderImportSetReview(container: HTMLElement): void {
+		// A gone set leads with its own warning; a "file changed" line above it
+		// would describe a refresh that cannot happen.
+		if (!this.runAgainSetMissing()) this.renderRunAgainStatus(container);
 		if (this.indexingBlocked) {
 			container.createEl('p', { text: this.indexingBlocked, cls: 'crosswalker-warning' });
 			return;
@@ -2592,14 +2875,18 @@ export class ImportFlow {
 			return;
 		}
 		const sets = this.discoveredSets;
-		if (sets.length === 0) return;
+		if (sets.length === 0 && !this.runAgainSetMissing()) return;
 
 		const refreshing = this.refreshTargetSet();
 		const wrap = container.createDiv({ cls: 'crosswalker-import-set-review' });
 
 		const line = wrap.createEl('p', { cls: 'setting-item-description' });
-		if (refreshing) {
-			line.setText(`Refreshing import set ${refreshing.id} (${refreshing.noteCount} existing notes)`);
+		if (this.runAgainSetMissing()) {
+			line.setText(STALE_SET_MESSAGE);
+			line.addClass('crosswalker-warning');
+		} else if (refreshing) {
+			line.setText(refreshingLine(this.setDisplayName(refreshing), refreshing.noteCount, this.runAgain?.importSetId === refreshing.id));
+			line.addClass('crosswalker-import-set-refreshing');
 		} else {
 			line.setText(sets.length === 1
 				? 'Importing as a new set. The one import already in this vault stays separate.'
@@ -2609,8 +2896,19 @@ export class ImportFlow {
 		// Every set, with the facts that tell them apart. A minted id is
 		// deliberately meaningless, so a user choosing which one to overwrite needs
 		// its size, its folder and what produced it in front of them.
-		const list = wrap.createEl('ul');
-		for (const set of sets) list.createEl('li', { text: ImportFlow.describeSet(set) });
+		// When the run-again set is gone the warning and the way out lead; the
+		// other imports are reference, so they fold away instead of pushing the
+		// choice below the fold.
+		const listParent = this.runAgainSetMissing() && sets.length > 0
+			? wrap.createEl('details', { cls: 'crosswalker-import-set-list' }, (details) => {
+				details.createEl('summary', { text: `Imports already in this vault (${sets.length})` });
+			})
+			: wrap;
+		const list = listParent.createEl('ul');
+		for (const set of sets) {
+			const item = list.createEl('li', { text: this.describeSet(set) });
+			if (set.root) item.setAttr('title', set.root);
+		}
 
 		// New set is FIRST and is what a fresh review shows, because it is the
 		// only choice that cannot damage anything: a new set owns no notes.
@@ -2619,8 +2917,15 @@ export class ImportFlow {
 			.setDesc('A new set is the default. Choose an existing set only to refresh the notes it already owns.')
 			.addDropdown((dropdown) => {
 				dropdown.addOption('__new__', 'Import as a new set');
-				for (const set of sets) dropdown.addOption(set.id, ImportFlow.describeSet(set));
-				dropdown.setValue(refreshing ? refreshing.id : '__new__').onChange((selected) => {
+				for (const set of sets) dropdown.addOption(set.id, this.describeSet(set));
+				// Run again into a set that is gone: show that as the selection, so
+				// the dropdown never reads "new set" while the warning says otherwise.
+				const missing = this.runAgainSetMissing();
+				if (missing) {
+					const option = dropdown.selectEl.createEl('option', { text: STALE_SET_OPTION, value: '__missing__' });
+					option.disabled = true;
+				}
+				dropdown.setValue(missing ? '__missing__' : refreshing ? refreshing.id : '__new__').onChange((selected) => {
 					this.chooseImportSet(selected === '__new__' ? 'new' : { id: selected });
 				});
 			});
@@ -2631,11 +2936,11 @@ export class ImportFlow {
 		// allowed to suggest; it is never allowed to decide.
 		const offer = refreshing ? null : this.offeredRefreshSet(sets);
 		if (offer) {
-			const suggest = wrap.createEl('button', { text: `Looks like ${offer.id}. Refresh it instead?` });
+			const suggest = wrap.createEl('button', { text: `Looks like ${this.setDisplayName(offer)} (${notesPhrase(offer.noteCount)}). Refresh it instead?` });
 			suggest.addEventListener('click', () => this.chooseImportSet({ id: offer.id }));
 		}
-		if (refreshing) {
-			const fresh = wrap.createEl('button', { text: 'Import as a new set instead' });
+		if (refreshing || this.runAgainSetMissing()) {
+			const fresh = wrap.createEl('button', { text: refreshing ? 'Import as a new set instead' : 'Import as a new set' });
 			fresh.addEventListener('click', () => this.chooseImportSet('new'));
 		}
 
@@ -2643,12 +2948,22 @@ export class ImportFlow {
 		if (problem) wrap.createEl('p', { text: problem, cls: 'crosswalker-warning' });
 	}
 
-	/** One set as the review names it: id, size, where it lives, what made it. */
-	private static describeSet(set: DiscoveredImportSet): string {
-		const where = set.root ?? 'more than one folder';
-		const notes = set.noteCount === 1 ? 'note' : 'notes';
-		const recipe = set.recipeIds.length > 0 ? set.recipeIds.join(', ') : 'an unrecorded recipe';
-		return `${set.id}: ${set.noteCount} ${notes} in ${where}, from ${recipe}`;
+	/**
+	 * One set as the review names it: its readable name (the library card's),
+	 * its size and the recipe that made it. Never the minted id, which means
+	 * nothing to a person; the folder is the item's tooltip.
+	 */
+	private describeSet(set: DiscoveredImportSet): string {
+		const labels = set.recipeIds.map((id) => this.recipeLabel(id));
+		const recipe = labels.length > 0 ? labels.join(', ') : 'an unsaved recipe';
+		const where = set.root ? '' : ', in more than one folder';
+		return `${this.setDisplayName(set)}: ${notesPhrase(set.noteCount)}${where}, made by ${recipe}`;
+	}
+
+	/** A recipe id as a person reads it: a saved or built-in recipe's label, else a plain fallback. */
+	private recipeLabel(id: string): string {
+		const entry = this.libraryRecognition.find((candidate) => candidate.id === id) ?? RECIPE_REGISTRY.find((candidate) => candidate.id === id);
+		return entry ? `"${entry.label}"` : 'an unsaved recipe';
 	}
 
 	/**
@@ -2658,6 +2973,7 @@ export class ImportFlow {
 	 */
 	private chooseImportSet(choice: ImportSetOption | null): void {
 		this.importSetChoice = choice;
+		if (this.runAgain) this.runAgainSetOverridden = true;
 		this.renderStep();
 	}
 
@@ -2692,7 +3008,11 @@ export class ImportFlow {
 		}
 		if (choice) {
 			const set = this.discoveredSets.find((candidate) => candidate.id === choice.id);
-			if (!set) throw new Error('Choose an import set to refresh, or choose to import as a new set.');
+			if (!set) {
+				throw new Error(this.runAgain && choice.id === this.runAgain.importSetId
+					? STALE_SET_MESSAGE
+					: 'Choose an import set to refresh, or choose to import as a new set.');
+			}
 			const problem = this.refreshRootProblem();
 			if (problem) throw new Error(problem);
 			// Existing classic imports use a legacy shim rather than the workbench recipe.
@@ -3664,14 +3984,20 @@ export class ImportFlow {
 			return;
 		}
 
+		// A refresh rewrites a set the user already owns, so say which one and
+		// what happens to its notes; "create folders and files" would be untrue.
+		const refreshSet = this.refreshTargetSet();
 		container.createEl('p', {
-			text: 'Ready to generate notes. This will create folders and files in your vault.',
-			cls: 'setting-item-description'
+			text: refreshSet
+				? readyToRefreshLine(this.setDisplayName(refreshSet), this.overwriteMode)
+				: 'Ready to generate notes. This will create folders and files in your vault.',
+			cls: refreshSet ? 'setting-item-description crosswalker-ready-to-refresh' : 'setting-item-description'
 		});
 
 		// Destination. In workbench mode it's chosen on the review screen (step 3),
 		// so step 4 just confirms it read-only. Classic mode keeps its editor here.
-		if (this.isWorkbenchMode()) {
+		// A refresh says "Refreshing into" in either mode.
+		if (this.isWorkbenchMode() && !refreshSet) {
 			const confirm = container.createEl('div', { cls: 'crosswalker-gen-confirm' });
 			confirm.createEl('span', { cls: 'crosswalker-gen-confirm-lead', text: 'Creating in: ' });
 			confirm.createEl('span', { cls: 'mono', text: this.currentOutputPath() || '(vault root)' });
@@ -3729,6 +4055,9 @@ export class ImportFlow {
 				.onChange(value => {
 					this.overwriteMode = value as 'skip' | 'replace' | 'error';
 					this.scheduleDraftSave();
+					// The refresh line above names what happens to existing notes,
+					// which is exactly what this choice changes.
+					if (refreshSet) this.renderStep();
 				}));
 
 		// Summary with actual estimates (classic mode — workbench shows the recap instead).
@@ -3772,6 +4101,10 @@ export class ImportFlow {
 			saveBtn.addEventListener('click', () => this.openSaveRecipe());
 		}
 		footer.createEl('div', { cls: 'crosswalker-footer-spacer' });
+		// A disabled button with no reason is a dead end; say what unblocks it.
+		if (this.runAgainSetMissing()) {
+			footer.createEl('span', { text: STALE_SET_NEXT_HINT, cls: 'setting-item-description crosswalker-footer-hint' });
+		}
 		this.createPrimaryButton(footer);
 	}
 
@@ -3786,7 +4119,9 @@ export class ImportFlow {
 				text: this.isParsing ? 'Parsing...' : 'Next →',
 				cls: 'mod-cta'
 			});
-			nextBtn.disabled = this.isParsing;
+			const setGone = this.runAgainSetMissing();
+			nextBtn.disabled = this.isParsing || setGone;
+			if (setGone) nextBtn.setAttr('title', STALE_SET_NEXT_HINT);
 			nextBtn.addEventListener('click', async () => {
 				if (await this.validateCurrentStep()) {
 					this.currentStep++;
@@ -3799,8 +4134,10 @@ export class ImportFlow {
 				text: this.isGenerating ? 'Generating…' : 'Generate',
 				cls: 'mod-cta'
 			});
-			generateBtn.disabled = this.isGenerating;
-			if (!this.isGenerating) {
+			const setGone = this.runAgainSetMissing();
+			generateBtn.disabled = this.isGenerating || setGone;
+			if (setGone) generateBtn.setAttr('title', STALE_SET_NEXT_HINT);
+			if (!this.isGenerating && !setGone) {
 				generateBtn.addEventListener('click', () => {
 					this.generate();
 				});
@@ -4123,6 +4460,7 @@ export class ImportFlow {
 				return true;
 			}
 			case 3:
+				if (this.runAgainSetMissing()) return false;
 				return !this.isWorkbenchMode() || this.validateImportSetSelection();
 			default:
 				return true;
@@ -4451,6 +4789,10 @@ export class ImportFlow {
 				// moment to drain before exposing the completed import.
 				if (result.created.length > 0) await this.waitForMetadataResolve();
 
+				// Run again (slice 2): remember where this recipe ran, so its library
+				// card can offer Run again into the same set. Never blocks the import.
+				await this.recordRecipeRun(result.importSetId, options.overwriteMode ?? 'skip');
+
 				// A-7. A successful run that rearranged the vault or left notes behind
 				// has something the user must see, and closing on it is how `moved` and
 				// `orphans` stayed invisible for as long as they did. Everything else
@@ -4709,7 +5051,7 @@ export class ImportFlow {
 export class ImportWizardModal extends Modal {
 	private flow: ImportFlow;
 
-	constructor(app: App, plugin: CrosswalkerPlugin, opts?: { presetRecipeId?: string; presetLibraryRecipeId?: string; prefillFile?: TFile; prefillBinding?: PrefillBinding; sourceWhere?: string }) {
+	constructor(app: App, plugin: CrosswalkerPlugin, opts?: { presetRecipeId?: string; presetLibraryRecipeId?: string; prefillFile?: TFile; prefillBinding?: PrefillBinding; sourceWhere?: string; runAgain?: { run: RecipeRunRecord; recipeName: string; set?: { name: string; noteCount?: number } } }) {
 		super(app);
 		// Put workbench-specific shortcuts in a child scope. A child scope is consulted
 		// before its parent, so this wins over Modal's own Escape-to-close binding and
@@ -4737,6 +5079,7 @@ export class ImportWizardModal extends Modal {
 		if (opts?.sourceWhere) this.flow.presetSourceWhere = opts.sourceWhere;
 		if (opts?.prefillFile) this.flow.pendingPrefill = opts.prefillFile;
 		if (opts?.prefillBinding) this.flow.pendingPrefillBinding = opts.prefillBinding;
+		if (opts?.runAgain) this.flow.startRunAgain(opts.runAgain.run, opts.runAgain.recipeName, opts.runAgain.set);
 	}
 
 	onOpen() {

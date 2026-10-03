@@ -84,7 +84,9 @@ describe('AM-63: the new-set occupancy guard reads the destination through the O
 
 		const problem = inner(flow).newSetOccupancyProblem();
 		expect(problem).toContain(OCCUPIED_ROOT);
-		expect(problem).toContain('iset-nist01');
+		// The occupant is named the way the library card names it, never by id.
+		expect(problem).toContain('from the import set NIST.');
+		expect(problem).not.toContain('iset-nist01');
 		expect(problem).toContain('already holds notes');
 	});
 
@@ -96,7 +98,9 @@ describe('AM-63: the new-set occupancy guard reads the destination through the O
 		expect(inner(flow).currentOutputPath()).toBe(OCCUPIED_ROOT);
 		const problem = inner(flow).newSetOccupancyProblem();
 		expect(problem).toContain(OCCUPIED_ROOT);
-		expect(problem).toContain('iset-nist01');
+		// The occupant is named the way the library card names it, never by id.
+		expect(problem).toContain('from the import set NIST.');
+		expect(problem).not.toContain('iset-nist01');
 	});
 
 	it('a pasted non-breaking space folds to an ordinary one and still matches an occupied folder whose real name uses a plain space', () => {
@@ -121,7 +125,9 @@ describe('AM-63: the new-set occupancy guard reads the destination through the O
 		// byte-identical to the occupied folder's real, clean name.
 		expect(inner(flow).currentOutputPath()).toBe(CLEAN_ROOT);
 		const problem = inner(flow).newSetOccupancyProblem();
-		expect(problem).toContain('iset-nist01');
+		// The occupant is named the way the library card names it, never by id.
+		expect(problem).toContain('from the import set NIST CSF.');
+		expect(problem).not.toContain('iset-nist01');
 		expect(problem).toContain(CLEAN_ROOT);
 	});
 

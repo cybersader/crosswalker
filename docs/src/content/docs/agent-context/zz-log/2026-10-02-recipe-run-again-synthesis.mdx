@@ -1,0 +1,74 @@
+---
+title: "Recipe Run again: where a run is remembered, and what running again promises"
+description: "Slice 2 of the recipe library. A saved recipe now remembers which import set it last ran into and from which file, offers Run again, and says on the first step whether the file or the recipe changed. Records the seven design rulings, the deferred source copy, and the known gaps."
+tags: [log, decision, architecture, recipe, replay, v0-1-7, synthesis]
+date: 2026-10-02
+sidebar:
+  label: "10-02 · Recipe Run again"
+  order: -20261002.1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="What this page is">
+A **decision record** for the second slice of the [recipe](/crosswalker/concepts/terminology/#recipe) library in the [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/), Track 2 (run binding: the record that ties one run of a recipe to the file it read and the import set it wrote). It builds on [Gate 1](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/) (D1 to D4) and [Gate 2](/crosswalker/agent-context/zz-log/2026-10-02-recipe-library-gate-2-ratification/) (D5, D6).
+
+**How it was decided.** Under the owner's standing direction (2026-10-02), rulings that pass the project's recorded UX and architecture principles are made and logged by the implementing session. None of the seven below is irreversible: the run records live in plugin settings and can be dropped, and the one new note property is optional and already allowed by the schema.
+</Aside>
+
+## 1. What a user gets
+
+A recipe card in **Browse import recipes** now says `Last run <date> into <set>`, and its main button is **Run again**, next to **Import as a new set**. Run again opens the import wizard with the recipe, the target [import set](/crosswalker/concepts/terminology/) and the "If files exist" choice already filled in, and asks only for the source file, naming the one used last time. The first step leads with the set's name and what will happen to its notes. As soon as a file is picked, it says whether the file matches the last run ("Running again adds nothing new; it only puts back fields this recipe fills if someone edited them") or changed since. Review and Step 4 name the set again and say Refreshing. If the recipe itself was edited since the last run, it says that too. If the set was deleted, Next is disabled with the reason until the user chooses **Import as a new set**. **Start a new import instead** is the one exit, and it clears the set, write choice and recipe together.
+
+The click on **Run again** is the choice of set. Nothing is matched or guessed, per the project rule that a refresh target is chosen by the user, never guessed from the source.
+
+## 2. The rulings
+
+| # | Question | Ruling | Why in one line |
+|---|---|---|---|
+| R1 | Where "last run" lives | Plugin settings (`recipeRuns`), one record per recipe and import set, mirroring how installed framework stacks record their runs. **Never** inside the recipe file | The recipe file is portable and shared; which vault it ran in is not. The outcome log (Execution Record) stays at [v0.1.8](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/) |
+| R2 | What a record holds | A closed set of fields: recipe id, recipe document digest, import set id, source name plus byte fingerprint, sheet, header row and iterator when used, the "If files exist" choice, the finish time, and `sourceCopy: 'none'`. No counts, warnings or user | D2's closed binding surface; anything about outcomes belongs to the Execution Record, not here |
+| R3 | When a record is shown | Only while its import set still exists, found by its minted id. While the vault index is still settling the card says "Checking your vault...", never "missing". Records for deleted sets are pruned | [Identity, never path](/crosswalker/agent-context/zz-log/2026-08-28-first-run-and-the-blind-spots-that-hid-it/); cache lag is not absence |
+| R4 | Notes record the recipe revision | Each generated note now writes `_crosswalker.recipe.recipe_document_digest`. The schema already allowed the field, so no schema change | Completes D1: a set can show which revision of the recipe wrote it |
+| R5 | One definition of "unchanged" | `managedContentEquivalent` in `src/generation/managed-equivalence.ts`, used by unit tests and the real-Obsidian test alike | D3 needs a single tested definition, stated publicly in [consistency models § The replay promise](/crosswalker/concepts/consistency-models/#the-replay-promise) |
+| R6 | Write policy on Run again | The recorded "If files exist" choice is prefilled; the user can change it. An unchanged file is still allowed to run | The user stays in control; prefill is additive |
+| R7 | Recipe edited since the last run | Say so on the first step and still allow Run again into the same set. The "matches the last run" reassurance is dropped in that case | A user edited their own recipe on purpose; warn, do not block |
+
+## 3. Calls made during implementation
+
+| Call | Ruling |
+|---|---|
+| When the "file matches / changed" line appears | As soon as the file is picked, not after parsing. The wizard parses only on Next, so the byte fingerprint is computed on pick, with the same function the parsers use, in Run again mode only |
+| How the file is compared | By content only. A renamed copy of the same file matches; the name is never read for meaning |
+| XLSX | The fingerprint covers the whole workbook, so the "changed" line adds that any sheet counts, not only the imported one |
+| A run with some row errors | Still recorded: the notes it wrote belong to that set |
+| How a set is named on the card | By its folder name, never by its internal id |
+| How a set is named everywhere else on the Run again path | By its folder relative to the import folder, with the note count added when two names clash; review, the set dropdown, Step 4 and the "folder already used" message never show an internal id |
+| What a full exit clears | A UX review found that leaving Run again cleared only the recipe, so the old set stayed chosen and a different recipe could refresh it unwarned. **Start a new import instead** now clears the set, the write choice, the recipe and the file status together |
+| The "what happens to notes" line | Follows the **If files exist** choice (update, keep, or stop), not only the update case, and Step 4 redraws when that choice changes |
+
+## 4. Deferred, named
+
+| Item | Status |
+|---|---|
+| **D4 retained source copy** | Not built. Crosswalker keeps no copy of the source file; Run again always asks for it. `sourceCopy` is an enum with only `'none'`; `'retained'` is added when the opt-in copy lands |
+| **Workspace "Import again"** | Still ignores library recipes. Tracked as a parity follow-up; Run again from the recipe library is the path for now |
+| **Mapping table conversion** | Notes rewritten by converting a mapping set do not record the recipe revision |
+| **Source filter overrides** | A one-run source filter changes the recipe revision a note records, so the next Run again may say the recipe changed |
+| **CSV picked from inside the vault** | Read as text and re-encoded, so its fingerprint can differ from the same file picked from disk, which would show "changed" when nothing changed |
+| **Name collisions** | Two sets with the same folder name and the same note count still read the same |
+| **Exit reset of the write choice** | The reset to the safe default is unit-tested but not reached end to end, because the new-set path stops at the folder refusal first |
+| **Full NIST CSF 2.0 and SP 800-53 replay proofs** | Slice 3 |
+
+## 5. What this unblocked
+
+Three Track 2 checkboxes and the run-binding success criterion on the [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/): the reusable recipe stays independent of a concrete run, and a run records the recipe reference and revision, the source-byte fingerprint, parser selectors, destination and the write choice; and a missing or changed source is diagnosed before a run (with no retained copy, a missing source is asked for again). Source drift is now shown before a run. Delivery detail is in [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present).
+
+## Related
+
+- [Gate 1 ratification](/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/): D1 digest, D2 closed binding, D3 replay promise, D4 source retention
+- [Gate 2 record](/crosswalker/agent-context/zz-log/2026-10-02-recipe-library-gate-2-ratification/): fork lineage and saved setups
+- [Save and exact replay decision register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/)
+- [Consistency models § The replay promise](/crosswalker/concepts/consistency-models/#the-replay-promise)
+- [Artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/): why run facts are not part of the recipe
+- [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/)
