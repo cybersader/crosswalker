@@ -8,7 +8,16 @@ import { splitCrosswalkCell } from '../import/detection';
 import { readNoteFrontmatterState } from '../export/vault-reader';
 import { TFile } from 'obsidian';
 import { SSSOM_CURIE_PREFIX, sssomEdgeCurie, strmToSkos } from '../import/sssom-importer';
-import { assertionBaseKey } from '../utils/mapping-provenance';
+import { assertionBaseKey, normalizeMappingSetId } from '../utils/mapping-provenance';
+import type { SssomHeader } from '../import/sssom-parser';
+import {
+	buildMappingSetRecord,
+	readPinnedMappingSetIdentity,
+	resolveMappingSetIdentity,
+	writeReleaseRecordForNoteSet,
+	type MappingSetIdentity,
+	type PinnedMappingSetIdentity,
+} from '../mappings/mapping-set';
 import { discoverImportSets, newSetSchemeFor, newSetSchemeFrom, requireVaultIndexed, settleVaultIndex } from './import-set';
 import { generateFromRecipe } from './generation-engine';
 import { edgeEndpointIndex, resolveEdgeEndpoints, summarizeUnresolvedEndpoints, type UnresolvedEndpoint } from './edge-endpoints';
@@ -67,6 +76,78 @@ export interface CrosswalkEdgePassArgs {
 	onProgress?: (current: number, total: number, message: string) => void;
 }
 
+/** The release a crosswalk column declares (S5), as the header the record builder reads. */
+export interface CrosswalkReleaseDeclaration {
+	header: SssomHeader;
+	/** Set when `mapping_set.id` and the legacy `mapping_set_id` name two different releases. */
+	conflict?: string;
+}
+
+/**
+ * The release header one crosswalk column declares: its `mapping_set` block,
+ * with the legacy `mapping_set_id` as an alias of `mapping_set.id`. Only
+ * declared facts; nothing is derived from the recipe id, the ontology pair,
+ * the file, or the rows. Pure.
+ */
+export function crosswalkReleaseDeclaration(entry: CrosswalkColumnEntry): CrosswalkReleaseDeclaration {
+	const block = entry.mapping_set ?? {};
+	const blockId = normalizeMappingSetId(block.id);
+	const aliasId = normalizeMappingSetId(entry.mapping_set_id);
+	const header: SssomHeader = {};
+	const id = blockId || aliasId;
+	if (id) header.mapping_set_id = id;
+	const text: Array<[keyof typeof block, string]> = [
+		['version', 'mapping_set_version'],
+		['title', 'mapping_set_title'],
+		['description', 'mapping_set_description'],
+		['license', 'license'],
+		['provider', 'mapping_provider'],
+		['date', 'mapping_date'],
+		['subject_source', 'subject_source'],
+		['subject_source_version', 'subject_source_version'],
+		['object_source', 'object_source'],
+		['object_source_version', 'object_source_version'],
+	];
+	for (const [from, to] of text) {
+		const value = block[from];
+		if (typeof value === 'string' && value.trim() !== '') header[to] = value.trim();
+	}
+	if (block.creator_id?.length) header.creator_id = [...block.creator_id];
+	if (blockId && aliasId && blockId !== aliasId) {
+		return {
+			header,
+			conflict: `The recipe gives crosswalk column ${entry.column} two release ids: mapping_set.id is ${blockId} and mapping_set_id is ${aliasId}. Keep one of them, then run the import again.`,
+		};
+	}
+	return { header };
+}
+
+function releaseText(id: string, version?: string): string {
+	return version ? `release ${id} version ${version}` : `release ${id}`;
+}
+
+/**
+ * Why a refresh must not write this column into the link set holding
+ * `pinned`, or null (M6 applied to recipe crosswalk columns). A recipe that
+ * declares an id or version different from the release the set already holds
+ * names a different release, and release isolation means a new set. A column
+ * that declares nothing keeps the set's release.
+ */
+export function crosswalkReleaseRefusal(
+	column: string,
+	setId: string,
+	pinned: PinnedMappingSetIdentity | undefined,
+	header: SssomHeader,
+): string | null {
+	if (!pinned) return null;
+	const declaredId = normalizeMappingSetId(header.mapping_set_id) || undefined;
+	const declaredVersion = typeof header.mapping_set_version === 'string' ? header.mapping_set_version : undefined;
+	const idDiffers = declaredId !== undefined && declaredId !== pinned.mapping_set_id;
+	const versionDiffers = declaredVersion !== undefined && !pinned.legacy && declaredVersion !== pinned.mapping_set_version;
+	if (!idDiffers && !versionDiffers) return null;
+	return `Crosswalk links for ${column} were not updated. The recipe declares ${releaseText(declaredId ?? pinned.mapping_set_id, declaredVersion)}, but link set ${setId} holds ${releaseText(pinned.mapping_set_id, pinned.mapping_set_version)}. Restore the release id and version in the recipe, or remove the old link set in ownership review so the new release gets its own set, then run the import again.`;
+}
+
 /**
  * Derive the edge rows for one declared crosswalk column.
  *
@@ -79,11 +160,11 @@ export interface CrosswalkEdgePassArgs {
 export function deriveCrosswalkEdgeRows(
 	entry: CrosswalkColumnEntry,
 	sourceOntology: string,
-	recipeId: string,
+	/** The release id every row carries: resolved by the caller (S5), never derived here. */
+	mappingSetId: string,
 	inputs: CrosswalkEdgeInput[],
 ): { rows: CrosswalkEdgeRow[]; skippedCells: number; emptyAtoms: number } {
 	const predicate = entry.predicate ?? 'is_approximate_to';
-	const mappingSetId = entry.mapping_set_id ?? `${sourceOntology}-to-${entry.to_ontology}-${recipeId}`;
 	const drop = new Set((entry.drop ?? DEFAULT_DROP).map((value) => value.toLocaleLowerCase()));
 	const extraDelimiters = (entry.split ?? DEFAULT_SPLIT).filter(
 		(delimiter) => !DEFAULT_SPLIT.includes(delimiter as (typeof DEFAULT_SPLIT)[number]),
@@ -204,6 +285,7 @@ export async function runCrosswalkEdgePass(
 ): Promise<CrosswalkEdgePassResult> {
 	const result: CrosswalkEdgePassResult = { perEntry: [], totalCreated: 0, unresolved: [], summary: [], errors: [] };
 	const projectionWarnings: string[] = [];
+	const recordWarnings: string[] = [];
 	const { index, unreadable } = await edgeEndpointIndex(app);
 	// Snapshot producer ownership once before any column writes change the vault.
 	if (args.producerSetId) await requireVaultIndexed(app);
@@ -212,7 +294,13 @@ export async function runCrosswalkEdgePass(
 
 	for (const entry of args.entries) {
 		const folder = `_crosswalker/mappings/${args.sourceOntology}-to-${entry.to_ontology}`;
-		const derived = deriveCrosswalkEdgeRows(entry, args.sourceOntology, args.recipeId, args.inputs);
+		const release = crosswalkReleaseDeclaration(entry);
+		if (release.conflict) {
+			const error = { row: -1, message: release.conflict };
+			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, upToDate: 0, skipped: 0, errors: [error] });
+			result.errors.push(error);
+			continue;
+		}
 		const columnRecipeId = buildCrosswalkColumnRecipe(entry, args.sourceOntology, args.recipeId).recipe;
 		// A zero-row refresh still has an owned set to inspect for retained links.
 		const candidates = args.producerSetId
@@ -228,6 +316,38 @@ export async function runCrosswalkEdgePass(
 			result.errors.push(error);
 			continue;
 		}
+		// The release these links belong to (S5, M6b): the recipe's declared id;
+		// else the id the link set already holds (its record, or the id a set
+		// written before records existed stamped on every link); else one minted
+		// now and pinned by every later refresh. Never the recipe id.
+		let pinned: PinnedMappingSetIdentity | undefined;
+		if (candidates.length === 1) {
+			try {
+				pinned = await readPinnedMappingSetIdentity(app, candidates[0]);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				const failure = { row: -1, message: `Crosswalk links for ${entry.column} were not updated. ${message}` };
+				result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, upToDate: 0, skipped: 0, errors: [failure] });
+				result.errors.push(failure);
+				continue;
+			}
+			const refusal = crosswalkReleaseRefusal(entry.column, candidates[0].id, pinned, release.header);
+			if (refusal) {
+				const error = { row: -1, message: refusal };
+				result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, upToDate: 0, skipped: 0, errors: [error] });
+				result.errors.push(error);
+				continue;
+			}
+		}
+		const resolved: MappingSetIdentity = resolveMappingSetIdentity(release.header, pinned);
+		// A recipe column that declares no id never declared the one a pre-record
+		// link set holds (the old formula id): Crosswalker assigned it, so it is
+		// minted whatever its shape. The prefix rule in readPinnedMappingSetIdentity
+		// stays for mapping file sets, whose publisher may have declared it.
+		const identity: MappingSetIdentity = !release.header.mapping_set_id && pinned?.legacy
+			? { mapping_set_id: resolved.mapping_set_id, id_origin: 'minted' }
+			: resolved;
+		const derived = deriveCrosswalkEdgeRows(entry, args.sourceOntology, identity.mapping_set_id, args.inputs);
 		if (derived.rows.length === 0) {
 			debug?.info('crosswalk-edge-pass', 'no-edges', `No crosswalk edges to write for ${entry.column}`, {
 				column: entry.column,
@@ -301,6 +421,30 @@ export async function runCrosswalkEdgePass(
 
 		if (candidates.length === 0 && generation.created.length > 0) mintedSSSOM = true;
 
+		// The link set's release record, once its links exist (S5). Notes form
+		// only: crosswalk columns always write one note per link.
+		if (generation.success && generation.importSetId) {
+			const record = buildMappingSetRecord(release.header, derived.rows.map((row) => ({
+				subject_id: row.subject_id,
+				predicate_id: row.predicate_id,
+				object_id: row.object_id,
+				predicate_modifier: '',
+				mapping_justification: row.mapping_justification,
+			})), generation.importSetId, identity);
+			try {
+				const outcome = await writeReleaseRecordForNoteSet(app, destination, record);
+				if (outcome.state === 'no-mapping-note') {
+					recordWarnings.push(`The release record for crosswalk links from ${entry.column} was not written because none of its links could be read yet. Run the import again once indexing finishes to record it.`);
+				} else {
+					debug?.info('crosswalk-edge-pass', 'release-record', `Crosswalk release record ${outcome.state} ${outcome.path}`, { path: outcome.path, state: outcome.state });
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				recordWarnings.push(`The release record for crosswalk links from ${entry.column} could not be written: ${message} Run the import again to record it.`);
+				debug?.warn('crosswalk-edge-pass', 'release-record-failed', 'Crosswalk release record write failed', { error: message });
+			}
+		}
+
 		let projectionReady = true;
 		if (generation.success && args.runProjection) {
 			const cold = await settleVaultIndex(app, 30_000);
@@ -350,7 +494,7 @@ export async function runCrosswalkEdgePass(
 		result.errors.push(...generation.errors);
 	}
 
-	result.summary = [...summarizeUnresolvedEndpoints(result.unresolved, unreadable), ...projectionWarnings];
+	result.summary = [...summarizeUnresolvedEndpoints(result.unresolved, unreadable), ...projectionWarnings, ...recordWarnings];
 	return result;
 }
 

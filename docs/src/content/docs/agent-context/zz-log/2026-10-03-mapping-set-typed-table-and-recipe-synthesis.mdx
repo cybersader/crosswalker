@@ -1,0 +1,89 @@
+---
+title: "Mapping set release record, slice 2: typed tables and recipe crosswalks"
+description: "Closes Track 3 of v0.1.7. A typed mapping table (STRM) can now be imported, and its release record travels in a companion file beside the export. Crosswalk columns declared in a recipe get a release record with an id assigned once, not derived from the recipe. Records rulings S1 to S7, the partial-export guard, and what a typed table cannot carry."
+tags: [log, decision, architecture, mapping-set, strm, sssom, recipe, portability, v0-1-7, synthesis]
+date: 2026-10-03
+sidebar:
+  label: "10-03 · Mapping set slice 2"
+  order: -20261003.2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="What this page is">
+A **decision record** for the second slice of Track 3 (minimal MappingSet portability envelope) of the [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/). It builds on [slice 1](/crosswalker/agent-context/zz-log/2026-10-03-mapping-set-release-record-synthesis/) (rulings M1 to M12), which gave every SSSOM-imported [mapping set](/crosswalker/concepts/terminology/#mapping-set) a release record and proved the SSSOM round trip. This slice closes the two gaps slice 1 deferred: the STRM round trip (M10) and recipe-declared crosswalk sets (M11).
+
+**How it was decided.** Under the owner's standing direction (2026-10-02), rulings that pass the project's recorded UX and architecture principles are made and logged by the implementing session. Both schema changes are additive (recipe schema 1.18.0); nothing rewrites an existing set.
+</Aside>
+
+## 1. The verdict
+
+The survey that opened this slice found that the typed mapping table ([STRM](/crosswalker/reference/registry/strm/), the seven-column OLIR shape) had an exporter but **no importer**, so "round trip through STRM" needed an importer, not a sidecar. The second finding was that a recipe's crosswalk columns derived their set id from the recipe id, so editing a recipe renamed a release.
+
+| # | Ruling | Status |
+|---|---|---|
+| S1 | The typed-table export is unchanged on the TSV (it must open cleanly in a spreadsheet) and gains a companion `<same name>.mapping-set.json` beside it when the set has a release record: the stored record object plus a format marker and the table's file name | Adopted |
+| S2 | Typed-table import is an **adapter**, not a second importer: parse the seven columns, read the companion, build an in-memory crosswalk mapping document, hand it to the existing SSSOM importer. One write path, one refresh rule, one record builder | Adopted |
+| S3 | Without a companion the set declares nothing: id minted, no declared sources or version. Per-row document names stay on the rows and the UI shows them as observed | Adopted |
+| S4 | A companion's digests are checked, never trusted: recomputed over the rows actually read; a mismatch warns and the record keeps the recomputed values, while identity and declared fields still come from the companion | Adopted |
+| S5 | Recipe crosswalk columns gain an optional `mapping_set` block (source: `spec/recipe.schema.json` § `crosswalk_entry`); `mapping_set_id` stays as a legacy alias. With no declared id, the child set's id is minted once at first run and pinned by M6b afterwards. Sets built before this keep their old formula id (now labelled `id_origin: minted`, since the recipe declared nothing) and merely gain a record. A recipe whose declared release differs from what the link set holds is refused with an action | Adopted; refusal added in implementation under M6 |
+| S6 | Partial-export guard in both exporters: the membership digest is recomputed over the rows being exported; a mismatch still writes the record but reports `recorded-partial` and says "Exported N of M recorded mappings. The release record describes the whole set." | Adopted |
+| S7 | The SSSOM importer passes a value that is already an STRM predicate id through unchanged, so a typed table's "not related" comes back as `no_relationship` | Adopted after review; without it the adapter refused a relationship the exporter writes |
+
+## 2. Why each ruling holds
+
+- **S1, companion file, not a header block.** The Track 1 criterion is that the typed table opens cleanly in Excel; a comment header would appear as rows. Our own JSON may carry digests (M3's standard-keys rule is about SSSOM).
+- **S2, adapter.** Solve the shape, not the instance (the same rule that keeps the [portable recipe](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/) on one canonical document): a second importer would be a second copy of refresh, ownership and record rules. The round-trip test proves export, import, export is identity on the seven columns.
+- **S3 and S4, declare nothing, trust nothing.** M7 keeps declared and observed apart; M3's principle that integrity is proved by recomputation applies to our own file as much as to SSSOM.
+- **S5, minted once, pinned afterwards.** [Identity, never path](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/) extends to "never recipe". M6b makes the change additive: an existing set's id is read, not recomputed.
+- **S6, flag partial, never refuse.** A subfolder export is legitimate; claiming the whole release over half its rows is not.
+- **S7, pass-through.** The STRM predicate set is the project's own enum; refusing it at an importer that writes STRM predicates was an artifact of the SSSOM entry point, not a decision.
+
+## 3. The load-bearing principle
+
+**Every representation of a mapping set is a projection of one record; the record travels beside any projection that cannot hold it.** SSSOM holds it in standard header keys; the typed table cannot, so the record rides in a companion file; vault notes hold it as a set note; a table set holds it in its header. None of them is the authority over the others; the digests say whether a projection still matches.
+
+## 4. What is locked in
+
+| Aspect | v0.1 lock |
+|---|---|
+| Companion file | `<same name>.mapping-set.json`, `format: crosswalker-mapping-set-v1`, the stored record object, `typed_table` naming the TSV (`src/export/strm-tsv-exporter.ts`) |
+| Typed-table import | `src/import/strm-importer.ts` `runImportStrm`, through the SSSOM import path; command "Import and export: import a typed mapping table" |
+| Recipe block | `crosswalk_entry.mapping_set` (12 optional fields), recipe schema 1.18.0; `mapping_set_id` as alias |
+| Id order for recipe crosswalks | declared `mapping_set.id`, then legacy `mapping_set_id`, then the id the set already holds, then a fresh mint (`src/generation/crosswalk-edge-pass.ts`) |
+| Export result states | `release_record: recorded \| recorded-partial \| derived` on both exporters |
+| What a typed table cannot carry | Explicit negations and release lineage (skipped on export, so such a set exports as partial); "roughly the same" (exported as "intersects with"); confidence beyond tenths; labels, per-row providers, review columns. Release identity and metadata travel in the companion |
+
+## 5. Migration triggers
+
+Re-open S1 if OLIR or NIST publish a set-level metadata convention for the STRM template that tooling expects; re-open S2 if the typed-table shape diverges from the SSSOM row model (for example a column with no SSSOM counterpart that must survive import).
+
+## 6. Reconciliation with prior decisions
+
+| Prior decision | Fit |
+|---|---|
+| [Slice 1 rulings M1 to M12](/crosswalker/agent-context/zz-log/2026-10-03-mapping-set-release-record-synthesis/) | M10 and M11 are now closed by S1 to S5; M6 and M6b govern both importers unchanged |
+| [STRM to SKOS direction convention](/crosswalker/agent-context/zz-log/2026-06-12-skos-strm-direction-convention/) | The adapter inverts the exporter's map exactly; S7 adds pass-through, not a new direction |
+| [Portable recipe fidelity](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/) | The `mapping_set` block (and `drop`, which was previously lost) survives a workbench round trip byte for byte |
+| [Import set = ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/) | One child import set per crosswalk column is unchanged; it now owns a set note |
+| [Dual-form storage](/crosswalker/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/) | Recipe crosswalk sets are notes form only today; the record is a set note |
+
+## 7. What this does not do
+
+- Does not make a typed table lossless: see the limitation row in §4. The SSSOM path remains the full-fidelity interchange.
+- Does not stop a recipe rename from starting a new link set: child sets are found by a recipe id that includes the parent recipe id. The release id no longer depends on the recipe, but the set lookup still does. Needs its own ruling.
+- Does not give recipe crosswalk sets the table storage form.
+- Does not add a Knowledge Set base class or registry (M12 kept).
+
+## 8. What this unblocks
+
+- Track 3 checkboxes 4, 5 and 6 and both Track 3 success criteria on the [milestone page](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/); the Track 1 round-trip criterion for STRM and SSSOM.
+- v0.1.7 now has exporter completion and the OSCAL target-shape decision as its remaining scope.
+
+## 9. Related
+
+- Terms: [mapping set](/crosswalker/concepts/terminology/#mapping-set), [mapping assertion](/crosswalker/concepts/terminology/#mapping-assertion), [import set](/crosswalker/concepts/terminology/#import-set), [recipe](/crosswalker/concepts/terminology/#recipe)
+- Decisions: [slice 1](/crosswalker/agent-context/zz-log/2026-10-03-mapping-set-release-record-synthesis/), [SKOS and STRM direction](/crosswalker/agent-context/zz-log/2026-06-12-skos-strm-direction-convention/), [portable recipe fidelity](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/)
+- Contracts: [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/), [STRM registry page](/crosswalker/reference/registry/strm/), [SSSOM registry page](/crosswalker/reference/registry/sssom/)
+- Milestone: [v0.1.7](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/); delivery detail in `CHANGELOG.md` `[Unreleased]`
+- Pillars: [ETL and import](/crosswalker/concepts/etl-and-import/), [what makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/)

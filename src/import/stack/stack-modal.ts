@@ -466,7 +466,8 @@ export class StackSetupModal extends Modal {
 				}
 				let edgeCount = 0;
 				for (const edge of recipe.target.crosswalks ?? []) {
-					edgeCount += deriveCrosswalkEdgeRows(edge, slot.ontology, recipe.recipe,
+					// Counting only: the release id never changes how many links a column yields.
+					edgeCount += deriveCrosswalkEdgeRows(edge, slot.ontology, '',
 						rows.map((row, index) => ({ row, curie: `review-${index}` }))).rows.length;
 				}
 				// The base destination folder and each rendered folder path are estimated.

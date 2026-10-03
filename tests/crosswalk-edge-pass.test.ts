@@ -13,6 +13,8 @@ import { discoverImportSets } from '../src/generation/import-set';
 import { validateTier1Frontmatter } from '../src/validation/validator';
 import type { DebugLog } from '../src/utils/debug';
 import type { Recipe } from '../src/render';
+import { computeMappingSetDigests, readMappingSet } from '../src/mappings/mapping-set';
+import { managedContentEquivalent } from '../src/generation/managed-equivalence';
 
 const debug = {
 	info() {}, trace() {}, warn() {}, error() {},
@@ -85,7 +87,8 @@ const INPUTS: CrosswalkEdgeInput[] = [
 
 describe('deriveCrosswalkEdgeRows', () => {
 	it('atomizes X1-shaped cells with verbatim qualifiers and the shared predicate mapping', () => {
-		const result = deriveCrosswalkEdgeRows(ENTRY, 'cri-profile', 'cri-profile-v2-2-flat', INPUTS);
+		// The release id is resolved by the pass (S5) and passed through verbatim.
+		const result = deriveCrosswalkEdgeRows(ENTRY, 'cri-profile', 'cri-profile-to-nist-csf-2-cri-profile-v2-2-flat', INPUTS);
 		expect(result.rows).toEqual([
 			expect.objectContaining({
 				subject_id: 'cri-profile:GV.OC-01.01',
@@ -212,8 +215,8 @@ describe('crosswalk edge pass and generation hook', () => {
 		expect(closure).toHaveBeenCalledWith('cri-profile', 'nist-csf-2');
 
 		const conceptNotes = [...harness.files.entries()].filter(([path]) => path.startsWith('Frameworks/synthetic-cri/'));
-		const edgeNotes = [...harness.files.entries()].filter(([path]) =>
-			path.startsWith('_crosswalker/mappings/cri-profile-to-nist-csf-2/'),
+		const edgeNotes = [...harness.files.entries()].filter(([path, text]) =>
+			path.startsWith('_crosswalker/mappings/cri-profile-to-nist-csf-2/') && frontmatter(text).kind === 'crosswalk-edge',
 		);
 		expect(conceptNotes).toHaveLength(6);
 		expect(edgeNotes).toHaveLength(5);
@@ -268,7 +271,7 @@ describe('crosswalk edge pass and generation hook', () => {
 		expect(replaceRefresh.errors).toEqual([]);
 		expect(replaceRefresh.crosswalkEdges?.sets).toEqual([[...firstEdgeSetIds][0]]);
 		const afterReplace = new Map([...harness.files.entries()].filter(([path]) => path.startsWith('_crosswalker/mappings/')));
-		expect(afterReplace).toHaveProperty('size', 10);
+		expect(afterReplace).toHaveProperty('size', 12);
 
 		const skipRefresh = await generateNotes(
 			harness.app,
@@ -286,7 +289,7 @@ describe('crosswalk edge pass and generation hook', () => {
 		expect(skipRefresh.skipped).toHaveLength(6);
 		expect(skipRefresh.crosswalkEdges?.created).toBe(0);
 		expect(skipRefresh.crosswalkEdges?.sets).toEqual([[...firstEdgeSetIds][0]]);
-		expect([...harness.files.keys()].filter((path) => path.startsWith('_crosswalker/mappings/'))).toHaveLength(10);
+		expect([...harness.files.keys()].filter((path) => path.startsWith('_crosswalker/mappings/'))).toHaveLength(12);
 		for (const [path, text] of afterReplace) expect(harness.files.get(path)).toBe(text);
 	});
 
@@ -306,7 +309,7 @@ describe('crosswalk edge pass and generation hook', () => {
 			set.parentSets?.length === 1 && set.parentSets[0] === frameworkSet.id
 			&& set.recipeIds.includes('cri-profile-v2-2-nested::crosswalk::nist-csf-v2-mapping'));
 		expect(owned.map((set) => set.id)).toEqual([initial]);
-		expect([...files.keys()].filter((path) => path.startsWith('_crosswalker/mappings/'))).toHaveLength(2);
+		expect([...files.keys()].filter((path) => path.startsWith('_crosswalker/mappings/'))).toHaveLength(3);
 	});
 
 	it('marks projection stale and skips closure when Tier 2 projection throws', async () => {
@@ -390,14 +393,14 @@ describe('P2 endpoint links by concept identity', () => {
 		const first = await runCrosswalkEdgePass(app, args, debug);
 		expect(first.totalCreated).toBe(1);
 		expect(first.summary.join(' ')).toMatch(/Import nist-csf-2 concepts/);
-		const firstEdge = [...files.entries()].find(([path]) => path.startsWith('_crosswalker/mappings/'))!;
+		const firstEdge = [...files.entries()].find(([path, text]) => path.startsWith('_crosswalker/mappings/') && frontmatter(text).kind === 'crosswalk-edge')!;
 		expect(frontmatter(firstEdge[1]).subject_note).toBe('[[Frameworks/cri/Statement|Statement]]');
 		expect(frontmatter(firstEdge[1]).object_note).toBeUndefined();
 		expect(firstEdge[1]).toContain('[[Frameworks/cri/Statement|Statement]] is_approximate_to `nist-csf-2:GV.OC-01`');
 		seed('Frameworks/csf/Govern/Outcome.md', object);
 		const refreshed = await runCrosswalkEdgePass(app, args, debug);
 		expect(refreshed.summary).toEqual([]);
-		const newEdge = [...files.entries()].filter(([path]) => path.startsWith('_crosswalker/mappings/')).at(-1)![1];
+		const newEdge = [...files.entries()].filter(([path, text]) => path.startsWith('_crosswalker/mappings/') && frontmatter(text).kind === 'crosswalk-edge').at(-1)![1];
 		expect(frontmatter(newEdge).object_note).toBe('[[Frameworks/csf/Govern/Outcome|Outcome]]');
 		expect(newEdge).toContain('[[Frameworks/cri/Statement|Statement]] is_approximate_to [[Frameworks/csf/Govern/Outcome|Outcome]]');
 		expect([...files.keys()].filter((path) => path.startsWith('Frameworks/csf/'))).toEqual(['Frameworks/csf/Govern/Outcome.md']);
@@ -410,7 +413,8 @@ describe('recorded producer resolution', () => {
 		entries: [ENTRY], sourceOntology: 'cri-profile', recipeId: 'synthetic-producer',
 		inputs: INPUTS, overwriteMode, producerSetId,
 	});
-	const notes = (files: Map<string, string>) => [...files.entries()].filter(([path]) => path.startsWith('_crosswalker/mappings/'));
+	const notes = (files: Map<string, string>) => [...files.entries()].filter(([path, text]) =>
+		path.startsWith('_crosswalker/mappings/') && frontmatter(text).kind === 'crosswalk-edge');
 
 	it('mints a producer-backed edge set with declared-facts identity', async () => {
 		const { app, files } = makeApp();
@@ -457,7 +461,8 @@ describe('recorded producer resolution', () => {
 		const first = await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
 		const previousFolder = first.perEntry[0].folder;
 		const movedFolder = '_crosswalker/relocated/cri-to-csf';
-		for (const [path, text] of notes(files)) {
+		// The user moves the whole folder: links and the release record note.
+		for (const [path, text] of [...files.entries()].filter(([path]) => path.startsWith(`${previousFolder}/`))) {
 			files.delete(path);
 			files.set(`${movedFolder}/${path.slice(previousFolder.length + 1)}`, text);
 		}
@@ -465,7 +470,7 @@ describe('recorded producer resolution', () => {
 		expect(second.errors).toEqual([]);
 		expect(second.perEntry[0].importSetId).toBe(first.perEntry[0].importSetId);
 		expect(second.perEntry[0].folder).toBe(movedFolder);
-		const relocated = [...files.entries()].filter(([path]) => path.startsWith(`${movedFolder}/`));
+		const relocated = [...files.entries()].filter(([path, text]) => path.startsWith(`${movedFolder}/`) && frontmatter(text).kind === 'crosswalk-edge');
 		expect(relocated).toHaveLength(2);
 		expect(notes(files)).toHaveLength(0);
 		expect(relocated.every(([path, text]) => path.startsWith(`${movedFolder}/`)
@@ -501,7 +506,8 @@ describe('recorded producer resolution', () => {
 		const { app, files, create, modify } = makeApp();
 		await runCrosswalkEdgePass(app, args('iset-abcdef'), debug);
 		await runCrosswalkEdgePass(app, args('iset-fedcba'), debug);
-		const secondSet = notes(files).filter(([, value]) => frontmatter(value)._crosswalker.import_set.parent_set === 'iset-fedcba');
+		// Every note of the second set, its release record note included, now names the first producer.
+		const secondSet = [...files.entries()].filter(([, value]) => frontmatter(value)._crosswalker?.import_set?.parent_set === 'iset-fedcba');
 		for (const [path, value] of secondSet) {
 			const fm = frontmatter(value);
 			fm._crosswalker.import_set.parent_set = 'iset-abcdef';
@@ -592,7 +598,9 @@ describe('recorded producer resolution', () => {
 		}, debug);
 		expect(refreshed.errors).toEqual([]);
 		expect(refreshed.perEntry[0].importSetId).toBe(first.perEntry[0].importSetId);
-		expect(refreshed.perEntry[0].orphans).toEqual([...before].map(([path, text]) => ({ curie: frontmatter(text).curie, path })));
+		expect(refreshed.perEntry[0].orphans).toEqual([...before]
+			.filter(([, text]) => frontmatter(text).kind === 'crosswalk-edge')
+			.map(([path, text]) => ({ curie: frontmatter(text).curie, path })));
 		expect(create).not.toHaveBeenCalled(); expect(modify).not.toHaveBeenCalled();
 		expect(files).toEqual(before);
 	});
@@ -612,5 +620,163 @@ describe('recorded producer resolution', () => {
 			.filter((fm) => fm._crosswalker.import_set.id === edgeSetId).map((fm) => fm.curie).sort();
 		expect(after).toEqual(curies);
 		expect(notes(files)).toHaveLength(4);
+	});
+});
+
+describe('S5 recipe-declared crosswalk release records', () => {
+	const DEMO_ENTRY = { column: 'Maps to', to_ontology: 'demo-b', predicate: 'is_equivalent_to' as const };
+	const DEMO_INPUTS: CrosswalkEdgeInput[] = [
+		{ curie: 'demo-a:A1', row: { 'Maps to': 'B1; B2 (partial)' }, title: 'Synthetic A1' },
+		{ curie: 'demo-a:A2', row: { 'Maps to': 'None' }, title: 'Synthetic A2' },
+	];
+	const BLOCK = {
+		id: 'https://example.org/mappings/demo-a-to-demo-b',
+		version: '2026.1',
+		title: 'Demo A to demo B',
+		description: 'Synthetic release for tests.',
+		license: 'https://creativecommons.org/publicdomain/zero/1.0/',
+		provider: 'https://example.org/provider',
+		date: '2026-10-03',
+		creator_id: ['orcid:0000-0000-0000-0000'],
+		subject_source: 'demo-a',
+		subject_source_version: '1.0',
+		object_source: 'demo-b',
+		object_source_version: '2.0',
+	};
+	const demoArgs = (entry: Record<string, unknown> = {}, recipeId = 'synthetic-demo-a') => ({
+		entries: [{ ...DEMO_ENTRY, ...entry }], sourceOntology: 'demo-a', recipeId,
+		producerSetId: 'iset-abcdef', inputs: DEMO_INPUTS, overwriteMode: 'replace' as const,
+	});
+	const edges = (files: Map<string, string>) => [...files.entries()]
+		.filter(([, text]) => frontmatter(text).kind === 'crosswalk-edge');
+	const setNotes = (files: Map<string, string>) => [...files.entries()]
+		.filter(([, text]) => frontmatter(text).kind === 'mapping-set');
+	async function recordOf(app: App, setId: string) {
+		const set = (await discoverImportSets(app)).find((candidate) => candidate.id === setId);
+		expect(set).toBeDefined();
+		return readMappingSet(app, set!);
+	}
+
+	it('writes a release record with every declared field and recomputed digests', async () => {
+		const { app, files } = makeApp();
+		const pass = await runCrosswalkEdgePass(app, demoArgs({ mapping_set: BLOCK }), debug);
+		expect(pass.errors).toEqual([]);
+		const setId = pass.perEntry[0].importSetId!;
+		const record = await recordOf(app, setId);
+		const facts = deriveCrosswalkEdgeRows({ ...DEMO_ENTRY, mapping_set: BLOCK }, 'demo-a', BLOCK.id, DEMO_INPUTS).rows
+			.map((row) => ({ ...row, predicate_modifier: '' }));
+		expect(record).toEqual({
+			mapping_set_id: BLOCK.id,
+			id_origin: 'declared',
+			mapping_set_version: '2026.1',
+			mapping_set_title: 'Demo A to demo B',
+			mapping_set_description: 'Synthetic release for tests.',
+			subject_source: 'demo-a',
+			subject_source_version: '1.0',
+			object_source: 'demo-b',
+			object_source_version: '2.0',
+			mapping_provider: 'https://example.org/provider',
+			mapping_date: '2026-10-03',
+			creator_id: ['orcid:0000-0000-0000-0000'],
+			license: 'https://creativecommons.org/publicdomain/zero/1.0/',
+			...computeMappingSetDigests(facts),
+			importSetId: setId,
+		});
+		expect(record!.assertion_count).toBe(2);
+		for (const [, text] of edges(files)) expect(frontmatter(text).mapping_set_id).toBe(BLOCK.id);
+		const [[, noteText]] = setNotes(files);
+		const note = frontmatter(noteText);
+		expect(validateTier1Frontmatter(note)).toEqual(expect.objectContaining({ valid: true }));
+		// The record's provenance is the child link set's own block.
+		expect(note._crosswalker.import_set.id).toBe(setId);
+		expect(note._crosswalker.import_set.parent_set).toBe('iset-abcdef');
+	});
+
+	it('takes the legacy mapping_set_id as the declared id', async () => {
+		const { app } = makeApp();
+		const pass = await runCrosswalkEdgePass(app, demoArgs({ mapping_set_id: 'demo-release-legacy' }), debug);
+		const record = await recordOf(app, pass.perEntry[0].importSetId!);
+		expect(record).toEqual(expect.objectContaining({ mapping_set_id: 'demo-release-legacy', id_origin: 'declared' }));
+	});
+
+	it('refuses two different ids in one column and writes nothing', async () => {
+		const { app, files } = makeApp();
+		const pass = await runCrosswalkEdgePass(app, demoArgs({ mapping_set: BLOCK, mapping_set_id: 'demo-other' }), debug);
+		expect(pass.errors[0].message).toBe(`The recipe gives crosswalk column Maps to two release ids: mapping_set.id is ${BLOCK.id} and mapping_set_id is demo-other. Keep one of them, then run the import again.`);
+		expect(files.size).toBe(0);
+	});
+
+	it('mints the id once without a declaration, keeps it on refresh, and never derives it from the recipe id', async () => {
+		const { app, files, modify } = makeApp();
+		const first = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(first.errors).toEqual([]);
+		const setId = first.perEntry[0].importSetId!;
+		const minted = (await recordOf(app, setId))!;
+		expect(minted.id_origin).toBe('minted');
+		expect(minted.mapping_set_id).toMatch(/^urn:crosswalker:mapping-set:[a-z2-7]{10}$/);
+		expect(minted.mapping_set_id).not.toContain('synthetic-demo-a');
+		expect(minted).not.toHaveProperty('subject_source');
+		expect(minted).not.toHaveProperty('mapping_set_version');
+
+		const before = new Map(files);
+		modify.mockClear();
+		const second = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(second.errors).toEqual([]);
+		expect(second.perEntry[0].importSetId).toBe(setId);
+		expect((await recordOf(app, setId))!.mapping_set_id).toBe(minted.mapping_set_id);
+		// Nothing changed, so nothing was written: not the links, not the record.
+		expect(modify).not.toHaveBeenCalled();
+		expect(files).toEqual(before);
+
+		// A declared id is the same release whatever the recipe is called.
+		const a = makeApp();
+		const b = makeApp();
+		const underA = await runCrosswalkEdgePass(a.app, demoArgs({ mapping_set: { id: 'demo-release' } }, 'synthetic-recipe-one'), debug);
+		const underB = await runCrosswalkEdgePass(b.app, demoArgs({ mapping_set: { id: 'demo-release' } }, 'synthetic-recipe-two'), debug);
+		expect((await recordOf(a.app, underA.perEntry[0].importSetId!))!.mapping_set_id).toBe('demo-release');
+		expect((await recordOf(b.app, underB.perEntry[0].importSetId!))!.mapping_set_id).toBe('demo-release');
+	});
+
+	it('refuses a refresh that declares a different version and writes nothing', async () => {
+		const { app, files, create, modify } = makeApp();
+		const first = await runCrosswalkEdgePass(app, demoArgs({ mapping_set: BLOCK }), debug);
+		const setId = first.perEntry[0].importSetId!;
+		const before = new Map(files);
+		create.mockClear(); modify.mockClear();
+		const refused = await runCrosswalkEdgePass(app, demoArgs({ mapping_set: { ...BLOCK, version: '2026.2' } }), debug);
+		expect(refused.errors.map((error) => error.message)).toEqual([
+			`Crosswalk links for Maps to were not updated. The recipe declares release ${BLOCK.id} version 2026.2, but link set ${setId} holds release ${BLOCK.id} version 2026.1. Restore the release id and version in the recipe, or remove the old link set in ownership review so the new release gets its own set, then run the import again.`,
+		]);
+		expect(create).not.toHaveBeenCalled();
+		expect(modify).not.toHaveBeenCalled();
+		expect(files).toEqual(before);
+	});
+
+	it('keeps the old id of a link set written before records existed and only adds the record', async () => {
+		const { app, files } = makeApp();
+		// The old pass stamped `<source>-to-<target>-<recipe id>` on every link and
+		// wrote no record. Reproduce that state: same id on every link, no set note.
+		const oldId = 'demo-a-to-demo-b-synthetic-demo-a';
+		const first = await runCrosswalkEdgePass(app, demoArgs({ mapping_set_id: oldId }), debug);
+		const setId = first.perEntry[0].importSetId!;
+		for (const [path] of setNotes(files)) files.delete(path);
+		expect(await recordOf(app, setId)).toBeUndefined();
+		const oldEdges = new Map(edges(files));
+		expect(oldEdges.size).toBe(2);
+
+		const refreshed = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(refreshed.errors).toEqual([]);
+		expect(refreshed.perEntry[0].importSetId).toBe(setId);
+		expect(refreshed.perEntry[0].upToDate).toBe(2);
+		for (const [path, text] of oldEdges) {
+			const after = files.get(path)!;
+			expect(frontmatter(after).mapping_set_id).toBe(oldId);
+			expect(managedContentEquivalent(text, after, { parseYaml: load, userPreserve: ['review_status', 'reviewer'] }))
+				.toEqual({ equal: true, differences: [] });
+		}
+		const record = await recordOf(app, setId);
+		// The recipe declares nothing, so the id the set holds was assigned by Crosswalker.
+		expect(record).toEqual(expect.objectContaining({ mapping_set_id: oldId, id_origin: 'minted', assertion_count: 2 }));
+		expect(setNotes(files)).toHaveLength(1);
 	});
 });

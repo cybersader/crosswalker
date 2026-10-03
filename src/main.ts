@@ -368,6 +368,17 @@ export default class CrosswalkerPlugin extends Plugin {
 			},
 		});
 
+		// v0.1.7 Track 3 slice 2: typed mapping table import. Same modal, same
+		// destination, form and refresh choices; the table is converted by the
+		// adapter in strm-importer.ts, and a release file beside it is read.
+		this.addCommand({
+			id: 'import-typed-mapping-table',
+			name: 'Import and export: import a typed mapping table',
+			callback: () => {
+				new SssomImportModal(this.app, this, 'typed-table').open();
+			},
+		});
+
 		// v0.1.6 Phase 4.6: recipe picker — create a new query (Layout B+).
 		// Canonical state lives at _crosswalker/queries/<slug>/{index.md,view.base};
 		// the host note (current editor) receives only an `![[<slug>/view.base]]`
@@ -1085,7 +1096,7 @@ export default class CrosswalkerPlugin extends Plugin {
 								(result.skipped.length > 0
 									? ` (${result.skipped.length} note${result.skipped.length === 1 ? '' : 's'} skipped)`
 									: '') +
-								`.\n${releaseRecordLine(result.release_record)}`,
+								`.\n${releaseRecordLine(result.release_record, result.recordedCount === undefined ? undefined : { exported: result.rowCount, recorded: result.recordedCount })}`,
 							8000,
 						);
 					})();
@@ -1100,7 +1111,10 @@ export default class CrosswalkerPlugin extends Plugin {
 				new ExportFolderPickerModal(this.app, (folder) => {
 					void runFolderTypedTableExport({ app: this.app, folder })
 						.then((outcome) => {
-							new Notice(outcome.message, outcome.status === 'failed' ? 8000 : 6000);
+							new Notice(
+								outcome.releaseMessage ? `${outcome.message}\n${outcome.releaseMessage}` : outcome.message,
+								outcome.status === 'failed' || outcome.release_record === 'recorded-partial' ? 8000 : 6000,
+							);
 						})
 						.catch(() => {
 							new Notice('Could not finish the export; check the destination file before trying again.', 8000);

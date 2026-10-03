@@ -33,6 +33,21 @@ if (typeof tier1CuriePattern !== 'string' || tier1CuriePattern.length === 0) {
 	throw new Error('spec/tier1.schema.json is malformed: $defs.curie.pattern must be a non-empty string');
 }
 const TIER1_CURIE_RE = new RegExp(tier1CuriePattern);
+
+/**
+ * The crosswalk-edge predicate ids Tier 1 accepts, read from the schema's own
+ * enum (`$defs.crosswalk_edge_frontmatter.properties.predicate_id.enum`), never
+ * hand-copied, so a schema change reaches every reader at once.
+ */
+export const TIER1_EDGE_PREDICATE_IDS: ReadonlySet<string> = (() => {
+	const values = (tier1Schema as {
+		$defs?: { crosswalk_edge_frontmatter?: { properties?: { predicate_id?: { enum?: unknown } } } };
+	}).$defs?.crosswalk_edge_frontmatter?.properties?.predicate_id?.enum;
+	if (!Array.isArray(values) || values.length === 0 || !values.every((value) => typeof value === 'string')) {
+		throw new Error('spec/tier1.schema.json is malformed: crosswalk_edge_frontmatter.predicate_id.enum must be a non-empty list of strings');
+	}
+	return new Set(values as string[]);
+})();
 const TIER1_CURIE_PREFIX_RE = /^[a-z][a-z0-9_-]*$/;
 
 export function extractTier1Curie(value: unknown): string | null {

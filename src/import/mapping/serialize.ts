@@ -29,7 +29,7 @@
  */
 
 import type { VariadicConfig } from '../../render/types';
-import type { CrosswalkColumnEntry, NestedRecordLevel } from '../../types/generated/recipe';
+import type { CrosswalkColumnEntry, CrosswalkMappingSetDeclaration, NestedRecordLevel } from '../../types/generated/recipe';
 import type {
 	ImportMapping,
 	StructureMapping,
@@ -365,7 +365,9 @@ function emitLevel(
 					...(dest.predicate && dest.predicate !== 'is_approximate_to' ? { predicate: dest.predicate } : {}),
 					...(dest.split && dest.split.length > 0 ? { split: [...dest.split] } : {}),
 					...(dest.qualifier ? { qualifier: dest.qualifier } : {}),
+					...(dest.drop ? { drop: [...dest.drop] } : {}),
 					...(dest.mappingSetId ? { mapping_set_id: dest.mappingSetId } : {}),
+					...(dest.mappingSet ? { mapping_set: JSON.parse(JSON.stringify(dest.mappingSet)) as CrosswalkMappingSetDeclaration } : {}),
 				});
 				break;
 			}
@@ -695,7 +697,9 @@ export function fromRegions(regions: RecipeRegions, options: FromRegionsOptions 
 			predicate: entry.predicate ?? 'is_approximate_to',
 			...(entry.split && entry.split.length > 0 ? { split: [...entry.split] } : {}),
 			...(entry.qualifier ? { qualifier: entry.qualifier } : {}),
+			...(entry.drop ? { drop: [...entry.drop] } : {}),
 			...(entry.mapping_set_id ? { mappingSetId: entry.mapping_set_id } : {}),
+			...(entry.mapping_set ? { mappingSet: JSON.parse(JSON.stringify(entry.mapping_set)) as CrosswalkMappingSetDeclaration } : {}),
 		});
 	}
 

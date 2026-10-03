@@ -67,15 +67,27 @@
  *     only to sets without a record, with `release_record: 'derived'` in the
  *     result so the caller can say so. Digests are not exported; a re-import
  *     recomputes them, and equality is the round-trip proof
- *     (tests/mapping-set-roundtrip.test.ts).
+ *     (tests/mapping-set-roundtrip.test.ts). Slice 2 (S6): the membership
+ *     fingerprint is recomputed over the rows actually exported; when it
+ *     differs from the record's (a subfolder holding part of a set), the
+ *     header is still written from the record and the result says
+ *     `recorded-partial` (src/export/exported-set-record.ts).
  */
 
 import Papa from 'papaparse';
 import type { App } from 'obsidian';
 import { readVaultTree, type CrosswalkEdgeRow, type SkippedNote } from './vault-reader';
 import { normalizeMappingSetId, readStoredPredicateModifier } from '../utils/mapping-provenance';
-import { readMappingSet, type MappingSetRecord } from '../mappings/mapping-set';
-import { discoverImportSet } from '../generation/import-set';
+import type { MappingSetAssertionFacts, MappingSetRecord } from '../mappings/mapping-set';
+import {
+	edgeConfidence,
+	edgeMembershipFacts,
+	partialExportLine,
+	readImportSetId,
+	recordOfExportedSet,
+	releaseRecordState,
+	type ReleaseRecordState,
+} from './exported-set-record';
 import {
 	LINEAGE_NOT_REPRESENTABLE_REASON,
 	isLineagePredicate,
@@ -130,22 +142,32 @@ export interface SssomExportOptions {
 	record?: MappingSetRecord;
 }
 
-/** Where the header's release metadata came from: the set's release record, or inferred from rows (M5). */
-export type ReleaseRecordSource = 'recorded' | 'derived';
+/**
+ * Where the header's release metadata came from: the set's release record
+ * (`recorded-partial` when the export holds only part of it, S6), or inferred
+ * from rows (M5).
+ */
+export type ReleaseRecordSource = ReleaseRecordState;
 
 export interface SssomExportResult {
 	tsv: string;
 	rowCount: number;
 	skipped: SkippedNote[];
 	release_record: ReleaseRecordSource;
+	/** The record's mapping count, when the export carries a record. */
+	recordedCount?: number;
 }
 
 /**
- * The export's one line about where its release metadata came from (M5),
+ * The export's one line about where its release metadata came from (M5, S6),
  * shown in the export notice. Plain words only: "release record", never the
- * file format's own vocabulary.
+ * file format's own vocabulary. A partial export names how many of the
+ * recorded mappings it holds.
  */
-export function releaseRecordLine(source: ReleaseRecordSource): string {
+export function releaseRecordLine(source: ReleaseRecordSource, counts?: { exported: number; recorded: number }): string {
+	if (source === 'recorded-partial') {
+		return counts ? partialExportLine(counts.exported, counts.recorded) : 'Release record: recorded, but this export holds only part of the set.';
+	}
 	return source === 'recorded'
 		? 'Release record: recorded.'
 		: 'Release record: derived from rows (no release record). Import the set again to record one.';
@@ -161,7 +183,7 @@ function headerLine(key: string, value: string): string {
 }
 
 /** The standard SSSOM header lines (M3) of a release record, in SSSOM's own order. */
-function recordHeaderLines(record: MappingSetRecord, options: SssomExportOptions): string[] {
+export function recordHeaderLines(record: Omit<MappingSetRecord, 'importSetId'>, options: SssomExportOptions = {}): string[] {
 	const lines: string[] = [];
 	const add = (key: string, value: string | undefined) => { if (value) lines.push(headerLine(key, value)); };
 	add('mapping_set_id', options.mappingSetId === undefined ? record.mapping_set_id : normalizeMappingSetId(options.mappingSetId) || undefined);
@@ -191,20 +213,6 @@ function curiePrefix(curie: string): string {
 	return idx === -1 ? curie : curie.slice(0, idx);
 }
 
-function resolveConfidence(fm: Record<string, unknown>, matchConfidence: number | undefined): number | undefined {
-	if (typeof matchConfidence === 'number') return matchConfidence;
-	// sssom-importer's synthetic recipe stores confidence as `sssom_confidence`,
-	// and (per its own doc comment) as a STRING — Tier 1's typed match_confidence
-	// requires a number and the recipe template only emits raw strings. Parse it
-	// here rather than fixing it upstream (out of this milestone's surface).
-	const raw = fm.sssom_confidence ?? fm.confidence;
-	if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
-	if (typeof raw === 'string' && raw.trim() !== '') {
-		const n = Number.parseFloat(raw);
-		if (Number.isFinite(n)) return n;
-	}
-	return undefined;
-}
 
 /** Most frequent non-empty value across a multiset; undefined if none. Ties break on first-seen (stable, deterministic given sorted input). */
 function mode(counts: Map<string, number>): string | undefined {
@@ -225,18 +233,6 @@ function tally(counts: Map<string, number>, value: string | undefined): void {
 }
 
 /**
- * The import set that owns this note, read from its `_crosswalker` provenance stamp.
- * Returns undefined for notes written before import sets shipped — those are treated
- * as one unlabelled group rather than as a distinct release, so an all-legacy export
- * still works unchanged.
- */
-function readImportSetId(fm: Record<string, unknown>): string | undefined {
-	const provenance = fm._crosswalker as { import_set?: { id?: unknown } } | undefined;
-	const id = provenance?.import_set?.id;
-	return typeof id === 'string' && id !== '' ? id : undefined;
-}
-
-/**
  * Serialize a set of crosswalk-edge rows (already read from the vault, or
  * hand-assembled for a test) into an SSSOM TSV string. Pure — no vault I/O.
  * Rows are re-sorted by path first so output is deterministic regardless of
@@ -254,6 +250,8 @@ export function crosswalkEdgesToSssomTsv(
 	const importSetCounts = new Map<string, number>();
 	const subjectSourceCounts = new Map<string, number>();
 	const objectSourceCounts = new Map<string, number>();
+	/** Membership facts of the rows actually exported, for the partial-export guard (S6). */
+	const exportedFacts: MappingSetAssertionFacts[] = [];
 
 	const sorted = [...edges].sort((a, b) => a.path.localeCompare(b.path));
 	for (const edge of sorted) {
@@ -289,7 +287,7 @@ export function crosswalkEdgesToSssomTsv(
 			continue;
 		}
 		const sssomPredicate = asOptionalString(fm.sssom_predicate) ?? STRM_TO_SKOS[edge.predicate_id] ?? 'skos:relatedMatch';
-		const confidence = resolveConfidence(fm, edge.match_confidence);
+		const confidence = edgeConfidence(edge);
 
 		rows.push({
 			subject_id: edge.subject_id,
@@ -302,6 +300,7 @@ export function crosswalkEdgesToSssomTsv(
 			object_label: asOptionalString(fm.object_label) ?? '',
 		});
 
+		exportedFacts.push(edgeMembershipFacts(edge, predicateModifier));
 		tally(providerCounts, edge.mapping_provider);
 		tally(importSetCounts, readImportSetId(fm));
 		const mappingSetId = normalizeMappingSetId(edge.mapping_set_id ?? fm.mapping_set_id);
@@ -351,22 +350,14 @@ export function crosswalkEdgesToSssomTsv(
 	const body = Papa.unparse(rows, { columns: [...SSSOM_COLUMNS], delimiter: '\t', newline: '\n' });
 	const tsv = headerLines.length > 0 ? `${headerLines.join('\n')}\n${body}\n` : `${body}\n`;
 
-	return { tsv, rowCount: rows.length, skipped, release_record: options.record ? 'recorded' : 'derived' };
-}
-
-/**
- * The release record of the one import set every exported row belongs to, or
- * undefined: rows from no set, from several sets (the exporter refuses those),
- * or from a set imported before records existed. Throws the reader's
- * actionable error when the set's record is malformed.
- */
-async function recordOfExportedSet(app: App, edges: CrosswalkEdgeRow[]): Promise<MappingSetRecord | undefined> {
-	const ids = new Set(edges.map((edge) => readImportSetId(edge.frontmatter) ?? ''));
-	if (ids.size !== 1) return undefined;
-	const [id] = [...ids];
-	if (!id) return undefined;
-	const set = await discoverImportSet(app, id);
-	return set ? readMappingSet(app, set) : undefined;
+	return {
+		tsv,
+		rowCount: rows.length,
+		skipped,
+		// S6: recomputed over the rows written, never assumed from the record.
+		release_record: releaseRecordState(options.record, exportedFacts),
+		...(options.record ? { recordedCount: options.record.assertion_count } : {}),
+	};
 }
 
 /**

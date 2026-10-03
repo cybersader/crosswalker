@@ -330,8 +330,10 @@ describe('Crosswalker plugin — v0.1.6 Phase 2 SSSOM import (E2E)', function ()
 		expect(after.path).toBe(edge.path);
 		expect(after.frontmatter?.object_note).toBe('[[P2-sssom/target/Nested/Beta|Beta]]');
 		expect(await readEdge(after.path!)).toContain('[[P2-sssom/source/Deep/Alpha|Alpha]] is_equivalent_to [[P2-sssom/target/Nested/Beta|Beta]]');
+		// Mapping notes only: the folder also holds the set's release record note (kind: mapping-set).
 		expect(await browser.executeObsidian(({ app }, folder) =>
-			app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${folder}/`)).length, pair)).toBe(1);
+			app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${folder}/`)
+				&& app.metadataCache.getFileCache(f)?.frontmatter?.kind !== 'mapping-set').length, pair)).toBe(1);
 	});
 
 });

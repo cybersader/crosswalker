@@ -63,7 +63,7 @@
  * `buildAlsoEmit`/`fromRegions`.
  */
 
-import type { NestedRecordLevel } from '../../types/generated/recipe';
+import type { CrosswalkMappingSetDeclaration, NestedRecordLevel } from '../../types/generated/recipe';
 
 // ============================================================================
 // Source references
@@ -235,7 +235,15 @@ export type Destination =
 			predicate?: CrosswalkPredicate;
 			split?: string[];
 			qualifier?: 'keep-as-justification' | 'strip';
+			/** Atoms treated as empty, preserved from the canonical declaration. */
+			drop?: string[];
 			mappingSetId?: string;
+			/**
+			 * The column's declared release metadata (`mapping_set`), carried
+			 * opaquely: the workbench has no control for it, so it must survive
+			 * every edit untouched (portable-recipe fidelity).
+			 */
+			mappingSet?: CrosswalkMappingSetDeclaration;
 	  }
 	/** A plain queryable frontmatter field. */
 	| {

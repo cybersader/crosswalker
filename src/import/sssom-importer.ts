@@ -42,7 +42,7 @@ import {
 } from './sssom-parser';
 import { computeRecipeHash } from '../generation/hash';
 import { readNoteFrontmatterState } from '../export/vault-reader';
-import { extractTier1Curie } from '../validation/validator';
+import { TIER1_EDGE_PREDICATE_IDS, extractTier1Curie } from '../validation/validator';
 import { plural } from '../utils/plural';
 import {
 	discoverImportSet,
@@ -69,16 +69,13 @@ import {
 	mappingSetRefreshRefusal,
 	readPinnedMappingSetIdentity,
 	resolveMappingSetIdentity,
-	setNoteProvenance,
 	storedMappingSet,
-	writeMappingSetNote,
+	writeReleaseRecordForNoteSet,
 	type MappingSetAssertionFacts,
 	type MappingSetIdentity,
 	type MappingSetRecord,
 	type PinnedMappingSetIdentity,
 } from '../mappings/mapping-set';
-import { importSetIdOf } from '../mappings/conversion-marker';
-import { normalizeFolderSetting } from '../settings/folder-settings';
 import { mappingTablePath, mergeReviewColumns, writeMappingTable } from '../mappings/mapping-table-writer';
 import manifest from '../../manifest.json';
 import { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../generation/crosswalk-identity';
@@ -252,9 +249,12 @@ async function runImportSssom(
 
 	const preparedRows = parsed.rows.map((row, index) => {
 		const record = rowToRecord(row);
-		const sssomPred = String(record.predicate_id ?? '');
-		const { strm, warning } = normalizePredicate(sssomPred);
+		const rawPredicate = String(record.predicate_id ?? '');
+		const { strm, warning, passthrough } = normalizePredicate(rawPredicate);
 		if (warning) parsed.warnings.push(warning);
+		// S7: a row already stating a Crosswalker predicate has no original SKOS
+		// predicate to preserve, so its sssom_predicate stays empty.
+		const sssomPred = passthrough ? '' : rawPredicate;
 		const mappingSetId = normalizeMappingSetId(record.mapping_set_id) || setMappingSetId;
 		const predicateModifier = normalizePredicateModifierInput(record.predicate_modifier);
 		const baseKey = assertionBaseKey({
@@ -320,6 +320,9 @@ async function runImportSssom(
 			subject_label: prepared.record.subject_label || prepared.record.subject_id,
 			object_label: prepared.record.object_label || prepared.record.object_id,
 			confidence: prepared.record.confidence ?? '',
+			// SSSOM requires a justification, but a file without one (a typed
+			// mapping table with an empty Rationale, slice 2) must still render.
+			mapping_justification: prepared.record.mapping_justification ?? '',
 			subject_note: resolved.subject_note,
 			object_note: resolved.object_note,
 			edge_body: resolved.edge_body,
@@ -560,35 +563,17 @@ async function writeReleaseRecordNote(
 	debug?: DebugLog,
 ): Promise<void> {
 	try {
-		const edgeProvenance = await mappingNoteProvenance(app, record.importSetId, folder);
-		if (!edgeProvenance) {
+		const outcome = await writeReleaseRecordForNoteSet(app, folder, record);
+		if (outcome.state === 'no-mapping-note') {
 			result.summary.push('The release record for this mapping set was not written because none of its mapping notes could be read yet. Import the file again once indexing finishes to record it.');
 			return;
 		}
-		const path = await writeMappingSetNote(app, { folder, record, provenance: setNoteProvenance(edgeProvenance) });
-		debug?.info('sssom-import', 'release-record-written', `SSSOM import: wrote release record ${path}`, { path });
+		debug?.info('sssom-import', 'release-record-written', `SSSOM import: release record ${outcome.state} ${outcome.path}`, { path: outcome.path, state: outcome.state });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		result.summary.push(`The release record for this mapping set could not be written: ${message} Import the file again to record it.`);
 		debug?.warn('sssom-import', 'release-record-failed', 'SSSOM import: release record write failed', { error: message });
 	}
-}
-
-/** The `_crosswalker` block of one mapping note of `setId` under `folder`, cache first. */
-async function mappingNoteProvenance(app: App, setId: string, folder: string): Promise<Record<string, unknown> | undefined> {
-	const base = normalizeFolderSetting(folder);
-	const files = [...app.vault.getMarkdownFiles()]
-		.filter((file) => !base || file.path.startsWith(`${base}/`))
-		.sort((a, b) => a.path.localeCompare(b.path));
-	for (const file of files) {
-		const read = await readNoteFrontmatterState(app, file);
-		if (read.state !== 'ok') continue;
-		const fm = read.frontmatter;
-		if (fm.kind !== 'crosswalk-edge') continue;
-		if (importSetIdOf(fm._crosswalker) !== setId) continue;
-		return fm._crosswalker as Record<string, unknown>;
-	}
-	return undefined;
 }
 
 interface TableSetInput {
@@ -865,9 +850,14 @@ export function strmToSkos(predicate: CrosswalkPredicate): string {
 	return match[0];
 }
 
-function normalizePredicate(sssomPredicate: string): { strm: string; warning?: string } {
+function normalizePredicate(sssomPredicate: string): { strm: string; warning?: string; passthrough?: true } {
 	const strm = SKOS_TO_STRM[sssomPredicate];
 	if (strm) return { strm };
+	// Slice 2 ruling S7: a value that already is a Tier 1 crosswalk-edge predicate
+	// id (read from the schema enum) passes through unchanged, with no warning.
+	// The typed mapping table adapter relies on this for no_relationship, which
+	// has no SKOS partner.
+	if (TIER1_EDGE_PREDICATE_IDS.has(sssomPredicate)) return { strm: sssomPredicate, passthrough: true };
 	// Unknown predicate — fall back to intersects_with (the most permissive STRM
 	// predicate) and surface a warning so the user knows the mapping is approximate.
 	return {

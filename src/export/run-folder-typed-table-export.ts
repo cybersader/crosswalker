@@ -1,6 +1,12 @@
 import type { App, TFolder } from 'obsidian';
 import { Modal, Setting, TFile } from 'obsidian';
-import { exportFolderAsStrmTsv, type StrmExportResult } from './strm-tsv-exporter';
+import {
+	exportFolderAsStrmTsv,
+	releaseFilePathFor,
+	strmReleaseFileContent,
+	type StrmExportResult,
+} from './strm-tsv-exporter';
+import { partialExportLine, type ReleaseRecordState } from './exported-set-record';
 import {
 	exportSiblingPath,
 	writeExportFile,
@@ -16,6 +22,12 @@ export interface FolderTypedTableExportOutcome {
 	rowCount: number;
 	skippedCount: number;
 	message: string;
+	/** Where the release metadata came from (S1, S6). Set once the export was read. */
+	release_record?: ReleaseRecordState;
+	/** The release file written beside the table, when the set has a release record. */
+	release_file?: string;
+	/** The notice's second line about the release record; empty when nothing was written. */
+	releaseMessage?: string;
 }
 
 export interface RunFolderTypedTableExportOptions {
@@ -206,11 +218,73 @@ export async function runFolderTypedTableExport(
 		};
 	}
 
+	const exportedLine = `Exported ${result.rowCount} typed mapping${result.rowCount === 1 ? '' : 's'} to ${destinationPath}.${skippedSuffix(skippedCount)}`;
+	const releaseRecord: ReleaseRecordState = result.record ? result.release_record ?? 'recorded' : 'derived';
+	const releasePath = releaseFilePathFor(destinationPath);
+	const staleRelease = app.vault.getAbstractFileByPath(releasePath);
+
+	if (!result.record) {
+		// S1: no record, no release file. A release file left beside the table by
+		// an earlier export would describe rows this table no longer holds, and the
+		// importer would read it, so it goes to the trash rather than stay wrong.
+		let releaseMessage = 'No release record for this set, so no release file was written.';
+		if (staleRelease instanceof TFile) {
+			try {
+				await app.vault.trash(staleRelease, false);
+				releaseMessage += ` The old release file ${releasePath} was moved to the trash because it no longer matches this table.`;
+			} catch {
+				releaseMessage += ` The old release file ${releasePath} no longer matches this table. Delete it before importing the table.`;
+			}
+		}
+		return {
+			status: 'written',
+			destinationPath,
+			rowCount: result.rowCount,
+			skippedCount,
+			message: exportedLine,
+			release_record: releaseRecord,
+			releaseMessage,
+		};
+	}
+
+	if (staleRelease && !(staleRelease instanceof TFile)) {
+		return {
+			status: 'failed',
+			destinationPath,
+			rowCount: result.rowCount,
+			skippedCount,
+			message: `${exportedLine} Its release file was not written because ${releasePath} is not a file. Rename that item, then export again.`,
+			release_record: releaseRecord,
+		};
+	}
+	const tableName = destinationPath.split('/').pop() ?? destinationPath;
+	try {
+		// The table replacement the user confirmed (or a new table) covers its own
+		// release file: the two are one export.
+		await writeFile(app, releasePath, strmReleaseFileContent(result.record, tableName), {
+			overwriteExisting: staleRelease instanceof TFile,
+		});
+	} catch {
+		return {
+			status: 'failed',
+			destinationPath,
+			rowCount: result.rowCount,
+			skippedCount,
+			message: `${exportedLine} Could not write its release file ${releasePath}. Check that the destination is writable, then export again.`,
+			release_record: releaseRecord,
+		};
+	}
+
 	return {
 		status: 'written',
 		destinationPath,
 		rowCount: result.rowCount,
 		skippedCount,
-		message: `Exported ${result.rowCount} typed mapping${result.rowCount === 1 ? '' : 's'} to ${destinationPath}.${skippedSuffix(skippedCount)}`,
+		message: exportedLine,
+		release_record: releaseRecord,
+		release_file: releasePath,
+		releaseMessage: releaseRecord === 'recorded-partial'
+			? `${partialExportLine(result.rowCount, result.record.assertion_count)} Release file: ${releasePath}.`
+			: `Release record written to ${releasePath}.`,
 	};
 }
