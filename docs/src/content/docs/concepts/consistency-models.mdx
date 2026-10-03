@@ -349,6 +349,10 @@ What is **not** promised: byte-identical files. A note you have edited is no lon
 
 The promise has one definition in code, `managedContentEquivalent` in `src/generation/managed-equivalence.ts`, and the unit tests and the real-Obsidian **Run again** test both use it rather than their own comparison. If the source file or the recipe changed since the last run, the promise does not apply, and the wizard says so on its first step before anything is written. See the [Run again synthesis](/crosswalker/agent-context/zz-log/2026-10-02-recipe-run-again-synthesis/).
 
+**The promise is proved on full public frameworks.** Saving the NIST CSF 2.0 and NIST SP 800-53 recipes, reopening them from the library, and running them twice on the same file into the same set leaves every note's managed content unchanged: 185 notes for CSF 2.0 and 1,189 for SP 800-53 (source: `tests/replay-proof-nist.test.ts` and `tests/e2e/replay-proof-nist.spec.ts`, both checked 2026-10-03). The proofs run through code and through the wizard in real Obsidian.
+
+**Any change to the file's bytes counts as a change, for every note.** Each note records the hash of the exact source bytes it came from (`_crosswalker.source_ref.source_hash`), and that hash is managed content. Editing one cell, or re-saving the file in a program that rewrites it, changes the hash on every note in the set, not only on the notes whose rows changed. In the SP 800-53 proof, editing one cell in the file left one note with changed content and the other 1,188 differing only in the recorded source hash. This is deliberate: a note should never claim to come from bytes it did not come from. It is also why the wizard says whether the picked file matches the last run before anything is written.
+
 ---
 
 ## Resources
