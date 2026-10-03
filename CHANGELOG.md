@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: replay proofs for full NIST CSF 2.0 and SP 800-53 (2026-10-03)
+
+- Running a saved recipe again on the same file into the same set is now proved on two full public frameworks, through code and through the wizard in real Obsidian: save, reopen from the library, run twice, and every note's managed content is unchanged. CSF 2.0: 185 notes. SP 800-53 (flat recipe): 1,189 notes. Every note carries the saved recipe revision, and the set keeps its id.
+- Negative controls in the same proofs: one changed cell changes exactly that note; a hand-edited managed property is restored by Replace; an edited user-owned property survives and the note still counts as unchanged.
+- Finding, now documented in [the replay promise](https://cybersader.github.io/crosswalker/concepts/consistency-models/#the-replay-promise): the recorded source hash is managed content, so any change to the file's bytes marks every note in the set as changed (SP 800-53: one note with changed content, 1,188 with only the new hash).
+- Tests: `tests/replay-proof-nist.test.ts` (unit run, about 7 seconds) and `tests/e2e/replay-proof-nist.spec.ts` (opt-in with `CW_SCALE=1`, about 11 seconds). No plugin code changed. This closes the v0.1.7 full-source replay checkbox and its success criteria.
+
 ### Added: run a saved recipe again (2026-10-02)
 
 - A recipe now remembers where it last ran. In **Browse import recipes** its card shows **Last run &lt;date&gt; into &lt;set&gt;**, and **Run again** is its main button. The expanded card lists up to five sets the recipe has run into, each with its own **Run again**. Run records live in plugin settings, never in the shared recipe file, and a record disappears when its import set is deleted. While the vault is still indexing, the card says so instead of hiding the run.
