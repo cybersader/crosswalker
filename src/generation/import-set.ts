@@ -260,6 +260,17 @@ export async function discoverImportSets(app: App, basePath?: string): Promise<D
 }
 
 /** Flatten discovered source provenance for vault-source reconciliation. */
+/**
+ * One import set by id, discovered the way an explicit refresh validates it:
+ * only that set's notes and tables are checked, so corrupt provenance for an
+ * unrelated set elsewhere in the vault cannot block a reader of this one.
+ * Undefined when the vault holds nothing of the set.
+ */
+export async function discoverImportSet(app: App, id: string): Promise<DiscoveredImportSet | undefined> {
+	const markers = await readConversionMarkers(app);
+	return buildDiscoveredSets(await collectObservations(app, undefined, id, markers), markers)[0];
+}
+
 export function knownSourcesOf(sets: readonly DiscoveredImportSet[]): KnownSource[] {
 	return sets.flatMap((set) => set.sources.map((source) => ({
 		setId: set.id,

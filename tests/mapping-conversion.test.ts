@@ -121,7 +121,9 @@ function makeVault() {
 			processFrontMatter: async () => { throw new Error('not used'); },
 		},
 	} as unknown as App;
-	const notes = () => [...written.keys()].filter((path) => path.endsWith('.md')).sort();
+	// Mapping notes only: the set's release record note (kind: mapping-set, added
+	// 2026-10-03) is asserted in mapping-set.test.ts, not counted here.
+	const notes = () => [...written.keys()].filter((path) => path.endsWith('.md') && frontmatterOf(path)?.kind !== 'mapping-set').sort();
 	return { app, written, folders, trashed, faults, notes, frontmatterOf };
 }
 
@@ -259,13 +261,13 @@ describe('startConversion notes to table', () => {
 		expect(result.reason).toBeUndefined();
 		expect(result).toMatchObject({
 			ok: true, setId, from: 'notes', to: 'table', rows: 3, reviewsCarried: 1,
-			targetPath: TABLE, trashed: 3, phaseReached: 'done', warnings: [],
+			targetPath: TABLE, trashed: 4, phaseReached: 'done', warnings: [],
 		});
 		expect(new Set(progress.map((p) => p.phase))).toEqual(new Set(['writing', 'verifying', 'retiring']));
 
 		// Marker gone, notes in the vault trash (never hard-deleted), one table left.
 		expect([...vault.written.keys()]).toEqual([TABLE]);
-		expect([...vault.trashed.keys()].sort()).toEqual(notesBefore);
+		expect([...vault.trashed.keys()].sort()).toEqual([...notesBefore, `${FOLDER}/demo-map.md`].sort());
 		const table = parseMappingTable(vault.written.get(TABLE)!);
 		expect(table.errors).toEqual([]);
 		expect(table.rows).toHaveLength(3);
@@ -317,7 +319,7 @@ describe('startConversion table to notes', () => {
 		expect(reviewed._crosswalker.recipe).toEqual({ id: 'sssom-demo-a-to-demo-b', hash: sssomRecipeDigest('demo-a', 'demo-b') });
 
 		const [set] = await discoverImportSets(vault.app);
-		expect(set).toMatchObject({ id: setId, mapping_form: 'notes', noteCount: 3 });
+		expect(set).toMatchObject({ id: setId, mapping_form: 'notes', noteCount: 4 });
 		expect(set.converting).toBeUndefined();
 
 		// The converted set refreshes as notes and keeps its reviews.
@@ -363,11 +365,11 @@ describe('interruption and resume', () => {
 
 		// Mid-job, discovery reads the source form and never refuses the set as both forms.
 		const [mid] = await discoverImportSets(vault.app);
-		expect(mid).toMatchObject({ id: setId, mapping_form: 'notes', noteCount: 3, converting: { to: 'table', phase: 'writing' } });
+		expect(mid).toMatchObject({ id: setId, mapping_form: 'notes', noteCount: 4, converting: { to: 'table', phase: 'writing' } });
 
 		const [marker] = await readConversionMarkers(vault.app);
 		const resumed = await resumeConversion(vault.app, {}, marker);
-		expect(resumed).toMatchObject({ ok: true, phaseReached: 'done', rows: 3, trashed: 3 });
+		expect(resumed).toMatchObject({ ok: true, phaseReached: 'done', rows: 3, trashed: 4 });
 		expect([...vault.written.keys()]).toEqual([TABLE]);
 	});
 
@@ -410,9 +412,9 @@ describe('interruption and resume', () => {
 
 		vault.faults.failTrash = undefined;
 		const resumed = await resumeConversion(vault.app, {}, markerOn(vault, setId)!);
-		expect(resumed).toMatchObject({ ok: true, trashed: 2, rows: 3 });
+		expect(resumed).toMatchObject({ ok: true, trashed: 3, rows: 3 });
 		expect(vault.notes()).toEqual([]);
-		expect(vault.trashed.size).toBe(3);
+		expect(vault.trashed.size).toBe(4);
 		expect(markerOn(vault, setId)).toBeUndefined();
 	});
 
@@ -495,7 +497,7 @@ describe('cancel', () => {
 		expect(markerOn(vault, setId)).toBeUndefined();
 		expect(vault.notes()).toHaveLength(3);
 		const [set] = await discoverImportSets(vault.app);
-		expect(set).toMatchObject({ mapping_form: 'notes', noteCount: 3 });
+		expect(set).toMatchObject({ mapping_form: 'notes', noteCount: 4 });
 		expect(set.converting).toBeUndefined();
 	});
 
@@ -529,7 +531,7 @@ describe('readers honour the marker in each phase', () => {
 		for (const phase of ['writing', 'verifying'] as const) {
 			setPhase(vault, setId, phase);
 			const [set] = await discoverImportSets(vault.app);
-			expect(set).toMatchObject({ mapping_form: 'notes', noteCount: 3, converting: { to: 'table', phase } });
+			expect(set).toMatchObject({ mapping_form: 'notes', noteCount: 4, converting: { to: 'table', phase } });
 			const tree = await readVaultTree(vault.app, FOLDER);
 			expect(tree.crosswalkEdges.map((edge) => edge.path)).toEqual(notePaths);
 			expect(tree.skipped.map((entry) => entry.path)).toContain(TABLE);

@@ -276,6 +276,10 @@ export async function readVaultTree(app: App, rootPath: string): Promise<ReadVau
 			result.skipped.push({ path: file.path, reason: 'no parsable YAML frontmatter block' });
 			continue;
 		}
+		// A mapping set's release record (Tier 1 `kind: mapping-set`) is a valid
+		// Tier 1 note with no curie and no row of its own; the SSSOM exporter reads
+		// it through the release record reader, not as an exported note.
+		if (fm.kind === 'mapping-set') continue;
 		const curie = asString(fm.curie);
 		if (!curie) {
 			result.skipped.push({ path: file.path, reason: 'missing required `curie` field (not a Tier 1 note)' });

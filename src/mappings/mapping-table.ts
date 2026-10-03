@@ -44,6 +44,12 @@ export interface MappingTableHeader {
 	 * set exists: discovery, projection and export read it here.
 	 */
 	crosswalker_provenance?: CrosswalkerProvenance;
+	/**
+	 * The set's release record (spec/tier1.schema.json
+	 * `mapping_set_frontmatter` without `_crosswalker`), once. Read through
+	 * `mapping-set.ts`; absent on tables written before records existed.
+	 */
+	mapping_set?: Record<string, unknown>;
 }
 
 export interface MappingTableRow {
@@ -71,9 +77,10 @@ const HEADER_KEYS = [
 	'mapping_set_id', 'mapping_provider', 'mapping_date', 'subject_source',
 	'object_source', 'license', 'crosswalker_format', 'import_set',
 	'source_framework', 'target_framework', 'tags', 'crosswalker_provenance',
+	'mapping_set',
 ] as const;
 /** Header values carried as JSON inside the JSON-quoted string. */
-const JSON_HEADER_KEYS = new Set<string>(['tags', 'crosswalker_provenance']);
+const JSON_HEADER_KEYS = new Set<string>(['tags', 'crosswalker_provenance', 'mapping_set']);
 const COLUMNS = [
 	'row_id', 'subject_id', 'predicate_id', 'object_id', 'sssom_predicate',
 	'predicate_modifier', 'mapping_justification', 'confidence', 'subject_label',
@@ -256,6 +263,10 @@ export function parseMappingTable(tsv: string): ParsedMappingTable {
 					const block: unknown = JSON.parse(value);
 					if (!block || typeof block !== 'object' || Array.isArray(block)) throw new Error('expected a JSON object');
 					header.crosswalker_provenance = block as CrosswalkerProvenance;
+				} else if (match[1] === 'mapping_set') {
+					const record: unknown = JSON.parse(value);
+					if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('expected a JSON object');
+					header.mapping_set = record as Record<string, unknown>;
 				} else if (match[1] === 'crosswalker_format') {
 					formatSeen = value === MAPPING_TABLE_FORMAT;
 				} else {

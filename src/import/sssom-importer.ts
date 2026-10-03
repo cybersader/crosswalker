@@ -40,11 +40,12 @@ import {
 	type SssomParseResult,
 	type SssomRow,
 } from './sssom-parser';
-import { sha256Hex, computeRecipeHash } from '../generation/hash';
+import { computeRecipeHash } from '../generation/hash';
 import { readNoteFrontmatterState } from '../export/vault-reader';
 import { extractTier1Curie } from '../validation/validator';
 import { plural } from '../utils/plural';
 import {
+	discoverImportSet,
 	discoverImportSets,
 	mappingFormOf,
 	resolveImportSet,
@@ -63,6 +64,21 @@ import {
 	type MappingTableRowFacts,
 } from '../mappings/mapping-table';
 import { readMappingTables } from '../mappings/mapping-table-reader';
+import {
+	buildMappingSetRecord,
+	mappingSetRefreshRefusal,
+	readPinnedMappingSetIdentity,
+	resolveMappingSetIdentity,
+	setNoteProvenance,
+	storedMappingSet,
+	writeMappingSetNote,
+	type MappingSetAssertionFacts,
+	type MappingSetIdentity,
+	type MappingSetRecord,
+	type PinnedMappingSetIdentity,
+} from '../mappings/mapping-set';
+import { importSetIdOf } from '../mappings/conversion-marker';
+import { normalizeFolderSetting } from '../settings/folder-settings';
 import { mappingTablePath, mergeReviewColumns, writeMappingTable } from '../mappings/mapping-table-writer';
 import manifest from '../../manifest.json';
 import { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../generation/crosswalk-identity';
@@ -207,8 +223,31 @@ async function runImportSssom(
 	const pairRoot = `_crosswalker/mappings/${source}-to-${target}`;
 	const folder = options.outputFolder ?? pairRoot;
 	result.folder = folder;
-	const normalizedHeaderId = normalizeMappingSetId(parsed.header.mapping_set_id);
-	const fallbackId = `urn:crosswalker:mapping-set:sha256:${sha256Hex(tsvContent)}`;
+	// The release this file is (M2, M6, M6b). A refresh reads the identity its set
+	// already holds (its record, else the id a legacy set stamped): a file declaring a different release is refused before
+	// anything is written, and a file declaring nothing keeps the set's id. With
+	// no declared id and nothing held, the id is minted once, never derived.
+	let pinnedIdentity: PinnedMappingSetIdentity | undefined;
+	if (options.importSet && typeof options.importSet === 'object') {
+		const refreshId = options.importSet.id;
+		const existingSet = await discoverImportSet(app, refreshId);
+		if (existingSet) {
+			try {
+				pinnedIdentity = await readPinnedMappingSetIdentity(app, existingSet);
+			} catch (error) {
+				result.generation = failedGeneration(refreshId, error instanceof Error ? error.message : String(error));
+				return result;
+			}
+		}
+		const refusal = mappingSetRefreshRefusal(pinnedIdentity, parsed.header);
+		if (refusal) {
+			result.generation = failedGeneration(refreshId, refusal);
+			debug?.warn('sssom-import', 'release-refused', 'SSSOM refresh refused: the file declares a different release', { refusal });
+			return result;
+		}
+	}
+	const identity = resolveMappingSetIdentity(parsed.header, pinnedIdentity);
+	const setMappingSetId = identity.mapping_set_id;
 	const destinationSets = new Map<string, string>();
 
 	const preparedRows = parsed.rows.map((row, index) => {
@@ -216,7 +255,7 @@ async function runImportSssom(
 		const sssomPred = String(record.predicate_id ?? '');
 		const { strm, warning } = normalizePredicate(sssomPred);
 		if (warning) parsed.warnings.push(warning);
-		const mappingSetId = normalizeMappingSetId(record.mapping_set_id) || normalizedHeaderId || fallbackId;
+		const mappingSetId = normalizeMappingSetId(record.mapping_set_id) || setMappingSetId;
 		const predicateModifier = normalizePredicateModifierInput(record.predicate_modifier);
 		const baseKey = assertionBaseKey({
 			subject_id: String(record.subject_id),
@@ -310,6 +349,15 @@ async function runImportSssom(
 
 	result.summary = summarizeUnresolvedEndpoints(result.unresolved, unreadable, options.mappingForm ?? 'notes');
 	const recipe = buildSyntheticRecipe(source, target);
+	const assertionFacts: MappingSetAssertionFacts[] = rowsForRecipe.map((row: Record<string, unknown>) => ({
+		subject_id: String(row.subject_id),
+		predicate_id: String(row.predicate_id),
+		object_id: String(row.object_id),
+		predicate_modifier: row.predicate_modifier === 'NOT' ? 'NOT' : '',
+		mapping_justification: optionalCell(row.mapping_justification),
+		confidence: optionalCell(row.confidence),
+		mapping_provider: optionalCell(row.mapping_provider),
+	}));
 
 	if ((options.mappingForm ?? 'notes') === 'table') {
 		const gen = await writeTableSet(app, {
@@ -319,8 +367,10 @@ async function runImportSssom(
 			parsed,
 			rows: rowsForRecipe,
 			recipe,
-			sourceFileName: normalizedHeaderId || fallbackId,
-			mappingSetId: normalizedHeaderId || fallbackId,
+			sourceFileName: setMappingSetId,
+			mappingSetId: setMappingSetId,
+			identity,
+			assertionFacts,
 			importSet: options.importSet,
 			result,
 		}, debug);
@@ -365,7 +415,7 @@ async function runImportSssom(
 			overwriteMode: options.overwriteMode ?? 'replace',
 			createFolders: true,
 			importSet: options.importSet,
-			sourceFileName: normalizedHeaderId || fallbackId,
+			sourceFileName: setMappingSetId,
 			strictValidation: true,
 			curieLocalPart: (row, _rowNum, importSet) => sssomEdgeCurie(row, importSet),
 			curiePrefix: SSSOM_CURIE_PREFIX,
@@ -380,6 +430,10 @@ async function runImportSssom(
 			errors: gen.errors,
 		});
 		return result;
+	}
+
+	if (gen.importSetId) {
+		await writeReleaseRecordNote(app, folder, buildMappingSetRecord(parsed.header, assertionFacts, gen.importSetId, identity), result, debug);
 	}
 
 	await projectAndPrecompute(app, result, gen, source, target, pluginRunProjection, pluginPrecomputeClosure, options, debug);
@@ -492,6 +546,51 @@ function failedGeneration(importSetId: string | undefined, message: string): Gen
 	};
 }
 
+/**
+ * Write the notes-form set note for `record` in `folder`, once the set's
+ * mapping notes exist. Its `_crosswalker` block is the one a mapping note of
+ * the same set carries, so discovery reads one consistent set. A failure here
+ * leaves the mappings in place and says how to record the release.
+ */
+async function writeReleaseRecordNote(
+	app: App,
+	folder: string,
+	record: MappingSetRecord,
+	result: SssomImportResult,
+	debug?: DebugLog,
+): Promise<void> {
+	try {
+		const edgeProvenance = await mappingNoteProvenance(app, record.importSetId, folder);
+		if (!edgeProvenance) {
+			result.summary.push('The release record for this mapping set was not written because none of its mapping notes could be read yet. Import the file again once indexing finishes to record it.');
+			return;
+		}
+		const path = await writeMappingSetNote(app, { folder, record, provenance: setNoteProvenance(edgeProvenance) });
+		debug?.info('sssom-import', 'release-record-written', `SSSOM import: wrote release record ${path}`, { path });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		result.summary.push(`The release record for this mapping set could not be written: ${message} Import the file again to record it.`);
+		debug?.warn('sssom-import', 'release-record-failed', 'SSSOM import: release record write failed', { error: message });
+	}
+}
+
+/** The `_crosswalker` block of one mapping note of `setId` under `folder`, cache first. */
+async function mappingNoteProvenance(app: App, setId: string, folder: string): Promise<Record<string, unknown> | undefined> {
+	const base = normalizeFolderSetting(folder);
+	const files = [...app.vault.getMarkdownFiles()]
+		.filter((file) => !base || file.path.startsWith(`${base}/`))
+		.sort((a, b) => a.path.localeCompare(b.path));
+	for (const file of files) {
+		const read = await readNoteFrontmatterState(app, file);
+		if (read.state !== 'ok') continue;
+		const fm = read.frontmatter;
+		if (fm.kind !== 'crosswalk-edge') continue;
+		if (importSetIdOf(fm._crosswalker) !== setId) continue;
+		return fm._crosswalker as Record<string, unknown>;
+	}
+	return undefined;
+}
+
 interface TableSetInput {
 	folder: string;
 	source: string;
@@ -501,6 +600,8 @@ interface TableSetInput {
 	recipe: Recipe;
 	sourceFileName: string;
 	mappingSetId: string;
+	identity: MappingSetIdentity;
+	assertionFacts: MappingSetAssertionFacts[];
 	importSet?: ImportSetOption;
 	result: SssomImportResult;
 }
@@ -576,6 +677,8 @@ async function writeTableSet(app: App, input: TableSetInput, debug?: DebugLog): 
 		target_framework: input.target,
 		tags: [`crosswalk/${input.source}-to-${input.target}`],
 		crosswalker_provenance: provenance,
+		// The release record, once, in the header (M1): a table set has no notes.
+		mapping_set: storedMappingSet(buildMappingSetRecord(sssomHeader, input.assertionFacts, importSet.id, input.identity)),
 	};
 
 	// The fields an edge note carries, from the same prepared rows the note

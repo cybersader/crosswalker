@@ -95,6 +95,15 @@ function makeMockApp(): { app: App; written: Map<string, string>; folders: Set<s
 	return { app, written, folders };
 }
 
+/**
+ * Whether `path` holds the set's release record (Tier 1 `kind: mapping-set`,
+ * added 2026-10-03). Path and count assertions below are about mapping notes,
+ * so they leave the one record note out; mapping-set.test.ts asserts the record.
+ */
+function isReleaseRecord(written: Map<string, string>, path: string): boolean {
+	return /^kind: mapping-set$/m.test(written.get(path) ?? '');
+}
+
 describe('importSssom — happy path with real fixture', () => {
 	it('imports 11 junction-edge notes from the NIST CSF → ISO 27001 fixture', async () => {
 		const tsv = readFileSync(FIXTURE_PATH, 'utf-8');
@@ -116,7 +125,8 @@ describe('importSssom — happy path with real fixture', () => {
 
 		// Verify files were written under the expected folder
 		const writtenPaths = Array.from(written.keys());
-		const inFolder = writtenPaths.filter((p) => p.startsWith('_crosswalker/mappings/csf-to-iso27001/'));
+		const inFolder = writtenPaths.filter((p) => p.startsWith('_crosswalker/mappings/csf-to-iso27001/') && !isReleaseRecord(written, p));
+		expect(writtenPaths.filter((p) => isReleaseRecord(written, p))).toHaveLength(1);
 		expect(inFolder.length).toBe(11);
 
 		// One deterministic assertion note should contain the first row's endpoints.
@@ -265,7 +275,7 @@ x:C\tskos:exactMatch\ty:D\tset:two\tC\tD\tsemapv:ManualMappingCuration\t1`;
 		const result = await importSssom(app, mixed, null, null, { runTier2Projection: false });
 		expect(result.skipped).toBeUndefined();
 
-		const paths = [...written.keys()].filter((path) => path.endsWith('.md'));
+		const paths = [...written.keys()].filter((path) => path.endsWith('.md') && !isReleaseRecord(written, path));
 		// Three source rows, two distinct endpoint pairs -> two notes.
 		expect(new Set(paths).size).toBe(2);
 		// One shared destination folder, not one per mapping set.
@@ -315,7 +325,7 @@ subject_id\tpredicate_id\tobject_id\tmapping_set_id\tsubject_label\tobject_label
 		const b = makeMockApp();
 		await importSssom(a.app, `${header}\n${first}\n${second}`, null, null, { runTier2Projection: false });
 		await importSssom(b.app, `${header}\n${second}\n${first}`, null, null, { runTier2Projection: false });
-		const paths = (written: Map<string, string>) => [...written.keys()].filter((path) => path.endsWith('.md')).sort();
+		const paths = (written: Map<string, string>) => [...written.keys()].filter((path) => path.endsWith('.md') && !isReleaseRecord(written, path)).sort();
 		expect(paths(a.written)).toEqual(paths(b.written));
 		// Not vacuously equal: both runs actually wrote the one note the pair resolves to.
 		expect(paths(a.written)).toHaveLength(1);
@@ -342,13 +352,13 @@ subject_id	predicate_id	object_id	mapping_set_id	subject_label	object_label	mapp
 		};
 		const first = await importSssom(app, `${releaseHeader}\n${releaseRows.join('\n')}`, null, null, options);
 		expect(first.generation?.success).toBe(true);
-		const before = [...written.keys()].filter((path) => path.endsWith('.md')).sort();
+		const before = [...written.keys()].filter((path) => path.endsWith('.md') && !isReleaseRecord(written, path)).sort();
 
 		await importSssom(app, `${releaseHeader}\n${[...releaseRows].reverse().join('\n')}`, null, null, {
 			runTier2Projection: false,
 			importSet: { id: 'iset-old111' },
 		});
-		const after = [...written.keys()].filter((path) => path.endsWith('.md')).sort();
+		const after = [...written.keys()].filter((path) => path.endsWith('.md') && !isReleaseRecord(written, path)).sort();
 
 		expect(after).toEqual(before);
 		expect(after).toEqual([
@@ -380,7 +390,7 @@ subject_id	predicate_id	object_id	mapping_set_id	subject_label	object_label	mapp
 		expect(second.generation?.success).toBe(true);
 
 		for (const [path, content] of firstSetBefore) expect(written.get(path)).toBe(content);
-		const allPaths = [...written.keys()].filter((path) => path.endsWith('.md')).sort();
+		const allPaths = [...written.keys()].filter((path) => path.endsWith('.md') && !isReleaseRecord(written, path)).sort();
 		expect(allPaths).toHaveLength(4);
 		expect(allPaths.filter((path) => path.includes('/cwset-iset-new222-'))).toHaveLength(2);
 		const secondSetBodies = allPaths
@@ -400,7 +410,7 @@ subject_id	predicate_id	object_id	mapping_set_id	subject_label	object_label	mapp
 		};
 		await importSssom(a.app, `${releaseHeader}\n${releaseRows.join('\n')}`, null, null, options);
 		await importSssom(b.app, `${releaseHeader}\n${[...releaseRows].reverse().join('\n')}`, null, null, options);
-		const paths = (written: Map<string, string>) => [...written.keys()].filter((path) => path.endsWith('.md')).sort();
+		const paths = (written: Map<string, string>) => [...written.keys()].filter((path) => path.endsWith('.md') && !isReleaseRecord(written, path)).sort();
 
 		expect(paths(a.written)).toEqual(paths(b.written));
 		expect(paths(a.written)).toEqual([
