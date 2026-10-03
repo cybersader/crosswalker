@@ -2679,7 +2679,7 @@ function sanitizePathSegment(name: string): string {
 /**
  * Sanitize a string for use as a filename
  */
-function sanitizeFileName(name: string): string {
+export function sanitizeFileName(name: string): string {
 	return name
 		.replace(/[\\/:*?"<>|]/g, '-') // Replace illegal characters
 		.replace(/\s+/g, ' ')          // Normalize whitespace

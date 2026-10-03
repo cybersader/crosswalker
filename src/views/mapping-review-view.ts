@@ -37,7 +37,7 @@ import {
 	type StatusFilter,
 } from '../mappings/table-review-model';
 import { TableReviewStore, type ReadOnlyReason, type ReviewSaveStatus } from '../mappings/table-review-store';
-import { mappingSetLabel, predicateLabel, scrollToRevealRow, visibleSelection, wikilinkPath, windowRange } from './mapping-review-helpers';
+import { mappingSetLabel, predicateLabel, releaseSectionOf, scrollToRevealRow, visibleSelection, wikilinkPath, windowRange } from './mapping-review-helpers';
 
 export const VIEW_TYPE_MAPPING_REVIEW = 'crosswalker-mapping-review';
 
@@ -135,6 +135,7 @@ export class MappingReviewView extends ItemView {
 	private rootEl: HTMLElement | null = null;
 	private pillsEl: HTMLElement | null = null;
 	private metaEl: HTMLElement | null = null;
+	private releaseEl: HTMLElement | null = null;
 	private bannerEl: HTMLElement | null = null;
 	private statusEl: HTMLElement | null = null;
 	private countEl: HTMLElement | null = null;
@@ -405,6 +406,7 @@ export class MappingReviewView extends ItemView {
 		titles.createEl('h2', { cls: 'crosswalker-mr-title', text: 'Mapping review' });
 		this.metaEl = titles.createDiv({ cls: 'crosswalker-mr-meta' });
 		this.pillsEl = header.createDiv({ cls: 'crosswalker-mr-pills' });
+		this.releaseEl = root.createDiv({ cls: 'crosswalker-mr-release', attr: { role: 'region', 'aria-label': 'Release' } });
 		this.bannerEl = root.createDiv({ cls: 'crosswalker-mr-banner-host' });
 
 		const toolbar = root.createDiv({ cls: 'crosswalker-mr-toolbar' });
@@ -526,6 +528,40 @@ export class MappingReviewView extends ItemView {
 		title?.setText(mappingSetLabel(this.table.header, this.path));
 		this.metaEl.setText(`${plural(this.allRows.length, 'mapping')} in ${this.path}`);
 		this.renderPills();
+		this.renderRelease();
+	}
+
+	/**
+	 * The Release section: what this set is (its release record) and whether the
+	 * rows still match it. Recomputed from the table on every load and reload;
+	 * review edits never change it.
+	 */
+	private renderRelease(): void {
+		const host = this.releaseEl;
+		if (!host || !this.table) return;
+		host.empty();
+		const section = releaseSectionOf(this.table);
+		host.dataset.state = section.state;
+		const head = host.createDiv({ cls: 'crosswalker-mr-release-head' });
+		head.createSpan({ cls: 'crosswalker-mr-release-label', text: 'Release' });
+		if (section.state !== 'recorded') {
+			head.createSpan({ cls: 'crosswalker-mr-release-note', text: section.text });
+			return;
+		}
+		head.createSpan({ cls: 'crosswalker-mr-release-name', text: section.heading });
+		const membership = head.createSpan({
+			cls: `crosswalker-mr-release-membership ${section.membership.intact ? 'is-intact' : 'is-changed'}`,
+			attr: { 'data-intact': section.membership.intact ? 'yes' : 'no' },
+		});
+		const icon = membership.createSpan({ cls: 'crosswalker-mr-release-icon' });
+		setIcon(icon, section.membership.intact ? 'check-circle' : 'alert-triangle');
+		membership.createSpan({ text: section.membership.text });
+		const facts = host.createEl('dl', { cls: 'crosswalker-mr-release-facts' });
+		for (const fact of section.facts) {
+			const item = facts.createDiv({ cls: 'crosswalker-mr-release-fact' });
+			item.createEl('dt', { text: fact.label });
+			item.createEl('dd', { text: fact.value });
+		}
 	}
 
 	private renderPills(): void {

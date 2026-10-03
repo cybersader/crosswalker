@@ -1,0 +1,98 @@
+---
+title: "Mapping set release record: one record per crosswalk release"
+description: "Track 3 of v0.1.7. Every mapping set imported from SSSOM now carries one release record: identity (declared or minted once), version, both frameworks with versions, provider, license, assertion count and two digests. Records the twelve rulings, the refresh rule, what export carries, and what is deferred to slice 2 (STRM sidecar, recipe-declared crosswalk sets)."
+tags: [log, decision, architecture, mapping-set, sssom, portability, v0-1-7, synthesis]
+date: 2026-10-03
+sidebar:
+  label: "10-03 · Mapping set release record"
+  order: -20261003.1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="What this page is">
+A **decision record** for the first slice of Track 3 (minimal MappingSet portability envelope) of the [v0.1.7 milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/). It gives the [MappingSet](/crosswalker/concepts/terminology/#mapping-set) noun, adopted on paper in the [artifact roles synthesis](/crosswalker/agent-context/zz-log/2026-07-21-artifact-roles-and-authority-synthesis/) and explicitly left without a contract there (§5.3), its first machine contract.
+
+**How it was decided.** Under the owner's standing direction (2026-10-02), rulings that pass the project's recorded UX and architecture principles are made and logged by the implementing session. The schema change is additive (SchemaVer 1.7.0); nothing below rewrites an existing set.
+</Aside>
+
+## 1. The verdict
+
+A **mapping set** (plain: one published crosswalk release, "framework A version 1 to framework B version 2, by provider X") had only a loose `mapping_set_id` string copied onto every row. No version, no explicit pair of frameworks, no license held once, no way to check that the set is intact, and the SSSOM exporter re-derived the id by majority vote over rows. From this slice, each set imported from [SSSOM](/crosswalker/reference/registry/sssom/) carries **one release record** (Tier 1 `kind: mapping-set`, source: `spec/tier1.schema.json` § `mapping_set_frontmatter`).
+
+| # | Ruling | Status |
+|---|---|---|
+| M1 | One record per set. Notes form: one `mapping-set` note, found by kind and import set id, never by file name. Table form: the `mapping_set` header key. One reader, one type, from either form | Adopted |
+| M2 | Identity is the publisher's `mapping_set_id` when declared; otherwise minted once (`urn:crosswalker:mapping-set:` plus ten random characters) and stamped. `id_origin` records which. Never derived from file bytes, path, folder, tag, ontology pair, recipe id or repeated row values | Adopted; the old byte-hash fallback id is removed |
+| M3 | Export writes the standard SSSOM header keys only (id, version, title, description, license, provider, date, creators, subject and object source with versions). Digests are never exported; re-import recomputes them | Adopted |
+| M4 | Two digests: `membership_digest` over sorted subject, predicate, object, modifier; `content_digest` adds justification, confidence and provider. Review columns, labels, row ids and ordinals are excluded | Adopted |
+| M5 | Export carries the record through; majority vote remains only as a labelled fallback for sets without one ("derived from rows") | Adopted |
+| M6 | A refresh whose file declares a different release id or version than the set holds is refused before anything is written: "Import it as a new set" | Adopted |
+| M6b | On refresh the id is pinned to what the set already holds, record or not (a legacy set's header or agreed note value). Minting happens only at first import | Adopted after review; added when Worker A's first pass minted a new id on a legacy set's first refresh, which renumbered row ids and dropped carried reviews |
+| M7 | Declared and observed participants stay distinct; undeclared sources are shown as "observed from rows", never recorded as declared | Adopted |
+| M8 | Notes-to-table conversion carries the record both ways | Adopted |
+| M9 | Sets imported before this slice keep working; the reader returns nothing and the UI says so. No migration | Adopted |
+| M10 | STRM round trip through a companion `<name>.mapping-set.json` beside the STRM file | Deferred to slice 2 |
+| M11 | Recipe-declared crosswalk columns gain an optional `mapping_set` block; the `-recipeId` suffix in today's derived id is wrong but changing it rewrites managed content on refresh | Deferred to slice 2, needs its own ruling |
+| M12 | Generalized Knowledge Set governance (base class, registry) | Stays deferred |
+
+## 2. Why each ruling holds
+
+- **M1, one record, two storage forms.** The [dual-form decision](/crosswalker/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/) made the table header the only record that a table set exists; the release record follows the same rule. A separate sidecar file would be a third storage form for one fact.
+- **M2, declared or minted, never derived.** [Identity, never path](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/). The old fallback hashed the raw file bytes, so a re-saved file became a different release. The recipe id is wrong for the same reason: editing a recipe must not rename a release.
+- **M3, standard keys only.** The SSSOM exporter is the standards-pure export (dual-form decision 4). A carried hash would be a non-standard key, and it proves nothing that recomputation does not.
+- **M4, two digests, review excluded.** "Same claims" and "same claims with the same evidence" are different questions a reviewer asks. A review must never change a set's integrity, or every review would look like tampering.
+- **M6 and M6b, refuse a different release, keep the pinned id.** [Release isolation is a new set](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/) and refresh is chosen, never guessed (project rule, settled 2026-08-30). Reading the value a set already stamped is not deriving; it is the only way row ids and carried reviews survive a legacy set's first refresh.
+- **M9, no migration.** Additive, never breaking: a set written by an earlier version keeps every behaviour it had.
+
+## 3. The load-bearing principle
+
+**A release's identity is what the publisher said, or what Crosswalker said once; it is never recomputed from content.** Content gets digests; identity gets a pin. Mixing the two (the byte-hash fallback did) makes a cosmetic edit look like a new release and a new release look like the old one re-saved.
+
+## 4. What is locked in
+
+| Aspect | v0.1 lock |
+|---|---|
+| Record shape | `kind: mapping-set` with required `mapping_set_id`, `id_origin`, `assertion_count`, `membership_digest`, `content_digest`; optional version, title, description, sources with versions, provider, date, `creator_id`, license (source: `spec/tier1.schema.json`, SchemaVer 1.7.0) |
+| Minted id form | `urn:crosswalker:mapping-set:` plus ten lowercase base32 characters |
+| Digest inputs | M4, in `src/mappings/mapping-set.ts` `computeMappingSetDigests` |
+| Refresh rule | M6 and M6b, in `src/mappings/mapping-set.ts` `mappingSetRefreshRefusal` and `readPinnedMappingSetIdentity` |
+| Export carrier | Standard SSSOM header keys, `src/export/sssom-exporter.ts`; `release_record: 'recorded' \| 'derived'` in the result |
+| Inspect surfaces | The set note (notes form); the Release section of the mapping review view (table form); the export confirmation line; the installed-sets listing |
+
+## 5. Migration triggers
+
+Re-open M2 or M4 if any two of: a publisher's SSSOM carries a set-level integrity field that tooling expects to round trip; a second producer (external script, agent) needs a digest definition this one cannot express; the review grid needs per-row integrity rather than set-level.
+
+## 6. Reconciliation with prior decisions
+
+| Prior decision | Fit |
+|---|---|
+| [Artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) | MappingSet is a Knowledge Set subtype; this is its contract. No new noun, no base class (M12) |
+| [Import set = ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/) | Unchanged: the import set owns the vault files; the release record describes the published release and is bound to its import set through `_crosswalker.import_set` |
+| [Dual-form mapping storage](/crosswalker/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/) | Row id still includes `mapping_set_id`; M6b keeps it stable. Conversion stays lossless (M8) |
+| [Replay promise](/crosswalker/concepts/consistency-models/#the-replay-promise) | A same-file refresh recomputes equal digests and leaves the record's managed content unchanged |
+| [Primitives register P3](/crosswalker/agent-context/zz-log/2026-07-25-primitives-reconciliation-decision-register/) | P3's "say which crosswalk release an assertion came from" is now a record, not only a per-row string |
+
+## 7. What this does not do
+
+- Does not give recipe-declared crosswalk columns (a framework import that also emits crosswalk edges) a release record (M11, slice 2).
+- Does not carry the record through STRM (M10, slice 2).
+- Does not add a UI to author or edit a release record for a legacy set; "import it again" is the only path for now.
+- Does not say which rows were added or removed when membership differs. The record keeps fingerprints, not rows, so the review view reports "N mappings now, M recorded" (a change from the spec, which asked for added and removed counts).
+- Does not change `source_ref.file` for SSSOM sets, which has held the mapping set id rather than the file name since before this slice; changing it rewrites managed content on refresh and needs its own ruling.
+- Does not add a Knowledge Set base class or registry.
+
+## 8. What this unblocks
+
+- Track 3 checkboxes 1 to 3 on the [milestone page](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/); 4 and 5 partially (SSSOM proved, STRM and the recipe path remain).
+- The STRM sidecar (slice 2) now has a record to serialize.
+- The [org rollout](/crosswalker/agent-context/zz-log/2026-08-21-org-rollout-readiness-synthesis/) question "which release is this crosswalk from" has a single answer per set.
+
+## 9. Related
+
+- Terms: [mapping set](/crosswalker/concepts/terminology/#mapping-set), [mapping assertion](/crosswalker/concepts/terminology/#mapping-assertion), [import set](/crosswalker/concepts/terminology/#import-set), [crosswalk](/crosswalker/concepts/terminology/#crosswalk)
+- Decisions this builds on: [artifact roles synthesis](/crosswalker/agent-context/zz-log/2026-07-21-artifact-roles-and-authority-synthesis/), [import set ownership](/crosswalker/agent-context/zz-log/2026-08-21-import-set-ownership/), [dual-form storage](/crosswalker/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/), [primitives register](/crosswalker/agent-context/zz-log/2026-07-25-primitives-reconciliation-decision-register/)
+- Contracts: [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/), [SSSOM registry page](/crosswalker/reference/registry/sssom/), [STRM registry page](/crosswalker/reference/registry/strm/)
+- Milestone: [v0.1.7](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/); delivery detail in `CHANGELOG.md` `[Unreleased]`
+- Pillars: [ETL and import](/crosswalker/concepts/etl-and-import/) (schema as primitive), [what makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/)

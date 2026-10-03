@@ -4,7 +4,7 @@
   "title": "Crosswalker Tier 1",
   "description": "The canonical contract for a Crosswalker vault. Tier 1 is the load-bearing primitive: any producer (the bundled engine, an external Python script, an AI agent, an MCP server, hand-written notes) that emits files conforming to this schema produces a valid Crosswalker vault. Validation surface covers YAML frontmatter shape only — folder layout and Markdown body are recipe-defined and out of scope here. See https://crosswalker.dev/spec/recipe.schema.json for recipe shape.",
   "type": "object",
-  "$comment": "v0.1. JSON Schema 2020-12. Stable URI; breaking changes will bump to /v2/. Discrimination by `kind` field: kind='junction-note' must match junction-note shape; kind='crosswalk-edge' must match crosswalk-edge shape; absent kind (or any other value) must match concept-note shape. Uses allOf+if/then so AJV can produce specific error messages from the matching branch. SchemaVer 1.6.0. Additive history: 1.1.0 (2026-08-28, Ch 43) added the optional `reviewed_against` block on junction_note_frontmatter (the control fingerprint an attestation was approved against) and the optional `review_cid` on provenance_block (the concept-side current value); 1.2.0 (2026-08-28, Ch 43) widened the crosswalk_edge_frontmatter predicate_id enum with the release-lineage pair `superseded_by` / `supersedes`. 1.3.0 (2026-08-28, Ch 43) added optional recipe-driven review_groups to concept provenance and reviewed_against so a changed whole-row fingerprint can be classified as wording, scope, or housekeeping. 1.4.0 (2026-09-06) added the optional strict `_crosswalker.recipe.recipe_document_digest` reference to the complete normalized canonical recipe used for a note. 1.5.0 (2026-09-24) added optional `import_set.parent_set` to record the producing framework import set for crosswalk edge sets. 1.6.0 (2026-09-30) added optional `import_set.mapping_form` (enum notes or table) to pin how a set stores its mapping rows; absent means notes. All steps are property/enum widenings only: every document that validated before still validates, so the $id is unchanged.",
+  "$comment": "v0.1. JSON Schema 2020-12. Stable URI; breaking changes will bump to /v2/. Discrimination by `kind` field: kind='junction-note' must match junction-note shape; kind='crosswalk-edge' must match crosswalk-edge shape; kind='mapping-set' must match mapping-set shape; absent kind (or any other value) must match concept-note shape. Uses allOf+if/then so AJV can produce specific error messages from the matching branch. SchemaVer 1.7.0. Additive history: 1.1.0 (2026-08-28, Ch 43) added the optional `reviewed_against` block on junction_note_frontmatter (the control fingerprint an attestation was approved against) and the optional `review_cid` on provenance_block (the concept-side current value); 1.2.0 (2026-08-28, Ch 43) widened the crosswalk_edge_frontmatter predicate_id enum with the release-lineage pair `superseded_by` / `supersedes`. 1.3.0 (2026-08-28, Ch 43) added optional recipe-driven review_groups to concept provenance and reviewed_against so a changed whole-row fingerprint can be classified as wording, scope, or housekeeping. 1.4.0 (2026-09-06) added the optional strict `_crosswalker.recipe.recipe_document_digest` reference to the complete normalized canonical recipe used for a note. 1.5.0 (2026-09-24) added optional `import_set.parent_set` to record the producing framework import set for crosswalk edge sets. 1.6.0 (2026-09-30) added optional `import_set.mapping_form` (enum notes or table) to pin how a set stores its mapping rows; absent means notes. 1.7.0 (2026-10-03) added the `mapping_set_frontmatter` record (`kind: mapping-set`): one release record per mapping set holding its identity, version, participants, license, assertion count and membership and content digests. All steps are property/enum widenings only: every document that validated before still validates, so the $id is unchanged.",
 
   "$defs": {
     "curie": {
@@ -336,6 +336,63 @@
         "_crosswalker": { "$ref": "#/$defs/provenance_block" }
       },
       "additionalProperties": true
+    },
+
+    "mapping_set_digest": {
+      "type": "string",
+      "pattern": "^sha256-[0-9a-f]{64}$",
+      "description": "SHA-256 digest over a mapping set's assertions, format sha256-<hex>. See mapping_set_frontmatter for the exact hashed lines."
+    },
+
+    "mapping_set_frontmatter": {
+      "type": "object",
+      "title": "Mapping set release record",
+      "description": "Tier 1 release record for one mapping set (one published crosswalk release). Stored once per set: as one note in the notes form, and as the `mapping_set` header key of the mapping table (this object without `_crosswalker`) in the table form. The set is bound by `_crosswalker.import_set.id`, never by file name or folder.",
+      "required": [
+        "kind",
+        "mapping_set_id",
+        "id_origin",
+        "assertion_count",
+        "membership_digest",
+        "content_digest",
+        "_crosswalker"
+      ],
+      "properties": {
+        "kind": { "type": "string", "const": "mapping-set" },
+        "mapping_set_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "The release identity. The publisher's declared mapping_set_id when the source declares one; otherwise minted once as urn:crosswalker:mapping-set:<10 base32 characters> and kept. Never derived from file bytes, path, folder, tag, ontology pair, recipe id or repeated row values."
+        },
+        "id_origin": {
+          "type": "string",
+          "enum": ["declared", "minted"],
+          "description": "declared: the source stated mapping_set_id. minted: Crosswalker minted it because the source stated none."
+        },
+        "mapping_set_version": { "type": "string", "description": "SSSOM mapping_set_version as declared by the source." },
+        "mapping_set_title": { "type": "string", "description": "SSSOM mapping_set_title as declared by the source." },
+        "mapping_set_description": { "type": "string", "description": "SSSOM mapping_set_description as declared by the source." },
+        "subject_source": { "type": "string", "description": "Declared subject source. Absent when the source does not declare it; observed curie prefixes are never written here." },
+        "subject_source_version": { "type": "string", "description": "Declared subject source version." },
+        "object_source": { "type": "string", "description": "Declared object source. Absent when the source does not declare it." },
+        "object_source_version": { "type": "string", "description": "Declared object source version." },
+        "mapping_provider": { "type": "string", "description": "Declared mapping provider." },
+        "mapping_date": { "type": "string", "description": "Declared mapping date, as the source states it." },
+        "creator_id": { "type": "array", "items": { "type": "string" }, "description": "Declared creator identifiers." },
+        "license": { "type": "string", "description": "Declared license." },
+        "assertion_count": { "type": "integer", "minimum": 0, "description": "Number of mapping rows in the set." },
+        "membership_digest": {
+          "$ref": "#/$defs/mapping_set_digest",
+          "description": "sha256 over the sorted lines subject_id TAB predicate_id TAB object_id TAB predicate_modifier (STRM predicate; empty modifier as empty string), joined by newline. Answers: same claims?"
+        },
+        "content_digest": {
+          "$ref": "#/$defs/mapping_set_digest",
+          "description": "sha256 over the same lines plus TAB mapping_justification TAB confidence TAB mapping_provider, sorted and joined by newline. Review columns, labels, notes, extra fields, row ids and ordinals are excluded. Answers: same claims, same evidence?"
+        },
+        "_crosswalker": { "$ref": "#/$defs/provenance_block" }
+      },
+      "additionalProperties": true
     }
   },
 
@@ -359,10 +416,19 @@
     {
       "if": {
         "type": "object",
+        "properties": { "kind": { "const": "mapping-set" } },
+        "required": ["kind"]
+      },
+      "then": { "$ref": "#/$defs/mapping_set_frontmatter" }
+    },
+    {
+      "if": {
+        "type": "object",
         "not": {
           "anyOf": [
             { "properties": { "kind": { "const": "junction-note" } }, "required": ["kind"] },
-            { "properties": { "kind": { "const": "crosswalk-edge" } }, "required": ["kind"] }
+            { "properties": { "kind": { "const": "crosswalk-edge" } }, "required": ["kind"] },
+            { "properties": { "kind": { "const": "mapping-set" } }, "required": ["kind"] }
           ]
         }
       },

@@ -23,7 +23,7 @@ Make the portable parts of the import/export chain explicit without collapsing d
 
 **Scoped addendum, 2026-09-07** — the Track 2 paragraph below only. Re-checked against the local working tree (`src/import/parsers/xlsx-parser.ts`, `src/generation/hash.ts`, `src/generation/generation-engine.ts`, `src/generation/provenance.ts`) and `CHANGELOG.md` `[Unreleased]`. No status cell, checkbox or success criterion changed, and no other section of this page was re-verified on this date.
 
-**Status last verified:** 2026-10-03 (Track 2 replay proofs: the full-source replay checkbox and its two success criteria, verified against `tests/replay-proof-nist.test.ts` and a real-Obsidian run of `tests/e2e/replay-proof-nist.spec.ts` with `CW_SCALE=1`; the library criterion (save, reopen, browse, inspect, export, delete) re-checked against `src/import/recipe-library-modal.ts`. Earlier, 2026-10-02, Track 2: the three run-binding checkboxes and the run-binding success criterion, verified against `src/import/recipe-runs.ts`, `src/generation/managed-equivalence.ts` and real-Obsidian runs of `tests/e2e/recipe-run-again.spec.ts` and `tests/e2e/visual-recipe-library.spec.ts`. Track 1: the three library checkboxes and Gate 2, verified against `src/import/recipe-library.ts`, `src/import/recipe-library-modal.ts` and real-Obsidian runs of `tests/e2e/recipe-library-flow.spec.ts` and `tests/e2e/visual-recipe-library.spec.ts`). Rest of the page last verified 2026-09-06 against `CHANGELOG.md` `[Unreleased]`, `src/main.ts`, `src/export/`, and the targeted real-Obsidian typed-export walkthrough. Typed mapping command wiring is complete; see [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present) for measured delivery detail. The parent command/settings task and OSCAL target-shape decision remain open. The per-import-root work already on this unmerged branch remains separate from this milestone slice.
+**Status last verified:** 2026-10-03 (Track 3 release record slice: checkboxes 1 to 3 ticked and notes on 4 and 5, verified against `spec/tier1.schema.json` SchemaVer 1.7.0, `src/mappings/mapping-set.ts`, `src/export/sssom-exporter.ts`, `tests/mapping-set-roundtrip.test.ts` and a real-Obsidian run of `tests/e2e/mapping-set-envelope.spec.ts`. Track 2 replay proofs: the full-source replay checkbox and its two success criteria, verified against `tests/replay-proof-nist.test.ts` and a real-Obsidian run of `tests/e2e/replay-proof-nist.spec.ts` with `CW_SCALE=1`; the library criterion (save, reopen, browse, inspect, export, delete) re-checked against `src/import/recipe-library-modal.ts`. Earlier, 2026-10-02, Track 2: the three run-binding checkboxes and the run-binding success criterion, verified against `src/import/recipe-runs.ts`, `src/generation/managed-equivalence.ts` and real-Obsidian runs of `tests/e2e/recipe-run-again.spec.ts` and `tests/e2e/visual-recipe-library.spec.ts`. Track 1: the three library checkboxes and Gate 2, verified against `src/import/recipe-library.ts`, `src/import/recipe-library-modal.ts` and real-Obsidian runs of `tests/e2e/recipe-library-flow.spec.ts` and `tests/e2e/visual-recipe-library.spec.ts`). Rest of the page last verified 2026-09-06 against `CHANGELOG.md` `[Unreleased]`, `src/main.ts`, `src/export/`, and the targeted real-Obsidian typed-export walkthrough. Typed mapping command wiring is complete; see [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present) for measured delivery detail. The parent command/settings task and OSCAL target-shape decision remain open. The per-import-root work already on this unmerged branch remains separate from this milestone slice.
 
 ## Dependencies
 
@@ -84,11 +84,11 @@ A second slice — [XLSX source-byte provenance](/crosswalker/agent-context/zz-l
 
 ### Track 3 — Minimal MappingSet portability envelope
 
-- [ ] Define stable MappingSet identity and version plus explicit source/target participants and participant versions
-- [ ] Define assertion membership and integrity hashes without inferring set identity from a folder, filename, tag, or repeated edge values
-- [ ] Carry minimum provenance, provider/contributor, and license fields required for responsible interchange
-- [ ] Round-trip the same semantic set through canonical SSSOM and STRM representations while preserving set identity/version and assertion membership
-- [ ] Add MappingSet inspect/export UI and programmatic access
+- [x] Define stable MappingSet identity and version plus explicit source/target participants and participant versions (release record slice 2026-10-03)
+- [x] Define assertion membership and integrity hashes without inferring set identity from a folder, filename, tag, or repeated edge values (release record slice 2026-10-03)
+- [x] Carry minimum provenance, provider/contributor, and license fields required for responsible interchange (release record slice 2026-10-03)
+- [ ] Round-trip the same semantic set through canonical SSSOM and STRM representations while preserving set identity/version and assertion membership (SSSOM round trip proved 2026-10-03; STRM is slice 2)
+- [ ] Add MappingSet inspect/export UI and programmatic access (inspect in review view and export line 2026-10-03; STRM and recipe path remain)
 - [ ] Keep generalized Knowledge Set governance deferred to the Evolution phase
 
 ## Success criteria
@@ -97,7 +97,7 @@ A second slice — [XLSX source-byte provenance](/crosswalker/agent-context/zz-l
 - [ ] OSCAL target shape is explicitly selected and documented; the chosen representation validates against its published OSCAL schema. If no valid mapping-bearing target is selected, the exporter remains explicitly unsupported rather than emitting misleading JSON
 - [ ] SSSOM TSV passes the `sssom-py` validator (optional CI step)
 - [ ] All three exporters handle large vaults (~10K mappings) without UI freeze (cooperative yielding)
-- [ ] STRM and SSSOM round-trip determinism verified at both assertion and MappingSet-envelope levels
+- [ ] STRM and SSSOM round-trip determinism verified at both assertion and MappingSet-envelope levels (SSSOM envelope level proved 2026-10-03 in `tests/mapping-set-roundtrip.test.ts`; STRM is slice 2)
 - [x] Untouched canonical ImportRecipe retains normalized semantics, canonical JSON, identity, and deferred fields through the workbench
 - [x] Customized recipe receives deterministic identity + structured ancestry without mutating the original
 - [x] User can durably save, reopen, browse, inspect, export, and delete a portable reusable configuration through UI (recipe library slice 2026-10-02; reopen-then-replay proved 2026-10-03)

@@ -287,9 +287,13 @@ async function importThroughTheModal(app: App, tsv: string, opts: { click?: 'ref
 	return { modal, texts, review, close: inner(modal).close };
 }
 
-/** The crosswalk notes one import produced, by path. */
+/**
+ * The crosswalk notes one import produced, by path. Each set's release record
+ * note (`kind: mapping-set`, added 2026-10-03) is left out: these assertions are
+ * about mapping notes, and mapping-set.test.ts asserts the record.
+ */
 function junctionNotes(files: Map<string, string>): Map<string, string> {
-	return new Map([...files].filter(([path]) => path.startsWith(`${FOLDER}/`)));
+	return new Map([...files].filter(([path, text]) => path.startsWith(`${FOLDER}/`) && !/^kind: mapping-set$/m.test(text)));
 }
 
 function setIdOf(text: string): string | null {

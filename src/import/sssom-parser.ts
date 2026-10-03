@@ -60,14 +60,20 @@ export interface SssomHeader {
 	/** CURIE-prefix → URI map declared via `curie_map:` */
 	curie_map?: Record<string, string>;
 	mapping_set_id?: string;
+	mapping_set_version?: string;
+	mapping_set_title?: string;
 	mapping_set_description?: string;
 	subject_source?: string;
+	subject_source_version?: string;
 	object_source?: string;
+	object_source_version?: string;
 	mapping_provider?: string;
 	mapping_date?: string;
+	/** SSSOM declares creator_id as a list; a single value parses as a string. */
+	creator_id?: string | string[];
 	license?: string;
-	/** Any additional metadata keys are preserved as strings. */
-	[key: string]: string | Record<string, string> | undefined;
+	/** Any additional metadata keys are preserved as strings, nested maps or lists. */
+	[key: string]: string | string[] | Record<string, string> | undefined;
 }
 
 /** Result of parsing a SSSOM TSV file. */
@@ -226,12 +232,25 @@ function parseHeader(lines: string[], warnings: string[]): SssomHeader {
 		const line = raw.replace(/^# /, '');
 		if (line.trim().length === 0) continue;
 
+		// One-level list item under a `key:` line, as SSSOM writes creator_id:
+		// "  - orcid:0000". The parent becomes a list on its first item.
+		if (/^\s+/.test(line) && currentParent) {
+			const itemMatch = line.match(/^\s+-\s+(.*)$/);
+			if (itemMatch) {
+				const existing = header[currentParent];
+				const list = Array.isArray(existing) ? existing : [];
+				list.push(stripQuotes(itemMatch[1]));
+				header[currentParent] = list;
+				continue;
+			}
+		}
+
 		// One-level nested child: starts with whitespace + "key: value"
 		if (/^\s+/.test(line) && currentParent) {
 			const childMatch = line.match(/^\s+([A-Za-z_][\w-]*?):\s*(.*)$/);
 			if (childMatch) {
 				const [, ck, cv] = childMatch;
-				if (!header[currentParent] || typeof header[currentParent] !== 'object') {
+				if (!header[currentParent] || typeof header[currentParent] !== 'object' || Array.isArray(header[currentParent])) {
 					header[currentParent] = {} as Record<string, string>;
 				}
 				(header[currentParent] as Record<string, string>)[ck] = stripQuotes(cv);

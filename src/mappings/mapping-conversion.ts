@@ -55,6 +55,16 @@ import {
 import { readMappingTables, type MappingTableFile } from './mapping-table-reader';
 import { mappingTablePath } from './mapping-table-writer';
 import {
+	MAPPING_SET_KIND,
+	agreed,
+	mappingSetFromStored,
+	mappingSetFromTableHeader,
+	setNoteProvenance,
+	storedMappingSet,
+	writeMappingSetNote,
+	type MappingSetRecord,
+} from './mapping-set';
+import {
 	CONVERSION_MARKER_FORMAT,
 	conversionMarkerPath,
 	deleteConversionMarker,
@@ -209,7 +219,8 @@ export async function cancelConversion(app: App, marker: ConversionMarker): Prom
 		await trashIfPresent(app, live.target_path);
 		await removeAdapterFile(app, `${live.target_path}.tmp`);
 	} else {
-		for (const note of (await readSetEdgeNotes(app, live.import_set, parentOf(live.path))).notes) {
+		const written = await readSetEdgeNotes(app, live.import_set, parentOf(live.path));
+		for (const note of [...written.notes, ...written.releaseNotes]) {
 			await app.vault.trash(note.file, false);
 		}
 	}
@@ -324,6 +335,8 @@ async function planConversion(app: App, set: DiscoveredImportSet, to: MappingFor
 			return { reason: `Import set ${set.id} holds notes that are not mappings (${read.others[0]}${read.others.length > 1 ? ` and ${read.others.length - 1} more` : ''}), so it cannot be stored as a table. Only mapping sets can be converted.` };
 		}
 		if (!read.notes.length) return { reason: `Import set ${set.id} has no mapping notes to convert. Import the mapping file first, then convert it.` };
+		const release = releaseRecordOfNotes(set.id, read.releaseNotes);
+		if ('reason' in release) return { reason: release.reason };
 		const reverse = notesToTableProblem(set.id, read.notes);
 		if (reverse) return { reason: reverse };
 		const frameworks = agreedFrameworks(read.notes.map((note) => note.frontmatter));
@@ -338,6 +351,8 @@ async function planConversion(app: App, set: DiscoveredImportSet, to: MappingFor
 	}
 	const table = await ownedTable(app, set.id);
 	if ('reason' in table) return table;
+	const release = releaseRecordOfTable(set.id, table.table);
+	if ('reason' in release) return { reason: release.reason };
 	const problem = notesFormProblem(set.id, table.table);
 	if (problem) return { reason: problem };
 	return { folder, targetPath: parentOf(table.table.path), sourceCount: table.table.rows.length };
@@ -357,10 +372,11 @@ interface EdgeNote {
  * a cache-cold note is read raw only inside `folder`, so the scan never
  * becomes a whole-vault content read (the same bound discovery uses).
  */
-async function readSetEdgeNotes(app: App, setId: string, folder: string): Promise<{ notes: EdgeNote[]; others: string[]; unreadable: string[] }> {
+async function readSetEdgeNotes(app: App, setId: string, folder: string): Promise<{ notes: EdgeNote[]; releaseNotes: EdgeNote[]; others: string[]; unreadable: string[] }> {
 	const base = normalizeFolderSetting(folder);
 	const inFolder = (path: string) => !base || path.startsWith(`${base}/`);
 	const notes: EdgeNote[] = [];
+	const releaseNotes: EdgeNote[] = [];
 	const others: string[] = [];
 	const unreadable: string[] = [];
 	const files = [...app.vault.getMarkdownFiles()].sort((a, b) => a.path.localeCompare(b.path));
@@ -375,9 +391,40 @@ async function readSetEdgeNotes(app: App, setId: string, folder: string): Promis
 		}
 		if (importSetIdOf(fm._crosswalker) !== setId) continue;
 		if (fm.kind === 'crosswalk-edge') notes.push({ file, frontmatter: fm });
+		// The set's release record travels with the set; it is not a stray note.
+		else if (fm.kind === MAPPING_SET_KIND) releaseNotes.push({ file, frontmatter: fm });
 		else others.push(file.path);
 	}
-	return { notes, others, unreadable };
+	return { notes, releaseNotes, others, unreadable };
+}
+
+/**
+ * The release record the set's notes carry (M8), undefined for a set without
+ * one (M9), or a refusal when it cannot be read or two notes disagree. Failure
+ * mode prevented: a conversion silently dropping the release record.
+ */
+function releaseRecordOfNotes(setId: string, releaseNotes: EdgeNote[]): { record?: MappingSetRecord } | { reason: string } {
+	if (!releaseNotes.length) return {};
+	try {
+		const records = releaseNotes.map((note) => mappingSetFromStored(note.frontmatter, setId, note.file.path));
+		const first = JSON.stringify(storedMappingSet(records[0]));
+		const other = records.findIndex((record) => JSON.stringify(storedMappingSet(record)) !== first);
+		if (other !== -1) {
+			return { reason: `Import set ${setId} has two different release records: ${releaseNotes[0].file.path} and ${releaseNotes[other].file.path}. Delete the one that is wrong, then convert again.` };
+		}
+		return { record: records[0] };
+	} catch (error) {
+		return { reason: messageOf(error) };
+	}
+}
+
+/** The release record a table header carries, or a refusal when it cannot be read. */
+function releaseRecordOfTable(setId: string, table: MappingTableFile): { record?: MappingSetRecord } | { reason: string } {
+	try {
+		return { record: mappingSetFromTableHeader(table.header, setId, table.path) };
+	} catch (error) {
+		return { reason: messageOf(error) };
+	}
 }
 
 function unreadableReason(setId: string, paths: string[]): string {
@@ -573,13 +620,6 @@ function noteToRowFacts(frontmatter: Record<string, unknown>, header: MappingTab
 	return row;
 }
 
-/** The one value every note agrees on, else undefined. */
-function agreed(values: unknown[]): string | undefined {
-	const texts = new Set(values.map((value) => typeof value === 'string' && value.trim() ? value.trim() : null));
-	if (texts.size !== 1) return undefined;
-	return [...texts][0] ?? undefined;
-}
-
 function agreedFrameworks(notes: Array<Record<string, unknown>>): { source?: string; target?: string } {
 	return {
 		source: agreed(notes.map((fm) => fm.source_framework)),
@@ -601,7 +641,7 @@ function stringField(record: unknown, key: string): string | undefined {
  * The table header for a notes set: the set's pin flipped to table (the only
  * place that happens), and the recipe and source the notes were produced by.
  */
-async function tableHeaderFor(app: App, marker: ConversionMarker, notes: EdgeNote[]): Promise<MappingTableHeader> {
+async function tableHeaderFor(app: App, marker: ConversionMarker, notes: EdgeNote[], record?: MappingSetRecord): Promise<MappingTableHeader> {
 	const folder = parentOf(marker.path);
 	const importSet = await resolveImportSet(app, folder, { id: marker.import_set }, undefined, undefined, undefined, { conversion: { to: 'table' } });
 	const first = notes[0].frontmatter._crosswalker as Record<string, unknown> | undefined;
@@ -620,17 +660,25 @@ async function tableHeaderFor(app: App, marker: ConversionMarker, notes: EdgeNot
 	const fms = notes.map((note) => note.frontmatter);
 	const frameworks = agreedFrameworks(fms);
 	const tagsJson = agreed(fms.map((fm) => Array.isArray(fm.tags) && fm.tags.every((tag) => typeof tag === 'string') ? JSON.stringify(fm.tags) : null));
-	const mappingSetId = agreed(fms.map((fm) => fm.mapping_set_id));
-	const mappingProvider = agreed(fms.map((fm) => fm.mapping_provider));
+	// The release record is the authority for the set-level header keys, the
+	// same keys the importer writes from it. Agreement across rows is only the
+	// fallback for a set without a record (M9).
+	const mappingSetId = record ? record.mapping_set_id : agreed(fms.map((fm) => fm.mapping_set_id));
+	const mappingProvider = record ? record.mapping_provider : agreed(fms.map((fm) => fm.mapping_provider));
 	return {
 		...(mappingSetId ? { mapping_set_id: mappingSetId } : {}),
 		...(mappingProvider ? { mapping_provider: mappingProvider } : {}),
+		...(record?.mapping_date ? { mapping_date: record.mapping_date } : {}),
+		...(record?.subject_source ? { subject_source: record.subject_source } : {}),
+		...(record?.object_source ? { object_source: record.object_source } : {}),
+		...(record?.license ? { license: record.license } : {}),
 		crosswalker_format: MAPPING_TABLE_FORMAT,
 		import_set: importSet.id,
 		...(frameworks.source ? { source_framework: frameworks.source } : {}),
 		...(frameworks.target ? { target_framework: frameworks.target } : {}),
 		...(tagsJson ? { tags: JSON.parse(tagsJson) as string[] } : {}),
 		crosswalker_provenance: provenance,
+		...(record ? { mapping_set: storedMappingSet(record) } : {}),
 	};
 }
 
@@ -643,7 +691,9 @@ async function writeTableTarget(app: App, marker: ConversionMarker): Promise<str
 	}
 	const reverse = notesToTableProblem(marker.import_set, read.notes);
 	if (reverse) return `${reverse.replace(/ then convert again\.$/, ' then finish the conversion, or cancel it.')} Nothing was moved to the trash.`;
-	const header = await tableHeaderFor(app, marker, read.notes);
+	const release = releaseRecordOfNotes(marker.import_set, read.releaseNotes);
+	if ('reason' in release) return `${release.reason} Nothing was moved to the trash.`;
+	const header = await tableHeaderFor(app, marker, read.notes, release.record);
 	const facts = read.notes.map((note) => noteToRowFacts(note.frontmatter, header));
 	const rows = assignMappingRowIds(facts, header.mapping_set_id);
 	await writeTableDurably(app, marker.target_path, serializeMappingTable(header, rows));
@@ -840,6 +890,22 @@ async function writeNotesTarget(
 		const more = gen.errors.length > 1 ? ` (and ${gen.errors.length - 1} more problems)` : '';
 		return `Converting import set ${marker.import_set} to notes stopped while writing notes: ${first}${more}. Nothing was moved to the trash. Fix the cause, then finish the conversion, or cancel it.`;
 	}
+	const release = releaseRecordOfTable(marker.import_set, table);
+	if ('reason' in release) return `${release.reason} Nothing was moved to the trash.`;
+	if (release.record) {
+		// The record carries over as the set note (M8), with the ownership block
+		// the converted mapping notes carry.
+		const written = await readSetEdgeNotes(app, marker.import_set, marker.target_path);
+		const edgeProvenance = written.notes[0]?.frontmatter._crosswalker;
+		if (!edgeProvenance || typeof edgeProvenance !== 'object') {
+			return `Converting import set ${marker.import_set} to notes stopped before its release record was written, because the converted notes could not be read yet. Nothing was moved to the trash. Wait for indexing, then finish the conversion.`;
+		}
+		await writeMappingSetNote(app, {
+			folder: marker.target_path,
+			record: release.record,
+			provenance: setNoteProvenance(edgeProvenance as Record<string, unknown>),
+		});
+	}
 	return null;
 }
 
@@ -917,6 +983,18 @@ function rowsAsFacts(rows: MappingTableRow[]): MappingTableRowFacts[] {
 	return rows.map(({ row_id: _id, ...facts }) => facts);
 }
 
+/** Whether a release record read from one form equals the record the other form stores. */
+function sameRelease(record: MappingSetRecord | undefined, stored: Record<string, unknown> | undefined): boolean {
+	if (!record || !stored) return !record && !stored;
+	try {
+		// Both through one reader, so key order in a hand-written header never counts as a difference.
+		const other = mappingSetFromStored(stored, record.importSetId, 'the converted form');
+		return JSON.stringify(storedMappingSet(record)) === JSON.stringify(storedMappingSet(other));
+	} catch {
+		return false;
+	}
+}
+
 async function verifyParity(app: App, marker: ConversionMarker): Promise<string | null> {
 	const folder = parentOf(marker.path);
 	if (marker.to === 'table') {
@@ -930,6 +1008,9 @@ async function verifyParity(app: App, marker: ConversionMarker): Promise<string 
 		}
 		const read = await readSetEdgeNotes(app, marker.import_set, folder);
 		if (read.unreadable.length) return `${read.unreadable[0]} could not be read`;
+		const release = releaseRecordOfNotes(marker.import_set, read.releaseNotes);
+		if ('reason' in release) return release.reason.replace(/\.$/, '');
+		if (!sameRelease(release.record, parsed.header.mapping_set)) return 'the table carries a different release record from the notes';
 		const noteTags = new Set(read.notes.map((note) => tagsKey(note.frontmatter.tags)));
 		if (noteTags.size === 1 && [...noteTags][0] !== tagsKey(parsed.header.tags)) return `the table has different tags from the notes`;
 		const source = assignMappingRowIds(read.notes.map((note) => noteToRowFacts(note.frontmatter, parsed.header)), parsed.header.mapping_set_id);
@@ -941,6 +1022,9 @@ async function verifyParity(app: App, marker: ConversionMarker): Promise<string 
 	const header = owned.table.header;
 	const read = await readSetEdgeNotes(app, marker.import_set, marker.target_path);
 	if (read.unreadable.length) return `${read.unreadable[0]} could not be read`;
+	const release = releaseRecordOfNotes(marker.import_set, read.releaseNotes);
+	if ('reason' in release) return release.reason.replace(/\.$/, '');
+	if (!sameRelease(release.record, header.mapping_set)) return 'the notes carry a different release record from the table';
 	for (const note of read.notes) {
 		const block = (note.frontmatter._crosswalker as Record<string, unknown> | undefined)?.import_set as Record<string, unknown> | undefined;
 		if (block?.mapping_form === 'table') return `${note.file.path} is still pinned to the table form`;
@@ -962,7 +1046,7 @@ async function sourceArtifacts(app: App, marker: ConversionMarker): Promise<TFil
 	if (marker.from === 'notes') {
 		const read = await readSetEdgeNotes(app, marker.import_set, parentOf(marker.path));
 		if (read.unreadable.length) throw new Error(unreadableReason(marker.import_set, read.unreadable));
-		return read.notes.map((note) => note.file);
+		return [...read.notes, ...read.releaseNotes].map((note) => note.file);
 	}
 	const files: TFile[] = [];
 	for (const table of await readMappingTables(app)) {

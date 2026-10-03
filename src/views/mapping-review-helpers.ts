@@ -8,7 +8,15 @@
  */
 
 import { CROSSWALK_PREDICATES, CROSSWALK_PREDICATE_LABELS, type CrosswalkPredicate } from '../import/mapping/types';
-import type { MappingTableHeader } from '../mappings/mapping-table';
+import type { MappingTableHeader, MappingTableRow } from '../mappings/mapping-table';
+import {
+	computeMappingSetDigests,
+	mappingSetFromTableHeader,
+	observedParticipants,
+	type MappingSetRecord,
+} from '../mappings/mapping-set';
+import { importSetIdOf } from '../mappings/conversion-marker';
+import { plural } from '../utils/plural';
 
 /** The rows a windowed grid puts in the DOM, and the empty space around them. */
 export interface RowWindow {
@@ -109,4 +117,105 @@ export function visibleSelection(selected: Iterable<string>, visibleIds: Iterabl
 	const kept = new Set<string>();
 	for (const rowId of selected) if (shown.has(rowId)) kept.add(rowId);
 	return kept;
+}
+
+// ---------------------------------------------------------------------------
+// Release section (v0.1.7 Track 3, mapping set release record)
+// ---------------------------------------------------------------------------
+
+/** One labelled fact in the Release section. */
+export interface ReleaseFact {
+	label: string;
+	value: string;
+}
+
+/**
+ * What the Release section above the grid shows:
+ * - `recorded`: the set's release record, plus a membership check against the
+ *   rows the table holds now;
+ * - `none`: a set imported before release records existed (M9);
+ * - `unreadable`: the record is there and malformed; `text` names the cause
+ *   and the action (the reader's own message).
+ */
+export type ReleaseSection =
+	| { state: 'recorded'; heading: string; facts: ReleaseFact[]; membership: { intact: boolean; text: string } }
+	| { state: 'none'; text: string }
+	| { state: 'unreadable'; text: string };
+
+export const NO_RELEASE_RECORD_TEXT = 'No release record for this set. Import it again to record one.';
+
+/** "demo-a 1.0" from a declared source and its version. */
+function sourceText(source: string, version: string | undefined): string {
+	return version ? `${source} ${version}` : source;
+}
+
+/**
+ * "from X vA to Y vB": declared sources when the record states them, else the
+ * curie prefixes the rows use, labelled "observed from rows" (M7). Observed
+ * values are shown, never written into the record.
+ */
+export function releaseParticipantsText(record: MappingSetRecord, rows: readonly Pick<MappingTableRow, 'subject_id' | 'object_id'>[]): string {
+	let observed = false;
+	const observedSides = (subject: boolean): string => {
+		observed = true;
+		const seen = observedParticipants(rows);
+		const prefixes = subject ? seen.subjectPrefixes : seen.objectPrefixes;
+		return prefixes.length ? prefixes.join(', ') : 'unknown';
+	};
+	const from = record.subject_source ? sourceText(record.subject_source, record.subject_source_version) : observedSides(true);
+	const to = record.object_source ? sourceText(record.object_source, record.object_source_version) : observedSides(false);
+	return `from ${from} to ${to}${observed ? ' (observed from rows)' : ''}`;
+}
+
+/**
+ * The membership check: the digest recomputed over the rows the table holds
+ * now, compared with the recorded one. Review columns never enter the digest,
+ * so reviewing never makes a set read as changed. The record keeps only a
+ * digest, not the recorded rows, so a difference is reported with both counts
+ * rather than which rows moved.
+ */
+export function releaseMembershipText(record: MappingSetRecord, rows: readonly MappingTableRow[]): { intact: boolean; text: string } {
+	const now = computeMappingSetDigests(rows.map((row) => ({
+		subject_id: row.subject_id,
+		predicate_id: row.predicate_id,
+		object_id: row.object_id,
+		predicate_modifier: row.predicate_modifier,
+		mapping_justification: row.mapping_justification,
+		confidence: row.confidence,
+		mapping_provider: row.mapping_provider,
+	})));
+	if (now.membership_digest !== record.membership_digest) {
+		return {
+			intact: false,
+			text: `Membership differs from the recorded release: ${plural(now.assertion_count, 'mapping')} now, ${record.assertion_count.toLocaleString()} recorded.`,
+		};
+	}
+	if (now.content_digest !== record.content_digest) {
+		return {
+			intact: true,
+			text: 'Membership intact. Some justification, confidence or provider values differ from the recorded release.',
+		};
+	}
+	return { intact: true, text: 'Membership intact.' };
+}
+
+/** The Release section of one mapping table, from its header and current rows. Pure. */
+export function releaseSectionOf(table: { path: string; header: MappingTableHeader; rows: readonly MappingTableRow[] }): ReleaseSection {
+	let record: MappingSetRecord | undefined;
+	try {
+		record = mappingSetFromTableHeader(table.header, importSetIdOf(table.header.crosswalker_provenance) ?? '', table.path);
+	} catch (error) {
+		return { state: 'unreadable', text: error instanceof Error ? error.message : `The release record in ${table.path} could not be read. Import the set again to record one.` };
+	}
+	if (!record) return { state: 'none', text: NO_RELEASE_RECORD_TEXT };
+	const heading = [record.mapping_set_title ?? record.mapping_set_id, record.mapping_set_version ? `version ${record.mapping_set_version}` : '']
+		.filter(Boolean).join(', ');
+	const facts: ReleaseFact[] = [];
+	if (record.mapping_set_title) facts.push({ label: 'Release id', value: record.mapping_set_id });
+	facts.push({ label: 'Sources', value: releaseParticipantsText(record, table.rows) });
+	if (record.mapping_provider) facts.push({ label: 'Provider', value: record.mapping_provider });
+	if (record.mapping_date) facts.push({ label: 'Date', value: record.mapping_date });
+	if (record.license) facts.push({ label: 'License', value: record.license });
+	facts.push({ label: 'Recorded', value: plural(record.assertion_count, 'mapping') });
+	return { state: 'recorded', heading, facts, membership: releaseMembershipText(record, table.rows) };
 }

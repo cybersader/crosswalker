@@ -210,6 +210,11 @@ export async function projectFromTier1(
 				upsertJunctionNote(db, file, fm);
 				if (fullProjection) markJunctionNoteSeen(db, file.path);
 				result.counts.junction_notes += 1;
+			} else if (kind === 'mapping-set') {
+				// A mapping set's release record (Tier 1 `kind: mapping-set`) is not a
+				// concept and not a mapping; the query database has no row for it.
+				result.counts.skipped += 1;
+				continue;
 			} else if (kind === 'crosswalk-edge' && !reads(importSetIdOf(fm._crosswalker), 'notes')) {
 				result.counts.skipped += 1;
 				continue;
