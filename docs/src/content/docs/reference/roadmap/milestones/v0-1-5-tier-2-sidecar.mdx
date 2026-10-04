@@ -19,6 +19,8 @@ Implement the [Tier 2](/crosswalker/concepts/terminology/) [sidecar projector](/
 
 **Status last verified:** 2026-09-05 — scoped to the shipped substrate and static integration at commit `30aee63b`: `package.json` contains `@sqlite.org/sqlite-wasm` and no sqlite-vec package; `src/tier2/sidecar.ts` identifies WASM-A and the deferred 2026-11-06 revisit; projector and three query helpers remain exported; and `src/main.ts` still wires layout-ready projection plus the clear-sidecar command. Historical test counts and real-Obsidian behavior were not rerun.
 
+**Persistence correction, verified 2026-10-03** (scoped to where sqlite runs and whether the index persists; verified by `tests/e2e/tier2-vfs-probe.spec.ts` on desktop Obsidian and `bun run e2e:openclast` under a browser-native host): the shipped v0.1.5 sidecar installed the `opfs-sahpool` VFS on the main thread, where Chromium does not expose `createSyncAccessHandle`. It fell back to `:memory:` on every host, so the index never persisted and every launch reprojected. Since 2026-10-03 sqlite runs in a dedicated Worker built from code inlined in `main.js`, the index opens on `opfs-sahpool` with `persistent: true`, and a marker row survives a full restart (desktop) and a tab reload (browser-native). Settings reports the mode. Measured numbers are in [CHANGELOG.md `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md).
+
 <Aside type="note">
 The option-space, phased checklist, success criteria, and rollback sections below preserve the milestone's planning and decision history, including the attempted WASM-B path. They are not a current claim that sqlite-vec ships. For delivered state, use the Status above and the dated delivery log.
 </Aside>
@@ -140,8 +142,8 @@ This rollback property is what makes vendoring acceptable. We're not betting v0.
 - `closure_cache` table created (empty until first transitive query)
 - `control_embeddings` virtual table via `vec0` — DDL present but unused until vector-embedding feature lands (UI/embedding-generation deferred to a later milestone)
 - Recovery on missing/stale sidecar — reproject from Tier 1; abort + warn if Tier 1 itself is malformed
-- OPFS persistence via `opfs-sahpool` VFS (works on Capacitor without COOP/COEP — the mobile-portable path)
-- Runs on main thread with cooperative yielding (Web Workers unreliable per [Ch 23 §9.5](/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/))
+- OPFS persistence via `opfs-sahpool` VFS (works on Capacitor without COOP/COEP — the mobile-portable path). *Corrected 2026-10-03: as shipped this never persisted, because sahpool cannot install on the main thread; see the persistence correction under Status.*
+- Runs on main thread with cooperative yielding (Web Workers unreliable per [Ch 23 §9.5](/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/)). *Narrowed 2026-10-03: the projector still runs on the main thread, but sqlite itself now runs in a dedicated Worker.*
 - `Platform.isDesktopApp` gate where needed
 - `clear-sidecar` command in palette
 - Lazy closure cache materialization (recursive CTE on first transitive query; mtime-based invalidation)

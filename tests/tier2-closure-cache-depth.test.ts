@@ -107,9 +107,9 @@ function targets(entries: ClosureEntry[]): Array<[string, number]> {
 describe('Tier 2 closure cache depth', () => {
 	let db: TestDb;
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		db = createTestDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		seedMappingChain(db);
 	});
 
@@ -117,11 +117,11 @@ describe('Tier 2 closure cache depth', () => {
 		db.close();
 	});
 
-	it('recomputes a deeper closure after a shallow query populated the cache', () => {
-		const shallow = closureFromConcept(db, 'example:A', PREDICATE, 1);
+	it('recomputes a deeper closure after a shallow query populated the cache', async () => {
+		const shallow = await closureFromConcept(db, 'example:A', PREDICATE, 1);
 		expect(targets(shallow)).toEqual([['example:B', 1]]);
 
-		const deeper = closureFromConcept(db, 'example:A', PREDICATE, 3);
+		const deeper = await closureFromConcept(db, 'example:A', PREDICATE, 3);
 		expect(targets(deeper)).toEqual([
 			['example:B', 1],
 			['example:C', 2],
@@ -131,22 +131,22 @@ describe('Tier 2 closure cache depth', () => {
 		expect(queryRows(db, `SELECT computed_max_depth FROM closure_cache_state`)).toEqual([[3]]);
 	});
 
-	it('filters a cached deep closure when a shallow query runs second', () => {
-		const deeper = closureFromConcept(db, 'example:A', PREDICATE, 3);
+	it('filters a cached deep closure when a shallow query runs second', async () => {
+		const deeper = await closureFromConcept(db, 'example:A', PREDICATE, 3);
 		expect(targets(deeper)).toEqual([
 			['example:B', 1],
 			['example:C', 2],
 			['example:D', 3],
 		]);
 
-		const shallow = closureFromConcept(db, 'example:A', PREDICATE, 1);
+		const shallow = await closureFromConcept(db, 'example:A', PREDICATE, 1);
 		expect(targets(shallow)).toEqual([['example:B', 1]]);
 		expect(db.getRecursiveQueryCount()).toBe(1);
 	});
 
-	it('caches an empty closure with a state row instead of treating it as a miss', () => {
-		expect(closureFromConcept(db, 'example:missing', PREDICATE, 4)).toEqual([]);
-		expect(closureFromConcept(db, 'example:missing', PREDICATE, 4)).toEqual([]);
+	it('caches an empty closure with a state row instead of treating it as a miss', async () => {
+		expect(await closureFromConcept(db, 'example:missing', PREDICATE, 4)).toEqual([]);
+		expect(await closureFromConcept(db, 'example:missing', PREDICATE, 4)).toEqual([]);
 		expect(db.getRecursiveQueryCount()).toBe(1);
 		expect(
 			queryRows(
@@ -163,7 +163,7 @@ describe('Tier 2 closure cache depth', () => {
 		).toEqual([[0]]);
 	});
 
-	it('ignores legacy raw cache keys even when their watermark covers the request', () => {
+	it('ignores legacy raw cache keys even when their watermark covers the request', async () => {
 		db.exec({
 			sql: `
 				INSERT INTO closure_cache
@@ -181,7 +181,7 @@ describe('Tier 2 closure cache depth', () => {
 			bind: { $subject: 'example:A', $predicate: PREDICATE },
 		});
 
-		expect(targets(closureFromConcept(db, 'example:A', PREDICATE, 2))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', PREDICATE, 2))).toEqual([
 			['example:B', 1],
 			['example:C', 2],
 		]);
@@ -199,16 +199,16 @@ describe('Tier 2 closure cache depth', () => {
 		]);
 	});
 
-	it('keeps wildcard and predicate-specific coverage in separate cache partitions', () => {
+	it('keeps wildcard and predicate-specific coverage in separate cache partitions', async () => {
 		insertMapping(db, 'example:A', OTHER_PREDICATE, 'example:X', 'other-1');
 		insertMapping(db, 'example:X', OTHER_PREDICATE, 'example:Y', 'other-2');
 
-		expect(targets(closureFromConcept(db, 'example:A', PREDICATE, 3))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', PREDICATE, 3))).toEqual([
 			['example:B', 1],
 			['example:C', 2],
 			['example:D', 3],
 		]);
-		expect(targets(closureFromConcept(db, 'example:A', undefined, 3))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', undefined, 3))).toEqual([
 			['example:B', 1],
 			['example:X', 1],
 			['example:C', 2],
@@ -228,17 +228,17 @@ describe('Tier 2 closure cache depth', () => {
 		]);
 	});
 
-	it('rejects a literal star predicate before it can poison a wildcard cache', () => {
+	it('rejects a literal star predicate before it can poison a wildcard cache', async () => {
 		insertMapping(db, 'example:A', '*', 'example:Star', 'literal-star-edge-first');
 		insertMapping(db, 'example:A', OTHER_PREDICATE, 'example:X', 'literal-star-first');
 
-		expect(() => closureFromConcept(db, 'example:A', '*', 2)).toThrow(
+		await expect(closureFromConcept(db, 'example:A', '*', 2)).rejects.toThrow(
 			new RangeError("predicateId '*' is reserved for unfiltered closure queries"),
 		);
-		expect(() =>
+		await expect(
 			precomputeClosureForOntologyPair(db, 'example', 'example', '*', 2),
-		).toThrow(new RangeError("predicateId '*' is reserved for unfiltered closure queries"));
-		expect(targets(closureFromConcept(db, 'example:A', undefined, 2))).toEqual([
+		).rejects.toThrow(new RangeError("predicateId '*' is reserved for unfiltered closure queries"));
+		expect(targets(await closureFromConcept(db, 'example:A', undefined, 2))).toEqual([
 			['example:B', 1],
 			['example:X', 1],
 			['example:C', 2],
@@ -246,7 +246,7 @@ describe('Tier 2 closure cache depth', () => {
 		expect(db.getRecursiveQueryCount()).toBe(1);
 	});
 
-	it('rejects a literal star predicate without disturbing an existing wildcard cache', () => {
+	it('rejects a literal star predicate without disturbing an existing wildcard cache', async () => {
 		insertMapping(db, 'example:A', '*', 'example:Star', 'literal-star-edge-second');
 		insertMapping(db, 'example:A', OTHER_PREDICATE, 'example:X', 'wildcard-first');
 		const expected: Array<[string, number]> = [
@@ -255,30 +255,30 @@ describe('Tier 2 closure cache depth', () => {
 			['example:C', 2],
 		];
 
-		expect(targets(closureFromConcept(db, 'example:A', undefined, 2))).toEqual(expected);
-		expect(() => closureFromConcept(db, 'example:A', '*', 2)).toThrow(
+		expect(targets(await closureFromConcept(db, 'example:A', undefined, 2))).toEqual(expected);
+		await expect(closureFromConcept(db, 'example:A', '*', 2)).rejects.toThrow(
 			new RangeError("predicateId '*' is reserved for unfiltered closure queries"),
 		);
-		expect(targets(closureFromConcept(db, 'example:A', undefined, 2))).toEqual(expected);
+		expect(targets(await closureFromConcept(db, 'example:A', undefined, 2))).toEqual(expected);
 		expect(db.getRecursiveQueryCount()).toBe(1);
 	});
 
-	it('terminates on cycles and preserves shortest depths', () => {
+	it('terminates on cycles and preserves shortest depths', async () => {
 		insertMapping(db, 'example:D', PREDICATE, 'example:A', 'cycle');
 
-		expect(targets(closureFromConcept(db, 'example:A', PREDICATE, 10))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', PREDICATE, 10))).toEqual([
 			['example:B', 1],
 			['example:C', 2],
 			['example:D', 3],
 		]);
 	});
 
-	it('returns an empty depth-zero closure without running the recursive CTE', () => {
-		expect(closureFromConcept(db, 'example:A', PREDICATE, 0)).toEqual([]);
+	it('returns an empty depth-zero closure without running the recursive CTE', async () => {
+		expect(await closureFromConcept(db, 'example:A', PREDICATE, 0)).toEqual([]);
 		expect(db.getRecursiveQueryCount()).toBe(0);
 		expect(queryRows(db, `SELECT computed_max_depth FROM closure_cache_state`)).toEqual([[0]]);
 
-		expect(targets(closureFromConcept(db, 'example:A', PREDICATE, 1))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', PREDICATE, 1))).toEqual([
 			['example:B', 1],
 		]);
 		expect(db.getRecursiveQueryCount()).toBe(1);
@@ -286,20 +286,20 @@ describe('Tier 2 closure cache depth', () => {
 
 	it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
 		'rejects invalid maxDepth %s',
-		(maxDepth) => {
-			expect(() => closureFromConcept(db, 'example:A', PREDICATE, maxDepth)).toThrow(
+		async (maxDepth) => {
+			await expect(closureFromConcept(db, 'example:A', PREDICATE, maxDepth)).rejects.toThrow(
 			new RangeError('maxDepth must be a non-negative integer'),
 			);
 		},
 	);
 
-	it('scopes precompute counts to the requested predicate and depth', () => {
+	it('scopes precompute counts to the requested predicate and depth', async () => {
 		insertMapping(db, 'source:A', PREDICATE, 'target:B', 'precompute-1');
 		insertMapping(db, 'target:B', PREDICATE, 'target:C', 'precompute-2');
 		insertMapping(db, 'source:A', OTHER_PREDICATE, 'target:X', 'precompute-3');
 
-		expect(precomputeClosureForOntologyPair(db, 'source', 'target', PREDICATE, 2)).toBe(2);
-		expect(precomputeClosureForOntologyPair(db, 'source', 'target', undefined, 1)).toBe(2);
+		expect(await precomputeClosureForOntologyPair(db, 'source', 'target', PREDICATE, 2)).toBe(2);
+		expect(await precomputeClosureForOntologyPair(db, 'source', 'target', undefined, 1)).toBe(2);
 		expect(
 			queryRows(
 				db,
@@ -312,12 +312,12 @@ describe('Tier 2 closure cache depth', () => {
 		]);
 	});
 
-	it('matches ontology prefixes literally when precomputing underscore IDs', () => {
+	it('matches ontology prefixes literally when precomputing underscore IDs', async () => {
 		insertMapping(db, 'src_a:A', PREDICATE, 'dst_a:B', 'underscore-exact');
 		insertMapping(db, 'srcXa:C', PREDICATE, 'dstXa:D', 'underscore-decoy');
 
-		expect(precomputeClosureForOntologyPair(db, 'src_a', 'dst_a', PREDICATE, 2)).toBe(1);
-		expect(targets(closureFromConcept(db, 'src_a:A', PREDICATE, 2))).toEqual([
+		expect(await precomputeClosureForOntologyPair(db, 'src_a', 'dst_a', PREDICATE, 2)).toBe(1);
+		expect(targets(await closureFromConcept(db, 'src_a:A', PREDICATE, 2))).toEqual([
 			['dst_a:B', 1],
 		]);
 		expect(
@@ -330,7 +330,7 @@ describe('Tier 2 closure cache depth', () => {
 	});
 
 	it('invalidates cache rows and coverage state together after mapping projection', async () => {
-		closureFromConcept(db, 'example:A', PREDICATE, 3);
+		await closureFromConcept(db, 'example:A', PREDICATE, 3);
 		expect(queryRows(db, `SELECT COUNT(*) FROM closure_cache`)).toEqual([[3]]);
 		expect(queryRows(db, `SELECT COUNT(*) FROM closure_cache_state`)).toEqual([[1]]);
 
@@ -359,33 +359,33 @@ describe('Tier 2 closure cache depth', () => {
 });
 
 describe('Tier 2 migration reports whether it rebuilt', () => {
-	it('returns true when it rebuilds, so the caller knows to reproject', () => {
+	it('returns true when it rebuilds, so the caller knows to reproject', async () => {
 		const db = createTestDb();
 		try {
 			// A fresh database has no schema at all, so migrating it is a rebuild:
 			// every derived table ends up empty and MUST be reprojected before any
 			// query answer can be trusted.
-			expect(applyMigrations(db)).toBe(true);
-			expect(getCurrentSchemaVersion(db)).toBe(TIER2_SCHEMA_VERSION);
+			expect(await applyMigrations(db)).toBe(true);
+			expect(await getCurrentSchemaVersion(db)).toBe(TIER2_SCHEMA_VERSION);
 		} finally {
 			db.close();
 		}
 	});
 
-	it('returns false when already current, so no needless reprojection happens', () => {
+	it('returns false when already current, so no needless reprojection happens', async () => {
 		const db = createTestDb();
 		try {
-			applyMigrations(db);
-			expect(applyMigrations(db)).toBe(false);
+			await applyMigrations(db);
+			expect(await applyMigrations(db)).toBe(false);
 		} finally {
 			db.close();
 		}
 	});
 
-	it('does not claim a projection happened while the tables are empty', () => {
+	it('does not claim a projection happened while the tables are empty', async () => {
 		const db = createTestDb();
 		try {
-			applyMigrations(db);
+			await applyMigrations(db);
 			// `projected_at` previously got stamped here, asserting a projection at
 			// the exact moment every table was emptied. Nothing may record a
 			// projection that did not occur.
@@ -402,7 +402,7 @@ describe('Tier 2 closure cache migration', () => {
 	it.each([
 		['versioned v1', true],
 		['unversioned', false],
-	])('rebuilds a %s database instead of preserving the old cache shape', (_label, versioned) => {
+	])('rebuilds a %s database instead of preserving the old cache shape', async (_label, versioned) => {
 		const db = createTestDb();
 		try {
 			db.exec(`
@@ -425,9 +425,9 @@ describe('Tier 2 closure cache migration', () => {
 				VALUES ('example:A', '${PREDICATE}', 'example:B', 1, 'old')
 			`);
 
-			applyMigrations(db);
+			await applyMigrations(db);
 
-			expect(getCurrentSchemaVersion(db)).toBe(TIER2_SCHEMA_VERSION);
+			expect(await getCurrentSchemaVersion(db)).toBe(TIER2_SCHEMA_VERSION);
 			expect(queryRows(db, `SELECT COUNT(*) FROM closure_cache`)).toEqual([[0]]);
 			expect(
 				queryRows(db, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'closure_cache_state'`),

@@ -2,10 +2,16 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, basename, resolve } from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 export const SQLITE_WASM_VIRTUAL_ID = 'virtual:sqlite3-wasm-base64';
 export const SQLITE_MJS_VIRTUAL_ID = 'virtual:sqlite3-mjs-text';
+export const TIER2_WORKER_VIRTUAL_ID = 'virtual:tier2-worker-text';
+/** Sentinel the worker program carries (its protocol id); the verifier requires it. */
+export const TIER2_WORKER_SENTINEL = 'cw-tier2-worker-v1';
+const DEFAULT_WORKER_SOURCE = resolve(dirname(fileURLToPath(import.meta.url)), '../src/tier2/worker-source.ts');
+const WORKER_NAMESPACE = 'crosswalker-tier2-worker-text';
 
 const WASM_NAMESPACE = 'crosswalker-sqlite-wasm-base64';
 const MJS_NAMESPACE = 'crosswalker-sqlite-mjs-text';
@@ -55,11 +61,39 @@ function readRequiredAsset(path, label) {
 	}
 }
 
-/** One narrowly scoped esbuild plugin for the two virtual SQLite asset modules. */
+/**
+ * One narrowly scoped esbuild plugin for the virtual SQLite asset modules and
+ * the Tier 2 Worker program text (W2, 2026-10-03). The Worker program is
+ * bundled on its own (ESM, browser, no Obsidian) and embedded as a string, so
+ * the plugin still ships only main.js, manifest.json and styles.css.
+ */
 export function createInlineSqliteAssetsPlugin(assets = resolveSqlitePackageAssets()) {
+	const workerSourcePath = assets.workerSourcePath ?? DEFAULT_WORKER_SOURCE;
 	return {
 		name: 'crosswalker-inline-sqlite-assets',
 		setup(build) {
+			build.onResolve({ filter: /^virtual:tier2-worker-text$/ }, () => ({
+				path: workerSourcePath,
+				namespace: WORKER_NAMESPACE,
+			}));
+			build.onLoad({ filter: /.*/, namespace: WORKER_NAMESPACE }, async (args) => {
+				const result = await build.esbuild.build({
+					entryPoints: [args.path],
+					bundle: true,
+					write: false,
+					format: 'esm',
+					platform: 'browser',
+					target: 'es2020',
+					metafile: true,
+					logLevel: 'silent',
+				});
+				const payload = result.outputFiles[0].text;
+				return {
+					contents: `export default ${JSON.stringify({ cwTier2Worker: 'worker-text', payload })};`,
+					loader: 'js',
+					watchFiles: Object.keys(result.metafile.inputs).map((input) => resolve(input)),
+				};
+			});
 			build.onResolve({ filter: /^virtual:sqlite3-wasm-base64$/ }, () => ({
 				path: assets.wasmPath,
 				namespace: WASM_NAMESPACE,
@@ -192,10 +226,53 @@ function assertMetafileContract(metafile, bundlePath, assets) {
 	}
 }
 
-/** Parse and verify the actual production main.js without executing application code. */
-export function verifyInlineSqliteBundle({ bundlePath, metafile, assets = resolveSqlitePackageAssets(), print = console.log }) {
+/**
+ * Find the single embedded Tier 2 Worker program literal and check it is the
+ * Worker program: it carries the protocol sentinel and reaches for no Obsidian
+ * module (a Worker has no Obsidian API; such an import would fail at start).
+ */
+function verifyEmbeddedWorkerText(bundlePath, sourceText) {
+	const source = ts.createSourceFile(bundlePath, sourceText, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+	const found = [];
+	const visit = (node) => {
+		if (ts.isObjectLiteralExpression(node)) {
+			const values = new Map();
+			for (const property of node.properties) {
+				if (!ts.isPropertyAssignment(property)) continue;
+				const key = propertyNameText(property.name);
+				if (key !== null) values.set(key, property.initializer);
+			}
+			const discriminator = values.get('cwTier2Worker');
+			if (discriminator && ts.isStringLiteral(discriminator) && discriminator.text === 'worker-text') {
+				const payload = values.get('payload');
+				if (node.properties.length !== 2 || !payload || !ts.isStringLiteral(payload)) {
+					fail('embedded tier2 worker object must contain exactly literal string cwTier2Worker and payload properties');
+				}
+				found.push(payload.text);
+			}
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	if (found.length !== 1) fail(`expected exactly one tier2 worker-text object literal in main.js; found ${found.length}`);
+	const text = found[0];
+	if (!text.includes(TIER2_WORKER_SENTINEL)) fail('embedded tier2 worker text does not carry its protocol sentinel');
+	if (/from\s*["']obsidian["']|require\(\s*["']obsidian["']\s*\)/.test(text)) {
+		fail('embedded tier2 worker text imports obsidian, which a Worker cannot load');
+	}
+	const bytes = Buffer.from(text, 'utf8');
+	return { length: bytes.length, sha256: sha256(bytes) };
+}
+
+/**
+ * Parse and verify the actual production main.js without executing application code.
+ * `requireWorkerText` (set by the plugin build) also requires the embedded Tier 2
+ * Worker program.
+ */
+export function verifyInlineSqliteBundle({ bundlePath, metafile, assets = resolveSqlitePackageAssets(), print = console.log, requireWorkerText = false }) {
 	const bundleBytes = readFileSync(bundlePath);
 	const literals = extractEmbeddedAssetLiterals(bundlePath, bundleBytes.toString('utf8'));
+	const worker = requireWorkerText ? verifyEmbeddedWorkerText(bundlePath, bundleBytes.toString('utf8')) : null;
 	const sourceWasm = readRequiredAsset(assets.wasmPath, 'sqlite3.wasm');
 	const sourceMjs = readRequiredAsset(assets.mjsPath, 'dist/index.mjs');
 	const embeddedWasm = decodeCanonicalBase64(literals.wasmBase64);
@@ -207,11 +284,13 @@ export function verifyInlineSqliteBundle({ bundlePath, metafile, assets = resolv
 		packageVersion: assets.packageVersion,
 		wasm,
 		mjs,
+		worker,
 		bundle: { length: bundleBytes.length, sha256: sha256(bundleBytes) },
 	};
 	print(`[crosswalker sqlite verify] package @sqlite.org/sqlite-wasm ${report.packageVersion}`);
 	print(`[crosswalker sqlite verify] sqlite3.wasm ${wasm.length} bytes sha256=${wasm.sha256}`);
 	print(`[crosswalker sqlite verify] dist/index.mjs ${mjs.length} bytes sha256=${mjs.sha256}`);
+	if (worker) print(`[crosswalker sqlite verify] tier2 worker text ${worker.length} bytes sha256=${worker.sha256}`);
 	print(`[crosswalker sqlite verify] main.js ${report.bundle.length} bytes sha256=${report.bundle.sha256}`);
 	return report;
 }

@@ -1,0 +1,80 @@
+---
+title: "The search index never persisted: sqlite moves into a worker"
+description: "Two real runs (desktop Obsidian, OpenClast browser-native) showed the Tier 2 sidecar silently in memory on every host, because the OPFS storage mode needs an API Chromium exposes only in dedicated workers. Records the nine rulings for hosting sqlite in a worker built from inlined text, the visible fallback, the narrowing of the Ch 23 main-thread commitment, and what the OpenClast collaboration established."
+tags: [log, decision, architecture, tier-2, sqlite-wasm, opfs, openclast, synthesis]
+date: 2026-10-03
+sidebar:
+  label: "10-03 · Tier 2 worker persistence"
+  order: -20261003.3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="What this page is">
+A **decision record** for the [Tier 2](/crosswalker/concepts/system-architecture/) sidecar (plain: the query index, a SQLite database the plugin keeps beside the vault so crosswalk and coverage questions are fast). It corrects a belief the project held since [v0.1.5](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/): that the index persisted on desktop. It did not, anywhere. The fix was found through the OpenClast collaboration (the owner's browser-native Obsidian host), where the same failure appeared with a clearer cause.
+
+**How it was decided.** Under the owner's standing direction (2026-10-02), rulings that pass the project's recorded principles are made and logged by the implementing session; this one also narrows a settled 2026-05-04 commitment, so the narrowing is stated explicitly in §3. Delivery detail and measured numbers live only in `CHANGELOG.md` `[Unreleased]`.
+</Aside>
+
+## 1. The finding
+
+| Run | Host | Result |
+|---|---|---|
+| OpenClast plugin probe, 2026-10-03 | Real Obsidian 1.12.7 bundle in a Chromium tab over an OPFS shim | Plugin loads with no shim gap; sidecar logs "OPFS unavailable; falling back to in-memory sidecar Error: Missing required OPFS APIs"; `vfs: unix-none` |
+| `tests/e2e/tier2-vfs-probe.spec.ts`, 2026-10-03 | Real desktop Obsidian (Electron) via wdio | Identical: `vfs: unix-none`, `filename: ""`, `createSyncAccessHandle` absent on the main thread |
+
+The `opfs-sahpool` storage mode needs `FileSystemFileHandle.prototype.createSyncAccessHandle`, which Chromium exposes only inside dedicated workers. The sidecar installed it on the main thread, so the fallback to `:memory:` ran on every host, every launch, and nothing surfaced it (the flag was module-private). The CHANGELOG entry of 2026-09-13 already said persistence "was not observed in either run"; this is the first run that observed it, and the answer was no.
+
+## 2. Rulings
+
+| # | Ruling | Why |
+|---|---|---|
+| W1 | One database seam (`Tier2Db`: exec, execBatch, close, info) with two implementations: a dedicated-worker host (default) and the main-thread wrapper (tests and fallback). Projector, queries, evidence coverage, migrations and the two views take the seam, never the raw sqlite object | Every SQL call already went through one `exec` shape and every caller already awaited the open; the worker is the only place the storage API exists |
+| W2 | The worker is built at runtime from text inlined in `main.js` (a Blob URL module worker); the sqlite module text and wasm bytes are posted to it in one init message. The plugin still ships only `main.js`, `manifest.json`, `styles.css` | OpenClast's in-tab installer accepts only those files (plus `data.json`); its plugin store caps 10 MiB unpacked, and the production bundle is about 4.9 MiB (source: `bun run build` output on 2026-10-03, `main.js` 5,114,861 bytes) |
+| W3 | The storage pool lives in a plugin-private, per-vault OPFS folder; never the SharedArrayBuffer-based `opfs` mode | Avoids contending with the host's own OPFS handles; no host in scope serves COOP/COEP |
+| W4 | Statements inside a loop travel as one batch per message, executed as one SAVEPOINT in the worker; projection flushes once per yield window; each closure cache replace and each mapping table is one batch | Thousands of message round trips would turn a fast loop into a slow one; a SAVEPOINT split across messages risks a partial commit |
+| W5 | The fallback stays and becomes visible: Settings shows "Search index: stored on this device" or "Search index: in memory, rebuilt each time Obsidian starts" (and "starts the first time a search needs it" before first open); the copied troubleshooting details carry the same fact | [Cache lag is not absence](/crosswalker/agent-context/zz-log/2026-08-28-first-run-and-the-blind-spots-that-hid-it/) applies to storage mode too: a silent mode is how this went unnoticed for five months |
+| W6 | Close and delete are ordered through one message queue. The worker stays alive across a close and is terminated at unload (500 ms grace); terminating on every close made the next open race the old worker's file handles | Found in implementation; the ordering precondition from the clear/reset command is preserved |
+| W7 | The 2026-05-04 commitment "run the engine on the main thread; do not depend on Web Workers" is **narrowed**, not reversed: it governs the import engine, which needs the Obsidian API and the DOM. A pure sqlite host touches neither | Honest reconciliation; see §3 |
+| W8 | Measure projection before and after on the SP 800-53 set and the local CRI workbook (aggregates only); regression cap 1.5x; report the later-launch saving | Resource discipline: measure, then cap, record the number |
+| Rejected | The SharedArrayBuffer-based `opfs` mode (needs COOP/COEP no host in scope serves); terminating the worker on every close (the next open raced the old worker's file handles); a loose status line outside the setting card | Recorded here so they are findable |
+| W9 | Diagnostics report `browser` on a host that is neither Electron nor the mobile app; clipboard actions fall back to pre-selected text when the clipboard is blocked | Found in the browser-native audit; both matter under OpenClast |
+
+## 3. Narrowing the Ch 23 commitment
+
+[Bundle engine language synthesis §9.5](/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/) adopted "run engine on main thread with cooperative yielding; don't depend on Web Workers (currently unreliable in Obsidian)". That finding was about the import engine, which reads the vault through Obsidian's API and renders previews. It still holds for that workload. The query index is a different workload: no Obsidian API, no DOM, one wasm module and a storage pool. The worker requirement here is not a preference but the only way the storage API exists. `src/tier2/sidecar.ts` cites this narrowing in its header.
+
+## 4. What the OpenClast collaboration established
+
+The owner's direction on 2026-10-03 was that Crosswalker must run inside OpenClast within about a month and that the two sessions collaborate as a shared context channel. What the channel produced today:
+
+| Fact | Where it is recorded |
+|---|---|
+| Crosswalker runs unmodified under browser-native: 33 commands and 2 views register, the import wizard renders, sqlite loads through a Blob URL, no CSP, require or SharedArrayBuffer errors | OpenClast `experimental/browser-native/tools/plugin-compat/class-map.json` entry `crosswalker`, verdict LOADS |
+| Its one open Problem in OpenClast's class model, "OPFS sync access handles used from the main thread", is author-side; Solution owner = the plugin (this change). Hosting precondition "Blob-URL dedicated Workers allowed, no CSP worker-src restriction" is satisfied | OpenClast `docs-site/.../zz-research/2026-09-15-plugin-api-class-map.md`, section "crosswalker row re-classified" |
+| Store caps: 10 MiB unpacked, 16 MiB upload | OpenClast `orchestrator/src/routing/browser-native-plugin-store.ts:135,139` |
+| The split both sides hold: unmodified under browser-native, or a Crosswalker-side native assumption to remove; shim gaps go to OpenClast as reproductions, never as plugin-specific shims | OpenClast design principle 10 and DECISION-065 |
+
+The repo gains `bun run e2e:openclast`, and the local portagenty workspace (gitignored) an `openclast-smoke` session, so the host check is one command rather than a hand-assembled run.
+
+## 5. What this does not do
+
+- Does not reopen the sidecar automatically if the worker crashes mid-session; a reset or reload is needed. Follow-up.
+- Does not skip the startup projection when nothing changed; persistence makes that possible, it does not do it.
+- Does not fix two pre-existing red e2e specs found while running the converted suites: one `sssom-import` assertion (`subject_note` undefined) and three `first-run` cases, all failing identically on `main`. They need their own ruling.
+- Does not keep the index across a vault rename (the per-vault folder key includes the vault name); it rebuilds once from notes.
+- Does not batch the schema migration script (its leading PRAGMA is ignored inside a transaction).
+- Does not change the sqlite-vec deferral; the 2026-11-06 revisit stands, now with the browser-native constraint added.
+
+## 6. What this unblocks
+
+- The index is usable the moment Obsidian opens: the stored index answers immediately and only the routine startup refresh runs, where before an empty in-memory index forced a second rebuild (numbers in the CHANGELOG). The startup projection pass itself still runs every launch; skipping it when no note changed is the next step and sits with the open closure-invalidation question on the [v0.1.5 page](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/).
+- The OpenClast row can flip from "Worker not yet exercised" to exercised once the host rerun is green.
+- The TeachingStack consumer's read-only queries now hit a persisted index rather than a rebuilt one.
+
+## 7. Related
+
+- Terms: [Tier 2](/crosswalker/concepts/system-architecture/), [projection](/crosswalker/concepts/terminology/#projection)
+- Decisions: [Ch 23 synthesis](/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/), [Tier 2 substrate synthesis](/crosswalker/agent-context/zz-log/2026-05-04-tier-2-substrate-synthesis/), [WASM-A pivot](/crosswalker/agent-context/zz-log/2026-05-06-wasm-a-pivot-synthesis/), [inline sqlite distribution](/crosswalker/agent-context/zz-log/2026-09-12-inline-sqlite-distribution-synthesis/), [closure cache fix](/crosswalker/agent-context/zz-log/2026-08-20-closure-cache-fix-and-what-it-means/)
+- Milestone: [v0.1.5](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/); delivery detail in `CHANGELOG.md` `[Unreleased]`
+- Architecture: [system architecture](/crosswalker/concepts/system-architecture/), [embedded vs server substrates](/crosswalker/concepts/embedded-vs-server-substrates/)

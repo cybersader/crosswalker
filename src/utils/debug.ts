@@ -577,6 +577,8 @@ export class DebugLog {
 		pluginVersion: string;
 		obsidianVersion: string;
 		platform: string;
+		/** Where the search index lives this session (W5), when known. */
+		searchIndex?: string;
 		settings: Record<string, unknown>;
 		maxRecentEvents?: number;
 	}): string {
@@ -708,6 +710,8 @@ export interface DiagnosticsBundleInput {
 	pluginVersion: string;
 	obsidianVersion: string;
 	platform: string;
+	/** Where the search index lives this session (W5), when known. */
+	searchIndex?: string;
 	sessionId: string;
 	settings: Record<string, unknown>;
 	ringBuffer: DebugEvent[];
@@ -726,6 +730,7 @@ export function buildDiagnosticsBundle(input: DiagnosticsBundleInput): string {
 		plugin_version: input.pluginVersion,
 		obsidian_version: input.obsidianVersion,
 		platform: input.platform,
+		...(input.searchIndex ? { search_index: input.searchIndex } : {}),
 		settings: redactSettingsSnapshot(input.settings),
 		last_import_summary: lastImportSummary ? redactEvent(lastImportSummary) : null,
 		recent_events: recentEvents,

@@ -149,9 +149,9 @@ function mappingRows(db: TestDb): unknown[][] {
 
 describe('slice 2 B1: Tier 2 projector reads mapping tables', () => {
 	let db: TestDb;
-	beforeEach(() => {
+	beforeEach(async () => {
 		db = createTestDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 	});
 	afterEach(() => db.close());
 

@@ -230,20 +230,20 @@ describe('a stamped link survives projection and notices an upstream change', ()
 	}
 
 	let db: TestDb;
-	beforeEach(() => { db = createTestDb(); applyMigrations(db as any); });
+	beforeEach(async () => { db = createTestDb(); await applyMigrations(db as any); });
 	afterEach(() => db.close());
 
 	it('counts while the control is unchanged, and flags it once it changes', async () => {
 		const link = frontmatterOf(buildEvidenceLink(linkInput()).markdown);
 
 		await project(db, CID_OLD, link);
-		expect(evidenceCoverageByConcept(db, 'nist-800-53')[0].valid_count).toBe(1);
-		expect(diagnoseExcludedJunctions(db)).toEqual([]);
+		expect((await evidenceCoverageByConcept(db, 'nist-800-53'))[0].valid_count).toBe(1);
+		expect(await diagnoseExcludedJunctions(db)).toEqual([]);
 
 		// The control is re-imported from a new release. Same identifier, new text.
 		await project(db, CID_NEW, link);
-		expect(evidenceCoverageByConcept(db, 'nist-800-53')[0].valid_count).toBe(0);
-		expect(diagnoseExcludedJunctions(db).map((j) => j.reason)).toEqual(['subject-changed']);
+		expect((await evidenceCoverageByConcept(db, 'nist-800-53'))[0].valid_count).toBe(0);
+		expect((await diagnoseExcludedJunctions(db)).map((j) => j.reason)).toEqual(['subject-changed']);
 	});
 
 	it('E7: a hand-edited approved link is unrecorded, and projection never writes to fix that', async () => {
@@ -267,8 +267,8 @@ describe('a stamped link survives projection and notices an upstream change', ()
 
 		expect(JSON.stringify(handEdited)).toBe(before);
 		// It counts, and it is named.
-		expect(evidenceCoverageByConcept(db, 'nist-800-53')[0].valid_count).toBe(1);
-		expect(listUnbaselinedValidJunctions(db).map((j) => j.baseline)).toEqual(['unrecorded']);
+		expect((await evidenceCoverageByConcept(db, 'nist-800-53'))[0].valid_count).toBe(1);
+		expect((await listUnbaselinedValidJunctions(db)).map((j) => j.baseline)).toEqual(['unrecorded']);
 	});
 });
 

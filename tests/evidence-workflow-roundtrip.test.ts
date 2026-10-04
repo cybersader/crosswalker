@@ -104,27 +104,27 @@ const linkInput = {
 
 describe('a link created by the command is counted by the report', () => {
 	let db: TestDb;
-	beforeEach(() => { db = createTestDb(); applyMigrations(db as any); });
+	beforeEach(async () => { db = createTestDb(); await applyMigrations(db as any); });
 	afterEach(() => db.close());
 
 	it('closes the gap it was created to close', async () => {
 		// Before: the control is a gap.
 		await projectFromTier1(mockApp([[CONTROL_PATH, controlNote]]), db as any, { projectionMode: 'full' });
-		expect(conceptsWithoutValidEvidence(db, 'nist-800-53')).toHaveLength(1);
+		expect(await conceptsWithoutValidEvidence(db, 'nist-800-53')).toHaveLength(1);
 
 		// After: the same control is covered, with nothing set aside.
 		await projectWith(db, linkInput);
-		expect(conceptsWithoutValidEvidence(db, 'nist-800-53')).toHaveLength(0);
-		expect(diagnoseExcludedJunctions(db)).toHaveLength(0);
+		expect(await conceptsWithoutValidEvidence(db, 'nist-800-53')).toHaveLength(0);
+		expect(await diagnoseExcludedJunctions(db)).toHaveLength(0);
 
-		const summary = evidenceCoverageSummary(db, 'nist-800-53');
+		const summary = await evidenceCoverageSummary(db, 'nist-800-53');
 		expect(summary.covered).toBe(1);
 		expect(summary.excluded_junctions).toBe(0);
 	});
 
 	it('counts a partial link as partial, not as covered', async () => {
 		await projectWith(db, { ...linkInput, coverage: 'partial' });
-		const summary = evidenceCoverageSummary(db, 'nist-800-53');
+		const summary = await evidenceCoverageSummary(db, 'nist-800-53');
 		expect(summary.partial).toBe(1);
 		expect(summary.covered).toBe(0);
 	});
@@ -134,20 +134,20 @@ describe('a link created by the command is counted by the report', () => {
 		// users will produce. It must not silently count, and the reason it
 		// does not must be discoverable.
 		await projectWith(db, { ...linkInput, status: 'proposed' });
-		expect(conceptsWithoutValidEvidence(db, 'nist-800-53')).toHaveLength(1);
-		expect(diagnoseExcludedJunctions(db)[0].reason).toBe('not-approved');
+		expect(await conceptsWithoutValidEvidence(db, 'nist-800-53')).toHaveLength(1);
+		expect((await diagnoseExcludedJunctions(db))[0].reason).toBe('not-approved');
 	});
 
 	it('does not count a link that records non-coverage', async () => {
 		await projectWith(db, { ...linkInput, coverage: 'none' });
-		expect(conceptsWithoutValidEvidence(db, 'nist-800-53')).toHaveLength(1);
-		expect(diagnoseExcludedJunctions(db)[0].reason).toBe('coverage-not-asserted');
+		expect(await conceptsWithoutValidEvidence(db, 'nist-800-53')).toHaveLength(1);
+		expect((await diagnoseExcludedJunctions(db))[0].reason).toBe('coverage-not-asserted');
 	});
 
 	it('reports a link to an unimported control as unresolvable rather than counting it', async () => {
 		await projectWith(db, { ...linkInput, controlCurie: 'nist-800-53:NOT-IMPORTED' });
-		expect(conceptsWithoutValidEvidence(db, 'nist-800-53')).toHaveLength(1);
-		expect(diagnoseExcludedJunctions(db)[0].reason).toBe('subject-not-a-known-concept');
+		expect(await conceptsWithoutValidEvidence(db, 'nist-800-53')).toHaveLength(1);
+		expect((await diagnoseExcludedJunctions(db))[0].reason).toBe('subject-not-a-known-concept');
 	});
 
 	it('records the index freshness the report will quote', async () => {
@@ -155,7 +155,7 @@ describe('a link created by the command is counted by the report', () => {
 		// report would silently downgrade to "freshness unknown".
 		const { readProjectionStatus } = await import('../src/tier2/projector');
 		await projectWith(db, linkInput);
-		const status = readProjectionStatus(db);
+		const status = await readProjectionStatus(db);
 		expect(status.lastProjectedAt).not.toBeNull();
 		expect(status.mode).toBe('full');
 		expect(status.succeeded).toBe(true);

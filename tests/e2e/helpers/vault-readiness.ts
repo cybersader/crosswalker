@@ -289,8 +289,8 @@ export async function resetTier2Sidecar(): Promise<{
 		const counts: Record<string, number> = {};
 		for (const table of tables) {
 			try {
-				handle.db.exec({ sql: `DELETE FROM ${table}` });
-				const rows = handle.db.exec({
+				await handle.db.exec({ sql: `DELETE FROM ${table}` });
+				const rows = await handle.db.exec({
 					sql: `SELECT COUNT(*) FROM ${table}`,
 					rowMode: 'array',
 					returnValue: 'resultRows',

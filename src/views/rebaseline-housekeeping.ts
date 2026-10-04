@@ -9,6 +9,7 @@
 import { App, Modal, Notice, Setting, TFile } from 'obsidian';
 import { readReviewGroupCids, type ReviewGroupCids } from '../generation/hash';
 import { hashFrontmatter } from '../tier2/projector';
+import { asTier2Db, type Tier2DbLike } from '../tier2/db';
 import { readNoteFrontmatterState } from '../export/vault-reader';
 
 export interface HousekeepingRebaselineCandidate {
@@ -49,13 +50,14 @@ export function selectedReportPaths(selection: string): string[] {
  * Refuses the whole selection if even one row is not a classifiable,
  * housekeeping-only change.
  */
-export function resolveHousekeepingRebaselineCandidates(
-	db: any,
+export async function resolveHousekeepingRebaselineCandidates(
+	dbLike: Tier2DbLike,
 	paths: string[],
-): HousekeepingRebaselineCandidate[] {
+): Promise<HousekeepingRebaselineCandidate[]> {
+	const db = asTier2Db(dbLike);
 	const out: HousekeepingRebaselineCandidate[] = [];
 	for (const path of paths) {
-		const rows = db.exec({
+		const rows = await db.exec({
 			sql: `
 				SELECT
 					j.vault_path,
@@ -85,7 +87,7 @@ export function resolveHousekeepingRebaselineCandidates(
 			bind: { $path: path },
 			rowMode: 'array',
 			returnValue: 'resultRows',
-		}) as unknown[][];
+		});
 		if (rows.length === 0) {
 			throw new Error(`${path} is not a projected evidence link.`);
 		}
@@ -145,9 +147,10 @@ export class HousekeepingIndexUpdateError extends Error {
 /** Canonical Tier 1 first; Tier 2 is updated only after every file write succeeds. */
 export async function applyHousekeepingRebaseline(
 	app: App,
-	db: any,
+	dbLike: Tier2DbLike,
 	candidates: HousekeepingRebaselineCandidate[],
 ): Promise<void> {
+	const db = asTier2Db(dbLike);
 	// Resolve every selected note before the first write. This cannot make vault
 	// writes transactional, but it prevents a missing later selection from
 	// producing an avoidable half-applied batch.
@@ -210,49 +213,40 @@ export async function applyHousekeepingRebaseline(
 
 	// Tier 2 is deletable projection state. Update it only after Tier 1 succeeded,
 	// so an interruption can leave a stale cache but can never make the cache the
-	// sole source of the new audit fact. The savepoint makes the selected Tier 2
-	// rows all-or-none and keeps source_hash aligned with the canonical edit.
-	// The SAVEPOINT is inside the try because opening it is itself a database
-	// call, and it is the first thing to fail if the index was reset while the
-	// confirmation dialog was open. Left outside, that failure escaped untyped
-	// and the command reported the whole operation as failed even though every
-	// note above had already been written.
+	// sole source of the new audit fact. The UPDATE list is computed only now,
+	// after every vault write, and sent as one batch (W4): one SAVEPOINT makes
+	// the selected Tier 2 rows all-or-none and keeps source_hash aligned with
+	// the canonical edit. The batch is inside the try because it is the first
+	// database call to fail if the index was reset while the confirmation
+	// dialog was open. Left outside, that failure escaped untyped and the
+	// command reported the whole operation as failed even though every note
+	// above had already been written.
 	try {
-		db.exec('SAVEPOINT housekeeping_rebaseline');
-		for (const candidate of candidates) {
-			db.exec({
-				sql: `
-					UPDATE junction_notes
-					SET reviewed_against_curie = $curie,
-						reviewed_against_cid = $review_cid,
-						reviewed_wording_cid = $wording,
-						reviewed_scope_cid = $scope,
-						reviewed_housekeeping_cid = $housekeeping,
-						source_hash = $source_hash,
-						modified_at = $modified_at
-					WHERE vault_path = $path
-				`,
-				bind: {
-					$curie: candidate.subjectCurie,
-					$review_cid: candidate.reviewCid,
-					$wording: candidate.reviewGroups.wording,
-					$scope: candidate.reviewGroups.scope,
-					$housekeeping: candidate.reviewGroups.housekeeping,
-					$source_hash: sourceHashes.get(candidate.vaultPath),
-					$modified_at: new Date().toISOString(),
-					$path: candidate.vaultPath,
-				},
-			});
-		}
-		db.exec('RELEASE housekeeping_rebaseline');
+		await db.execBatch(candidates.map((candidate) => ({
+			sql: `
+				UPDATE junction_notes
+				SET reviewed_against_curie = $curie,
+					reviewed_against_cid = $review_cid,
+					reviewed_wording_cid = $wording,
+					reviewed_scope_cid = $scope,
+					reviewed_housekeeping_cid = $housekeeping,
+					source_hash = $source_hash,
+					modified_at = $modified_at
+				WHERE vault_path = $path
+			`,
+			bind: {
+				$curie: candidate.subjectCurie,
+				$review_cid: candidate.reviewCid,
+				$wording: candidate.reviewGroups.wording,
+				$scope: candidate.reviewGroups.scope,
+				$housekeeping: candidate.reviewGroups.housekeeping,
+				$source_hash: sourceHashes.get(candidate.vaultPath),
+				$modified_at: new Date().toISOString(),
+				$path: candidate.vaultPath,
+			},
+		})));
 	} catch (error) {
-		try {
-			db.exec('ROLLBACK TO housekeeping_rebaseline');
-			db.exec('RELEASE housekeeping_rebaseline');
-		} catch {
-			// Preserve the original Tier 2 update error. On a closed database
-			// both of these throw too, which is expected and says nothing new.
-		}
+		// The batch rolled itself back; nothing of it was applied.
 		throw new HousekeepingIndexUpdateError(
 			error instanceof Error ? error.message : String(error),
 			error,
@@ -308,7 +302,7 @@ function confirmHousekeepingRebaseline(app: App, count: number): Promise<boolean
 
 export interface HousekeepingRebaselineCommandDeps {
 	app: App;
-	openTier2: () => Promise<{ db: any }>;
+	openTier2: () => Promise<{ db: Tier2DbLike }>;
 	selection: string;
 	confirm?: (count: number) => Promise<boolean>;
 }
@@ -324,7 +318,7 @@ export async function runHousekeepingRebaselineCommand(
 	}
 	try {
 		const { db } = await deps.openTier2();
-		const candidates = resolveHousekeepingRebaselineCandidates(db, paths);
+		const candidates = await resolveHousekeepingRebaselineCandidates(db, paths);
 		const confirmed = await (deps.confirm ?? ((count) => confirmHousekeepingRebaseline(deps.app, count)))(candidates.length);
 		if (!confirmed) return 0;
 

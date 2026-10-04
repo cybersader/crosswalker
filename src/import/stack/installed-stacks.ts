@@ -1,4 +1,5 @@
 import { plural } from '../../utils/plural';
+import { copyTextWithFallback } from '../../utils/clipboard';
 import { App, Modal, Notice, Setting } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
 import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
@@ -199,10 +200,10 @@ export function renderInstalledStacks(root: HTMLElement, app: App, plugin: Cross
 				link.click(); link.remove();
 				setTimeout(() => URL.revokeObjectURL(url), 0);
 			} catch { new Notice('Could not download this stack. Check download permissions, then try again.'); return; }
-			try {
-				await navigator.clipboard.writeText(json);
-				new Notice('Stack definition downloaded and copied to the clipboard.');
-			} catch { new Notice('Stack definition downloaded, but clipboard copy failed. Check clipboard permissions, then try again.'); }
+			const outcome = await copyTextWithFallback(app, json, 'Stack definition');
+			new Notice(outcome === 'copied'
+				? 'Stack definition downloaded and copied to the clipboard.'
+				: 'Stack definition downloaded. Its text is open for you to copy.');
 		});
 		buttons.createEl('button', { text: 'Delete' }).addEventListener('click', () =>
 			new DeleteStackModal(app, plugin, stack, redraw).open());

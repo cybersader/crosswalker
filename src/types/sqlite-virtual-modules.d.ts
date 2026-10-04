@@ -13,3 +13,11 @@ declare module 'virtual:sqlite3-mjs-text' {
 	};
 	export default asset;
 }
+
+declare module 'virtual:tier2-worker-text' {
+	const asset: {
+		readonly cwTier2Worker: 'worker-text';
+		readonly payload: string;
+	};
+	export default asset;
+}

@@ -93,7 +93,13 @@ describe('inline sqlite runtime loader', () => {
 
 		expect(locateFile).toBeDefined();
 		expect(locateFile?.('sqlite3.wasm')).toBe('sqlite3.wasm');
-		expect(warnSpy).not.toHaveBeenCalled();
+		// This suite drives the main-thread loader, which since 2026-10-03 is the
+		// in-memory fallback: Jest has no Worker, so the documented fallback
+		// warning is expected. Nothing else may warn.
+		const unexpected = warnSpy.mock.calls.filter(
+			(call) => !String(call[0]).includes('falling back to in-memory sidecar'),
+		);
+		expect(unexpected).toEqual([]);
 		await handle.close();
 	});
 

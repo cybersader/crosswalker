@@ -101,9 +101,9 @@ async function fullProjection(db: TestDb, entries: Array<[TestFile, Record<strin
 describe('Tier 2 full-projection pruning', () => {
 	let db: TestDb;
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		db = createTestDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 	});
 
 	afterEach(() => {
@@ -198,7 +198,7 @@ describe('Tier 2 pruning fails closed on unreadable frontmatter', () => {
 	it('refuses to prune a note whose frontmatter block is present but unparsed', async () => {
 		const db = createTestDb();
 		try {
-			applyMigrations(db);
+			await applyMigrations(db);
 
 			const file = conceptFile('Frameworks/example/A.md');
 			await fullProjection(db, [[file, conceptFrontmatter('example:A')]]);
@@ -224,7 +224,7 @@ describe('Tier 2 pruning fails closed on unreadable frontmatter', () => {
 	it('still skips an ordinary note that genuinely has no frontmatter block', async () => {
 		const db = createTestDb();
 		try {
-			applyMigrations(db);
+			await applyMigrations(db);
 			const file = conceptFile('Notes/Plain.md');
 			// No frontmatterPosition: the note positively has no frontmatter block, so
 			// it is not ours and skipping it must not block pruning.

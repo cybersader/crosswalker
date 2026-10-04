@@ -117,9 +117,9 @@ describe('Crosswalker plugin — v0.1.5 Phase 4 plugin integration', function ()
 			// @ts-expect-error — plugin handle is untyped in the E2E harness
 			const plugin = app.plugins.plugins['crosswalker'];
 			const { db } = await plugin.openTier2();
-			db.exec('CREATE TABLE IF NOT EXISTS e2e_purge_probe (marker TEXT)');
-			db.exec("INSERT INTO e2e_purge_probe (marker) VALUES ('survived-the-purge')");
-			const rows = db.exec({
+			await db.exec('CREATE TABLE IF NOT EXISTS e2e_purge_probe (marker TEXT)');
+			await db.exec("INSERT INTO e2e_purge_probe (marker) VALUES ('survived-the-purge')");
+			const rows = await db.exec({
 				sql: 'SELECT count(*) FROM e2e_purge_probe',
 				rowMode: 'array',
 				returnValue: 'resultRows',
@@ -141,7 +141,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 4 plugin integration', function ()
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const { db } = await plugin.openTier2();
-			const rows = db.exec({
+			const rows = await db.exec({
 				sql: "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='e2e_purge_probe'",
 				rowMode: 'array',
 				returnValue: 'resultRows',

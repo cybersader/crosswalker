@@ -13,6 +13,8 @@
  * risk-free to bundle in v0.1."
  */
 
+import { asTier2Db, type Tier2DbLike } from './db';
+
 export const TIER2_SCHEMA_VERSION = 'tier2-sqlite-v6';
 
 /**
@@ -205,13 +207,14 @@ CREATE TABLE IF NOT EXISTS closure_cache_state (
  * Read the current sidecar's schema_version; null if schema_meta
  * doesn't exist (fresh DB) or no version row.
  */
-export function getCurrentSchemaVersion(db: any): string | null {
+export async function getCurrentSchemaVersion(dbLike: Tier2DbLike): Promise<string | null> {
+	const db = asTier2Db(dbLike);
 	try {
-		const result = db.exec({
+		const result = await db.exec({
 			sql: "SELECT value FROM schema_meta WHERE key = 'schema_version' LIMIT 1",
 			rowMode: 'array',
 			returnValue: 'resultRows',
-		}) as unknown[][];
+		});
 		if (result.length === 0) return null;
 		return String(result[0][0]);
 	} catch {
@@ -228,8 +231,9 @@ export function getCurrentSchemaVersion(db: any): string | null {
  * projection of canonical Tier 1; nothing is lost on rebuild beyond
  * the cached closure (which gets recomputed on demand).
  */
-export function applyMigrations(db: any): boolean {
-	const current = getCurrentSchemaVersion(db);
+export async function applyMigrations(dbLike: Tier2DbLike): Promise<boolean> {
+	const db = asTier2Db(dbLike);
+	const current = await getCurrentSchemaVersion(db);
 
 	if (current === TIER2_SCHEMA_VERSION) {
 		// Already at target version; nothing to do
@@ -239,7 +243,10 @@ export function applyMigrations(db: any): boolean {
 	// Tier 2 is fully derived, so every non-current state is rebuilt. This
 	// deliberately includes unversioned databases: CREATE TABLE IF NOT EXISTS
 	// must not preserve an old cache shape and then stamp it as current.
-	db.exec(`
+	//
+	// Deliberately three separate calls rather than one batch: the DDL opens with
+	// PRAGMA foreign_keys, which SQLite ignores inside a transaction.
+	await db.exec(`
 		DROP VIEW IF EXISTS junction_notes_with_freshness;
 		DROP TABLE IF EXISTS closure_cache_state;
 		DROP TABLE IF EXISTS closure_cache;
@@ -252,14 +259,14 @@ export function applyMigrations(db: any): boolean {
 
 	// Apply the current DDL. The constant is version-named on purpose: a stale
 	// reference must fail to compile rather than silently apply an old shape.
-	db.exec(TIER2_DDL_V6);
+	await db.exec(TIER2_DDL_V6);
 
 	// Stamp the version. Deliberately NOT `projected_at`: the tables were just
 	// emptied, so nothing has been projected. Recording a projection timestamp
 	// here would assert the opposite of what is true. The caller is responsible
 	// for reprojecting — see openTier2() in main.ts, which does so unconditionally
 	// when this function reports a rebuild.
-	db.exec({
+	await db.exec({
 		sql: `INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', $sv)`,
 		bind: { $sv: TIER2_SCHEMA_VERSION },
 	});

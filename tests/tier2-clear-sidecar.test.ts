@@ -17,8 +17,10 @@
  * Same error class as the cache-lag family logged elsewhere in this project:
  * an unobserved absence was treated as a verified one.
  *
- * Seam. `src/tier2/sidecar.ts` loads the WASM runtime by Blob-URL dynamic
- * import, which ts-jest downlevels to `require(<url string>)`. Overriding
+ * Seam. sqlite and the SAH pool live in a dedicated Worker (2026-10-03). Tests
+ * install an in-process transport (`helpers/in-process-worker.ts`) that runs the
+ * real Worker handler; it loads the WASM runtime by Blob-URL dynamic import,
+ * which ts-jest downlevels to `require(<url string>)`. Overriding
  * `URL.createObjectURL` to return the absolute path of
  * `tests/helpers/fake-sqlite-wasm.ts` therefore substitutes a modelled
  * sqlite3 namespace with no change to `src/`. See that helper for what the
@@ -32,6 +34,7 @@ import {
 	fakeSqlite3InitCalls,
 	FakeSahPool,
 } from './helpers/fake-sqlite-wasm';
+import { createInProcessWorkerFactory } from './helpers/in-process-worker';
 
 const FAKE_MODULE_PATH = path.join(__dirname, 'helpers', 'fake-sqlite-wasm.ts');
 const DEFAULT_PATH = '.crosswalker.sqlite';
@@ -63,8 +66,8 @@ function createPlugin(): TestPlugin {
 }
 
 /** Rows written before the reset. If any survive it, the reset did not work. */
-function seedClosureCache(db: any): void {
-	db.exec(`
+async function seedClosureCache(db: any): Promise<void> {
+	await db.exec(`
 		INSERT INTO closure_cache
 			(subject_id, predicate_id, object_id, shortest_depth, computed_at)
 		VALUES ('example:A', 'is_broader_than', 'example:B', 1, '2026-08-27T00:00:00.000Z');
@@ -74,8 +77,8 @@ function seedClosureCache(db: any): void {
 	`);
 }
 
-function countRows(db: any, table: string): number {
-	const rows = db.exec({
+async function countRows(db: any, table: string): Promise<number> {
+	const rows = await db.exec({
 		sql: `SELECT COUNT(*) FROM ${table}`,
 		rowMode: 'array',
 		returnValue: 'resultRows',
@@ -100,6 +103,7 @@ describe('Tier 2 reset (clearSidecar)', () => {
 		// way to exercise a first open.
 		jest.resetModules();
 		sidecar = require('../src/tier2/sidecar');
+		require('../src/tier2/worker-db').setTier2WorkerFactory(createInProcessWorkerFactory());
 		plugin = createPlugin();
 
 		const urlCtor = URL as unknown as Record<string, unknown>;
@@ -270,14 +274,14 @@ describe('Tier 2 reset (clearSidecar)', () => {
 			const first = await sidecar.openSidecar(plugin as any, plugin.app as any, {
 				sidecarPath: DEFAULT_PATH,
 			});
-			seedClosureCache(first.db);
+			await seedClosureCache(first.db);
 			await first.close();
 
 			const second = await sidecar.openSidecar(plugin as any, plugin.app as any, {
 				sidecarPath: DEFAULT_PATH,
 			});
 			expect(second.schemaRebuilt).toBe(false);
-			expect(countRows(second.db, 'closure_cache')).toBe(1);
+			expect(await countRows(second.db, 'closure_cache')).toBe(1);
 			await second.close();
 		});
 
@@ -287,8 +291,8 @@ describe('Tier 2 reset (clearSidecar)', () => {
 			const first = await sidecar.openSidecar(plugin as any, plugin.app as any, {
 				sidecarPath: DEFAULT_PATH,
 			});
-			seedClosureCache(first.db);
-			expect(countRows(first.db, 'closure_cache')).toBe(1);
+			await seedClosureCache(first.db);
+			expect(await countRows(first.db, 'closure_cache')).toBe(1);
 			await first.close();
 
 			await sidecar.clearSidecar(plugin as any, DEFAULT_PATH);
@@ -299,8 +303,8 @@ describe('Tier 2 reset (clearSidecar)', () => {
 			// A rebuilt schema is the signal the caller reprojects on. Getting
 			// false here would mean the old file came back.
 			expect(reopened.schemaRebuilt).toBe(true);
-			expect(countRows(reopened.db, 'closure_cache')).toBe(0);
-			expect(countRows(reopened.db, 'concepts')).toBe(0);
+			expect(await countRows(reopened.db, 'closure_cache')).toBe(0);
+			expect(await countRows(reopened.db, 'concepts')).toBe(0);
 			await reopened.close();
 		});
 
@@ -313,8 +317,8 @@ describe('Tier 2 reset (clearSidecar)', () => {
 			const first = await sidecar.openSidecar(plugin as any, plugin.app as any, {
 				sidecarPath: DEFAULT_PATH,
 			});
-			seedClosureCache(first.db);
-			expect(countRows(first.db, 'closure_cache_state')).toBe(1);
+			await seedClosureCache(first.db);
+			expect(await countRows(first.db, 'closure_cache_state')).toBe(1);
 			await first.close();
 
 			await sidecar.clearSidecar(plugin as any, DEFAULT_PATH);
@@ -322,8 +326,8 @@ describe('Tier 2 reset (clearSidecar)', () => {
 			const reopened = await sidecar.openSidecar(plugin as any, plugin.app as any, {
 				sidecarPath: DEFAULT_PATH,
 			});
-			expect(countRows(reopened.db, 'closure_cache')).toBe(0);
-			expect(countRows(reopened.db, 'closure_cache_state')).toBe(0);
+			expect(await countRows(reopened.db, 'closure_cache')).toBe(0);
+			expect(await countRows(reopened.db, 'closure_cache_state')).toBe(0);
 			await reopened.close();
 		});
 	});
@@ -440,7 +444,7 @@ describe('Tier 2 reset (clearSidecar)', () => {
 			});
 			// The fallback is a working database, just not a persisted one.
 			expect(handle.schemaRebuilt).toBe(true);
-			seedClosureCache(handle.db);
+			await seedClosureCache(handle.db);
 			await handle.close();
 
 			// No pool ever installed means no pool file can exist, so absence

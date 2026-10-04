@@ -71,12 +71,12 @@ describe('Crosswalker plugin — v0.1.5 Phase 1 substrate scaffolding (smoke)', 
 			if (!terminal || terminal.op !== 'auto-projection-complete' || !handle) {
 				return { terminal, diagnostics, handlePresent: Boolean(handle), concepts: [], status: {} };
 			}
-			const concepts = handle.db.exec({
+			const concepts = await handle.db.exec({
 				sql: 'SELECT curie FROM concepts ORDER BY curie',
 				rowMode: 'array',
 				returnValue: 'resultRows',
 			}) as unknown[][];
-			const statusRows = handle.db.exec({
+			const statusRows = await handle.db.exec({
 				sql: "SELECT key, value FROM schema_meta WHERE key IN ('last_projected_at','last_projection_mode','last_projection_success') ORDER BY key",
 				rowMode: 'array',
 				returnValue: 'resultRows',
@@ -152,7 +152,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 1 substrate scaffolding (smoke)', 
 			// @ts-expect-error - internal plugin lookup
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const rows = handle.db.exec({
+			const rows = await handle.db.exec({
 				sql: 'SELECT 1 AS v',
 				rowMode: 'array',
 				returnValue: 'resultRows',
@@ -169,7 +169,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 1 substrate scaffolding (smoke)', 
 			// @ts-expect-error - internal plugin lookup
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const rows = handle.db.exec({
+			const rows = await handle.db.exec({
 				sql: "SELECT value FROM schema_meta WHERE key = 'schema_version' LIMIT 1",
 				rowMode: 'array',
 				returnValue: 'resultRows',
@@ -186,7 +186,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 1 substrate scaffolding (smoke)', 
 			// @ts-expect-error - internal plugin lookup
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const rows = handle.db.exec({
+			const rows = await handle.db.exec({
 				sql: "SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name",
 				rowMode: 'array',
 				returnValue: 'resultRows',

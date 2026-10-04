@@ -11,7 +11,7 @@ const hash = (character: string): string => `sha256-${character.repeat(64)}`;
 const OLD = { review: hash('a'), wording: hash('b'), scope: hash('c'), housekeeping: hash('d') };
 const NEW = { review: hash('e'), wording: hash('f'), scope: hash('0'), housekeeping: hash('1') };
 
-function createDb(): TestDb {
+async function createDb(): Promise<TestDb> {
 	const sqlite = new DatabaseSync(':memory:');
 	const db: TestDb = {
 		exec(input) {
@@ -24,7 +24,7 @@ function createDb(): TestDb {
 		},
 		close: () => sqlite.close(),
 	};
-	applyMigrations(db as any);
+	await applyMigrations(db as any);
 	db.exec(`INSERT INTO ontologies (id, name, base_path, recipe_id, imported_at)
 	         VALUES ('test', 'test', 'Frameworks', 'test', '2026-08-28')`);
 	return db;
@@ -67,47 +67,47 @@ function seed(
 	});
 }
 
-function verdict(db: TestDb) {
-	const rows = diagnoseExcludedJunctions(db);
+async function verdict(db: TestDb) {
+	const rows = await diagnoseExcludedJunctions(db);
 	expect(rows).toHaveLength(1);
 	return rows[0];
 }
 
 describe('attestation change-kind priority', () => {
-	it('wording outranks simultaneous scope and housekeeping changes', () => {
-		const db = createDb();
+	it('wording outranks simultaneous scope and housekeeping changes', async () => {
+		const db = await createDb();
 		try {
 			seed(db, NEW, OLD);
-			expect(verdict(db)).toMatchObject({ subject_baseline: 'changed', change_kind: 'wording' });
+			expect(await verdict(db)).toMatchObject({ subject_baseline: 'changed', change_kind: 'wording' });
 		} finally { db.close(); }
 	});
 
-	it('scope outranks housekeeping when wording matches', () => {
-		const db = createDb();
+	it('scope outranks housekeeping when wording matches', async () => {
+		const db = await createDb();
 		try {
 			seed(db, { ...NEW, wording: OLD.wording }, OLD);
-			expect(verdict(db).change_kind).toBe('scope');
+			expect((await verdict(db)).change_kind).toBe('scope');
 		} finally { db.close(); }
 	});
 
-	it('housekeeping is used only when wording and scope match', () => {
-		const db = createDb();
+	it('housekeeping is used only when wording and scope match', async () => {
+		const db = await createDb();
 		try {
 			seed(db, { ...NEW, wording: OLD.wording, scope: OLD.scope }, OLD);
-			expect(verdict(db).change_kind).toBe('housekeeping');
+			expect((await verdict(db)).change_kind).toBe('housekeeping');
 		} finally { db.close(); }
 	});
 
-	it('a changed legacy baseline defaults to wording, never dismissible housekeeping', () => {
-		const db = createDb();
+	it('a changed legacy baseline defaults to wording, never dismissible housekeeping', async () => {
+		const db = await createDb();
 		try {
 			seed(db, NEW, { review: OLD.review });
-			expect(verdict(db).change_kind).toBe('wording');
+			expect((await verdict(db)).change_kind).toBe('wording');
 		} finally { db.close(); }
 	});
 
-	it('a matching whole-row fingerprint has no change kind even if group hashes differ', () => {
-		const db = createDb();
+	it('a matching whole-row fingerprint has no change kind even if group hashes differ', async () => {
+		const db = await createDb();
 		try {
 			seed(db, NEW, { ...OLD, review: NEW.review });
 			const rows = db.exec({

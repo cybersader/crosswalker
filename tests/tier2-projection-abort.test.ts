@@ -77,7 +77,7 @@ function conceptCuries(db: TestDb): string[] {
 
 describe('a projection that is called off', () => {
 	let db: TestDb;
-	beforeEach(() => { db = createTestDb(); applyMigrations(db as any); });
+	beforeEach(async () => { db = createTestDb(); await applyMigrations(db as any); });
 	afterEach(() => db.close());
 
 	it('stops early and reports an abort, not a failure', async () => {
