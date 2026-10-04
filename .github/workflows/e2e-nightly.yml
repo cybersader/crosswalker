@@ -1,0 +1,117 @@
+# Full end-to-end suite, nightly and on demand, against tests/e2e/KNOWN_RED.md.
+#
+# Why (2026-10-03, knowledge-ops gates spec K6): CI ran only the smoke spec, so
+# the first-run stack spec sat red on main from the day it was written, because
+# its config was never wired into a script anyone ran. This job runs BOTH wdio
+# configs (the seeded suite and the empty-vault first-run suite) on a hosted
+# runner (free on a public repo; owner ruling 2026-10-02) and lets the red
+# ledger decide: an unlisted red, a stale listed red, or an entry older than 30
+# days fails the job.
+#
+# Template: plugin-e2e.yml (Obsidian download cache, Xvfb plus a window manager).
+name: Plugin E2E nightly
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-e2e-nightly
+  cancel-in-progress: false
+
+env:
+  # Mirror wdio.conf.mts; part of the Obsidian download cache identity.
+  OBSIDIAN_APP_VERSION: latest
+  OBSIDIAN_INSTALLER_VERSION: earliest
+
+jobs:
+  full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache Obsidian downloads
+        uses: actions/cache@v4
+        with:
+          path: .obsidian-cache
+          key: >-
+            obsidian-${{ runner.os }}-app-${{ env.OBSIDIAN_APP_VERSION }}-installer-${{ env.OBSIDIAN_INSTALLER_VERSION }}-${{ hashFiles('bun.lock') }}
+
+      - name: Setup virtual graphics
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -q xvfb herbstluftwm dzen2 x11-xserver-utils
+          echo 'DISPLAY=:99' >> "$GITHUB_ENV"
+          Xvfb :99 -screen 0 1280x1024x24 +extension GLX -noreset > /tmp/xvfb.log 2>&1 &
+          sleep 1
+          DISPLAY=:99 herbstluftwm > /tmp/herbstluftwm.log 2>&1 &
+          sleep 1
+
+      # Red cases are expected here; the ledger step below is the verdict, so
+      # each run records its exit code instead of failing the job directly.
+      - name: Run the seeded suite (wdio.conf.mts)
+        shell: bash
+        env:
+          CW_E2E_RESULTS_DIR: .e2e-results/main
+        run: |
+          mkdir -p .e2e-artifacts
+          set +e
+          bun run e2e 2>&1 | tee .e2e-artifacts/wdio-main.log
+          echo "wdio main config exit: ${PIPESTATUS[0]}"
+
+      - name: Run the first-run suite (wdio.first-run.conf.mts)
+        shell: bash
+        env:
+          CW_E2E_RESULTS_DIR: .e2e-results/first-run
+        run: |
+          mkdir -p .e2e-artifacts
+          set +e
+          bun x wdio run wdio.first-run.conf.mts 2>&1 | tee .e2e-artifacts/wdio-first-run.log
+          echo "wdio first-run config exit: ${PIPESTATUS[0]}"
+
+      # Silence is not success: a config that crashed before any spec reported
+      # leaves an empty results directory, which must fail on its own.
+      - name: Both configs produced results
+        shell: bash
+        run: |
+          for d in .e2e-results/main .e2e-results/first-run; do
+            if ! ls "$d"/*.json > /dev/null 2>&1; then
+              echo "::error::no wdio results in $d; the run crashed before reporting"
+              exit 1
+            fi
+          done
+
+      - name: Compare with the red ledger (tests/e2e/KNOWN_RED.md)
+        run: node scripts/check-known-red.mjs .e2e-results/main .e2e-results/first-run
+
+      - name: Upload results and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-e2e-nightly-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            .e2e-results/
+            .e2e-artifacts/
+            test-screenshots/
+            test-results/

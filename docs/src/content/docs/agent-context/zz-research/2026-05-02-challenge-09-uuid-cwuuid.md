@@ -9,7 +9,7 @@ sidebar:
 ---
 
 :::tip[Origin and lifecycle]
-This is a fresh-agent research deliverable produced 2026-05-02 in response to [Challenge 09: UUID/CWUUID cross-cutting strategy](/crosswalker/agent-context/zz-challenges/archive/09-uuid-cwuuid-cross-cutting-strategy/). It was summarized in [05-02 §2.2](/crosswalker/agent-context/zz-log/2026-05-02-direction-research-wave-and-roadmap-reshape/#22-challenge-09--uuid--cwuuid-cross-cutting-identifier-strategy) and **adopted** as the identifier strategy per [05-02 direction posture](/crosswalker/agent-context/zz-log/2026-05-02-direction-research-wave-and-roadmap-reshape/#direction-posture-adopt-or-defer-per-topic) — the only research wave deliverable adopted today (others deferred pending Challenges 11/12/13). Preserved verbatim; not edited after publication.
+This is a fresh-agent research deliverable produced 2026-05-02 in response to [Challenge 09: UUID/CWUUID cross-cutting strategy](/crosswalker/agent-context/zz-challenges/archive/09-uuid-cwuuid-cross-cutting-strategy/). It was summarized in [05-02 §2.2](/crosswalker/agent-context/zz-log/2026-05-02-direction-research-wave-and-roadmap-reshape/#22-challenge-09--uuid--cwuuid-cross-cutting-identifier-strategy) and **adopted** as the identifier strategy per [05-02 direction posture](/crosswalker/agent-context/zz-log/2026-05-02-direction-research-wave-and-roadmap-reshape/#direction-posture) — the only research wave deliverable adopted today (others deferred pending Challenges 11/12/13). Preserved verbatim; not edited after publication.
 :::
 
 # Challenge 09 — UUID / CWUUID Cross-Cutting Identifier Strategy

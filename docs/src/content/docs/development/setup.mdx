@@ -28,7 +28,7 @@ That installs the plugin's dependencies. The docs site has its own separate `nod
 
 ## The local dev orchestrator — `bun run serve`
 
-From the repo root, `bun run serve` is an **interactive menu** wrapping every local workflow. It's the recommended entry point for development — it handles cross-OS `node_modules` contamination automatically (e.g. rollup native binary mismatches when bouncing between WSL and Windows), auto-installs `docs/node_modules` on first run, and cleans up all spawned children on Ctrl+C.
+From the repo root, `bun run serve` is an **interactive menu** wrapping every local workflow. It's the recommended entry point for development — it handles cross-OS `node_modules` contamination automatically (e.g. rollup native binary mismatches when bouncing between WSL and Windows), auto-installs `docs/node_modules` (local, gitignored) on first run, and cleans up all spawned children on Ctrl+C.
 
 ```bash
 bun run serve
@@ -122,6 +122,7 @@ These all work standalone if you prefer not to use the orchestrator:
 | `bun run lint:fix` | Auto-fix lint issues |
 | `bun run e2e` | Plugin E2E tests (WebdriverIO, requires Obsidian) |
 | `bun run e2e:xvfb` | Same E2E suite on a private virtual display (Xvfb). Use for screenshot specs; it keeps working when the monitors sleep |
+| `bun run e2e:first-run` | The empty-vault first-run suite (`wdio.first-run.conf.mts`: `first-run.spec.ts`, `first-run-stack.spec.ts`) on a private virtual display. The main config excludes `first-run.spec.ts` because it needs a vault with nothing set up |
 | `bun run e2e:openclast` | Browser-native host smoke: loads the root build into OpenClast (Obsidian in a headless Chromium tab) and checks the search index is stored, survives a tab reload, and that Settings says so. Run `bun run build` first. Needs an OpenClast checkout at `../../obsidian-in-the-browser` or set `OPENCLAST_REPO`; output goes to `test-screenshots/openclast/` (or `OPENCLAST_OUT`) |
 | **Orchestrator** (interactive menu wraps the workflows below) | |
 | `bun run serve` | Interactive 8-mode menu — docs dev, plugin watch, parallel both, tunnel sharing, tests, MDX check |
@@ -134,10 +135,18 @@ These all work standalone if you prefer not to use the orchestrator:
 | `bun run reset` | Clear ad-hoc test imports from `test-vault/` (dry-run by default; `-- --yes` to delete). Removes only Crosswalker-generated notes outside the protected corpus (`_licensed/`, `NIST-mini/`, `_crosswalker/`, `GRC analysis/`, `PROVENANCE.md`). Double-click `reset.bat` for a preview-then-confirm one-click |
 | **Docs** | |
 | `cd docs && bun run dev` | Docs Astro dev server |
-| `cd docs && bun run build` | Docs production build → `docs/dist` |
+| `cd docs && bun run build` | Docs production build → `docs/dist` (local, gitignored) |
 | `cd docs && bun run preview` | Serve the built dist locally |
 | `cd docs && bun run test:local` | Docs Playwright E2E tests |
 | `bun run check:mdx` | Lightweight MDX syntax pre-check (catches bare braces, unclosed tags, frontmatter YAML errors) — fast (~1–2s) |
+| **Gates** (run before every commit; CI runs the same set) | |
+| `bun run check` | Runs every `check:*` gate below in sequence and prints a summary table; exit 1 if any fails (`scripts/check-all.mjs`) |
+| `bun run check:links` | Every internal docs link resolves to a page, and every `#anchor` to a heading or `id` on it |
+| `bun run check:freshness` | Living pages carry one unscoped `Status last verified` marker, at most 30 days old; warns when most dates on a page are over 90 days old |
+| `bun run check:unverified-claims` | "Not observed", "not verified" and similar sentences in `CHANGELOG.md` `[Unreleased]` and on living pages carry a resolving `(tracked: <link>)` |
+| `bun run check:roadmap-sync` | Milestone status glyphs agree across the milestone pages, the milestone hub, the roadmap index and `ROADMAP.md` |
+| `bun run check:repo-paths` | Repo paths named in docs and the CHANGELOG exist in git (opt out with `(local, gitignored)` or `(planned)`) |
+| `bun run check:personal-data`, `check:frontmatter`, `check:not-content`, `check:log-labels` | The remaining Static Checks gates: personal data, frontmatter shape, diagram `not-content` guard, log sidebar labels |
 | **Release** | |
 | `bun run version` | Bumps version in `manifest.json` + `versions.json`; stages git changes for commit |
 
@@ -217,4 +226,4 @@ bun run serve:docs
 # Open http://localhost:14321/crosswalker/ and check the homepage loads
 ```
 
-If the plugin build or docs dev server fails with a rollup native-binary error (e.g. `Cannot find module @rollup/rollup-<platform>`), just re-run `bun run serve` — the orchestrator auto-detects the contamination and reinstalls `docs/node_modules` with the correct platform binaries.
+If the plugin build or docs dev server fails with a rollup native-binary error (e.g. `Cannot find module @rollup/rollup-<platform>`), just re-run `bun run serve` — the orchestrator auto-detects the contamination and reinstalls `docs/node_modules` (local, gitignored) with the correct platform binaries.

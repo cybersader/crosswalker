@@ -17,7 +17,7 @@ The evidence pass and architect verdicts settled the two framing questions. Read
 </Aside>
 
 :::caution[Two different "version" problems — do not conflate them]
-Crosswalker already has a migration policy for **its own** `_crosswalker` frontmatter schema (`crosswalker-v1` → `crosswalker-v2`, see [the schema-version migration policy](/crosswalker/agent-context/v0-1-schema-spec/#schema-version-migration-policy)) — additive transforms, `previous_ids` aliasing, idempotent, resumable. **That is not this challenge.** This challenge is about the **source ontology** changing — NIST publishes CSF 2.0, MITRE bumps ATT&CK, CIS ships Controls v8 — while concepts already live in a user's vault with evidence links, `user_preserve` fields, and crosswalk edges hanging off them. Keep the two axes distinct throughout the brief; conflating them is the single most likely way to produce a useless deliverable.
+Crosswalker already has a migration policy for **its own** `_crosswalker` frontmatter schema (`crosswalker-v1` → `crosswalker-v2`, see [the schema-version migration policy](/crosswalker/agent-context/v0-1-schema-spec/#schema-version-migration)) — additive transforms, `previous_ids` aliasing, idempotent, resumable. **That is not this challenge.** This challenge is about the **source ontology** changing — NIST publishes CSF 2.0, MITRE bumps ATT&CK, CIS ships Controls v8 — while concepts already live in a user's vault with evidence links, `user_preserve` fields, and crosswalk edges hanging off them. Keep the two axes distinct throughout the brief; conflating them is the single most likely way to produce a useless deliverable.
 :::
 
 ## Why this exists
@@ -94,7 +94,7 @@ This is not a green field. A large, pre-v0.1 Foundation-phase concept page alrea
 - [Ontology evolution](/crosswalker/concepts/ontology-evolution/) · [Framework versioning](/crosswalker/concepts/framework-versioning/) · [Data model resilience](/crosswalker/agent-context/data-model-resilience/) · [Schema matching](/crosswalker/concepts/schema-matching/) — the Foundation-phase prior art this challenge audits against shipped v0.1 architecture
 - [Ch 42: Variable-depth hierarchy generation](/crosswalker/agent-context/zz-challenges/42-variable-depth-hierarchy-generation/) — sibling challenge; ATT&CK sub-technique migration is a shared worked example
 - [Ch 09 (archived): UUID/CWUUID cross-cutting strategy](/crosswalker/agent-context/zz-challenges/archive/09-uuid-cwuuid-cross-cutting-strategy/) — predecessor question on renamed/split/merged controls, resolved only for identity scheme
-- [v0.1 schema spec § Schema-version migration policy](/crosswalker/agent-context/v0-1-schema-spec/#schema-version-migration-policy) — the *other* version-migration problem (see caution callout)
+- [v0.1 schema spec § Schema-version migration policy](/crosswalker/agent-context/v0-1-schema-spec/#schema-version-migration) — the *other* version-migration problem (see caution callout)
 - [Terminology: CURIE](/crosswalker/concepts/terminology/#curie) · [managed / user_preserve](/crosswalker/concepts/terminology/#managed-user-preserve) · [Ontology diff primitives](/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/)
 - [SSSOM](/crosswalker/reference/registry/sssom/) · [STRM](/crosswalker/reference/registry/strm/) · [SKOS→STRM direction convention](/crosswalker/agent-context/zz-log/2026-06-12-skos-strm-direction-convention/)
 - [v0.1.8 — Audit trail](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/) — the lineage/apply-phase substrate

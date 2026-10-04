@@ -17,7 +17,11 @@ Connect [`render()`](/crosswalker/reference/roadmap/milestones/v0-1-2-render/) t
 
 ✅ Done (2026-05-05). Generation engine refactored to call `render()` per row via `legacyConfigToRecipe()` Phase-0 compat shim; managed/user_preserve frontmatter merge wired into 'replace' mode; spec-conformant `_crosswalker` provenance via `buildProvenance`; path collision detection. 113 tests passing (85 unit + 28 E2E across 6 spec files including a full-flow test that imports a 3-row dataset, modifies a frontmatter field, re-imports, and verifies user-edited keys survived).
 
-**Status last verified:** 2026-09-05 — scoped to the milestone's surviving engine contracts at commit `30aee63b`: both generation entry points remain, the legacy recipe shim, frontmatter merge and provenance builders remain active, and the engine still performs pre-write Tier 1 validation plus path/identity collision refusal. Later re-import and ownership work extends this historical slice; the 2026-05-05 acceptance count and wizard behavior were not rerun here.
+**Status last verified:** 2026-10-03
+
+Re-checked 2026-10-03 against `CHANGELOG.md` `[Unreleased]` and current `src/`: `generateNotes()` and `generateFromRecipe()` in `src/generation/generation-engine.ts`, the `legacyConfigToRecipe()` shim, `mergeFrontmatter()`, `buildProvenance()`, pre-write `validateTier1Frontmatter()`, and identity-collision refusal are all still in place. Later re-import and ownership work in `CHANGELOG.md` `[Unreleased]` extends this slice. Done-milestone history on this page was left as written.
+
+Earlier check, 2026-09-05: checked against the milestone's surviving engine contracts at commit `30aee63b`: both generation entry points remain, the legacy recipe shim, frontmatter merge and provenance builders remain active, and the engine still performs pre-write Tier 1 validation plus path/identity collision refusal. Later re-import and ownership work extends this historical slice; the 2026-05-05 acceptance count and wizard behavior were not rerun here.
 
 ## Dependencies
 
@@ -68,10 +72,10 @@ Connect [`render()`](/crosswalker/reference/roadmap/milestones/v0-1-2-render/) t
 - `src/generation/generation-engine.ts` — major refactor
 - `src/generation/frontmatter-merge.ts` — new
 - `src/generation/provenance.ts` — new
-- `src/generation/identity.ts` — new (CURIE + concept_cid computation)
+- `src/generation/identity.ts` (planned) — new (CURIE + concept_cid computation)
 - `src/import/import-wizard.ts` — Step 3 preview alignment
-- `tests/generation/round-trip.test.ts` — new
-- `tests/generation/preserve.test.ts` — new
+- `tests/generation/round-trip.test.ts` (planned) — new
+- `tests/generation/preserve.test.ts` (planned) — new
 
 ## Open questions
 

@@ -17,7 +17,11 @@ Implement the address-rendering function from [Ch 22](/crosswalker/agent-context
 
 ✅ Done (2026-05-05). Pure `render(Recipe, ConceptIdentity) → Address` shipped with folder/file/heading mechanisms wired; tag/wikilink layout-mechanisms throw informative "deferred to v0.2" errors; 7-filter closed pipeline; 37 unit tests + 6 E2E tests (including determinism: 100 unit iterations + 50 E2E iterations all producing byte-identical output).
 
-**Status last verified:** 2026-09-05 — scoped to the core render contract at commit `30aee63b`: `src/render/index.ts` still dispatches folder/file/heading and routes tag/wikilink to explicit deferral stubs, while `src/render/template.ts` still rejects unknown filters. The seven-filter list and test counts above describe the 2026-05-05 delivery slice; later additive filters exist, and no historical test count was rerun here.
+**Status last verified:** 2026-10-03
+
+Re-checked 2026-10-03 against `CHANGELOG.md` `[Unreleased]` and current `src/`: `src/render/index.ts` still dispatches folder, file and heading and routes tag and wikilink to deferral stubs; `src/render/template.ts` still rejects an unknown filter by name. Later additive filters (through recipe SchemaVer 1.11.0, recorded in `CHANGELOG.md` `[Unreleased]`) extend the delivery slice without contradicting it. Done-milestone history on this page was left as written.
+
+Earlier check, 2026-09-05: checked against the core render contract at commit `30aee63b`: `src/render/index.ts` still dispatches folder/file/heading and routes tag/wikilink to explicit deferral stubs, while `src/render/template.ts` still rejects unknown filters. The seven-filter list and test counts above describe the 2026-05-05 delivery slice; later additive filters exist, and no historical test count was rerun here.
 
 ## Dependencies
 
@@ -67,7 +71,7 @@ Implement the address-rendering function from [Ch 22](/crosswalker/agent-context
 - `src/render/mechanisms/{folder,file,heading,tag,wikilink}.ts` — new
 - `src/render/types.ts` — new (Address, RenderResult)
 - `tests/render.test.ts` — new
-- `tests/render-determinism.test.ts` — new
+- `tests/render-determinism.test.ts` (planned) — new
 
 ## Open questions
 

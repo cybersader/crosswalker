@@ -29,7 +29,7 @@ Crosswalker has invested heavily in **first-principles representations on the ed
 - **[Ontology diff primitives](/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/)** — 9 atomic graph-edit operations (provably complete per graph edit distance literature). Crosswalker's *change primitive*.
 - **[SSSOM](/crosswalker/reference/registry/sssom/)** — the canonical row-schema envelope for crosswalk edges. Crosswalker's *metadata-envelope primitive*.
 
-But the **import side** has nothing equivalent. The current [ImportRecipe schema](/crosswalker/agent-context/v0-1-schema-spec/#4-importrecipe-schema-import-config) is a practical, ad-hoc shape: identity fields, source-file patterns, sheet selection, column-role assignments (`id` / `label` / `body` / `hierarchy` / `property` / `edge_target` / `metadata` / `ignore`), transforms (24 types, ChunkyCSV-style operations + JSONata escape hatch), output configuration. It's *workable*, but it isn't *primitive* in the same way STRM and the diff atoms are.
+But the **import side** has nothing equivalent. The current [ImportRecipe schema](/crosswalker/agent-context/v0-1-schema-spec/#4-recipe-schema-contract-and-importrecipe-specification) is a practical, ad-hoc shape: identity fields, source-file patterns, sheet selection, column-role assignments (`id` / `label` / `body` / `hierarchy` / `property` / `edge_target` / `metadata` / `ignore`), transforms (24 types, ChunkyCSV-style operations + JSONata escape hatch), output configuration. It's *workable*, but it isn't *primitive* in the same way STRM and the diff atoms are.
 
 The user's intuition (verbatim 2026-05-03):
 
@@ -111,7 +111,7 @@ The fresh agent's recommendation must honor these constraints:
 
 1. **Verdict** — pick a formalism (or argue for a hybrid).
 2. **The primitive operations** — analogous to STRM's 5 predicates or the diff engine's 9 atoms. What are the irreducible primitives the formalism reduces to? (E.g., for tree transducers: relabel, project, copy, restructure, fold, etc.)
-3. **Concrete recipe schema sketch** — TypeScript + YAML example for an actual ImportRecipe (e.g., NIST 800-53 r5) expressed against the chosen primitive. Compare-and-contrast with the [v0.1 ImportRecipe schema](/crosswalker/agent-context/v0-1-schema-spec/#4-importrecipe-schema-import-config).
+3. **Concrete recipe schema sketch** — TypeScript + YAML example for an actual ImportRecipe (e.g., NIST 800-53 r5) expressed against the chosen primitive. Compare-and-contrast with the [v0.1 ImportRecipe schema](/crosswalker/agent-context/v0-1-schema-spec/#4-recipe-schema-contract-and-importrecipe-specification).
 4. **Composability story** — how does this primitive layer compose with STRM, SSSOM envelope, ontology diff primitives? Does it subsume any of them, or is it strictly orthogonal?
 5. **Bidirectionality answer** — is round-trip Tier 1 ↔ (STRM-TSV / SSSOM-TSV / OSCAL JSON) expressible as a single recipe, or are forward and backward separate?
 6. **Migration path** — concrete plan for moving the v0.1 ImportRecipe schema (which is *practical* and *ad-hoc*) to the recommended primitive-grounded version. Phased OR rip-and-replace OR coexist?
@@ -139,8 +139,8 @@ In other words: v0.1 may end up being expressed in a primitive-grounded form *re
 
 ## Related
 
-- [v0.1 schema spec — ImportRecipe section](/crosswalker/agent-context/v0-1-schema-spec/#4-importrecipe-schema-import-config) — the practical-but-ad-hoc current shape
-- [v0.1 schema spec — column roles](/crosswalker/agent-context/v0-1-schema-spec/#4-importrecipe-schema-import-config) — `id` / `label` / `body` / `hierarchy` / etc.
+- [v0.1 schema spec — ImportRecipe section](/crosswalker/agent-context/v0-1-schema-spec/#4-recipe-schema-contract-and-importrecipe-specification) — the practical-but-ad-hoc current shape
+- [v0.1 schema spec — column roles](/crosswalker/agent-context/v0-1-schema-spec/#4-recipe-schema-contract-and-importrecipe-specification) — `id` / `label` / `body` / `hierarchy` / etc.
 - [Ontology diff primitives (Ch 04 + 04-09 atomic operations)](/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/) — the change-primitive precedent this challenge mirrors
 - [STRM registry entry](/crosswalker/reference/registry/strm/) — the predicate-primitive precedent
 - [SSSOM registry entry](/crosswalker/reference/registry/sssom/) — the envelope-primitive precedent

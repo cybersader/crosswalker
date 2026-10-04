@@ -21,7 +21,11 @@ That goal came from the [2026-05-05 two-mode architecture decision](/crosswalker
 
 The original completion note recorded 153 passing tests (116 unit + 37 E2E across 8 spec files). Those historical counts were not rerun for this verification.
 
-**Status last verified:** 2026-09-05 — scoped to the streaming API, engine boundary, wizard call site, and committed E2E source: the iterator and eager-array paths still exist, but the wizard remains eager and the E2E contains no memory measurement.
+**Status last verified:** 2026-10-03
+
+Re-checked 2026-10-03 against `CHANGELOG.md` `[Unreleased]` and current `src/`: `parseCSVFileStream()` in `src/import/parsers/csv-parser.ts` and `ParsedData.rows` accepting an array or an async iterable in `src/types/config.ts` remain; the wizard still calls the eager `parseCSVFile()`, and `tests/e2e/streaming.spec.ts` still measures no memory, as the page says. Done-milestone history on this page was left as written.
+
+Earlier check, 2026-09-05: checked against the streaming API, engine boundary, wizard call site, and committed E2E source: the iterator and eager-array paths still exist, but the wizard remains eager and the E2E contains no memory measurement.
 
 **Current limitation:** the wizard's current `>5 MB` branch detects streaming mode but calls `parseCSVFile(..., { streaming: true })`; that function still accumulates every row before returning. `tests/e2e/streaming.spec.ts` uses 100 synthetic async rows to prove iterator consumption and eager-array compatibility. It does not prove bounded wizard memory, a one-million-row import, or a memory ceiling.
 
@@ -57,7 +61,7 @@ The checklist below preserves the 2026-05-05 plan. It is not a statement that ev
 These unchecked items preserve the original plan; they are not current completion indicators. The Status section above is authoritative about what shipped and what remains open.
 
 - [ ] Update `ParsedData` type in `src/types/config.ts` — `rows: Row[] | AsyncIterable<Row>`
-- [ ] New `src/import/parsers/csv-parser-stream.ts` — `parseCSVStream(file): AsyncIterable<Row>`; PapaParse `step` callback writes into a queue; async generator pulls from the queue
+- [ ] New `src/import/parsers/csv-parser-stream.ts` (planned) — `parseCSVStream(file): AsyncIterable<Row>`; PapaParse `step` callback writes into a queue; async generator pulls from the queue
 - [ ] Refactor `generateFromRecipe` (in `src/generation/generation-engine.ts`) — change row loop from `for (let i = 0; i < parsedData.rows.length; i++)` to `for await (const row of asyncRowsOf(rowSource))`; helper `asyncRowsOf` normalizes either array or iterator into AsyncIterable
 - [ ] Refactor `generateNotes` similarly (legacy column-role path)
 - [ ] Update `runImport` and `runImportFromRecipe` plugin handles to accept the streaming-friendly form
@@ -81,7 +85,7 @@ These were the proposed 2026-05-05 targets. They are not newly passed tests, and
 
 - `src/types/config.ts` — `ParsedData.rows` type union
 - `src/import/parsers/csv-parser.ts` — keep existing path; add `parseCSVStream` export
-- `src/import/parsers/csv-parser-stream.ts` — NEW (or extend csv-parser.ts)
+- `src/import/parsers/csv-parser-stream.ts` (planned) — NEW (or extend csv-parser.ts)
 - `src/generation/generation-engine.ts` — `for await` loop; `asyncRowsOf()` helper
 - `src/main.ts` — `runImport` + `runImportFromRecipe` signature compatibility
 - `src/import/import-wizard.ts` — wizard import-run uses streaming path for large files

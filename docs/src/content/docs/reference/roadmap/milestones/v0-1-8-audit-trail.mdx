@@ -15,7 +15,11 @@ Make every run inspectable before adding stronger attestation around it. The pri
 
 📋 Planning
 
-**Status last verified:** 2026-09-05 — scoped to planning state and artifact boundaries at commit `30aee63b`: the milestone hub still marks v0.1.8 as Planning, `spec/README.md` states that neither the Execution Record nor Package Manifest contract is defined yet, and no `src/audit/` implementation directory exists. The scope below is a proposal; no run-history, signing, package-inspection, or other UI/runtime behavior is claimed or verified.
+**Status last verified:** 2026-10-03
+
+Re-checked 2026-10-03 against `CHANGELOG.md` `[Unreleased]` and current `src/`: the milestone hub still marks v0.1.8 as Planning, `spec/README.md` still defines neither the Execution Record nor the Package Manifest contract, no `src/audit/` (planned) directory exists, and `CHANGELOG.md` `[Unreleased]` records no audit-trail delivery.
+
+Earlier check, 2026-09-05: checked against planning state and artifact boundaries at commit `30aee63b`: the milestone hub still marks v0.1.8 as Planning, `spec/README.md` states that neither the Execution Record nor Package Manifest contract is defined yet, and no `src/audit/` (planned) implementation directory exists. The scope below is a proposal; no run-history, signing, package-inspection, or other UI/runtime behavior is claimed or verified.
 
 ## Dependencies
 
@@ -90,7 +94,7 @@ Make every run inspectable before adding stronger attestation around it. The pri
 ## Files to touch
 
 - `spec/` — versioned Execution Record and Package Manifest contracts
-- `src/audit/` — record writer, git consumer, signing, manifest verification, FRE 902(13)
+- `src/audit/` (planned) — record writer, git consumer, signing, manifest verification, FRE 902(13)
 - `src/generation/` and import orchestration — terminal run hooks + execution correlation
 - `src/settings/settings-tab.ts` — commit/sign/log controls
 - run-history and package-inspection UI modules

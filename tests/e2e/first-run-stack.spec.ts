@@ -17,7 +17,10 @@ function workbook(sheet: string, columns: string[], values: Record<string, strin
 }
 async function button(label: string): Promise<void> {
 	const clicked = await browser.executeObsidian((_obs, target) => {
-		const root = document.querySelector('.crosswalker-stack-modal');
+		// The newest stack modal is the one under test. A previous test's modal that
+		// is still closing must not capture the click (it once cascaded one red into two).
+		const modals = document.querySelectorAll('.crosswalker-stack-modal');
+		const root = modals.length > 0 ? modals[modals.length - 1] : null;
 		const found = Array.from(root?.querySelectorAll<HTMLButtonElement>('button') ?? [])
 			// The import button carries its planned file count ("Import stack (~13 files)")
 			// since the 2026-09-28 count work, so it is matched by its label prefix.
@@ -128,7 +131,7 @@ describe('First run: synthetic framework stack', function () {
 			throw error;
 		}
 		const result = await browser.executeObsidian(({ app }) => {
-			const notes = app.vault.getMarkdownFiles().filter((file) => ['Frameworks/NIST 800-53', 'Frameworks/MITRE ATT&CK', 'Frameworks/CRI Profile'].some((root) => file.path.startsWith(root)));
+			const notes = app.vault.getMarkdownFiles().filter((file) => ['Ontologies/NIST 800-53', 'Ontologies/MITRE ATT&CK', 'Ontologies/CRI Profile'].some((root) => file.path.startsWith(root)));
 			return { text: document.querySelector('.crosswalker-stack-modal')?.textContent ?? '',
 				paths: notes.map((file) => file.path) };
 		});
@@ -136,10 +139,19 @@ describe('First run: synthetic framework stack', function () {
 		expect(result.text).toContain('2 mapping sets');
 		await themeCapture('light', 'visual-stack-06-complete.png');
 		await themeCapture('dark', 'visual-stack-06-complete-dark.png');
-		const mappingLinks = await browser.executeObsidian(({ app }) => app.vault.getMarkdownFiles()
-			.filter((file) => file.path.startsWith('_crosswalker/mappings/')).map((file) => ({
-				path: file.path, links: Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {}),
-			})));
+		// Mapping notes only: each mapping set folder also holds the set's release record
+		// note (kind: mapping-set). A cold metadata cache is read from the file, never
+		// treated as "not a release record".
+		const mappingLinks = await browser.executeObsidian(async ({ app }) => {
+			const edges: Array<{ path: string; links: string[] }> = [];
+			for (const file of app.vault.getMarkdownFiles().filter((note) => note.path.startsWith('_crosswalker/mappings/'))) {
+				const cache = app.metadataCache.getFileCache(file);
+				const releaseRecord = cache ? cache.frontmatter?.kind === 'mapping-set'
+					: /^kind:\s*["']?mapping-set["']?\s*$/m.test(await app.vault.read(file));
+				if (!releaseRecord) edges.push({ path: file.path, links: Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {}) });
+			}
+			return edges;
+		});
 		expect(mappingLinks).toHaveLength(3);
 		expect(mappingLinks.filter((edge) => edge.links.length >= 2)).toHaveLength(2);
 		expect(mappingLinks.filter((edge) => edge.links.length === 1)).toHaveLength(1);
@@ -148,7 +160,7 @@ describe('First run: synthetic framework stack', function () {
 			// Metadata can lag newly written notes. Read the file when its cache is cold;
 			// neither absence nor identity may be inferred from the path alone.
 			let technique;
-			for (const file of app.vault.getMarkdownFiles().filter((note) => ['Frameworks/NIST 800-53', 'Frameworks/MITRE ATT&CK', 'Frameworks/CRI Profile'].some((root) => note.path.startsWith(root)))) {
+			for (const file of app.vault.getMarkdownFiles().filter((note) => ['Ontologies/NIST 800-53', 'Ontologies/MITRE ATT&CK', 'Ontologies/CRI Profile'].some((root) => note.path.startsWith(root)))) {
 				const cached = app.metadataCache.getFileCache(file)?.frontmatter?.curie;
 				if (cached === 'mitre-attack:T9999' || (!cached &&
 					/^curie:\s*["']?mitre-attack:T9999/m.test(await app.vault.read(file)))) {
@@ -162,7 +174,11 @@ describe('First run: synthetic framework stack', function () {
 		});
 		await button('Reconnect mappings');
 		await browser.waitUntil(async () => (await browser.executeObsidian(({ app }) => {
-			const edges = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/'));
+			// Release record notes (kind: mapping-set) are not mapping notes. Wait for every
+			// file to be indexed rather than guess what an unindexed note is.
+			const files = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/'));
+			if (files.some((file) => !app.metadataCache.getFileCache(file))) return false;
+			const edges = files.filter((file) => app.metadataCache.getFileCache(file)?.frontmatter?.kind !== 'mapping-set');
 			return edges.length === 3 && edges.every((file) => Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {}).length >= 2)
 				&& !(document.querySelector('.crosswalker-stack-modal')?.textContent ?? '').includes('mapping endpoint could not link');
 		})), { timeout: 30_000, timeoutMsg: 'Explicit reconnect did not resolve the new technique identity' });
@@ -175,7 +191,7 @@ describe('First run: synthetic framework stack', function () {
 		await browser.pause(3000);
 		await browser.saveScreenshot(path.join(OUT, 'visual-stack-06-graph-connected.png'));
 		expect(result.paths).toHaveLength(4);
-		expect(result.paths).toContain('Frameworks/NIST 800-53/ZZ/ZZ.md');
+		expect(result.paths).toContain('Ontologies/NIST 800-53/ZZ/ZZ.md');
 		expect(new Set(result.paths.map((file) => file.split('/').slice(0, 2).join('/'))).size).toBe(3);
 		await openStack();
 		await browser.executeObsidian(() => {
@@ -210,7 +226,7 @@ describe('First run: synthetic framework stack', function () {
 		{ timeout: 60_000, timeoutMsg: 'Second new-set import did not finish' });
 		const second = await browser.executeObsidian(({ app }) => ({
 			text: document.querySelector('.crosswalker-stack-modal')?.textContent ?? '',
-			paths: app.vault.getMarkdownFiles().filter((file) => ['Frameworks/NIST 800-53', 'Frameworks/MITRE ATT&CK', 'Frameworks/CRI Profile'].some((root) => file.path.startsWith(root))).map((file) => file.path),
+			paths: app.vault.getMarkdownFiles().filter((file) => ['Ontologies/NIST 800-53', 'Ontologies/MITRE ATT&CK', 'Ontologies/CRI Profile'].some((root) => file.path.startsWith(root))).map((file) => file.path),
 		}));
 		expect(second.text).toContain('5 sets confirmed in the vault');
 		expect(second.paths).toHaveLength(9);
@@ -257,7 +273,7 @@ describe('First run: synthetic framework stack', function () {
 		})), { timeout: 180_000, timeoutMsg: 'Bundled mapping import did not finish' });
 		const importState = await browser.executeObsidian(({ app }) => ({
 			modal: document.querySelector('.crosswalker-stack-modal')?.textContent ?? '',
-			unindexedFrameworks: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('Frameworks/') && !app.metadataCache.getFileCache(file)).map((file) => file.path),
+			unindexedFrameworks: app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('Ontologies/') && !app.metadataCache.getFileCache(file)).map((file) => file.path),
 		}));
 		expect(importState.unindexedFrameworks).toEqual([]);
 		expect(importState.modal).toContain('Framework stack imported');

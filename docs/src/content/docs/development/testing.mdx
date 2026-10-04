@@ -128,7 +128,7 @@ bun run build                          # Preview server serves from dist/
 - **Base path**: `/crosswalker` (matches `base` in `astro.config.mjs`). All `page.goto()` calls must prefix this
 - **Preview server**: auto-starts `bun run preview` on port 14321
 - **Browser**: Chromium only (sufficient for docs coverage)
-- **Screenshots on failure**: automatically captured to `docs/test-results/`
+- **Screenshots on failure**: automatically captured to `docs/test-results/` (local, gitignored)
 
 ### Writing a new Playwright test
 
@@ -223,7 +223,7 @@ Each row becomes one `<id>.md` file. Frontmatter conforms to [`spec/tier1.schema
 
 ### Future: marketplace-driven fixtures
 
-Once the [community marketplace pattern](/crosswalker/concepts/etl-and-import/#4-the-community-marketplace-transform-once-share-forever) lands, the generator gains a `--from-bundle <id>` mode that pulls a published Tier 1 bundle and drops it into the target vault. That makes published bundles a real fixture source — your tests run against the same bytes a user would download.
+Once the [community marketplace pattern](/crosswalker/concepts/etl-and-import/#4-roadmap-community-packages-transform-once-reuse-deliberately) lands, the generator gains a `--from-bundle <id>` mode that pulls a published Tier 1 bundle and drops it into the target vault. That makes published bundles a real fixture source — your tests run against the same bytes a user would download.
 
 ### What the generator does NOT do (yet)
 

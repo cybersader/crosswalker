@@ -50,3 +50,17 @@ jobs:
       # silent 404 for anyone who follows a link to it.
       - name: Internal doc links
         run: bun run check:links
+
+      # Knowledge-ops gates (2026-10-03). See root CLAUDE.md § Documentation
+      # update reminders, "Gates". `bun run check` runs every check:* locally.
+      - name: Living-page freshness
+        run: bun run check:freshness
+
+      - name: Unverified claims are tracked
+        run: bun run check:unverified-claims
+
+      - name: Roadmap sources agree
+        run: bun run check:roadmap-sync
+
+      - name: Repo paths named in docs exist
+        run: bun run check:repo-paths

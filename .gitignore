@@ -41,6 +41,8 @@ test-vault/_test-guides/
 
 # On-demand visual verification screenshots from wdio runs
 test-screenshots/
+.e2e-results/
+.e2e-artifacts/
 
 # IDE
 .vscode/

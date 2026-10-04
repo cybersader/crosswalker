@@ -21,7 +21,7 @@ This page captures what's genuinely novel, what exists now, what remains directi
 
 MITRE publishes biannual ATT&CK releases with STIX changelogs — automation is possible. CIS publishes infrequently with prose release notes — human intervention required. NIST CSF went from 1.1 to 2.0 with a complete restructure — every crosswalk broke.
 
-**No existing tool classifies these patterns.** Crosswalker does, using the [EvolutionPattern taxonomy](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) — a novel specification that maps stewardship patterns to handling strategies borrowed from [Slowly Changing Dimensions](/crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions) in data warehousing.
+**No existing tool classifies these patterns.** Crosswalker does, using the [EvolutionPattern taxonomy](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/) — a novel specification that maps stewardship patterns to handling strategies borrowed from [Slowly Changing Dimensions](/crosswalker/concepts/ontology-evolution/#how-to-handle-it-slowly-changing-dimensions) in data warehousing.
 
 This is the secret sauce: **the meta-layer that understands how knowledge structures change over time**.
 
@@ -74,7 +74,7 @@ The spec is publishable as a standalone standard. The library has zero Obsidian 
 Most tools treat frameworks as static snapshots. Crosswalker treats them as **living documents** with predictable evolution patterns:
 
 - **EvolutionPattern taxonomy**: 8 fields classifying how each framework changes — release cadence, breaking change policy, ID stability, deprecation mechanism, and more
-- **SCD type mapping**: each pattern maps to a [Slowly Changing Dimension](/crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions) strategy (overwrite, keep history, alias old IDs, or maintain history tables)
+- **SCD type mapping**: each pattern maps to a [Slowly Changing Dimension](/crosswalker/concepts/ontology-evolution/#how-to-handle-it-slowly-changing-dimensions) strategy (overwrite, keep history, alias old IDs, or maintain history tables)
 - **Migration strategies**: given old version + new version + evolution pattern → recommended handling with diff preview
 
 ### 4. Roadmap: community-multiplied value

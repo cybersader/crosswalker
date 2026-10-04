@@ -8,7 +8,9 @@ tags: [grc, evidence-mapping, frameworks-mapping]
 
 Every GRC practitioner knows this pain: you have **evidence** (policies, procedures, audit findings, screenshots, technical configs) scattered across wikis, SharePoint, OneNote, and email. You have **[frameworks](/crosswalker/concepts/framework-standards/)** (NIST, CIS, MITRE, CRI, FFIEC) in massive spreadsheets. And you need to prove to [auditors](/crosswalker/concepts/institutional-landscape/#the-entities) that specific evidence satisfies specific controls.
 
-**Status last verified:** 2026-08-28 — verified in real Obsidian against the ATT&CK release-drift report and selected housekeeping re-baseline flow.
+**Status last verified:** 2026-10-03
+
+Verified 2026-10-03 against the shipped UI (command names in `src/main.ts`, the evidence link window and note builder in `src/views/evidence-link-modal.ts` and `src/views/evidence-link.ts`, the coverage report headings in `src/views/evidence-report.ts`, the built-in presets in `src/import/recipe-registry.ts`), the link window and coverage report screenshots of a fresh empty-vault `tests/e2e/first-run.spec.ts` run, and the six architectural commitments (Bases as the query layer). Fixed then: the vault tree, the evidence note's default folder and file name, and the claim that crosswalk links appear without a mapping file. Earlier, 2026-08-28: the ATT&CK release-drift report and the selected housekeeping re-baseline flow in real Obsidian.
 
 This is **evidence mapping** — the core work of compliance — and the tools are broken. Understanding [who owns what](/crosswalker/concepts/institutional-landscape/) in the ontology ecosystem helps explain why.
 
@@ -48,19 +50,20 @@ Crosswalker eliminates the gap between frameworks and evidence by putting **ever
 ```
 Your Vault
 ├── Ontologies/                   ← default output folder (change it in settings)
-│   ├── NIST-800-53/
-│   │   ├── Access Control/
-│   │   │   ├── AC-1.md          ← full control text, metadata, crosswalk links
-│   │   │   └── AC-2.md          ← linked to CIS 5.2, CIS 6.3, PR.AC-07
+│   ├── NIST 800-53/
+│   │   ├── AC-1.md              ← full control text, metadata, crosswalk links
+│   │   ├── AC-2.md              ← linked to the CSF and ATT&CK entries it maps to
 │   │   └── ...
-│   ├── CIS-Controls-v8/
-│   └── MITRE-ATT&CK/
+│   ├── CIS Controls v8/
+│   └── MITRE ATT&CK/
+├── Policies/
+│   ├── MFA-Policy.md            ← your own documents, wherever they already live
+│   └── Firewall-Audit-Q1.md
 ├── Evidence/
-│   ├── MFA-Policy.md            ← links directly to AC-2, CIS 6.3, PR.AC-07
-│   ├── Firewall-Audit-Q1.md     ← links to SC-7, CIS 4.4, DE.CM-01
-│   └── Pen-Test-Report.md       ← links to CA-8, ATT&CK techniques
+│   └── Junctions/               ← one small note per evidence link (default folder)
 └── Reports/
-    └── Compliance-Dashboard.md   ← live queries across everything
+    ├── Evidence coverage - nist-800-53.md   ← written by the coverage report
+    └── Evidence-Links.base                  ← live Bases views across everything
 ```
 
 Every framework control is a note you can open, read, and link to. No more hunting through spreadsheet rows.
@@ -70,7 +73,7 @@ Every framework control is a note you can open, read, and link to. No more hunti
 This is the breakthrough. When you link evidence to a control, you can attach **metadata about the relationship itself** — as a small evidence-link note whose properties describe the relationship:
 
 ```yaml
-# Evidence Links/AC-2--has_evidence--MFA-Policy.md
+# Evidence/Junctions/AC-2--has_evidence--MFA-Policy-<short hash>.md (abbreviated)
 ---
 kind: junction-note
 subject: "[[AC-2]]"
@@ -84,7 +87,7 @@ review_date: 2026-03-15
 ---
 ```
 
-You do not have to write this by hand. Run **Crosswalker: Evidence: link evidence to a control** from the command palette, or from an open control note to have that control pre-selected. It asks for the control and the evidence, fills in the rest, and the note it creates says whether the link counts yet.
+You do not have to write this by hand. Run **Crosswalker: Evidence: link evidence to a control** from the command palette, or from an open control note to have that control pre-selected. It asks for the control, the evidence path, **Coverage** (Full, Partial, or None) and **Status** (Proposed, In review, or Approved), fills in the rest, and the note it creates says whether the link counts yet. It writes to `Evidence/Junctions` unless you change the folder in settings.
 
 If you do write one by hand, three details carry weight, and getting them wrong is the difference between a coverage report that works and one that silently reports nothing:
 
@@ -98,7 +101,7 @@ A second link from the same policy to `IA-5` can carry `coverage: partial` and a
 
 ### Crosswalk between frameworks automatically
 
-Import NIST 800-53 and CIS Controls, and Crosswalker generates the WikiLinks between corresponding controls. The crosswalk lives in your vault as navigable, queryable connections — not a separate mapping spreadsheet.
+Import two frameworks and a mapping file that connects them (for example NIST CSF 2.0 to NIST 800-53), and Crosswalker writes the links between corresponding controls. **Set up a framework stack** does this in one guided run and tells you which mapping files your chosen frameworks need; **Import and export: import crosswalk mapping file** adds one later. The crosswalk lives in your vault as navigable, queryable connections — not a separate mapping spreadsheet.
 
 When an auditor asks "trace from CRI diagnostic statement through CSF to 800-53 to your evidence" — you follow the links. Each hop is one click.
 

@@ -406,10 +406,10 @@ Each framework evolves differently:
 | Framework | What changes | How it changes | How often | Machine-readable? |
 |-----------|-------------|---------------|-----------|-------------------|
 | [NIST CSF](/crosswalker/concepts/framework-versioning/#nist-csf-11--20-february-2024) | Added GOVERN function, restructured subcategories | Major version, Excel crosswalk provided | ~5-10 years | Excel only |
-| [NIST 800-53](/crosswalker/concepts/framework-versioning/#nist-800-53-rev-4--5-september-2020) | Added 65 controls, 2 new families (PT, SR) | Major revision, comparison workbook | ~5-10 years | Excel only |
+| [NIST 800-53](/crosswalker/concepts/framework-versioning/#nist-800-53-rev-4--rev-5-september-2020) | Added 65 controls, 2 new families (PT, SR) | Major revision, comparison workbook | ~5-10 years | Excel only |
 | [MITRE ATT&CK](/crosswalker/concepts/framework-versioning/#mitre-attck--the-gold-standard) | Techniques added/deprecated/revoked | Biannual, [STIX 2.1](https://oasis-open.github.io/cti-documentation/stix/intro.html) JSON changelogs | Every 6 months | Yes (STIX JSON) |
 | CIS Controls | Safeguards consolidated, renumbered | Major version, no automated migration | ~3-4 years | No |
-| [CRI Profile](/crosswalker/concepts/framework-versioning/#cri-profile) | Diagnostic statements updated, mappings separated | Ad-hoc, mapping workbook | ~1-2 years | Excel only |
+| [CRI Profile](/crosswalker/concepts/framework-versioning/#cri-profile-v12--v20-february-2024) | Diagnostic statements updated, mappings separated | Ad-hoc, mapping workbook | ~1-2 years | Excel only |
 
 ### Layer 2: Crosswalks break
 
@@ -531,7 +531,7 @@ if (container) {
 }
 `}</script>
 
-The crosswalk from CSF 1.1 → 800-53 was maintained by [NIST OLIR](https://csrc.nist.gov/projects/olir). But OLIR is **submission-based** — someone has to manually update it. There's no automatic staleness detection. See [crosswalk staleness](/crosswalker/agent-context/framework-crosswalks/#crosswalk-staleness).
+The crosswalk from CSF 1.1 → 800-53 was maintained by [NIST OLIR](https://csrc.nist.gov/projects/olir). But OLIR is **submission-based** — someone has to manually update it. There's no automatic staleness detection. See [crosswalk staleness](/crosswalker/agent-context/framework-crosswalks/).
 
 **The pivot/interlingua solution**: [SCF's STRM](https://securecontrolsframework.com/set-theory-relationship-mapping-strm/) maps 175+ frameworks through one central hub. When one framework updates, only one mapping needs updating. See [schema matching](/crosswalker/concepts/schema-matching/#the-interlingua--pivot-approach).
 

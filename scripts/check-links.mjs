@@ -16,9 +16,13 @@
  * This is deliberately a MECHANICAL check in the sense of the repo's
  * detection-profile rule (root CLAUDE.md § "Why this lives here"): a link
  * either resolves to a file or it does not. It does not judge whether a link
- * is a GOOD link, and it does not check anchors — heading slugs involve
- * enough Starlight-specific normalization that a false positive is likely,
- * and a gate that cries wolf gets ignored.
+ * is a GOOD link.
+ *
+ * Anchors (added 2026-10-03, ruling K11 of the knowledge-ops gates spec): a
+ * link with a `#fragment` must match a heading slug or an explicit `id` on the
+ * target page. Two heading renames had broken anchors this gate could not
+ * see, and a third was already dead. Slugs follow github-slugger, which
+ * Starlight uses: lowercase, punctuation dropped, spaces to hyphens.
  *
  * What it checks:
  *   - Markdown links            [text](/crosswalker/...)
@@ -31,64 +35,30 @@
  * What it skips:
  *   - Fenced and inline code (a link inside an example is not a link)
  *   - External URLs (no network calls — this gate stays offline and fast)
- *   - Anchors and query strings (stripped before resolution)
+ *   - Query strings (stripped before resolution)
+ *   - Anchors on generated routes and public assets (no page source to read)
  *
  * Usage:
- *   bun run check:links
+ *   bun run check:links [--repo-root <dir>]
  *
  * Pass: every internal link resolves to a page file or a public asset.
- * Fail: one or more do not, reported as file:line with the offending target.
+ * Fail: one or more do not (missing page or missing anchor), reported as
+ *       file:line with the offending target.
  */
 
-import { readFile, readdir, stat } from 'node:fs/promises';
-import { resolve, join, relative, extname, basename } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const repoRoot = resolve(__dirname, '..');
-const docsRoot = resolve(repoRoot, 'docs/src/content/docs');
-const publicRoot = resolve(repoRoot, 'docs/public');
-
-/** Must match `base` in docs/astro.config.mjs. */
-const BASE = '/crosswalker';
-/** Must match `site` in docs/astro.config.mjs. */
-const SITE = 'https://cybersader.github.io';
-
-/**
- * Routes that exist at build time but have no file on disk, because a
- * Starlight plugin generates them. Without these the gate reports false
- * positives on links that work perfectly in production — and a checker that
- * cries wolf is worse than no checker, because the next real breakage gets
- * waved through with the noise.
- *
- * Source of truth is `plugins:` in docs/astro.config.mjs:
- *   - starlightBlog({ prefix: 'blog' })  → /blog (index) and /blog/tags/<tag>
- *   - starlightTagsPlugin()              → /tags and /tags/<tag>
- *
- * Individual blog POSTS are ordinary files under docs/blog/ and still resolve
- * normally, so a typo in a post link is still caught. Only the generated
- * index and tag listings are exempt. If a plugin is added, removed, or
- * re-prefixed, update this list in the same change.
- */
-const GENERATED_ROUTE_PREFIXES = [`${BASE}/blog`, `${BASE}/tags`];
-
-function isGeneratedRoute(route) {
-  return GENERATED_ROUTE_PREFIXES.some(
-    (prefix) => route === prefix || route.startsWith(`${prefix}/`),
-  );
-}
-
-const isTTY = process.stdout.isTTY;
-const c = {
-  reset: isTTY ? '\x1b[0m' : '',
-  dim: isTTY ? '\x1b[2m' : '',
-  red: isTTY ? '\x1b[31m' : '',
-  green: isTTY ? '\x1b[32m' : '',
-  cyan: isTTY ? '\x1b[36m' : '',
-  bold: isTTY ? '\x1b[1m' : '',
-};
-
-const PAGE_EXTS = new Set(['.md', '.mdx']);
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import {
+  c,
+  parseCommonArgs,
+  buildRouteIndex,
+  stripCode,
+  extractLinks,
+  resolveLink,
+  printGrouped,
+  printSummary,
+  rel,
+} from './lib/doc-pages.mjs';
 
 /**
  * Repo-root files that link INTO the docs site and are read by people or
@@ -98,118 +68,32 @@ const PAGE_EXTS = new Set(['.md', '.mdx']);
  * link here misdirects exactly the reader with the least context.
  *
  * These are scanned for the site-absolute spelling only, since a root-relative
- * `/crosswalker/...` path is meaningless in a file rendered on GitHub.
+ * `/crosswalker/...` path is meaningless in a file rendered on GitHub; their
+ * own same-page `#anchors` follow GitHub rules and are not checked here.
  */
 const ROOT_FILES = ['README.md', 'ROADMAP.md', 'CLAUDE.md', '.claude/CLAUDE.md', 'CHANGELOG.md'];
 
-/** Recursively collect files, skipping `.ck/` snapshot dirs and dotfiles. */
-async function walk(dir, out = []) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) await walk(full, out);
-    else out.push(full);
-  }
-  return out;
-}
+const HELP = `check-links: every internal docs link resolves to a page, and every #anchor to a heading or id.
 
-/**
- * The route a page file is published at. Mirrors Astro content-collection
- * routing: path minus extension, with `index` collapsing to its directory.
- * Verified safe for this repo because no page sets a `slug:` override and no
- * filename contains uppercase (both asserted before this gate was written).
- */
-function routeForPage(absPath) {
-  const rel = relative(docsRoot, absPath).split(/[\\/]/).join('/');
-  let withoutExt = rel.slice(0, rel.length - extname(rel).length);
-  if (basename(withoutExt) === 'index') {
-    withoutExt = withoutExt.slice(0, Math.max(0, withoutExt.length - 'index'.length - 1));
-  }
-  return withoutExt ? `${BASE}/${withoutExt}` : BASE;
-}
+Usage: node scripts/check-links.mjs [--repo-root <dir>] [--help]
 
-/**
- * Blank out fenced code blocks and inline code spans, preserving line numbers
- * so reported positions stay accurate. A link inside a code sample documents
- * syntax; it is not a link the reader can follow.
- */
-function stripCode(source) {
-  const lines = source.split('\n');
-  let inFence = false;
-  return lines.map((line) => {
-    if (/^\s*(```|~~~)/.test(line)) {
-      inFence = !inFence;
-      return '';
-    }
-    if (inFence) return '';
-    return line.replace(/`[^`]*`/g, '');
-  });
-}
-
-/** Every internal link target on a line, as {target, line}. */
-function extractLinks(lines) {
-  const found = [];
-  const patterns = [
-    /\]\(\s*([^)\s]+)/g,          // [text](target) — stops at space so titles are excluded
-    /^\s*\[[^\]]+\]:\s*(\S+)/g,   // [ref]: target
-    /href\s*=\s*"([^"]+)"/g,      // <a href="target">
-    /href\s*=\s*'([^']+)'/g,
-  ];
-  lines.forEach((line, i) => {
-    for (const re of patterns) {
-      re.lastIndex = 0;
-      let m;
-      while ((m = re.exec(line)) !== null) found.push({ target: m[1], line: i + 1 });
-    }
-  });
-  return found;
-}
-
-/**
- * Normalize a raw link to a comparable route, or null when it is not an
- * internal page link this gate is responsible for.
- */
-function toInternalRoute(raw) {
-  let target = raw.trim();
-  if (target.startsWith(SITE)) target = target.slice(SITE.length);
-  // Anything still absolute is a genuinely external host — not ours to verify.
-  if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('//')) return null;
-  if (!target.startsWith(BASE)) return null;              // relative/other: out of scope
-  target = target.split('#')[0].split('?')[0];
-  if (target.length > BASE.length && target.endsWith('/')) target = target.slice(0, -1);
-  try {
-    target = decodeURIComponent(target);
-  } catch {
-    /* leave as-is; a malformed escape will simply fail to resolve */
-  }
-  return target;
-}
+Scans docs/src/content/docs/**/*.md(x) plus ${ROOT_FILES.join(', ')}.
+Exit 0 when every internal link resolves, 1 otherwise.`;
 
 async function main() {
-  console.log(`\n  ${c.bold}Internal doc links${c.reset} ${c.dim}${relative(repoRoot, docsRoot)}${c.reset}\n`);
-
-  const allFiles = await walk(docsRoot);
-  const pages = allFiles.filter((f) => PAGE_EXTS.has(extname(f)));
-
-  const routes = new Set(pages.map(routeForPage));
-
-  // Public assets are served at BASE/<name>, so a link may legitimately point
-  // at one even though it is not a page.
-  let assets = [];
-  try {
-    assets = (await walk(publicRoot)).map(
-      (f) => `${BASE}/${relative(publicRoot, f).split(/[\\/]/).join('/')}`,
-    );
-  } catch {
-    /* no public dir is fine */
+  const args = parseCommonArgs(process.argv.slice(2));
+  if (args.help) {
+    console.log(HELP);
+    process.exit(0);
   }
-  for (const asset of assets) routes.add(asset);
+  const repoRoot = args.repoRoot;
+  const index = await buildRouteIndex(repoRoot);
+  console.log(`\n  ${c.bold}Internal doc links${c.reset} ${c.dim}${rel(repoRoot, index.docsRoot)}${c.reset}\n`);
 
   const errors = [];
   let checked = 0;
 
-  const scan = async (file) => {
+  const scan = async (file, isPage) => {
     let source;
     try {
       source = await readFile(file, 'utf8');
@@ -218,46 +102,41 @@ async function main() {
     }
     const lines = stripCode(source);
     for (const { target, line } of extractLinks(lines)) {
-      const route = toInternalRoute(target);
-      if (route === null) continue;
+      const t = target.trim();
+      const samePage = t.startsWith('#') && t.length > 1;
+      if (samePage && !isPage) continue;
+      if (!samePage && !t.includes('/crosswalker')) continue;
+      const verdict = await resolveLink(index, t, isPage ? file : null);
+      if (verdict === null && !samePage && !/^(https:\/\/cybersader\.github\.io)?\/crosswalker/.test(t)) continue;
       checked += 1;
-      if (!routes.has(route) && !isGeneratedRoute(route)) {
-        errors.push({ file: relative(repoRoot, file), line, target: target.trim() });
+      if (verdict !== null) {
+        errors.push({
+          file: rel(repoRoot, file),
+          line,
+          text: verdict === 'anchor' ? `${t}  (no such heading or id on the target page)` : t,
+        });
       }
     }
   };
 
-  for (const file of pages) await scan(file);
-  for (const rootFile of ROOT_FILES) await scan(resolve(repoRoot, rootFile));
+  for (const file of index.pages) await scan(file, true);
+  for (const rootFile of ROOT_FILES) await scan(resolve(repoRoot, rootFile), false);
 
   if (errors.length > 0) {
-    console.log(`  ${c.bold}${c.red}Broken internal links:${c.reset}\n`);
-    // Group by file so a page with many misses reads as one problem.
-    const byFile = new Map();
-    for (const e of errors) {
-      if (!byFile.has(e.file)) byFile.set(e.file, []);
-      byFile.get(e.file).push(e);
-    }
-    for (const [file, list] of byFile) {
-      console.log(`  ${c.red}×${c.reset} ${c.bold}${file}${c.reset}`);
-      for (const e of list) console.log(`      ${c.dim}line ${e.line}${c.reset}  ${c.cyan}${e.target}${c.reset}`);
-      console.log('');
-    }
+    printGrouped('Broken internal links:', errors);
     console.log(
-      `  ${c.dim}A link resolves when a page file exists at that path.\n`
-      + `  If the target moved (archived briefs are the usual cause), update the link;\n`
-      + `  if it never existed, the link is a typo.${c.reset}\n`,
+      `  ${c.dim}A link resolves when a page file exists at that path and, for a #fragment,\n`
+      + `  when the target page has a heading with that slug or an element with that id.\n`
+      + `  If the target moved (archived briefs are the usual cause) or a heading was\n`
+      + `  renamed, update the link; if it never existed, the link is a typo.${c.reset}\n`,
     );
   }
 
-  const pass = checked - errors.length;
-  const passLabel = `${c.green}✓ ${pass} passed${c.reset}`;
-  const failLabel = errors.length > 0 ? `   ${c.red}× ${errors.length} broken${c.reset}` : '';
-  console.log(
-    `  ${passLabel}${failLabel} ${c.dim}(${checked} internal links across `
-    + `${pages.length} pages + ${ROOT_FILES.length} root files)${c.reset}\n`,
+  printSummary(
+    checked - errors.length,
+    errors.length,
+    `${checked} internal links across ${index.pages.length} pages + ${ROOT_FILES.length} root files`,
   );
-
   process.exit(errors.length > 0 ? 1 : 0);
 }
 

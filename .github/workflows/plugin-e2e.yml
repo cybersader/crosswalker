@@ -97,12 +97,14 @@ jobs:
 
       # wdio.conf.mts builds the exact plugin distribution installed into the
       # sandbox. tee keeps a diagnostic log while pipefail preserves WDIO's exit.
+      # tier2-vfs-probe asserts the search index is stored on disk and survives a
+      # restart: the regression that hid for five months (2026-10-03 gates spec K7).
       - name: Run vertical smoke journey
         shell: bash
         run: |
           set -o pipefail
           mkdir -p .e2e-artifacts
-          bun run e2e -- --spec tests/e2e/smoke-ci.spec.ts 2>&1 | tee .e2e-artifacts/wdio.log
+          bun run e2e -- --spec tests/e2e/smoke-ci.spec.ts --spec tests/e2e/tier2-vfs-probe.spec.ts 2>&1 | tee .e2e-artifacts/wdio.log
 
       - name: Collect display logs on failure
         if: failure()

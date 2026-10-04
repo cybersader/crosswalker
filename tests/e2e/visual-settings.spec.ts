@@ -76,12 +76,12 @@ describe('Visual — redesigned settings tab', function () {
 		expect(hub.ok).toBe(true);
 		expect(hub.hasLaunchpad).toBe(true);
 		expect(hub.launchButtons).toBeGreaterThanOrEqual(2);
-		// Mirror the eleven sections() cards, including Saved configurations.
-		expect(hub.cardCount).toBe(11);
+		// Mirror the twelve sections() cards, through Import recipes.
+		expect(hub.cardCount).toBe(12);
 		expect(hub.cardTitles).toEqual([
 			'Output', 'Naming', 'Cell values', 'Links between notes', 'Connections',
 			'Import behavior', 'Suggestions', 'Drafts', 'Advanced', 'Diagnostics',
-			'Saved configurations',
+			'Saved configurations', 'Import recipes',
 		]);
 		expect(hub.settingItems).toBe(0);
 

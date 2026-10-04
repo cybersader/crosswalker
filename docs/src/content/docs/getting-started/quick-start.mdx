@@ -6,11 +6,15 @@ tags: [getting-started, import]
 
 You need Crosswalker [installed and enabled](/crosswalker/getting-started/installation/) and a framework file to import: a CSV, XLSX, or JSON export of controls, requirements, or techniques. If you do not have the file yet, use the [framework data sources guide](/crosswalker/reference/framework-data-sources/) to find the publisher download, matching bundled recipe, licence caution, and exact import binding.
 
-**Status last verified:** 2026-10-03 — The **Installed stacks** release line was verified against a real-Obsidian run of `tests/e2e/mapping-set-envelope.spec.ts`. Earlier, 2026-10-02: the **Run it again** paragraph was verified against fresh real-Obsidian runs of `tests/e2e/recipe-run-again.spec.ts` and `tests/e2e/visual-recipe-library.spec.ts` (screenshots in both themes). The **Save the setup as a recipe** section (Save as recipe, the Your recipe offer, Use a saved recipe, Browse import recipes) was verified against fresh real-Obsidian runs of `tests/e2e/recipe-library-flow.spec.ts` and `tests/e2e/visual-recipe-library.spec.ts` (screenshots in both themes). Verified 2026-09-30: The **Profile** control on the stack picker (Light, Standard, Complete, Custom), its description and hint line, and Light putting every new mapping row on **Table** at review were verified against a fresh real-Obsidian run of `tests/e2e/visual-stack-setup.spec.ts` (screenshots in both themes). The **Review mappings** row action on a table set and the mapping review it opens (search, status filter, one-row and bulk review edits saved to the table and kept across a reload) were verified against a fresh real-Obsidian run of `tests/e2e/mapping-review.spec.ts` (screenshots in both themes). The **Convert to table** / **Convert to notes** row actions, their confirmation, and the **Finish** / **Cancel** states of an interrupted conversion were verified against a fresh real-Obsidian run of `tests/e2e/mapping-conversion.spec.ts` (screenshots in both themes). The **Store as** choice on mapping rows, its trade-off line, the table completion line and the installed-stack table row were verified against fresh real-Obsidian runs of `tests/e2e/visual-stack-setup.spec.ts` and `tests/e2e/first-run-stack.spec.ts` (screenshots in both themes). The rest of the framework stack section was verified 2026-09-28 against fresh real-Obsidian runs of `tests/e2e/visual-stack-setup.spec.ts`, `tests/e2e/first-run-stack.spec.ts`, and `tests/e2e/installed-stacks.spec.ts` (screenshots of every screen). The single-file section was last verified 2026-08-28 against the empty-vault `tests/e2e/first-run.spec.ts` run.
+**Status last verified:** 2026-10-03
 
-**Note, 2026-10-03:** merge and release wording on this page was corrected against the merge history of `main` and the 0.1.0 and 0.1.2 tags; nothing else on the page was re-verified, so the marker above is unchanged.
+Verified 2026-10-03 against a fresh empty-vault real-Obsidian run of `tests/e2e/first-run.spec.ts` (screenshots of the workspace, every wizard step, generate and the result) and the stack, recipe and mapping UI strings in `src/import/stack/` and `src/main.ts`. Fixed then: the output tree (notes land in a per-framework folder), the generate screen's existing-file labels, and the stack retry behavior.
 
-**Not yet verified in real Obsidian (2026-09-21):** the vault scan and the worksheet suggestion described below merged 2026-09-22 (PR #3) and were released in prerelease 0.1.2; this page has not been checked against a screenshot run of them.
+**Earlier section re-checks** (newest first): 2026-10-03, the **Installed stacks** release line against `tests/e2e/mapping-set-envelope.spec.ts`. 2026-10-02, **Run it again** against `tests/e2e/recipe-run-again.spec.ts` and `tests/e2e/visual-recipe-library.spec.ts`; **Save the setup as a recipe** against `tests/e2e/recipe-library-flow.spec.ts` and `tests/e2e/visual-recipe-library.spec.ts`. 2026-09-30, the **Profile** control, **Review mappings**, **Convert to table** / **Convert to notes** and **Store as** against `tests/e2e/visual-stack-setup.spec.ts`, `tests/e2e/mapping-review.spec.ts`, `tests/e2e/mapping-conversion.spec.ts` and `tests/e2e/first-run-stack.spec.ts`. 2026-09-28, the rest of the framework stack section against `tests/e2e/visual-stack-setup.spec.ts`, `tests/e2e/first-run-stack.spec.ts` and `tests/e2e/installed-stacks.spec.ts`. Those are the screen-level runs; the 2026-10-03 pass re-checked the stack strings against `src/` only.
+
+**Note, 2026-10-03:** merge and release wording on this page was corrected against the merge history of `main` and the 0.1.0 and 0.1.2 tags.
+
+**Not yet verified in real Obsidian (2026-09-21):** the vault scan and the worksheet suggestion described below merged 2026-09-22 (PR #3) and were released in prerelease 0.1.2; this page has not been checked against a screenshot run of them (tracked: /crosswalker/reference/roadmap/milestones/#verification-follow-ups).
 
 ## Pick your path
 
@@ -33,7 +37,7 @@ Open it with the **Set up a framework stack** button on the workspace tab (or in
 | 2 | **Download these files** | Follow each publisher link and save the files anywhere in the vault. **Copy checklist** copies the list as plain text. Choose **Next: add the files** | Rows marked **Built in** or **From file above** need no download. Some sources (CRI Profile, CIS Controls) require free registration and are licensed for your own local use: you download them yourself, and Crosswalker never ships them |
 | 3 | **Add the files** | Drop files onto the box, click **Choose Files**, or type a **Vault folder** and click **Choose folder**. Choose **Next: review** once every framework shows a file | Each framework row reads **Recognized** (with the sheet and header row it found), **Might match** (click **Use anyway** if you are sure), **Wrong file**, or **Missing**. Wrong-file messages name the fix, for example the ATT&CK STIX bundle instead of the Excel export, or a workbook's change-log sheet. A file that fits a framework you did not tick is listed as **Not in this stack**. Two files for one slot offer **Use this file** or **Keep first file** |
 | 4 | **Review before import** | Check each framework's one-line summary of what becomes a folder or a note, where it lands, and **Import set: New set**. Each row shows how many notes and folders it writes, and a total line sums the run. Rename the stack under **Stack name** if you like. Choose **Import stack (N files)**. Runs above 1,000 files ask you to confirm first; change that under Settings, Advanced. Each mapping that will be a new set has a **Store as** choice, **Notes** or **Table** (source: `src/generation/import-set-block.ts` `MAPPING_FORMS`), pre-filled from **Default mapping storage** under Settings, Advanced. **Table** writes one file that opens in a spreadsheet and counts as one file in the total | **Check for refresh** tells you if this exact file was imported before, but never switches to refresh for you. Any mapping still missing its file stops the run before anything is written. With **Table** selected, a line under the choice says what you give up: those mappings do not appear in Bases views, graph view or backlinks |
-| 5 | Import runs | Wait | Frameworks import first, then each mapping. If a step fails, the button becomes **Retry remaining** and finished frameworks are not redone |
+| 5 | Import runs | Wait | Frameworks import first, then each mapping. If a step fails, the reason shows above the import button; choosing it again runs only what remains, and finished frameworks are not redone |
 | 6 | **Framework stack imported** | Read the counts, then choose **Done** | Each framework and mapping is listed with its note count and [import set](/crosswalker/concepts/terminology/#import-set) id; a mapping stored as a table reads **1 mapping table, N rows** instead. A mapping line that could not link to a framework note is kept and reported, never faked. After you import the missing framework, **Reconnect mappings** links them without re-importing |
 
 **Profile**, above **Detail** on the first screen, sets detail, mapping storage and optional mappings in one choice: **Light** (top framework levels as notes, each mapping as one table), **Standard** (every level as notes, one note per mapping; the default), or **Complete** (Standard plus the optional mappings); changing any of those by hand shows **Custom**.
@@ -67,11 +71,11 @@ Where to download each file, and the licence terms for each source, are in [fram
 
 3. **Take the fast path if it's offered.** When your file's columns match a framework Crosswalker already knows (NIST CSF 2.0, NIST 800-53, MITRE ATT&CK, CIS Controls v8, the Secure Controls Framework, CRI Profile, and crosswalk files), a **Recognized source** card appears with a summary of what it found. For a recognized workbook, Crosswalker suggests the worksheet and header row, but keeps both controls editable and never advances for you. Choose **Import with this configuration** to accept it, or **Customize** to adjust it first.
 
-4. **Otherwise, map your columns.** Tell Crosswalker what each column is for: which ones become folders, which become note titles, which become note properties, which become links to other notes, and which become body text. A live preview on the right shows a real folder tree and one fully rendered note, updating as you change things.
+4. **Otherwise, map your columns.** On **Map the shapes**, start from a preset or tell Crosswalker what each column is for: which ones become folders, which become note titles, which become note properties, which become links to other notes, and which become body text. The **Vault preview** on the right shows a real folder tree and one fully rendered note, updating as you change things.
 
 5. **Review and confirm.** The review screen shows the destination folder, a recap of every mapping, how many notes, folders, and links you'll get, and a plain-language warning if some rows don't fit the pattern you built.
 
-6. **Generate.** Crosswalker writes the folders and notes into your vault.
+6. **Generate.** The last screen names the folder it writes into and asks what to do **If files exist** (see the table below). Choose **Generate** and Crosswalker writes the folders and notes into your vault; the workspace tab then lists the framework under **Installed frameworks**.
 
 Full detail on every screen is on the [import wizard](/crosswalker/features/import-wizard/) page.
 
@@ -89,19 +93,20 @@ Editing a built-in or saved recipe and saving it again makes a new recipe that r
 
 ## What you get
 
-One note per row under your output folder (`Ontologies` by default). The bundled NIST 800-53 setup uses a flat layout, so the notes sit directly in that folder:
+One note per row under your output folder (`Ontologies` by default), in a folder named for the framework. The bundled NIST 800-53 setup uses a flat layout inside that folder:
 
 ```
 Ontologies/
-├── AC-1.md
-├── AC-2.md
-├── AC-2(1).md
-└── AU-1.md
+└── NIST 800-53/
+    ├── AC-1.md
+    ├── AC-2.md
+    ├── AC-2(1).md
+    └── AU-1.md
 ```
 
 Other import setups can use nested folders, headings, tags, links, or a combination. Crosswalker recognizes an imported framework from the identity recorded inside each generated note, not from the folder shape.
 
-Each note carries your mapped columns as Obsidian properties, links to related notes, and a small record of where it came from:
+Each note carries your mapped columns as Obsidian properties, links to related notes, and a small record of where it came from. This abbreviated example comes from the small synthetic NIST test set; a real import also records its import set and recipe in the same block:
 
 ```yaml
 ---
@@ -157,13 +162,13 @@ Evidence: ticket SEC-4192.
 Write **below the end marker** (or above the start marker). Text you put *inside*
 the region is Crosswalker's to rebuild, and will be replaced.
 
-What each existing-file mode does:
+What each **If files exist** choice on the generate screen does:
 
 | Mode | Effect on a note that already exists |
 |---|---|
-| **Skip existing** (the default) | The note is left completely untouched. Nothing you wrote is at risk |
-| **Replace** | Frontmatter keys you added are merged back, and only the marked region of the body is rebuilt. Every byte outside it is preserved |
-| **Error** | The import stops rather than touching the existing note |
+| **Skip existing (safe)** (the default) | The note is left completely untouched. Nothing you wrote is at risk |
+| **Replace existing** | Frontmatter keys you added are merged back, and only the marked region of the body is rebuilt. Every byte outside it is preserved |
+| **Stop on conflict** | The import stops rather than touching the existing note |
 
 **Notes from before this feature**, which have no markers yet, are adopted the
 first time you re-import them: if the body still matches what the import would
@@ -175,7 +180,7 @@ The same rule covers a note whose markers have been damaged, or one written by a
 newer version of Crosswalker: the file is not modified at all, and the import
 continues with the rest.
 
-Status last verified: 2026-08-27 — verified against `src/generation/managed-body.ts`,
+This behavior was last verified 2026-08-27 against `src/generation/managed-body.ts`,
 `src/generation/existing-note.ts`, and the `tests/e2e/replace-preservation.spec.ts`
 run in real Obsidian.
 :::

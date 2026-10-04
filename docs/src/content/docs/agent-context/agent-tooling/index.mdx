@@ -87,7 +87,7 @@ Pick the cheapest viable form:
 
 - **If a starter recipe matches the user's source**: copy it, adapt the field mappings, ship it.
 - **If the source is tree-shaped (JSON, YAML, OSCAL)**: write a recipe straight against the tree's iterators. This is the easy case.
-- **If the source is messy tabular (the typical case for compliance frameworks)**: consider whether a [marketplace bundle](/crosswalker/concepts/etl-and-import/#4-the-community-marketplace-transform-once-share-forever) already exists for this source. If yes, prefer downloading the bundle over re-doing the transform.
+- **If the source is messy tabular (the typical case for compliance frameworks)**: consider whether a [marketplace bundle](/crosswalker/concepts/etl-and-import/#4-roadmap-community-packages-transform-once-reuse-deliberately) already exists for this source. If yes, prefer downloading the bundle over re-doing the transform.
 - **If you're handwriting transforms**: prefer declarative primitives (project, rename, regex-extract, parent-id-to-tree) over imperative scripts. Recipes are data; agents and humans both reason about them mechanically.
 
 ### Step 4 — Validate the output

@@ -8,7 +8,11 @@ tags: [frameworks, import-transforms, frameworks-nist, frameworks-mitre]
 
 Crosswalker ships recognized-source imports for the framework files below today. This page is the canonical technical reference for obtaining each source, choosing the matching [recipe](/crosswalker/concepts/terminology/#recipe), selecting the exact worksheet and header row, checking the real record count, and avoiding imports that look successful but are wrong.
 
-**Status last verified:** 2026-09-24 — stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
+**Status last verified:** 2026-10-03
+
+Verified 2026-10-03 against what ships and the local source corpus: every bundled recipe id against the `recipe` field in `recipes/import/*.json`; the files under `recipes/import/crosswalks/` (the CSF to 800-53 SSSOM mapping dated 2026-05-04 and the 279-row withdrawal lineage, 127 with a successor); the stack mapping slots against `MAPPING_PRESETS` in `src/import/recipe-registry.ts`; and each sheet name, header row and parsed row count in the bindings table re-read from the publisher files in the local `Frameworks/` corpus (CPRT 906 elements, 227 excluded by the recipe's `source.where`). Fixed then: the NIST 800-53 recipe id, the missing CRI to CSF stack row, and the crosswalk-sources table. Earlier, 2026-08-27: real imports of each source.
+
+**Earlier re-checks:** 2026-09-24, stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`.
 
 The bundled recipes live in the [Crosswalker plugin repository](https://github.com/cybersader/crosswalker/tree/main/recipes/import). Community recipes and contribution guidance live in [crosswalker-recipes](https://github.com/cybersader/crosswalker-recipes). Framework content is not bundled: obtain each source from its publisher and confirm that the publisher's terms fit your use.
 
@@ -27,7 +31,7 @@ The bundled recipes live in the [Crosswalker plugin repository](https://github.c
 
 | Framework | Source collection | Exact sheet | Header row index | Parsed rows | Bundled recipe |
 |---|---|---|---:|---:|---|
-| NIST SP 800-53 Rev. 5 | CSV lineage | CSV header | 0 | **1,189 records** | `nist-800-53-flat` |
+| NIST SP 800-53 Rev. 5 | CSV lineage | CSV header | 0 | **1,189 records** | `nist-800-53-r5-flat` |
 | NIST CSF 2.0 | Core workbook | `CSF 2.0` | **1** | 231 total: **185 subcategory rows** + 46 banner rows | `nist-csf-2-flat` |
 | NIST CSF 2.0 | CPRT JSON | element collection | n/a | **906 total: 679 concept elements** + 227 non-concept (excluded by the recipe) | `nist-csf-2-cprt`, `nist-csf-2-cprt-hierarchical` |
 | NIST CSF 2.0 withdrawal lineage | Derived edge list (`recipes/import/crosswalks/nist-csf-2-withdrawal-lineage.csv`) | CSV header | 0 | 279 total: **127 successor references** + 152 pass-through rows | `nist-csf-2-withdrawal-lineage` |
@@ -46,6 +50,7 @@ Choose **Top framework levels as notes** to omit NIST enhancements and CRI diagn
 
 | Connection | Acquire and recognize | Locality and release |
 |---|---|---|
+| CRI Profile to NIST CSF 2.0 | Read from the CRI Profile workbook you already add for the CRI slot; no separate download. | Local only; CRI registration and licence terms apply. |
 | NIST CSF 2.0 to NIST 800-53 | Public-domain NIST OLIR-derived SSSOM mapping included with the plugin; a publisher OLIR workbook with `Focal Document Element` / `Reference Document Element` headers can be selected as a replacement. | Bundled copy has mapping date 2026-05-04. Compare a newer [NIST crosswalk release](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters) before refreshing it. |
 | NIST 800-53 to MITRE ATT&CK | Download the `*_json.json` CTID Mappings Explorer bundle from the [publisher](https://center-for-threat-informed-defense.github.io/mappings-explorer/). Its `mapping_objects` entries have `capability_id`, `attack_object_id`, and `mapping_type`; do not use a Navigator layer or STIX bundle in this slot. | Local only. Current stack expects ATT&CK 16.1, shown in the checklist; check the JSON metadata's `attack_version` before using another release. |
 | CRI Profile to NIST 800-53 | Optional. The CRI to 800-53 OLIR workbook, with `Focal Document Element` / `Reference Document Element` headers. Every sheet whose headers appear in its first 50 rows is read; other sheets are listed as skipped. The CRI Profile Mappings Catalog is a different table and is not accepted here. | Local only; check CRI licence terms for the exact use. |
@@ -69,7 +74,7 @@ This is a practical pointer, not legal advice and not a replacement for the publ
 
 **Obtain it:** [NIST SP 800-53 Rev. 5, Update 1](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final). NIST publishes spreadsheet/CSV material alongside the publication. Machine-readable OSCAL is also available from [usnistgov/oscal-content](https://github.com/usnistgov/oscal-content/tree/v1.4.0/nist.gov/SP800-53/rev5/json), but it is a different lineage and can produce different counts and hashes.
 
-**Bundled recipe:** `nist-800-53-flat`, from the [bundled import recipes](https://github.com/cybersader/crosswalker/tree/main/recipes/import). It reads the CSV lineage and produces one flat note per control or enhancement.
+**Bundled recipe:** `nist-800-53-r5-flat`, from the [bundled import recipes](https://github.com/cybersader/crosswalker/tree/main/recipes/import). It reads the CSV lineage and produces one flat note per control or enhancement.
 
 ### Exact binding and result
 
@@ -165,7 +170,7 @@ ID.RM-03: [Withdrawn: Moved into GV.RM-02]
 
 Source: `Frameworks/csf2.xlsx`, sheet `CSF 2.0`, counted 2026-08-28.
 
-**Import it as crosswalk edges, not as a field on the concept.** A split is the reason. `ID.AM-06` was replaced by two subcategories, so one flat `previous_ids` property would have to hold a list and could never say anything per replacement. As [crosswalk edges](/crosswalker/concepts/terminology/#crosswalk-edge) it is two ordinary assertions, `superseded_by`, sharing a subject; a merge is N edges sharing an object; and the successor walk that answers "what replaced this control" is the same closure query every other predicate uses.
+**Import it as crosswalk edges, not as a field on the concept.** A split is the reason. `ID.AM-06` was replaced by two subcategories, so one flat `previous_ids` property would have to hold a list and could never say anything per replacement. As [crosswalk edges](/crosswalker/concepts/terminology/#crosswalk) it is two ordinary assertions, `superseded_by`, sharing a subject; a merge is N edges sharing an object; and the successor walk that answers "what replaced this control" is the same closure query every other predicate uses.
 
 The bundled `nist-csf-2-withdrawal-lineage` recipe emits exactly that: 127 edges from `nist-csf-1-1:<old id>` to `nist-csf-2:<new id>`, each recording NIST as the mapping provider and preserving NIST's own disposition verb in `lineage_disposition`. The subject side is `nist-csf-1-1` because the withdrawn identifiers are CSF v1.1 identifiers; CSF 2.0 lists them only to record that they are gone. That is what makes the lineage useful after an upgrade: an approval recorded against `nist-csf-1-1:ID.AM-06` in a vault since re-imported at CSF 2.0 has no concept of its own left, and the edges are what turn "this link points at nothing" into "this control was replaced by these two".
 
@@ -343,16 +348,16 @@ ENGAGE requires a three-level merge to build the full hierarchy:
 
 ## Crosswalk data sources
 
-> [!note] Verification status
-> This section was preserved from the earlier reference and was not part of the 2026-08-27 real-import verification pass. Confirm current source labels and publisher terms before relying on it.
+> [!note] What backs each row
+> The first three rows are the sources the [framework stack](#stack-mapping-sources) uses (source: `MAPPING_PRESETS` in `src/import/recipe-registry.ts`). The ATT&CK to D3FEND, CSF to CIS and D3FEND to 800-53 rows have no bundled recipe or stack slot; they import through the general mapping-file command, so confirm current source labels and publisher terms before relying on them.
 
 Crosswalks between frameworks require separate mapping files:
 
 | Crosswalk | Source |
 |-----------|--------|
-| CRI ↔ CSF 2.0 | CRI Excel (NIST CSF v2 Mapping sheet) |
-| CSF 2.0 ↔ NIST 800-53 | [NIST Concept Crosswalk](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters) |
-| NIST 800-53 ↔ ATT&CK | [Center for Threat-Informed Defense](https://github.com/center-for-threat-informed-defense/attack-control-framework-mappings) |
+| CRI ↔ CSF 2.0 | The CRI Profile workbook (read from the CRI slot in a stack) |
+| CSF 2.0 ↔ NIST 800-53 | Built in (`recipes/import/crosswalks/nist-csf-2-to-nist-800-53.sssom.tsv`); refresh from the [NIST Concept Crosswalk](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters) |
+| NIST 800-53 ↔ ATT&CK | [CTID Mappings Explorer](https://center-for-threat-informed-defense.github.io/mappings-explorer/) JSON export (ATT&CK 16.1) |
 | ATT&CK ↔ D3FEND | [d3fend.mitre.org mapping data](https://d3fend.mitre.org/resources/) |
 | CSF 2.0 ↔ CIS v8 | [CIS Controls Mapping to CSF 2.0](https://www.cisecurity.org/controls/v8) |
 | D3FEND ↔ NIST 800-53 | D3FEND semantic mappings (`d3fend_to_nist80053.csv`) |
