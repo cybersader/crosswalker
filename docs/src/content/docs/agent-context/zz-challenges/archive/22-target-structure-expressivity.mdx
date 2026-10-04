@@ -181,7 +181,7 @@ How do existing tools handle target-structure?
 - **obsidian-vault-template-template** (user's own) — a template-vault pattern; may already encode hierarchy choices
 - **obsidian-secops-vault-template** (user's own) — same
 - **notion-to-obsidian-github-sync** (user's own) — same
-- **Crosswalker's existing import wizard** (current code) — the [v0.1 schema spec §4 ImportRecipe](/crosswalker/agent-context/v0-1-schema-spec/#4-importrecipe-schema-import-config) has a `hierarchy` column-role; investigate what that role actually does and whether it covers any of the four mechanisms
+- **Crosswalker's existing import wizard** (current code) — the [v0.1 schema spec §4 ImportRecipe](/crosswalker/agent-context/v0-1-schema-spec/#4-recipe-schema-contract-and-importrecipe-specification) has a `hierarchy` column-role; investigate what that role actually does and whether it covers any of the four mechanisms
 - **W3C RML's `subjectMap` and `graphMap`** — RML can express which named graph a triple lands in; analogous to choosing a "container" for a concept; *does not* directly express folder vs heading vs tag because RML targets RDF
 - **JSON-LD `@context` and `@id` patterns** — minting subject IRIs from records; the closest mainstream analog to address-rendering
 
@@ -290,7 +290,7 @@ This isn't just "let's add target-structure flexibility" — it's "let's apply t
 - [Ch 21 build-vs-buy](/crosswalker/agent-context/zz-challenges/21-build-vs-buy-etl-engine/) — sibling challenge; target-structure expressivity is one of its evaluation dimensions
 - [Ch 20a deliverable: T1TMA](/crosswalker/agent-context/zz-research/2026-05-03-challenge-20-deliverable-a-t1tma/) — the closed sink vocabulary Ch 22 parameterizes
 - [Ch 20b deliverable: Boundary semantics](/crosswalker/agent-context/zz-research/2026-05-03-challenge-20-deliverable-b-boundary-semantics/) — content-addressing and the "target structure as view" question
-- [v0.1 schema spec — current `hierarchy` column-role](/crosswalker/agent-context/v0-1-schema-spec/#4-importrecipe-schema-import-config) — what's there now and what changes
+- [v0.1 schema spec — current `hierarchy` column-role](/crosswalker/agent-context/v0-1-schema-spec/#4-recipe-schema-contract-and-importrecipe-specification) — what's there now and what changes
 
 **User's portfolio (the "applied information science with Obsidian" meta-project)**:
 - [SEACOW](https://github.com/cybersader/cyberbase) — meta-framework for knowledge organization inside filesystem primitives

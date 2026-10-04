@@ -17,7 +17,11 @@ Implement the [Tier 2](/crosswalker/concepts/terminology/) [sidecar projector](/
 
 ✅ **Done (2026-05-06).** All 6 phases complete; sqlite-vec deferred via WASM-A pivot with calendar-anchored 2026-11-06 revisit. Tier 2 sidecar projector + query API + closure cache + plugin integration all green; realistic-framework integration tests pass for NIST 800-53 / NIST CSF 2.0 / ISO 27001:2022 / MITRE ATT&CK with cross-framework closure queries. See [delivery log](/crosswalker/agent-context/zz-log/2026-05-06-v0-1-5-tier-2-sidecar-shipped/) for the full delivery summary + system-design integration diagram.
 
-**Status last verified:** 2026-09-05 — scoped to the shipped substrate and static integration at commit `30aee63b`: `package.json` contains `@sqlite.org/sqlite-wasm` and no sqlite-vec package; `src/tier2/sidecar.ts` identifies WASM-A and the deferred 2026-11-06 revisit; projector and three query helpers remain exported; and `src/main.ts` still wires layout-ready projection plus the clear-sidecar command. Historical test counts and real-Obsidian behavior were not rerun.
+**Status last verified:** 2026-10-03
+
+Re-checked 2026-10-03 against `CHANGELOG.md` `[Unreleased]` and current `src/`: `package.json` has `@sqlite.org/sqlite-wasm` and no sqlite-vec package; `src/tier2/sidecar.ts` names WASM-A and the 2026-11-06 revisit; `projectFromTier1()` and the three query helpers (`getConceptsByOntology`, `crosswalkBetween`, `closureFromConcept`) remain exported; `src/main.ts` still projects on layout-ready and registers the reset-search-data command. The 2026-10-03 persistence correction above matches the worker-hosted index entry in `CHANGELOG.md` `[Unreleased]`. Done-milestone history on this page was left as written.
+
+Earlier check, 2026-09-05: checked against the shipped substrate and static integration at commit `30aee63b`: `package.json` contains `@sqlite.org/sqlite-wasm` and no sqlite-vec package; `src/tier2/sidecar.ts` identifies WASM-A and the deferred 2026-11-06 revisit; projector and three query helpers remain exported; and `src/main.ts` still wires layout-ready projection plus the clear-sidecar command. Historical test counts and real-Obsidian behavior were not rerun.
 
 **Persistence correction, verified 2026-10-03** (scoped to where sqlite runs and whether the index persists; verified by `tests/e2e/tier2-vfs-probe.spec.ts` on desktop Obsidian and `bun run e2e:openclast` under a browser-native host): the shipped v0.1.5 sidecar installed the `opfs-sahpool` VFS on the main thread, where Chromium does not expose `createSyncAccessHandle`. It fell back to `:memory:` on every host, so the index never persisted and every launch reprojected. Since 2026-10-03 sqlite runs in a dedicated Worker built from code inlined in `main.js`, the index opens on `opfs-sahpool` with `persistent: true`, and a marker row survives a full restart (desktop) and a tab reload (browser-native). Settings reports the mode. Measured numbers are in [CHANGELOG.md `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md).
 
@@ -89,7 +93,7 @@ If any are yes → sequence the migration into the next milestone. If all are no
 
 This checkpoint is **calendar-anchored**, not just trigger-anchored, so it can't be silently postponed indefinitely. Anchored in:
 - This milestone page ("Revisit checkpoint" section above)
-- [Ch 24 synthesis log §5 Q4](/crosswalker/agent-context/zz-log/2026-05-04-tier-2-substrate-synthesis/#q4-sqlite-vec-wasm-packaging---added-2026-05-05-during-v015-planning---re-open-if-any-occurs)
+- [Ch 24 synthesis log §5 Q4](/crosswalker/agent-context/zz-log/2026-05-04-tier-2-substrate-synthesis/#5-migration-triggers--when-to-revisit)
 - Project memory (`project_wasm_vendoring_migration_trigger.md`)
 - v0.1.5 delivery log (when written) — must include the checkpoint in its Related section
 
@@ -124,7 +128,7 @@ If sqlite-vec proves problematic (mobile incompatibility surfaces, vendor abando
 
 | Step | What changes |
 |---|---|
-| 1 | Delete `src/tier2/vendor/sqlite-vec.wasm` |
+| 1 | Delete `src/tier2/vendor/sqlite-vec.wasm` (planned) |
 | 2 | Swap import to plain `@sqlite.org/sqlite-wasm` from npm (`bun add @sqlite.org/sqlite-wasm`) |
 | 3 | Remove `CREATE VIRTUAL TABLE ... USING vec0(...)` from migrations + remove vec-specific query helpers |
 | 4 | Bump `schema_meta.schema_version` from `tier2-sqlite-v1` to `tier2-sqlite-v1-no-vec`; existing sidecars auto-reproject without vec tables |
@@ -137,8 +141,8 @@ This rollback property is what makes vendoring acceptable. We're not betting v0.
 ## Scope
 
 **In:**
-- Vendor `sqlite-vec-wasm-demo` artifact (WASM-B path) into `src/tier2/vendor/sqlite-vec.wasm` — substrate is sqlite-wasm + sqlite-vec statically linked from day 1 of v0.1.5
-- Project Tier 1 frontmatter on vault load — populate `ontologies`, `controls`, `mappings`, `junction_notes` tables (DDL per [v0.1 schema spec §7](/crosswalker/agent-context/v0-1-schema-spec/#§7-tier-2-sidecar-sql-schema-sqlite-wasm-projection))
+- Vendor `sqlite-vec-wasm-demo` artifact (WASM-B path) into `src/tier2/vendor/sqlite-vec.wasm` (planned) — substrate is sqlite-wasm + sqlite-vec statically linked from day 1 of v0.1.5
+- Project Tier 1 frontmatter on vault load — populate `ontologies`, `controls`, `mappings`, `junction_notes` tables (DDL per [v0.1 schema spec §7](/crosswalker/agent-context/v0-1-schema-spec/#7-tier-2-sidecar-sql-schema-sqlite-wasm-projection))
 - `closure_cache` table created (empty until first transitive query)
 - `control_embeddings` virtual table via `vec0` — DDL present but unused until vector-embedding feature lands (UI/embedding-generation deferred to a later milestone)
 - Recovery on missing/stale sidecar — reproject from Tier 1; abort + warn if Tier 1 itself is malformed
@@ -148,7 +152,7 @@ This rollback property is what makes vendoring acceptable. We're not betting v0.
 - `clear-sidecar` command in palette
 - Lazy closure cache materialization (recursive CTE on first transitive query; mtime-based invalidation)
 - Streaming projector — walks vault file-by-file via the [v0.1.4.5 streaming foundation](/crosswalker/reference/roadmap/milestones/v0-1-4-5-streaming-refactor/) (no full-vault-in-RAM accumulation)
-- VENDORING readme/notice in `src/tier2/vendor/README.md` documenting the artifact source, version pin, license, and migration trigger
+- VENDORING readme/notice in `src/tier2/vendor/README.md` (planned) documenting the artifact source, version pin, license, and migration trigger
 
 **Out (deferred to later milestones):**
 - **Vector-search UI** — query input, similarity threshold tuning, results rendering (when first vector query use case is concrete)
@@ -167,7 +171,7 @@ Six phases, each commit-able independently. Streaming foundation from [v0.1.4.5]
 - [ ] `bun add sqlite-vec-wasm-demo@0.1.9` — pin to a specific version
 - [ ] Update `esbuild.config.mjs` to copy `node_modules/sqlite-vec-wasm-demo/sqlite3.wasm` into the plugin distribution at build time
 - [ ] New `src/tier2/sidecar.ts` — `openSidecar(app)` — initializes sqlite-wasm with `opfs-sahpool` VFS via the npm package; opens `.crosswalker.sqlite` at vault root; returns handle with `db` + `close()`
-- [ ] New `src/tier2/schema.sql` — DDL per [v0.1 schema spec §7](/crosswalker/agent-context/v0-1-schema-spec/#§7-tier-2-sidecar-sql-schema-sqlite-wasm-projection): `schema_meta`, `ontologies`, `controls`, `mappings`, `junction_notes`, `closure_cache` + indexes + `junction_notes_with_freshness` view + (deferred-until-feature) `control_embeddings` virtual table commented out
+- [ ] New `src/tier2/schema.sql` — DDL per [v0.1 schema spec §7](/crosswalker/agent-context/v0-1-schema-spec/#7-tier-2-sidecar-sql-schema-sqlite-wasm-projection): `schema_meta`, `ontologies`, `controls`, `mappings`, `junction_notes`, `closure_cache` + indexes + `junction_notes_with_freshness` view + (deferred-until-feature) `control_embeddings` virtual table commented out
 - [ ] New `src/tier2/migrations.ts` — `applyMigrations(db, schemaVersion)`; if version mismatch or missing, drop tables + recreate
 - [ ] Smoke test: open sidecar in test-vault, run `SELECT 1`, run `SELECT vec_version()` to confirm sqlite-vec is loaded, verify success
 - [ ] Bundle-size measurement (before/after — record actual size; documented as ~2 MB compressed in v0.1.5; flag for the 6th migration trigger when reduction becomes priority)
@@ -225,9 +229,9 @@ Six phases, each commit-able independently. Streaming foundation from [v0.1.4.5]
 
 ### Phase 5: Tests
 
-- [ ] Unit `tests/tier2-projection.test.ts` — round-trip projection (project a fixture vault → query → assert rows match Tier 1 facts)
-- [ ] Unit `tests/tier2-recovery.test.ts` — delete sidecar handle, reproject, verify same data
-- [ ] E2E `tests/e2e/sidecar.spec.ts` (milestone gate):
+- [ ] Unit `tests/tier2-projection.test.ts` (planned) — round-trip projection (project a fixture vault → query → assert rows match Tier 1 facts)
+- [ ] Unit `tests/tier2-recovery.test.ts` (planned) — delete sidecar handle, reproject, verify same data
+- [ ] E2E `tests/e2e/sidecar.spec.ts` (planned) (milestone gate):
   1. Plugin opens sidecar in test-vault
   2. Run `plugin.runProjection()` → verify `controls`, `mappings`, `junction_notes` populated
   3. Query API: `getControlsByOntology`, `crosswalkBetween` return expected rows
@@ -264,9 +268,9 @@ Six phases, each commit-able independently. Streaming foundation from [v0.1.4.5]
 - `src/settings/settings-data.ts` + `src/settings/settings-tab.ts` — `enableTier2Projection` toggle
 - `package.json` — add `sqlite-vec-wasm-demo@0.1.9` dep (provides sqlite-wasm + sqlite-vec statically linked from upstream)
 - `esbuild.config.mjs` — WASM asset copy config
-- `tests/tier2-projection.test.ts` — NEW
-- `tests/tier2-recovery.test.ts` — NEW
-- `tests/e2e/sidecar.spec.ts` — NEW (milestone gate)
+- `tests/tier2-projection.test.ts` (planned) — NEW
+- `tests/tier2-recovery.test.ts` (planned) — NEW
+- `tests/e2e/sidecar.spec.ts` (planned) — NEW (milestone gate)
 
 ## Open questions
 

@@ -1,0 +1,78 @@
+---
+title: "Knowledge-ops gates: what slipped, and the checks that now catch it"
+description: "The owner found the roadmap marked verified over May content and asked for guardrails. Records twelve rulings that turn mechanical knowledge-ops and version-control rules into CI gates: unscoped freshness markers that fail at 30 days, tracked unverified claims, roadmap status sync, repo-path and anchor resolution, a nightly e2e with a red ledger, and one bun run check. Also the one-worker-per-checkout rule."
+tags: [log, decision, process, knowledge-ops, ci, docs, synthesis]
+date: 2026-10-03
+sidebar:
+  label: "10-03 · Knowledge-ops gates"
+  order: -20261003.4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="What this page is">
+A **process decision record**. On 2026-10-03 the owner opened the living [roadmap](/crosswalker/reference/roadmap/) and found it marked "verified today" above April and May prose, then said: "Whatever lack of agentic guardrails there is here, we need to fix it so that things like this don't slip through the cracks for knowledge ops and version control in the future." This log records what slipped, why each slip was mechanical, and the gates that now catch it. The project's design rule is unchanged: mechanical rules are gates, judgment rules are checklists (root `CLAUDE.md` § Why this lives here).
+</Aside>
+
+## 1. What slipped
+
+| Slip | How it was possible | Found by |
+|---|---|---|
+| The roadmap carried `Status last verified: 2026-10-03` over May content | The freshness rule allowed a scoped bump ("v0.1.7 row only"); a reader takes the marker as a page claim | The owner |
+| The search index never persisted on any host for five months | The fallback was silent; the CHANGELOG said persistence "was not observed" and nothing tracked it; no e2e asserted the storage mode | The [OpenClast probe](/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/) |
+| A companion first-run spec was red since the day it was written (2026-09-23) | Its wdio config was never wired into `package.json`; CI ran only the smoke spec | A diagnosis run the same day |
+| Five living pages called September work "unmerged and unreleased" | Nobody re-read them after the merges | The roadmap re-verification |
+| 67 dead `#anchor` links in 43 files | `check:links` checked pages, not fragments | The first run of the new gate |
+| 56 backtick repo paths naming files that do not exist or are gitignored | No rule covered claims about tracked files | The first run of the new gate |
+
+Counts are what the gates reported on the tree at 2c6b8dd8 before fixes (source: the gates worker's run, recorded in `CHANGELOG.md` § Added: knowledge-ops gates).
+
+## 2. Rulings
+
+| # | Ruling | Gate |
+|---|---|---|
+| K1 | A living-page marker is a whole-page claim: one per page, canonical form, no scope words; scoped re-checks go in a note below it | `check:freshness` |
+| K2 | A living page older than 30 days fails CI; the fix is a real re-verification or demotion to a dated log. The living-page set is every page carrying a marker, no registry to drift | `check:freshness` |
+| K3 | A page whose dates are mostly older than 90 days gets a warning, so the roadmap case is visible before a human notices | `check:freshness` |
+| K4 | A sentence saying not observed, not verified, unverified, not tested or could not test must carry `(tracked: <link>)` that resolves | `check:unverified-claims` |
+| K5 | Milestone status glyphs agree across the milestone pages, the hub, the roadmap index and `ROADMAP.md`; a Done milestone is never listed as active | `check:roadmap-sync` |
+| K6 | The full e2e suite runs nightly on GitHub-hosted runners (free on a public repo; owner ruling 2026-10-02) with a red ledger, `tests/e2e/KNOWN_RED.md`: an unlisted red, a listed red that passes, or an entry older than 30 days fails the run; `flaky` entries may be either | `e2e-nightly.yml`, `check-known-red` |
+| K7 | The stored-index assertion (`tier2-vfs-probe.spec.ts`) runs in the CI smoke job on every plugin change | `plugin-e2e.yml` |
+| K8 | Backtick repo paths in docs and the CHANGELOG exist in `git ls-files`; `(local, gitignored)` and `(planned)` opt out explicitly; dated logs before 2026-09-01 are historical and skipped | `check:repo-paths` |
+| K9 | One command, `bun run check`, runs every gate; the Static Checks workflow runs the same list; the pre-commit reviewer agent keeps only judgment checks | `check-all` |
+| K10 | The rules are recorded once: a Gates table in root `CLAUDE.md`, the freshness subsection now says "blocks in CI", this log | |
+| K11 | `#fragment` links must match a heading slug or an explicit `id` on the target page | `check:links` |
+| K12 | Parallel implementation workers never share one working tree: one owns the checkout, every other concurrent editor runs in its own git worktree; read-only survey workers never checkout, switch, stash or reset | `.claude/CLAUDE.md` § delegation rules |
+
+K12 came from a near-miss the same evening: two workers ran `git checkout -b` in the same tree minutes apart; caught before either had written a file.
+
+## 3. The load-bearing principle
+
+**If a check can be computed, it is a gate; a checklist line for a computable check is a slip waiting to happen.** Every row in §1 had a rule already written down. What was missing was teeth.
+
+## 4. What is locked in
+
+| Aspect | Lock |
+|---|---|
+| Marker form | `**Status last verified:** YYYY-MM-DD`, one per page, unscoped, 30-day limit (`scripts/check-freshness.mjs`) |
+| Tracked-claim form | `(tracked: #anchor)` or `(tracked: /crosswalker/...)`, usually to `CHANGELOG.md` § Follow-ups (`scripts/check-unverified-claims.mjs`) |
+| Red ledger | `tests/e2e/KNOWN_RED.md`: spec, case, kind (`red` or `flaky`), since-date, reason, tracked link (`scripts/check-known-red.mjs`) |
+| First-run config | `bun run e2e:first-run`; both wdio configs run nightly |
+| Gate count | 10 static gates in `bun run check` (source: `package.json` scripts matching `check:` minus `check:fixtures-drift`) |
+
+## 5. What this does not do
+
+- Does not make judgment checks mechanical: whether a decision deserves a synthesis log, whether a term needs a plain gloss, whether a page should be living or a log, stay with the reviewer and the author.
+- Does not verify page content against the product; it verifies that someone claims to have, and recently. The claim must be honest (freshness discipline: "marker bump is not free").
+- Does not run the nightly e2e on every push; the smoke job plus the storage-mode probe is the per-push check.
+
+## 6. What this unblocks
+
+- The seven living pages the gate found stale and ten milestone pages plus the hub were re-verified in this change (19 pages).
+- A red spec on `main` is now a dated obligation rather than an unspoken state.
+
+## 7. Related
+
+- Decisions this builds on: [docs sync and anti-duplication convention](/crosswalker/agent-context/zz-log/2026-07-11-docs-sync-and-anti-duplication-convention/), [first run and the blind spots that hid it](/crosswalker/agent-context/zz-log/2026-08-28-first-run-and-the-blind-spots-that-hid-it/), [Tier 2 worker persistence](/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/)
+- Rules: root `CLAUDE.md` § Documentation update reminders (Gates table, pre-commit run-list); `.claude/CLAUDE.md` § freshness discipline and § delegation rules
+- Pages: [roadmap](/crosswalker/reference/roadmap/), [milestone hub](/crosswalker/reference/roadmap/milestones/), [development setup](/crosswalker/development/setup/)

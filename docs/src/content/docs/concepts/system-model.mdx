@@ -9,7 +9,9 @@ tags: [concept, architecture, overview, system-model, diagram, pipeline, tiers]
 
 import { Aside } from '@astrojs/starlight/components';
 
-**Status last verified:** 2026-09-04 — verified against `src/` module layout (`config/`, `export/`, `generation/`, `import/`, `render/`, `settings/`, `source/`, `tier2/`, `types/`, `ui/`, `utils/`, `validation/`, `views/`) and the [roadmap](/crosswalker/reference/roadmap/)'s locked architectural commitments.
+**Status last verified:** 2026-10-03
+
+Verified 2026-10-03 against `ls src` (`config/`, `export/`, `generation/`, `import/`, `mappings/`, `render/`, `settings/`, `source/`, `tier2/`, `types/`, `ui/`, `utils/`, `validation/`, `views/`), the template and `variadic` contracts in `spec/recipe.schema.json`, and the six architectural commitments in the project instructions. Fixed then: how a packed field becomes folder levels (the `variadic` folder setting, not JSONata), where JSONata is used, and the readers paragraph now names the plugin's own readers. Earlier, 2026-09-04: the module layout and the roadmap's locked commitments.
 
 <style>{`
 :root{
@@ -138,7 +140,7 @@ The model is **domain-neutral**: Crosswalker represents an *ontology* — a set 
 Crosswalker takes whatever shape your data ships in — a control spreadsheet, a crosswalk export, a JSON ontology — and turns it into **ordinary Markdown notes in your vault**. Then it makes those notes answerable. Everything else on this page is detail on that one spine:
 
 <div class="not-content cw-sm-pipe">
-  <a class="cw-sm-stage cw-t0" href="/crosswalker/concepts/etl-and-import/#the-input-floor"><span class="cw-sm-badge"><svg class="cw-sm-ico"><use href="#i-table"/></svg></span><b>Sources</b><small>any structured<br/>data</small></a>
+  <a class="cw-sm-stage cw-t0" href="/crosswalker/concepts/etl-and-import/#data-input-requirements--what-crosswalker-can-ingest"><span class="cw-sm-badge"><svg class="cw-sm-ico"><use href="#i-table"/></svg></span><b>Sources</b><small>any structured<br/>data</small></a>
   <span class="cw-sm-chev">→</span>
   <a class="cw-sm-stage cw-io" href="#how-you-ingest--two-doors-one-engine"><span class="cw-sm-badge"><svg class="cw-sm-ico"><use href="#i-wand"/></svg></span><b>Ingest</b><small>wizard or<br/>harness</small></a>
   <span class="cw-sm-chev">→</span>
@@ -282,7 +284,7 @@ One row just got used **five different ways at once** — folder depth from the 
   <span><svg class="cw-sm-ico"><use href="#i-link"/></svg> wikilink</span>
 </div>
 
-**Most rules are just fill-in-the-blank templates** — `{field}` with a small closed filter set (`{habitat|lower}`, plus `slug · tagsafe · fs-safe · truncate`). The `folder` rule above does one thing more: <code>split(lineage, ";")</code> is a **transformation expression** ([JSONata](/crosswalker/concepts/etl-and-import/)) that breaks *one* packed field into *three parts*. That's the everyday case for coded taxonomies — a lineage string, a Dewey number, `AC-2`, `DE.AE-02` — where the hierarchy is hiding inside a single column. Anything past the closed filters (conditionals, lookups, concatenation) escapes the same way.
+**Most rules are just fill-in-the-blank templates** — `{field}` with a small closed filter set (`{habitat|lower}`, plus `slug · tagsafe · fs-safe · truncate · split · part · prefix · regex` and a few more; source: `spec/recipe.schema.json § $defs/template`). The `folder` rule above does one thing more: it breaks *one* packed field into *three folder levels*, which a folder entry declares with its `variadic` setting (source: `spec/recipe.schema.json § $defs/variadic`). That's the everyday case for coded taxonomies — a lineage string, a Dewey number, `AC-2`, `DE.AE-02` — where the hierarchy is hiding inside a single column. Anything past the closed filters (conditionals, lookups, concatenation) is reserved for a separate Function step that does not exist yet; [JSONata](/crosswalker/concepts/etl-and-import/) is used today only to choose rows and match join keys (`source.where`, `source.joins`).
 
 ### Folders, or not — you pick the shape <span id="hierarchy-is-a-choice-not-a-default"></span>
 
@@ -349,7 +351,7 @@ A reader is a *front-end* to `render()`, never a second engine — and the same 
 | **Nested document** — records inside a tree (JSON, at an iterator path) | one record → one concept | concept notes |
 | **Mapping table** — one source id against many target ids | each pair → one typed edge | relationship (crosswalk) notes |
 
-The *shapes* are general. The current named implementations in `tools/` — `generate-fixtures` plus the `crosswalk-from-*` extractors — happen to target the compliance launch corpus; see the [ingestion dev log](/crosswalker/agent-context/zz-log/2026-06-02-ingestion-tooling-dev/) for those specifics and the [readiness board](/crosswalker/agent-context/zz-log/2026-06-12-urm-ingestion-readiness/) for status.
+The *shapes* are general. Inside the plugin the readers are the parsers in `src/import/parsers/` (CSV, XLSX, JSON) and the mapping-file readers (`src/import/sssom-importer.ts`, `src/import/strm-importer.ts`, `src/import/stack/mapping-readers.ts`). The named command-line implementations in `tools/` — `generate-fixtures` plus the `crosswalk-from-*` extractors — happen to target the compliance launch corpus; see the [ingestion dev log](/crosswalker/agent-context/zz-log/2026-06-02-ingestion-tooling-dev/) for those specifics and the [readiness board](/crosswalker/agent-context/zz-log/2026-06-12-urm-ingestion-readiness/) for status.
 
 ## Getting answers back out <span id="from-vault-to-answers"></span>
 

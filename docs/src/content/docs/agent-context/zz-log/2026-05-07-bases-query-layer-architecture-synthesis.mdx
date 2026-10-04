@@ -104,7 +104,7 @@ This page consolidates the verdicts and tracks the open decisions before [v0.1.6
 
 ## §1 Settled — locked architectural commitments
 
-**All 18 commitments below are LOCKED.** No user verdict needed; they govern v0.1.6 implementation and downstream milestones. Each row is anchored to one or more axes from the [Architectural map](#architectural-map-anchor-for-everything-below) above so you have a coordinate system. Acronyms are expanded inline.
+**All 18 commitments below are LOCKED.** No user verdict needed; they govern v0.1.6 implementation and downstream milestones. Each row is anchored to one or more axes from the [Architectural map](#where-each-settled-item-lives-in-the-picture) above so you have a coordinate system. Acronyms are expanded inline.
 
 The walkthrough below is for context-mapping (so you know where each commitment lives in the bigger picture), not approval. The only Settled-adjacent thing still open is the **D1 "Ch 35 nuance"** PROPOSED scope expansion (move SSSOM TSV import + materialized closure-table v0.1.8 → v0.1.6) — flagged separately at [D1](#d1-materialization-timing--v016-or-v018).
 
@@ -305,7 +305,7 @@ Why adopt:
 - Users never write SQL; they just see a working pivot view
 - v0.1.7 surfaces SQL via codeblock processor (per D2)
 
-**Option User-facing surface in v0.1.6** ([source: Ch 28a § sqlite-wasm feasibility](/crosswalker/agent-context/zz-research/2026-05-07-challenge-28-deliverable-a-bases-first-hybrid/#3-sqlite-wasm-is-feasible-on-obsidian-desktop))
+**Option User-facing surface in v0.1.6** ([source: Ch 28a § sqlite-wasm feasibility](/crosswalker/agent-context/zz-research/2026-05-07-challenge-28-deliverable-a-bases-first-hybrid/))
 - Earlier user-facing power; SQL-savvy users can write recipes against the SQL layer immediately
 - Couples codeblock processor (D2) to v0.1.6 — same scope-bloat concern
 
@@ -996,7 +996,7 @@ This section was originally "Open implementation questions for v0.1.6 (after syn
 :::
 
 - **TaskNotes v4 source code** is the canonical reference for `BasesView` subclass — read carefully before writing the `crosswalkerPivot` view (this is implementation guidance, not a blocker).
-- **`recipe.schema.json` design** — RESOLVED via [Ch 31 deliverables](#ch-31-) (data-only / shape-discriminated / SchemaVer versioning / JSONata-only string slots). Implementation pass needed; design is locked.
+- **`recipe.schema.json` design** — RESOLVED via [Ch 31 deliverables](#ch-31--recipe-query-block-schema-design-2026-05-08) (data-only / shape-discriminated / SchemaVer versioning / JSONata-only string slots). Implementation pass needed; design is locked.
 - **Bases-disabled fallback Notice** — Obsidian doesn't expose programmatic "enable core plugin" API; v0.1.6 implementation must verify what's actually possible (UX detail, not blocker).
 - **First-run `_crosswalker/views/` + Excluded Files prompt** UX details — small UX implementation detail.
 - **Bases API churn budget** — at least one breaking change already shipped (`BaseOption#shouldHide`); plan for 1–2 API churns/year.

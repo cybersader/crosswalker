@@ -15,7 +15,11 @@ Move the v0.1 output query layer from Dataview to [Bases](/crosswalker/concepts/
 
 🚧 In progress — Phases 1 through 6.4 ✅ done. A **shape-workbench side-arc** (2026-07-05 → 2026-07-11, tracked below as **Phase 7**) also landed inside this milestone's active window — the import-wizard rebuild, connected-output mandate, recognized-source fast path, settings hub, and workspace-tab shell are wizard/import-wizard work, not Bases/query-layer work, but shipped concurrently and are recorded here for continuity. **Phase 7 delivery detail lives in `CHANGELOG.md` `[Unreleased]`, not on this page** (see [the anti-duplication convention](/crosswalker/agent-context/zz-log/2026-07-11-docs-sync-and-anti-duplication-convention/) — this page tracks status/structure only). [v0.1.7 is active](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/).
 
-**Status last verified:** 2026-09-05 — scoped to static declarations and delivery records at commit `30aee63b`: the registered `crosswalker-pivot` view, SSSOM parser/importer, per-query `_crosswalker/queries/` state, join/bind/set/diff primitives, XLSX/JSON parsers, and workspace view remain in source, while `CHANGELOG.md` `[Unreleased]` records the later phase deliveries. The phase table's real-Obsidian and manual-test claims remain dated historical evidence; no current UI behavior was rerun or newly verified in this slice.
+**Status last verified:** 2026-10-03
+
+Re-checked 2026-10-03 against `CHANGELOG.md` `[Unreleased]` and current `src/`: the `crosswalker-pivot` Bases view registration in `src/main.ts`, `src/import/sssom-parser.ts` and `src/import/sssom-importer.ts`, per-query `_crosswalker/queries/` state, the join, bind, set-op and diff primitives under `src/views/`, the XLSX and JSON parsers, and `src/views/workspace-view.ts` remain; the later phase deliveries are recorded in `CHANGELOG.md` `[Unreleased]`.
+
+Earlier check, 2026-09-05: checked against static declarations and delivery records at commit `30aee63b`: the registered `crosswalker-pivot` view, SSSOM parser/importer, per-query `_crosswalker/queries/` state, join/bind/set/diff primitives, XLSX/JSON parsers, and workspace view remain in source, while `CHANGELOG.md` `[Unreleased]` records the later phase deliveries. The phase table's real-Obsidian and manual-test claims remain dated historical evidence; no current UI behavior was rerun or newly verified in this slice.
 
 | Phase | What ships | Build | Manual test |
 |---|---|---|---|
@@ -124,7 +128,7 @@ This milestone is the **v0.1.6 instance of Crosswalker's general [ontology-web q
 **Recipe loader + schema bump:**
 - [ ] Implement BOTH schema styles in `spec/recipe.schema.json` (per Ch 31): style A (`oneOf`+`const` discriminator — default) + style B (`if`/`then`/`else` discriminator — advanced setting)
 - [ ] Add plugin setting "Recipe schema style" with `A` (default) / `B` (advanced) toggle; both validators ship; users A/B test which feels better
-- [ ] Implement recipe loader in `src/import/recipe-loader.ts` with AJV validation against the active style
+- [ ] Implement recipe loader in `src/import/recipe-loader.ts` (planned) with AJV validation against the active style
 - [ ] Recipe → `.base` emission pipeline (recipes drive `.base` file generation)
 - [ ] Ship 5 reference recipes (one per v0.1 view shape: pivot/table/list/cards/hierarchy)
 - [ ] Ship `crosswalker-bases` SKILL.md per kepano/obsidian-skills (LLM-authoring guide)
@@ -169,7 +173,7 @@ This milestone is the **v0.1.6 instance of Crosswalker's general [ontology-web q
 
 ## Files to touch
 
-- `src/generation/templates/` — Bases-shaped query templates
+- `src/generation/templates/` (planned) — Bases-shaped query templates
 - `src/generation/generation-engine.ts` — body-template rendering
 - `recipes/starter/*.json` — updated emitted-body templates (if applicable)
 - `docs/src/content/docs/concepts/metadata-ecosystem.mdx` — Bases focus

@@ -9,7 +9,9 @@ tags: [architecture, tiers, components, system, design, foundation, layered]
 
 import { Aside } from '@astrojs/starlight/components';
 
-**Status last verified:** 2026-09-04 — verified against `src/` module layout (three tiers: `source/`, generation output as Tier 1 Markdown, `tier2/` for the derived projection; layers spanning `import/`, `generation/`, `tier2/`, `export/`, `ui/`) and the [artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) page. Tier 2 sidecar rows (Layer 3 components and the `tier2/` codebase map) re-verified 2026-10-03 against `src/tier2/sidecar.ts`, `db.ts`, `worker-db.ts` and `worker-source.ts`; the rest of the page keeps its 2026-09-04 verification.
+**Status last verified:** 2026-10-03
+
+Verified 2026-10-03 against `ls src` (every module directory, including the newer `mappings/`, `source/` and `views/`) and the six commitments in the project instructions: the component tables, the export layer and the codebase map were re-read against the current files. Fixed then: the parser row (XLSX and JSON shipped), the template-filter row (the filter set grew and JSONata now runs in `source.where`), the query helper names, the exporters (they read Tier 1 notes; OSCAL is a skeleton; SSSOM export is a command, not a toggle), and the codebase map. Earlier, 2026-10-03: the Tier 2 sidecar rows against `src/tier2/sidecar.ts`, `db.ts`, `worker-db.ts` and `worker-source.ts`.
 
 This page is the **detailed reference** for how Crosswalker's pieces fit together — the component-to-tier matrix, the read/write flows, the codebase map. It consolidates information that was previously scattered across the [ETL concept](/crosswalker/concepts/etl-and-import/), the [embedded substrates concept](/crosswalker/concepts/embedded-vs-server-substrates/), the [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/), and per-milestone pages.
 
@@ -167,10 +169,10 @@ These rules preserve two independent authorities: extensional Knowledge Sets rep
 
 | Component | Code | What it does |
 |---|---|---|
-| **Source parsers** | `src/import/parsers/csv-parser.ts` (+ JSONL + JSON-with-iterator-path planned for v0.2) | T0 file → `ParsedData` (eager array OR `AsyncIterable<Row>`) |
+| **Source parsers** | `src/import/parsers/csv-parser.ts`, `xlsx-parser.ts`, `json-parser.ts` (record-list iterator path) | T0 file → `ParsedData` (eager array OR `AsyncIterable<Row>`) |
 | **Streaming foundation** | `src/import/parsers/csv-parser.ts:parseCSVFileStream` | PapaParse `step` callback → AsyncIterable with backpressure ([v0.1.4.5](/crosswalker/reference/roadmap/milestones/v0-1-4-5-streaming-refactor/)) |
 | **render()** | `src/render/index.ts` | Pure function `(Recipe, ConceptIdentity) → Address` ([v0.1.2](/crosswalker/reference/roadmap/milestones/v0-1-2-render/)) |
-| **Template engine** | `src/render/template.ts` | R2RML-style `{var\|filter}` interpolation; closed 7-filter set; JSONata sub-language reserved for v0.3+ |
+| **Template engine** | `src/render/template.ts` | R2RML-style `{var\|filter}` interpolation over a closed filter set (source: `spec/recipe.schema.json § $defs/template`); JSONata is used only for row predicates and join keys in `source.where` / `source.joins` (`src/source/`) |
 | **Mechanisms** | `src/render/mechanisms/{folder,file,heading,tag,wikilink}.ts` | The 5 closed [hierarchy primitives](/crosswalker/concepts/hierarchy-primitives/) — folder/file/heading wired in v0.1; tag/wikilink reserved for v0.2 |
 | **Kind dispatch** | `src/render/index.ts` (Tier1Kind) | `kind: concept \| junction-note \| crosswalk-edge` discriminator ([v0.1.4](/crosswalker/reference/roadmap/milestones/v0-1-4-junction-notes-and-crosswalks/)) |
 | **Generation engine** | `src/generation/generation-engine.ts:generateNotes / generateFromRecipe` | Per-row loop calling render() + provenance + validation + merge → vault.create/modify |
@@ -346,7 +348,7 @@ If `.crosswalker.sqlite` is missing, corrupted, or stale, the projector reprojec
 | Component | Code | What it does |
 |---|---|---|
 | **Bases (upstream Obsidian)** | n/a (built-in to Obsidian) | Flat YAML-frontmatter queries directly over Tier 1 — no plugin needed |
-| **SQL query helpers** | `src/tier2/queries.ts` (v0.1.5 Phase 3) | Typed `getControlsByOntology`, `findCoverageGaps`, `crosswalkBetween`, `closureFromConcept` |
+| **SQL query helpers** | `src/tier2/queries.ts` (v0.1.5 Phase 3) | Typed `getConceptsByOntology`, `crosswalkBetween`, `closureFromConcept`, `precomputeClosureForOntologyPair`; evidence coverage in `src/tier2/evidence-coverage.ts` |
 | **Bases query templates emitted in concept-note bodies** | Body-template rendering in `src/render/body.ts` + `src/render/template.ts` (v0.1.6); no separate templates directory | Recipe-author authors a body template; engine emits a working Bases query in each concept note |
 
 ### When to use which
@@ -399,30 +401,27 @@ Crosswalker recipes (Layer C) name a primitive composition + a view shape. The e
    ────────────────      ────────       ────────────────
 
    crosswalk-edge        STRM          NIST IR 8278A r1
-   notes (T1)            TSV           OLIR template
-   OR mappings (T2)      exporter      (Excel-friendly TSV)
+   notes and mapping     TSV           OLIR template
+   tables (T1)           exporter      (Excel-friendly TSV)
                                         round-trip determ.
 
-   junction-note         OSCAL JSON    NIST OSCAL
-   notes (T1)            profile       Control Mapping Model
-   OR junction_notes     exporter      (.json profile)
-   (T2)
+   concept notes (T1)    OSCAL JSON    NIST OSCAL Profile shell
+                         profile       (skeleton; mapping
+                         exporter      target shape undecided)
 
    crosswalk-edge        SSSOM TSV     SSSOM (Mapping Commons)
    notes (T1)            exporter      academic interop
-   OR mappings (T2)      (opt-in)      (TSV with metadata
-                                        header; off by default
-                                        per Ch 19 — zero GRC
-                                        adoption)
+                         (command)     (TSV with metadata
+                                        header)
 ```
 
 ### Components in this layer
 
 | Component | Code | What it does |
 |---|---|---|
-| **STRM TSV exporter** | `src/export/strm-tsv-exporter.ts` (v0.1.7) | Reads T2 mappings; emits NIST IR 8278A r1 OLIR template format |
-| **OSCAL JSON exporter** | `src/export/oscal-profile-exporter.ts` (v0.1.7) | Reads T1 junction notes (or T2 junction_notes); emits OSCAL Control Mapping profile |
-| **SSSOM TSV exporter** | `src/export/sssom-exporter.ts` (v0.1.7) | Reads T2 mappings; emits SSSOM-shaped TSV; opt-in toggle |
+| **STRM TSV exporter** | `src/export/strm-tsv-exporter.ts` (v0.1.7) | Reads Tier 1 crosswalk-edge notes and mapping tables through `src/export/vault-reader.ts`; emits the NIST IR 8278A r1 OLIR template columns (the typed mapping table export) |
+| **OSCAL JSON exporter** | `src/export/oscal-profile-exporter.ts` (v0.1.7) | Skeleton only: emits an OSCAL Profile shell (`metadata` + `imports`) from the ontology prefixes in a folder; crosswalk-edge emission waits on the OSCAL target-shape decision. No command yet |
+| **SSSOM TSV exporter** | `src/export/sssom-exporter.ts` (v0.1.7) | Reads Tier 1 crosswalk-edge notes through `src/export/vault-reader.ts`; emits SSSOM-shaped TSV with the mapping set's release header. Run from **Import and export: export folder as a crosswalk mapping file**; there is no settings toggle |
 
 ### Round-trip determinism
 
@@ -503,9 +502,9 @@ A single table of every load-bearing logical component, where it lives, and what
 | Bases queries | Query | Tier 1 frontmatter | (returns user data) | n/a (upstream Obsidian) |
 | SQL query helpers | Query | Tier 2 tables | (returns user data) | `src/tier2/queries.ts` |
 | Body-query templates | Query | Recipe template | Tier 1 note body (Bases query string) | `src/render/body.ts` + `src/render/template.ts` (v0.1.6) |
-| STRM TSV exporter | Export | T2 mappings (or T1 crosswalk-edge notes) | `.tsv` file | `src/export/strm-tsv-exporter.ts` (v0.1.7) |
-| OSCAL JSON exporter | Export | T1 junction notes (or T2) | `.json` file | `src/export/oscal-profile-exporter.ts` (v0.1.7) |
-| SSSOM TSV exporter | Export | T2 mappings | `.tsv` file | `src/export/sssom-exporter.ts` (v0.1.7) |
+| STRM TSV exporter | Export | T1 crosswalk-edge notes and mapping tables | `.tsv` file | `src/export/strm-tsv-exporter.ts` (v0.1.7) |
+| OSCAL JSON exporter (skeleton) | Export | T1 concept notes (ontology prefixes) | `.json` profile shell | `src/export/oscal-profile-exporter.ts` (v0.1.7) |
+| SSSOM TSV exporter | Export | T1 crosswalk-edge notes | `.tsv` file | `src/export/sssom-exporter.ts` (v0.1.7) |
 | git commit hook | Audit | (write event) | git commit | planned module (v0.1.8) |
 | Ed25519 signer | Audit | Release bundle | Signature on `_crosswalker_manifest.json` | planned module (v0.1.8) |
 | FRE 902(13) PDF | Audit | Vault hash + signed manifest | `.pdf` file | planned module (v0.1.8) |
@@ -529,32 +528,44 @@ The ImportRecipe is intentionally absent from the tier table: it is an adjacent 
 
 ```
 src/
-├── main.ts                        ── Plugin entry point. Wires everything.
+├── main.ts                        ── Plugin entry point. Registers commands, views, startup projection.
 │
 ├── render/                        ── render() — Layer 1 single coupling point
 │   ├── index.ts                      Pure (Recipe, ConceptIdentity) → Address
 │   ├── template.ts                   {var|filter} interpolation engine
+│   ├── body.ts                       Body projections (managed sections)
 │   ├── types.ts                      Address, ConceptIdentity, SourceScope
 │   └── mechanisms/                   The 5 closed primitives
-│       ├── folder.ts                 wired
-│       ├── file.ts                   wired
-│       ├── heading.ts                wired
-│       ├── tag.ts                    deferred to v0.2 (stub)
-│       └── wikilink.ts               deferred to v0.2 (stub)
+│       ├── folder.ts, file.ts, heading.ts   wired
+│       └── tag.ts, wikilink.ts              deferred to v0.2 (stubs)
+│
+├── source/                        ── Layer 1 source contract: where, joins, nest (JSONata predicates)
 │
 ├── import/                        ── Layer 1 (source → render input)
-│   ├── parsers/
-│   │   └── csv-parser.ts             PapaParse + streaming (v0.1.4.5)
-│   └── import-wizard.ts              The wizard UI (column-role mapping)
+│   ├── parsers/                      csv-parser.ts (streaming), xlsx-parser.ts, json-parser.ts
+│   ├── import-wizard.ts              The four-step wizard (classic table + workbench)
+│   ├── workbench.ts, mapping/        Live mapping workbench and shape presets
+│   ├── recipe-registry.ts            Built-in presets, stack frameworks and mapping slots
+│   ├── recipe-document.ts            Canonical ImportRecipe preservation (RecipeDocument)
+│   ├── recipe-library.ts             Saved recipes and Run again
+│   ├── stack/                        Framework stack flow
+│   ├── vault-source-scan.ts          Find sources in this vault
+│   └── sssom-importer.ts, strm-importer.ts   Mapping file imports
 │
 ├── generation/                    ── Layer 1 (render output → Tier 1)
 │   ├── generation-engine.ts          Per-row loop; calls render(); writes vault
 │   ├── frontmatter-merge.ts          managed/user_preserve semantics
+│   ├── managed-body.ts               Marked body region rebuilt on re-import
 │   ├── provenance.ts                 _crosswalker block writer
+│   ├── import-set.ts, identity-index.ts   Import set ownership and identity lookups
+│   ├── crosswalk-edge-pass.ts        Crosswalk column links and release records
+│   ├── enrich.ts                     Children lists, facet and level hubs
 │   └── legacy-recipe-shim.ts         v0.1.0 column-role → Ch 22 layout
 │
+├── mappings/                      ── Mapping sets: release record, table form, conversion, review store
+│
 ├── validation/                    ── Layer 1 pre-write gate
-│   └── validator.ts                  AJV against spec/tier1.schema.json
+│   └── validator.ts                  AJV against spec/tier1.schema.json and spec/recipe.schema.json
 │
 ├── tier2/                         ── Layer 3 (projection)
 │   ├── sidecar.ts                    sidecar lifecycle; Worker first, in-memory fallback
@@ -564,27 +575,30 @@ src/
 │   ├── schema.sql                    Tier 2 DDL (canonical .sql doc)
 │   ├── migrations.ts                 schema_version + drop-and-recreate
 │   ├── projector.ts                  Tier 1 → Tier 2 (v0.1.5 Phase 2)
-│   └── queries.ts                    Typed query API + closure cache (v0.1.5 Phase 3)
+│   ├── queries.ts                    Typed query API + closure cache (v0.1.5 Phase 3)
+│   └── evidence-coverage.ts          Evidence coverage and set-aside diagnosis
 │
-├── export/                        ── Layer 5 (T1/T2 → external)
-│   ├── strm-tsv.ts                   v0.1.7
-│   ├── oscal-profile.ts              v0.1.7
-│   └── sssom-tsv.ts                  v0.1.7
+├── export/                        ── Layer 5 (T1 → external)
+│   ├── vault-reader.ts               Reads Tier 1 notes and mapping tables
+│   ├── strm-tsv-exporter.ts          v0.1.7
+│   ├── sssom-exporter.ts             v0.1.7
+│   ├── csv-exporter.ts               v0.1.7
+│   └── oscal-profile-exporter.ts     v0.1.7 (skeleton)
 │
-├── audit/                         ── Layer 6 (cross-cutting)
-│   ├── git-commit.ts                 v0.1.8
-│   ├── sign.ts                       v0.1.8
-│   ├── manifest.ts                   v0.1.8
-│   └── fre-902.ts                    v0.1.8
-│
-├── settings/                      ── Plugin settings (cross-layer)
+├── views/                         ── Layer 4 surfaces: workspace tab, query views and primitives,
+│                                     evidence link window and coverage report, mapping review
+├── ui/, config/, settings/, utils/  ── Pickers, saved configs, settings tab, debug log
 └── types/
-    └── config.ts                     ParsedData, ImportRecipe, etc.
+    ├── config.ts                     ParsedData, legacy config types
+    └── generated/                    Types generated from spec/*.schema.json
+
+Planned, not in src/ yet: audit/ (Layer 6, v0.1.8: run records, signing, manifests)
 
 spec/
 ├── tier1.schema.json              ── Tier 1 frontmatter contract
 └── recipe.schema.json             ── Recipe shape contract
 
+recipes/import/                    ── Built-in recipes for recognized sources (+ crosswalks/)
 recipes/starter/                   ── Mode 1 starter recipes
 ├── nist-csf-to-800-53-crosswalk.json
 ├── iso27001-to-800-53-crosswalk.json

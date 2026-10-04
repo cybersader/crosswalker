@@ -4,70 +4,85 @@ description: Obsidian commands registered by Crosswalker, grouped by the task th
 tags: [obsidian, getting-started]
 ---
 
-Access these from Obsidian's command palette (`Ctrl/Cmd + P`). Obsidian adds the **Crosswalker:** prefix; the leading words keep related actions together.
+Access these from Obsidian's command palette (`Ctrl/Cmd + P`). Obsidian adds the **Crosswalker:** prefix; the leading words keep related actions together. Crosswalker registers 33 commands (source: `src/main.ts` `addCommand`). The **ID** column is the stable command id, which is what a hotkey binding or another plugin refers to; Obsidian stores it as `crosswalker:<id>`.
 
-**Status last verified:** 2026-09-06 — verified against `src/main.ts`, the export path unit tests, and the targeted real-Obsidian export walkthroughs. All three export commands below opened the real folder picker and selected its friendly `/ (vault root)` choice. The CSV and crosswalk commands ran against Obsidian's actual root (`path: /`, `isRoot(): true`), wrote `vault.export.csv` and `vault.export.tsv`, preserved source notes and existing hidden-style export files, and retained their overwrite-by-default policy for corrected destinations. The typed mapping command separately passed its nested-folder, root, cancellation, and confirmed-replacement scenarios. This is scoped command coverage, not a full-E2E or quarantine-clearance claim; all remaining entries retain the 2026-08-28 command-palette baseline from `tests/e2e/first-run.spec.ts`.
+**Status last verified:** 2026-10-03
+
+Verified 2026-10-03 against every `addCommand` registration in `src/main.ts` (name and id) and the full Crosswalker list in the command palette of a fresh empty-vault `tests/e2e/first-run.spec.ts` run in real Obsidian, which showed all 33. Added then: the eight commands this page had not listed. Earlier, 2026-09-06: the three export commands were walked through in real Obsidian (root and nested folders, cancellation, confirmed replacement).
 
 ## Start here
 
-| Command | Description |
-|---|---|
-| **Crosswalker: Start here: open workspace** | Opens the workspace that shows imported frameworks and starts guided imports. |
-| **Crosswalker: Start here: import structured data** | Opens the import flow directly for CSV, XLSX, or JSON data. |
+| Command | ID | Description |
+|---|---|---|
+| **Crosswalker: Start here: open workspace** | `open-crosswalker-workspace` | Opens the workspace that shows imported frameworks and starts guided imports. |
+| **Crosswalker: Start here: import structured data** | `import-structured-data` | Opens the import flow directly for CSV, XLSX, or JSON data. |
+| **Crosswalker: Start here: find framework sources in this vault** | `find-vault-sources` | Scans the vault for framework exports Crosswalker recognizes and opens the one you pick. |
+| **Crosswalker: Set up a framework stack** | `set-up-framework-stack` | Imports several frameworks and the mappings that connect them in one guided run. |
 
 ## Import setup
 
-| Command | Description |
-|---|---|
-| **Crosswalker: Import setup: browse saved configurations** | Opens saved import configurations. |
-| **Crosswalker: Import setup: resume a draft import** | Opens the import flow with drafts from previous sessions available. |
+| Command | ID | Description |
+|---|---|---|
+| **Crosswalker: Browse import recipes** | `browse-import-recipes` | Opens the recipe library: inspect, run again, export, import, duplicate, rename or delete saved import recipes. |
+| **Crosswalker: Import setup: browse saved configurations** | `browse-saved-configs` | Opens saved import configurations. |
+| **Crosswalker: Import setup: resume a draft import** | `resume-draft-import` | Opens the import flow with drafts from previous sessions available. |
 
 ## Import and export
 
-| Command | Description |
-|---|---|
-| **Crosswalker: Import and export: import crosswalk mapping file** | Imports relationships between two frameworks from a mapping file. |
-| **Crosswalker: Import and export: export folder as a crosswalk mapping file** | Exports relationship notes beneath a chosen folder to `<folder>.export.tsv`, or `vault.export.tsv` for the vault root. Existing output retains the command's overwrite-by-default behavior. |
-| **Crosswalker: Import and export: export folder as a typed mapping table** | Exports typed relationship notes beneath a chosen folder to `<folder>.export.typed-mappings.tsv` (or `vault.export.typed-mappings.tsv` for the vault root). Existing output requires confirmation; zero exportable rows write nothing. |
-| **Crosswalker: Import and export: export folder as CSV** | Exports notes beneath a chosen folder to `<folder>.export.csv`, or `vault.export.csv` for the vault root. Existing output retains the command's overwrite-by-default behavior. |
+| Command | ID | Description |
+|---|---|---|
+| **Crosswalker: Import and export: import crosswalk mapping file** | `import-sssom` | Imports relationships between two frameworks from a mapping file. |
+| **Crosswalker: Import and export: import a typed mapping table** | `import-typed-mapping-table` | Imports a typed mapping table through the same flow, with the same destination, storage and refresh choices; a release file beside it is read. |
+| **Crosswalker: Import and export: export folder as a crosswalk mapping file** | `export-folder-as-crosswalk-mapping-file` | Exports relationship notes beneath a chosen folder to `<folder>.export.tsv`, or `vault.export.tsv` for the vault root. Existing output retains the command's overwrite-by-default behavior. |
+| **Crosswalker: Import and export: export folder as a typed mapping table** | `export-folder-as-typed-mapping-table` | Exports typed relationship notes beneath a chosen folder to `<folder>.export.typed-mappings.tsv` (or `vault.export.typed-mappings.tsv` for the vault root). Existing output requires confirmation; zero exportable rows write nothing. |
+| **Crosswalker: Import and export: export folder as CSV** | `export-folder-as-csv` | Exports notes beneath a chosen folder to `<folder>.export.csv`, or `vault.export.csv` for the vault root. Existing output retains the command's overwrite-by-default behavior. |
+
+## Mapping tables
+
+| Command | ID | Description |
+|---|---|---|
+| **Crosswalker: Review a mapping table** | `review-mapping-table` | Picks a mapping set stored as a table and opens its rows for review (status, reviewer, notes). |
+| **Crosswalker: Finish interrupted mapping conversions** | `finish-mapping-conversions` | Finishes any notes-to-table or table-to-notes conversion that was interrupted, for example by closing Obsidian. |
 
 ## Explore data
 
-| Command | Description |
-|---|---|
-| **Crosswalker: Explore data: create a query in the current note** | Creates a saved query and embeds its view at the cursor. |
-| **Crosswalker: Explore data: embed a saved query in the current note** | Embeds an existing saved query at the cursor. |
-| **Crosswalker: Explore data: browse saved queries** | Opens saved queries and their open, embed, and delete actions. |
-| **Crosswalker: Explore data: save a snapshot of the current query** | Saves an auditable snapshot for the open query. |
+| Command | ID | Description |
+|---|---|---|
+| **Crosswalker: Explore data: create a query in the current note** | `insert-query-into-note` | Creates a saved query and embeds its view at the cursor. |
+| **Crosswalker: Explore data: embed a saved query in the current note** | `embed-existing-query` | Embeds an existing saved query at the cursor. |
+| **Crosswalker: Explore data: browse saved queries** | `browse-queries` | Opens saved queries and their open, embed, and delete actions. |
+| **Crosswalker: Explore data: save a snapshot of the current query** | `materialize-query` | Saves an auditable snapshot for the open query. |
+
+The two commands that insert at the cursor and the snapshot command are available only while a note is open in the editor.
 
 ## Evidence
 
-| Command | Description |
-|---|---|
-| **Crosswalker: Evidence: link evidence to a control** | Creates one evidence-to-control relationship through a guided form. |
-| **Crosswalker: Evidence: create coverage report** | Refreshes coverage data, writes a report note, and opens it. |
+| Command | ID | Description |
+|---|---|---|
+| **Crosswalker: Evidence: link evidence to a control** | `link-evidence-to-control` | Creates one evidence-to-control relationship through a guided form. |
+| **Crosswalker: Evidence: create coverage report** | `evidence-coverage-report` | Refreshes coverage data, writes a report note, and opens it. |
 
 ## Maintenance
 
-| Command | Description |
-|---|---|
-| **Crosswalker: Maintenance: update saved queries to the current layout** | Moves older saved queries into the current folder layout. |
-| **Crosswalker: Maintenance: refresh saved query views** | Rebuilds saved query views from their current definitions. |
-| **Crosswalker: Maintenance: record selected housekeeping changes as baseline** | Records selected non-substantive control changes as the comparison baseline. |
-| **Crosswalker: Maintenance: reset search data** | Clears derived search data so Crosswalker can rebuild it. |
-| **Crosswalker: Maintenance: clear all import drafts** | Deletes every saved import draft. |
-| **Crosswalker: Maintenance: remove expired import drafts** | Deletes drafts older than the configured retention period. |
+| Command | ID | Description |
+|---|---|---|
+| **Crosswalker: Maintenance: update saved queries to the current layout** | `migrate-query-layout` | Moves older saved queries into the current folder layout. |
+| **Crosswalker: Maintenance: refresh saved query views** | `refresh-query-views` | Rebuilds saved query views from their current definitions. |
+| **Crosswalker: Maintenance: record selected housekeeping changes as baseline** | `record-selected-housekeeping-baseline` | Records selected non-substantive control changes as the comparison baseline. |
+| **Crosswalker: Maintenance: reset search data** | `clear-tier-2-sidecar` | Clears derived search data so Crosswalker can rebuild it. |
+| **Crosswalker: Maintenance: clear all import drafts** | `clear-all-drafts` | Deletes every saved import draft. |
+| **Crosswalker: Maintenance: remove expired import drafts** | `purge-expired-drafts` | Deletes drafts older than the configured retention period. |
 
 ## Developer tools
 
 These support testing and troubleshooting rather than the normal import workflow.
 
-| Command | Description |
-|---|---|
-| **Crosswalker: Developer tools: import bundled test data** | Imports bundled mapping data for end-to-end testing. |
-| **Crosswalker: Developer tools: delete a test import** | Deletes generated test imports while protecting curated data. |
-| **Crosswalker: Developer tools: run a performance check** | Runs the built-in performance check and copies its summary. |
-| **Crosswalker: Developer tools: open troubleshooting log** | Opens the troubleshooting log when logging is enabled. |
-| **Crosswalker: Developer tools: copy troubleshooting log to clipboard** | Copies a redacted portion of the troubleshooting log. |
-| **Crosswalker: Developer tools: copy troubleshooting details to clipboard** | Copies a redacted diagnostic summary. |
-| **Crosswalker: Developer tools: clear troubleshooting log** | Clears the troubleshooting log. |
+| Command | ID | Description |
+|---|---|---|
+| **Crosswalker: Developer tools: import bundled test data** | `import-bundled-fixture` | Imports bundled mapping data for end-to-end testing. |
+| **Crosswalker: Developer tools: delete a test import** | `reset-imported-notes` | Deletes generated test imports while protecting curated data. |
+| **Crosswalker: Developer tools: run a performance check** | `benchmark-primitives` | Runs the built-in performance check and copies its summary. |
+| **Crosswalker: Developer tools: open troubleshooting log** | `open-debug-log` | Opens the troubleshooting log when logging is enabled. |
+| **Crosswalker: Developer tools: copy troubleshooting log to clipboard** | `export-debug-log` | Copies a redacted portion of the troubleshooting log. |
+| **Crosswalker: Developer tools: copy troubleshooting details to clipboard** | `copy-diagnostics` | Copies a redacted diagnostic summary. |
+| **Crosswalker: Developer tools: clear troubleshooting log** | `clear-debug-log` | Clears the troubleshooting log. |
