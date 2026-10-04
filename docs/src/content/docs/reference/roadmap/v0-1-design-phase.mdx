@@ -1,0 +1,108 @@
+---
+title: "v0.1 design phase and Foundation (archived)"
+description: "Archived roadmap content from the April to May 2026 design phase: the Foundation build target, resolved Foundation decisions, the open-items list as it stood when the phase closed on 2026-05-04, and the decision-log index of that period."
+tags: [development, architecture, roadmap]
+sidebar:
+  label: "v0.1 design phase (done)"
+  order: 99
+---
+
+This is the archived **Foundation / design phase** section of the [roadmap](/crosswalker/reference/roadmap/). It ran from the [vision alignment decisions](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/) of 2026-04-03 to the close of the design phase on 2026-05-04, when five fresh-agent research challenges (Ch 20 to 24) resolved the last named architectural questions. Implementation of v0.1 began the same day; its live status is on the [milestone hub](/crosswalker/reference/roadmap/milestones/).
+
+Moved here from the living roadmap on 2026-10-03, because the roadmap page should show current work first. Nothing on this page is current status; dates are the dates of the facts they describe. The list of what is still open is in [What carried forward](#what-carried-forward).
+
+---
+
+## Design phase closed (2026-05-04)
+
+**Architectural commitments locked on 2026-05-04** (the authoritative list is the v0.1 commitments table in the repository's agent instructions; each item links its synthesis log):
+
+- [Schema-as-primitive](/crosswalker/concepts/etl-and-import/): the Tier 1 schema is the load-bearing contract; engine and ETL are convenience
+- Closed 5-mechanism recipe grammar (source: spec/recipe.schema.json § mechanisms): `folder | file | heading | tag | wikilink` × layout × also_emit × graph_edges, with `render(Recipe, ConceptIdentity) → Address` as the single coupling point ([Ch 22 synthesis](/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/))
+- TypeScript in-plugin engine for v0.1; an optional Python producer reserved for v0.5+ ([Ch 23 synthesis](/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/)). Its "main thread, no Web Workers" clause was narrowed on 2026-10-03 to the import engine only ([Tier 2 worker persistence synthesis §3](/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/))
+- [Tier 2](/crosswalker/concepts/system-architecture/) substrate on `@sqlite.org/sqlite-wasm` + `sqlite-vec`; libSQL, Turso Cloud and Limbo rejected ([Ch 24 synthesis](/crosswalker/agent-context/zz-log/2026-05-04-tier-2-substrate-synthesis/)). `sqlite-vec` was later deferred to the 2026-11-06 revisit ([WASM-A pivot synthesis](/crosswalker/agent-context/zz-log/2026-05-06-wasm-a-pivot-synthesis/))
+- Runtime-agnostic recipe schema ([Ch 23 synthesis §4](/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/#4-the-most-important-commitment-runtime-agnostic-recipe-schema))
+- Output query layer: Bases (Dataview removed)
+
+Machine-readable contracts shipped that day: `spec/tier1.schema.json` + `spec/recipe.schema.json`; dev infrastructure `tools/generate-fixtures.ts` + `bun run fixtures`. Full state: [2026-05-04 import engine design log](/crosswalker/agent-context/zz-log/2026-05-04-import-engine-design/).
+
+## Architectural safety guarantee (2026-05-02)
+
+**Tier 1 (canonical files) is the source of truth. Tier 2 and Tier 3 are projections, fully deletable and recoverable from Tier 1.** This still holds and is the reason Tier 2 can be shipped without trapping the user. See [v0.1 stack-pivot log §2](/crosswalker/agent-context/zz-log/2026-05-02-v0-1-initial-stack-pivot/#2-the-architectural-safety-guarantee-load-bearing-principle).
+
+## v0.1 build target (as written 2026-05-02), with where each item landed
+
+| Build-target item (2026-05-02) | Where it landed |
+|---|---|
+| Tier 1 storage: frontmatter notes, [STRM](/crosswalker/reference/registry/strm/) predicates, [junction notes](/crosswalker/concepts/terminology/#core-terms) | [v0.1.3](/crosswalker/reference/roadmap/milestones/v0-1-3-generation-engine-integration/) and [v0.1.4](/crosswalker/reference/roadmap/milestones/v0-1-4-junction-notes-and-crosswalks/), done 2026-05-05 |
+| Tier 1 in-memory index | Superseded by the Tier 2 sidecar with Tier 1 fallback ([v0.1.5](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/), done 2026-05-06) |
+| Tier 2 sqlite-wasm sidecar projector | [v0.1.5](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/), done 2026-05-06; persisted to disk for the first time 2026-10-03 ([synthesis](/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/)) |
+| Crosswalk-render layer (Bases + recursive CTE) | [v0.1.6](/crosswalker/reference/roadmap/milestones/v0-1-6-bases-query-layer/), in progress; Bases query emission into generated notes is still unbuilt |
+| Portability chain (exports, recipe library, run binding, MappingSet envelope, OSCAL decision) | [v0.1.7](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/), in progress |
+| Execution records, audit, package manifests | [v0.1.8](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/), planning |
+| Bundle target (~1.2 MB) | [v0.1-RC](/crosswalker/reference/roadmap/milestones/v0-1-rc-bundle-and-ship/), planning. The production `main.js` measured 5,114,861 bytes on 2026-10-03 (source: [Tier 2 worker synthesis](/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/) ruling W2), so this target needs revisiting at RC |
+
+Schema spec: [unified v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/) (2026-05-03). The four schemas it defined were implemented in v0.1.1 to v0.1.5.
+
+## Resolved Foundation decisions (2026-04 to 2026-05)
+
+- **[Crosswalk edge semantics: STRM + SSSOM](/crosswalker/concepts/terminology/#matching--alignment-terms)**: STRM as `predicate_id` vocabulary, SSSOM as row envelope. [v0.1 pivot §6](/crosswalker/agent-context/zz-log/2026-05-02-v0-1-initial-stack-pivot/#6-sssom--strm-resolution--hybrid) · [04-10 synthesis](/crosswalker/agent-context/zz-log/2026-04-10-foundation-research-synthesis/#edge-semantics-should-be-set-theoretic-not-skos-ish)
+- **[Junction notes for evidence links](/crosswalker/agent-context/zz-log/2026-04-10-evidence-link-edge-model-synthesis/)**: one note per edge, 13-field schema. [Ch 07 archive](/crosswalker/agent-context/zz-challenges/archive/07-link-metadata-edge-model/)
+- **[Pairwise crosswalks + optional inheritable pivot](/crosswalker/agent-context/zz-log/2026-05-01-foundation-commitments-and-followon-research/#21-pairwise--optional-inheritable-pivot-challenge-06-resolution)**. [Ch 06 archive](/crosswalker/agent-context/zz-challenges/archive/06-synthetic-spine/)
+- **[Progressive Tier Architecture](/crosswalker/agent-context/zz-log/2026-05-02-v0-1-initial-stack-pivot/)**: Tier 1 files canonical, Tier 2 sidecar, Tier 3 optional server. [Ceiling rationale](/crosswalker/agent-context/zz-log/2026-04-10-foundation-research-synthesis/#files-canonical-has-a-real-ceiling)
+- **[Distribution architecture research](/crosswalker/agent-context/zz-log/2026-04-03-distribution-architecture-research/)**: monorepo with `@crosswalker/core` + plugin + CLI (implementation not started; see below)
+- **[StewardshipProfile rename + meta-schema lifecycle](/crosswalker/agent-context/zz-log/2026-05-01-foundation-commitments-and-followon-research/)**
+- **[Audit trail floor: git + signed commits](/crosswalker/agent-context/zz-log/2026-05-02-v0-1-initial-stack-pivot/#8-audit-trail-default--t1)**. [Ch 08](/crosswalker/agent-context/zz-research/2026-05-02-challenge-08-git-audit-trail/) · [Ch 13](/crosswalker/agent-context/zz-research/2026-05-02-challenge-13-deliverable-a-attestation-primitives/) · [Ch 15](/crosswalker/agent-context/zz-research/2026-05-02-challenge-15-non-git-audit-trail/) · [Ch 19](/crosswalker/agent-context/zz-research/2026-05-02-challenge-19-overengineering-stress-test/)
+- **[Identifier strategy](/crosswalker/agent-context/zz-research/2026-05-02-challenge-09-uuid-cwuuid/)**: UUIDv7 + sha256 CIDs + CURIEs
+
+## What carried forward
+
+Re-checked 2026-10-03 against `src/`, `.github/workflows/`, and the milestone pages.
+
+**Done since the phase closed** (no longer roadmap items):
+
+- ImportRecipe schema, `_crosswalker` metadata v2, junction-note schema, Tier 2 SQL schema: implemented in v0.1.1 to v0.1.5 (2026-05-04 to 05-06)
+- PII scanning in CI: `check:personal-data` runs in the `Static Checks` workflow (`.github/workflows/static-checks.yml`)
+- E2E coverage beyond smoke: 71 spec files under `tests/e2e/` (source: `find tests/e2e -name '*.spec.ts' | wc -l`, 2026-10-03)
+- Bases direction research: settled as commitment 6; the [v0.1.6 milestone](/crosswalker/reference/roadmap/milestones/v0-1-6-bases-query-layer/) carries the remaining emission work
+
+**Still open, now tracked on the living roadmap or a milestone page:**
+
+- Monorepo restructure (`packages/core`, plugin, CLI): not started; no `packages/` directory exists. [Sequence rationale](/crosswalker/agent-context/zz-log/2026-04-03-distribution-architecture-research/#decision-when-to-restructure)
+- Migration strategy matrix (StewardshipProfile + version delta → [SCD type](/crosswalker/concepts/ontology-evolution/#how-data-warehouses-handle-this-slowly-changing-dimensions)): moved to the Evolution phase
+- [Transform engine](/crosswalker/design/transformation/) breadth ([research](/crosswalker/agent-context/zz-log/2026-04-03-transform-engine-research/)): moved to Formats / Acquire
+- [Ontology diff primitives](/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/) implementation: moved to the Evolution phase
+- Documentation tasks: OSCAL mental model ([TL;DR §3.3](/crosswalker/agent-context/zz-log/2026-05-02-direction-commitments-tldr/#33-oscal-native-support--placement-in-the-web-of-webs)), [DB-choice page](/crosswalker/concepts/file-based-graph-database/), Comunica assessment ([third-wave §7.2](/crosswalker/agent-context/zz-log/2026-05-02-direction-third-wave-architectural-shifts/#72-confirmed-defaults--user-sign-off-received-2026-05-02)), StewardshipProfile rename ripples (27 docs pages still contain "EvolutionPattern", many of them immutable logs; source: grep, 2026-10-03)
+- Research items: [SEACOW + folder-tag-sync prior art](/crosswalker/agent-context/zz-log/2026-04-10-seacow-and-folder-tag-sync-prior-art/), graph scope ([Thread 2](/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/#thread-2-beyond-hierarchical-taxonomies)), [StewardshipProfile vs transformation recipes](/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/)
+- Fluid layout scaling for the docs site (`clamp()` instead of fixed breakpoints)
+
+## Decision log of the design phase
+
+**2026-05-02 to 2026-05-04**: research waves, v0.1 stack pivot, Ch 20 to 24 closure
+
+- [Target-structure synthesis (Ch 22)](/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/)
+- [Tier 2 substrate synthesis (Ch 24)](/crosswalker/agent-context/zz-log/2026-05-04-tier-2-substrate-synthesis/)
+- [Bundle engine language synthesis (Ch 23)](/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/)
+- [Import engine design](/crosswalker/agent-context/zz-log/2026-05-04-import-engine-design/)
+- [Import primitive formal foundation synthesis (Ch 20)](/crosswalker/agent-context/zz-log/2026-05-03-import-primitive-formal-foundation-synthesis/)
+- [v0.1 initial-stack pivot](/crosswalker/agent-context/zz-log/2026-05-02-v0-1-initial-stack-pivot/)
+- [Direction third-wave architectural shifts](/crosswalker/agent-context/zz-log/2026-05-02-direction-third-wave-architectural-shifts/)
+- [Direction commitments TL;DR](/crosswalker/agent-context/zz-log/2026-05-02-direction-commitments-tldr/)
+- [Direction research wave + roadmap reshape](/crosswalker/agent-context/zz-log/2026-05-02-direction-research-wave-and-roadmap-reshape/)
+- [05-01 Foundation commitments + follow-on research](/crosswalker/agent-context/zz-log/2026-05-01-foundation-commitments-and-followon-research/)
+
+**2026-04-03 to 2026-04-10**: first-principles foundations
+
+- [Evidence-link edge model synthesis](/crosswalker/agent-context/zz-log/2026-04-10-evidence-link-edge-model-synthesis/)
+- [04-10 Foundation research synthesis](/crosswalker/agent-context/zz-log/2026-04-10-foundation-research-synthesis/)
+- [Vision alignment decisions](/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/)
+- [Deep research synthesis](/crosswalker/agent-context/zz-log/2026-04-03-deep-research-synthesis/)
+- [Architectural direction](/crosswalker/agent-context/zz-log/2026-04-03-architectural-direction-exploration/)
+- [First principles: ontology change](/crosswalker/agent-context/zz-log/2026-04-08-ontology-evolution-first-principles/)
+- [Atomic operations research](/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/)
+- [User-first ontology maintenance](/crosswalker/agent-context/zz-log/2026-04-09-user-first-ontology-maintenance/)
+- [Primitives depth + pluggable layers](/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/)
+
+---
+
+See the [current roadmap](/crosswalker/reference/roadmap/) for active work.
