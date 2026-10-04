@@ -196,7 +196,7 @@ export function createTier2WorkerHandler(post: Post): (request: Tier2WorkerReque
 				if (db) throw new Error('Search index worker already has an open database');
 				db = new sqlite3.oo1.DB({
 					filename: `file:${request.sidecarPath}?vfs=${SAHPOOL_VFS_NAME}`,
-					flags: 'ct',
+					flags: 'c',
 				});
 				openKey = poolKeyOf(request.sidecarPath);
 				return describeOpen();

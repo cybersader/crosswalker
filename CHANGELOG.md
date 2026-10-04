@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: the search index now persists between launches (2026-10-03)
+
+- **What was wrong.** The search index (`.crosswalker.sqlite`, the database the query commands and reports read) was never actually stored on any host. The storage mode it uses needs a browser feature that Chromium only offers inside a background worker, and the index ran on Obsidian's main thread, so opening storage failed every time and the index quietly fell back to memory. Every launch rebuilt it from your notes. Real runs on desktop Obsidian and in a browser-hosted Obsidian both showed this. The 2026-09-13 entry below already noted that persistence "was not observed"; this is the cause.
+- **What changed.** The index now runs in a dedicated background worker that the plugin starts from code embedded in `main.js`, so the plugin still ships only `main.js`, `manifest.json` and `styles.css`. The stored file lives in a private folder per vault. When the worker or storage is not available (for example on a host that blocks it), the index falls back to memory exactly as before, and now says so.
+- **You can see which mode you are in.** Settings, **Advanced**, under **Fast query index**, shows **Search index: stored on this device** or **Search index: in memory, rebuilt each time Obsidian starts**. **Developer tools: copy troubleshooting details to clipboard** carries the same line.
+- **Measured on desktop Obsidian** (median of three full rebuilds on the same machine; before = `main` with the in-memory index, after = this change storing to disk):
+
+  | Vault | Full rebuild before | Full rebuild after | Second launch before | Second launch after |
+  |---|---|---|---|---|
+  | NIST SP 800-53 Rev. 5, flat recipe (1,189 notes) | 259 ms | 324 ms | 2 rebuilds, 279 + 274 ms | 1 rebuild, 376 ms |
+  | CRI Profile v2.2 workbook (472 notes plus 433 crosswalk links) | 185 ms | 232 ms | 2 rebuilds, 219 + 233 ms | 1 rebuild, 288 ms |
+
+  One full rebuild is about 1.25 times slower because every row is now written to storage on disk through the worker. On the second launch the stored index answers immediately and only the routine startup refresh runs; before, the empty in-memory index forced an extra rebuild first. Note and link counts come from the projection result (`counts.concepts`, `counts.mappings`). The CRI workbook is a local, restricted source, so only aggregate numbers are reported.
+- **Browser-hosted Obsidian.** Under OpenClast (Obsidian running in a browser tab: headless Chromium, no cross-origin isolation) the index opens in stored mode, a marker row written before a tab reload reads back after it, and Settings shows "Search index: stored on this device". The check is now a repeatable script, `bun run e2e:openclast` (needs an OpenClast checkout; see [setup](https://cybersader.github.io/crosswalker/development/setup/)).
+- Tests: `tests/e2e/tier2-vfs-probe.spec.ts` (desktop: stored mode, and a marker row survives a full Obsidian restart), `tests/openclast/` (browser-hosted smoke), `tests/tier2-worker-db.test.ts` (14 unit cases for the worker protocol, batching, ordering, close and fallback).
+
 ### Added: release records for typed mapping tables and recipe crosswalks (2026-10-03)
 
 - **Typed mapping table export** still writes the plain seven-column table. When the exported set has a release record, a second file is written beside it with the same name ending in `.mapping-set.json` (the **release file**). A set without a record gets no release file, and the notice says so; a release file left beside the table by an earlier export is moved to the trash so a later import cannot read a stale one.

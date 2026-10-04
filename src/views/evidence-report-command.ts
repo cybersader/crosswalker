@@ -221,7 +221,7 @@ export async function runEvidenceReportCommand(deps: EvidenceReportDeps): Promis
 	try {
 		({ db } = await deps.openTier2());
 	} catch (err) {
-		new Notice(`Could not open the coverage data: ${err instanceof Error ? err.message : String(err)}`);
+		new Notice('Could not open the search index. Reload Obsidian, or run the reset search data command from the command palette, then try again.');
 		return;
 	}
 
@@ -229,7 +229,7 @@ export async function runEvidenceReportCommand(deps: EvidenceReportDeps): Promis
 	try {
 		choices = await listOntologiesForReport(db);
 	} catch (err) {
-		new Notice(`Could not open the coverage data: ${err instanceof Error ? err.message : String(err)}`);
+		new Notice('Could not open the search index. Reload Obsidian, or run the reset search data command from the command palette, then try again.');
 		return;
 	}
 	if (choices.length === 0) {

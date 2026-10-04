@@ -1044,7 +1044,7 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 			);
 
 		// --- Fast query index (Tier 2 sidecar) ---
-		new Setting(details)
+		const fastQueryIndex = new Setting(details)
 			.setName('Fast query index')
 			.setDesc('Keep a background index so large vaults query quickly. The index rebuilds itself from your notes, so it is always safe to delete.')
 			.addToggle((toggle) =>
@@ -1056,9 +1056,10 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 					}),
 			);
 		// W5. Where the index lives this session, in one plain sentence, so the
-		// in-memory mode is never silent.
-		details.createDiv({
-			cls: 'setting-item-description crosswalker-search-index-status',
+		// in-memory mode is never silent. Second line of the setting's own
+		// description so it carries the setting card's styling.
+		fastQueryIndex.descEl.createDiv({
+			cls: 'crosswalker-search-index-status',
 			text: searchIndexStatusLine(this.plugin.tier2Handle?.info() ?? lastSidecarInfo()),
 		});
 

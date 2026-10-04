@@ -10,7 +10,7 @@ Settings (2026-07-11 redesign) open on a **hub**, not a wall of fields. A start-
 
 This page lists every setting by section, in the same order they appear in the hub.
 
-**Status last verified:** 2026-09-14 — verified against `src/settings/settings-tab.ts` (stack confirmation row added 2026-09-28) and `src/import/import-preset-guide.ts`
+**Status last verified:** 2026-10-03 — the Fast query index row re-checked against `src/settings/settings-tab.ts` and the real-Obsidian run of `tests/e2e/tier2-vfs-probe.spec.ts`. Earlier: 2026-09-14 — verified against `src/settings/settings-tab.ts` (stack confirmation row added 2026-09-28) and `src/import/import-preset-guide.ts`
 
 ## Launchpad
 
@@ -104,7 +104,7 @@ Collapsed by default — rarely-touched knobs:
 | Stack file confirmation threshold | 1000 | A framework stack import asks for confirmation when its planned new notes and folders plus possible refresh rewrites exceed this number. Set to 0 to always confirm |
 | Streaming threshold | 5 MB | Files larger than this many megabytes are parsed with the streaming reader |
 | Preview row limit | 100 | How many rows the wizard preview loads. Lower is faster on large files. |
-| Fast query index | On | Keeps a background [Tier 2 sqlite-wasm sidecar](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/) index so large vaults query quickly. Deletable — it rebuilds itself from your notes. |
+| Fast query index | On | Keeps a background [Tier 2 sqlite-wasm sidecar](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/) index so large vaults query quickly. Deletable — it rebuilds itself from your notes. A second line reports where the index lives: **Search index: stored on this device**, or **in memory, rebuilt each time Obsidian starts** when on-device storage is unavailable (since 2026-10-03; source: `src/tier2/sidecar.ts` `searchIndexStatusLine`). |
 | Query index file | `.crosswalker.sqlite` | Where the background index is stored, relative to the vault root. Autocompletes against your vault's folders. |
 
 **Live preview**: a path chip showing the resolved index file location.

@@ -9,7 +9,7 @@ tags: [architecture, tiers, components, system, design, foundation, layered]
 
 import { Aside } from '@astrojs/starlight/components';
 
-**Status last verified:** 2026-09-04 — verified against `src/` module layout (three tiers: `source/`, generation output as Tier 1 Markdown, `tier2/` for the derived projection; layers spanning `import/`, `generation/`, `tier2/`, `export/`, `ui/`) and the [artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) page.
+**Status last verified:** 2026-09-04 — verified against `src/` module layout (three tiers: `source/`, generation output as Tier 1 Markdown, `tier2/` for the derived projection; layers spanning `import/`, `generation/`, `tier2/`, `export/`, `ui/`) and the [artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) page. Tier 2 sidecar rows (Layer 3 components and the `tier2/` codebase map) re-verified 2026-10-03 against `src/tier2/sidecar.ts`, `db.ts`, `worker-db.ts` and `worker-source.ts`; the rest of the page keeps its 2026-09-04 verification.
 
 This page is the **detailed reference** for how Crosswalker's pieces fit together — the component-to-tier matrix, the read/write flows, the codebase map. It consolidates information that was previously scattered across the [ETL concept](/crosswalker/concepts/etl-and-import/), the [embedded substrates concept](/crosswalker/concepts/embedded-vs-server-substrates/), the [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/), and per-milestone pages.
 
@@ -291,7 +291,9 @@ Crosswalker always qualifies **projection** by scope. This layer is not the same
 
 | Component | Code | What it does |
 |---|---|---|
-| **Sidecar lifecycle** | `src/tier2/sidecar.ts:openSidecar/clearSidecar` | Init sqlite-wasm; OPFS sahpool VFS; open `.crosswalker.sqlite` |
+| **Sidecar lifecycle** | `src/tier2/sidecar.ts:openSidecar/clearSidecar` | Open `.crosswalker.sqlite` in a dedicated Worker on the OPFS sahpool VFS (plugin-private, per-vault pool directory); fall back to a main-thread `:memory:` database when the Worker or OPFS is unavailable, reported as `info().persistent === false` and in Settings ("Search index: ..."). Before 2026-10-03 sahpool was installed on the main thread, where Chromium has no `createSyncAccessHandle`, so the index never persisted on any host |
+| **Database seam** | `src/tier2/db.ts` (`Tier2Db`, `LocalDb`) | One async `exec` / `execBatch` / `close` / `info` interface; `LocalDb` wraps a main-thread `oo1.DB` (Jest and the runtime fallback). `execBatch` runs its statements inside one SAVEPOINT |
+| **Worker host** | `src/tier2/worker-db.ts` (main-thread side), `src/tier2/worker-source.ts` (the Worker program, inlined into `main.js`) | Worker built from a Blob URL so the plugin still ships three files; one init message carries the sqlite module text and wasm bytes; request/response queue with ordered replies. The import engine and projector stay on the main thread ([Ch 23 §9.5](/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/), narrowed 2026-10-03 to the engine, not a pure sqlite host) |
 | **Schema migrations** | `src/tier2/migrations.ts` | drop-and-recreate on version mismatch (correct because T2 is purely a T1 projection) |
 | **Schema DDL** | `src/tier2/schema.sql` | The full Tier 2 SQL schema per spec §7 |
 | **Projector** | `src/tier2/projector.ts` (Phase 2 of v0.1.5) | Walk vault `.md` files via streaming foundation; dispatch by `kind`; idempotent upsert |
@@ -555,7 +557,10 @@ src/
 │   └── validator.ts                  AJV against spec/tier1.schema.json
 │
 ├── tier2/                         ── Layer 3 (projection)
-│   ├── sidecar.ts                    sqlite-wasm lifecycle; OPFS sahpool VFS
+│   ├── sidecar.ts                    sidecar lifecycle; Worker first, in-memory fallback
+│   ├── db.ts                         Tier2Db seam + LocalDb (main-thread fallback, tests)
+│   ├── worker-db.ts                  main-thread client for the sqlite Worker
+│   ├── worker-source.ts              Worker program (OPFS sahpool), inlined into main.js
 │   ├── schema.sql                    Tier 2 DDL (canonical .sql doc)
 │   ├── migrations.ts                 schema_version + drop-and-recreate
 │   ├── projector.ts                  Tier 1 → Tier 2 (v0.1.5 Phase 2)
