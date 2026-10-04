@@ -256,13 +256,22 @@ test.describe('Regression — existing pages still render', () => {
     await expect(page.locator('h1')).toContainText('Operational landscape');
   });
 
-  test('roadmap page still renders and contains new Foundation items', async ({ page }) => {
+  test('roadmap page renders its status table and links the design-phase archive', async ({ page }) => {
     await page.goto(`${BASE}/reference/roadmap/`);
     await page.waitForLoadState('networkidle');
     await expect(page.locator('h1')).toContainText(/roadmap/i);
 
-    // Stable roadmap anchors spanning current delivery and settled foundation work.
-    await expect(page.locator('body')).toContainText('Portability: exporters, reusable configurations');
+    // Structure, not prose: the living page opens on a "Where we are" status
+    // table and ends with an Archive section. Prose strings on a living page
+    // are rewritten on every re-verification, so they are not pinned here.
+    await expect(page.locator('h2', { hasText: /^Where we are/ })).toBeVisible();
+    await expect(page.locator('h2', { hasText: /^Archive/ })).toBeVisible();
+    await expect(page.locator('a[href*="/reference/roadmap/v0-1-design-phase/"]').first()).toBeVisible();
+  });
+
+  test('design-phase archive keeps the settled Foundation items', async ({ page }) => {
+    await page.goto(`${BASE}/reference/roadmap/v0-1-design-phase/`);
+    await page.waitForLoadState('networkidle');
     await expect(page.locator('body')).toContainText('Pairwise crosswalks + optional inheritable pivot');
     await expect(page.locator('body')).toContainText('SEACOW');
   });
