@@ -54,7 +54,8 @@ import { legacyConfigToRecipe } from './generation/legacy-recipe-shim';
 import { mergeFrontmatter, computeManagedKeys } from './generation/frontmatter-merge';
 import { buildProvenance } from './generation/provenance';
 import { generateNotes, generateFromRecipe } from './generation/generation-engine';
-import { openSidecar, clearSidecar, type SidecarHandle } from './tier2/sidecar';
+import { openSidecar, clearSidecar, shutdownSidecarHost, lastSidecarInfo, searchIndexStatusLine, type SidecarHandle } from './tier2/sidecar';
+import { copyTextWithFallback } from './utils/clipboard';
 import { runEvidenceReportCommand } from './views/evidence-report-command';
 import { runHousekeepingRebaselineCommand } from './views/rebaseline-housekeeping';
 import { EvidenceLinkModal } from './views/evidence-link-modal';
@@ -70,13 +71,23 @@ import {
 	type ClosureEntry,
 } from './tier2/queries';
 
+/** True inside Obsidian's Electron desktop app (not a browser-hosted build). */
+function runningInElectron(): boolean {
+	const versions = (globalThis as { process?: { versions?: Record<string, unknown> } }).process?.versions;
+	if (versions && typeof versions.electron === 'string') return true;
+	return typeof navigator !== 'undefined' && /\bElectron\//.test(navigator.userAgent ?? '');
+}
+
 /** Short platform label for the diagnostics bundle (no device-identifying detail). */
-function diagnosticsPlatformLabel(): string {
+export function diagnosticsPlatformLabel(): string {
 	if (Platform.isMobileApp) {
 		if (Platform.isIosApp) return 'mobile-ios';
 		if (Platform.isAndroidApp) return 'mobile-android';
 		return 'mobile';
 	}
+	// W9 (2026-10-03). Neither the mobile app nor Electron: a browser-hosted
+	// Obsidian. Reporting "desktop" there sent bug reports down the wrong path.
+	if (!runningInElectron()) return 'browser';
 	if (Platform.isMacOS) return 'desktop-mac';
 	if (Platform.isWin) return 'desktop-win';
 	if (Platform.isLinux) return 'desktop-linux';
@@ -167,21 +178,42 @@ export default class CrosswalkerPlugin extends Plugin {
 	tier2Handle: SidecarHandle | null = null;
 
 	/**
+	 * The open in progress, shared by every caller that arrives before it
+	 * finishes. Opening now crosses to the search index Worker and back, so two
+	 * callers at startup (the automatic projection and a command) can both find
+	 * no handle yet. Without this they would both open; the Worker holds one
+	 * database at a time, so the second would fall back to memory and could be
+	 * the handle that stayed cached.
+	 */
+	private tier2Opening: Promise<SidecarHandle> | null = null;
+
+	/**
 	 * Lazy open the Tier 2 sidecar. Returns the cached handle if already
 	 * open. Used by E2E + future Bases-query / exporter milestones.
 	 */
 	openTier2 = async (): Promise<SidecarHandle> => {
 		if (this.tier2Handle) return this.tier2Handle;
-		const handle = await openSidecar(this, this.app, {
-			// S10 (2026-09-04). Through the accessor, so the path this opens the
-			// query index at is normalized by the SAME function every other
-			// path-shaped setting is, and cannot disagree with the path the clear
-			// command below hands to the pool.
-			sidecarPath: tier2SidecarPath(this.settings),
-		});
-		// Cache BEFORE any projection below, so the reprojection path cannot
-		// re-enter this function and open a second handle.
-		this.tier2Handle = handle;
+		if (this.tier2Opening) return this.tier2Opening;
+		const opening = (async (): Promise<SidecarHandle> => {
+			const opened = await openSidecar(this, this.app, {
+				// S10 (2026-09-04). Through the accessor, so the path this opens the
+				// query index at is normalized by the SAME function every other
+				// path-shaped setting is, and cannot disagree with the path the clear
+				// command below hands to the pool.
+				sidecarPath: tier2SidecarPath(this.settings),
+			});
+			// Cache BEFORE any projection below, so the reprojection path cannot
+			// re-enter this function and open a second handle.
+			this.tier2Handle = opened;
+			return opened;
+		})();
+		this.tier2Opening = opening;
+		let handle: SidecarHandle;
+		try {
+			handle = await opening;
+		} finally {
+			if (this.tier2Opening === opening) this.tier2Opening = null;
+		}
 
 		if (handle.schemaRebuilt) {
 			// A schema rebuild empties every derived table. Without an immediate
@@ -732,22 +764,13 @@ export default class CrosswalkerPlugin extends Plugin {
 						scales: summary.scales,
 						resultCount: summary.results.length,
 					});
-					try {
-						await navigator.clipboard.writeText(formatted);
-						new Notice(
-							`Benchmark complete in ${summary.totalDurationMs.toFixed(0)}ms. ` +
-							`${summary.results.length} timings logged to crosswalker-debug.log. ` +
-							`Summary copied to clipboard.`,
-							8000,
-						);
-					} catch {
-						new Notice(
-							`Benchmark complete in ${summary.totalDurationMs.toFixed(0)}ms. ` +
-							`${summary.results.length} timings logged to crosswalker-debug.log. ` +
-							`(Clipboard write failed; check debug log for full numbers.)`,
-							8000,
-						);
-					}
+					const outcome = await copyTextWithFallback(this.app, formatted, 'Benchmark summary');
+					new Notice(
+						`Benchmark complete in ${summary.totalDurationMs.toFixed(0)}ms. ` +
+						`${summary.results.length} timings logged to crosswalker-debug.log. ` +
+						(outcome === 'copied' ? 'Summary copied to clipboard.' : 'Summary opened for you to copy.'),
+						8000,
+					);
 				});
 			},
 		});
@@ -996,12 +1019,9 @@ export default class CrosswalkerPlugin extends Plugin {
 					new Notice('Debug log is empty or unreadable.');
 					return;
 				}
-				try {
-					await navigator.clipboard.writeText(content);
+				const outcome = await copyTextWithFallback(this.app, content, 'Troubleshooting log');
+				if (outcome === 'copied') {
 					new Notice(`Copied ${Math.round(content.length / 1024)} KB to clipboard (likely tokens redacted).`);
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
-					new Notice(`Clipboard write failed: ${msg}`);
 				}
 			},
 		});
@@ -1014,14 +1034,12 @@ export default class CrosswalkerPlugin extends Plugin {
 					pluginVersion: this.manifest.version,
 					obsidianVersion: apiVersion,
 					platform: diagnosticsPlatformLabel(),
+					searchIndex: searchIndexStatusLine(this.tier2Handle?.info() ?? lastSidecarInfo()),
 					settings: this.settings as unknown as Record<string, unknown>,
 				});
-				try {
-					await navigator.clipboard.writeText(bundle);
+				const outcome = await copyTextWithFallback(this.app, bundle, 'Troubleshooting details');
+				if (outcome === 'copied') {
 					new Notice(`Copied diagnostics (${Math.round(bundle.length / 1024)} KB) to clipboard. Redacted: no vault paths, file names, or cell values.`);
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
-					new Notice(`Clipboard write failed: ${msg}`);
 				}
 			},
 		});
@@ -1573,7 +1591,11 @@ export default class CrosswalkerPlugin extends Plugin {
 		// the official plugin guidelines say "Don't detach leaves in onunload" —
 		// Obsidian reinitializes open leaves in place on plugin update/reload.
 		if (this.ontologyStatusRefreshTimer !== null) window.clearTimeout(this.ontologyStatusRefreshTimer);
-		this.tier2Handle?.close();
+		// W6. The close is queued first; the Worker is then terminated after its
+		// acknowledgement or a 500 ms grace, whichever comes first. Not awaited:
+		// unload is synchronous.
+		void this.tier2Handle?.close();
+		void shutdownSidecarHost();
 		this.debug?.info('lifecycle', 'unloaded', 'Crosswalker plugin unloaded');
 	}
 

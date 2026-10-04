@@ -237,10 +237,10 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 	// 1 + 2. Changed subjects flag. Unchanged subjects do not.
 	// -----------------------------------------------------------------
 
-	it('R1: a whole real release, attested and then re-imported, partitions exactly once', () => {
+	it('R1: a whole real release, attested and then re-imported, partitions exactly once', async () => {
 		const db = createTestDb();
 		try {
-			applyMigrations(db as any);
+			await applyMigrations(db as any);
 
 			// Import 15.1 and attest EVERY surviving technique, approved, with a
 			// baseline recorded at approval -- the state a diligent team is in.
@@ -249,7 +249,7 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 				addAttestation(db, notePathFor(row['ID']), curieOf(row), reviewCidOf(row), reviewGroupsOf(row));
 			}
 
-			const before = evidenceCoverageSummary(db, ONTOLOGY);
+			const before = await evidenceCoverageSummary(db, ONTOLOGY);
 			expect(before.total_concepts).toBe(637);
 			expect(before.covered).toBe(637);
 			expect(before.excluded_junctions).toBe(0);
@@ -262,7 +262,7 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 				upsertConcept(db, curieOf(next), reviewCidOf(next), next['ID'], ONTOLOGY, reviewGroupsOf(next));
 			}
 
-			const after = evidenceCoverageSummary(db, ONTOLOGY);
+			const after = await evidenceCoverageSummary(db, ONTOLOGY);
 			// The partition is total and disjoint: every attestation either still
 			// counts or is excluded for exactly one reason.
 			expect(after.covered).toBe(unflagged.length);
@@ -270,7 +270,7 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 			expect(after.excluded_junctions).toBe(flagged.length);
 			expect(after.covered + after.uncovered).toBe(637);
 
-			const reasons = diagnoseExcludedJunctions(db);
+			const reasons = await diagnoseExcludedJunctions(db);
 			expect(reasons).toHaveLength(flagged.length);
 			expect(new Set(reasons.map((row) => row.reason))).toEqual(new Set(['subject-changed']));
 			const kindCounts = { wording: 0, scope: 0, housekeeping: 0 };
@@ -305,10 +305,10 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 			.not.toBe(newById.get('T1001.003')!['name']);
 	});
 
-	it('R3: subjects whose source row did not move are untouched, and stay counted', () => {
+	it('R3: subjects whose source row did not move are untouched, and stay counted', async () => {
 		const db = createTestDb();
 		try {
-			applyMigrations(db as any);
+			await applyMigrations(db as any);
 			// A control group drawn from the corpus, not chosen by hand.
 			const sample = unflagged.slice(0, 25);
 			expect(sample.length).toBe(25);
@@ -329,8 +329,8 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 				// is not exempt from content invalidation.
 				expect(viewRow(db, notePathFor(id))).toEqual({ freshness: 'not-set', subject_baseline: 'match' });
 			}
-			expect(diagnoseExcludedJunctions(db)).toEqual([]);
-			expect(evidenceCoverageSummary(db, ONTOLOGY).covered).toBe(25);
+			expect(await diagnoseExcludedJunctions(db)).toEqual([]);
+			expect((await evidenceCoverageSummary(db, ONTOLOGY)).covered).toBe(25);
 		} finally { db.close(); }
 	});
 
@@ -338,7 +338,7 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 	// 3. The cosmetic case.
 	// -----------------------------------------------------------------
 
-	it('R4: real citation churn is folded away and does NOT flag', () => {
+	it('R4: real citation churn is folded away and does NOT flag', async () => {
 		// T1548.001's `relationship citations` cell changed outright between
 		// releases -- a different citation set, same length by coincidence.
 		// Normalization step 2 deletes `(Citation: ...)` spans, so the row folds
@@ -354,13 +354,13 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 
 		const db = createTestDb();
 		try {
-			applyMigrations(db as any);
+			await applyMigrations(db as any);
 			upsertConcept(db, curieOf(before), reviewCidOf(before), 'T1548.001');
 			addAttestation(db, notePathFor('T1548.001'), curieOf(before), reviewCidOf(before));
 			upsertConcept(db, curieOf(after), reviewCidOf(after), 'T1548.001');
 			expect(viewRow(db, notePathFor('T1548.001')))
 				.toEqual({ freshness: 'not-set', subject_baseline: 'match' });
-			expect(diagnoseExcludedJunctions(db)).toEqual([]);
+			expect(await diagnoseExcludedJunctions(db)).toEqual([]);
 		} finally { db.close(); }
 	});
 
@@ -425,10 +425,10 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 	// 4. The backward-compatible case.
 	// -----------------------------------------------------------------
 
-	it('R8: attestations with no recorded fingerprint are unaffected by the release', () => {
+	it('R8: attestations with no recorded fingerprint are unaffected by the release', async () => {
 		const db = createTestDb();
 		try {
-			applyMigrations(db as any);
+			await applyMigrations(db as any);
 			// One materially-rewritten subject and one untouched subject, each
 			// attested WITHOUT a baseline -- every link in every existing vault.
 			const material = oldRows.find((row) => row['ID'] === 'T1496')!;
@@ -437,7 +437,7 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 				upsertConcept(db, curieOf(row), reviewCidOf(row), row['ID']);
 				addAttestation(db, notePathFor(row['ID']), curieOf(row), null);
 			}
-			const before = evidenceCoverageSummary(db, ONTOLOGY);
+			const before = await evidenceCoverageSummary(db, ONTOLOGY);
 			expect(before.covered).toBe(2);
 			expect(before.unbaselined_valid_junctions).toBe(2);
 
@@ -452,24 +452,24 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 				expect(viewRow(db, notePathFor(row['ID'])))
 					.toEqual({ freshness: 'not-set', subject_baseline: 'unrecorded' });
 			}
-			const after = evidenceCoverageSummary(db, ONTOLOGY);
+			const after = await evidenceCoverageSummary(db, ONTOLOGY);
 			expect(after.covered).toBe(2);
 			expect(after.excluded_junctions).toBe(0);
-			expect(diagnoseExcludedJunctions(db)).toEqual([]);
+			expect(await diagnoseExcludedJunctions(db)).toEqual([]);
 			// Counted, and named. Both halves matter: silence here would make the
 			// exemption invisible and permanent.
 			expect(after.unbaselined_valid_junctions).toBe(2);
-			expect(listUnbaselinedValidJunctions(db).map((row) => row.baseline))
+			expect((await listUnbaselinedValidJunctions(db)).map((row) => row.baseline))
 				.toEqual(['unrecorded', 'unrecorded']);
 		} finally { db.close(); }
 	});
 
-	it('R9: a pre-feature link and a baselined link coexist in one vault without interfering', () => {
+	it('R9: a pre-feature link and a baselined link coexist in one vault without interfering', async () => {
 		// The realistic mid-migration vault: some links re-approved under the new
 		// UI, most not. The two populations must not contaminate each other.
 		const db = createTestDb();
 		try {
-			applyMigrations(db as any);
+			await applyMigrations(db as any);
 			const material = oldRows.find((row) => row['ID'] === 'T1496')!;
 			upsertConcept(db, curieOf(material), reviewCidOf(material), 'T1496');
 			addAttestation(db, 'Evidence/Junctions/baselined.md', curieOf(material), reviewCidOf(material));
@@ -482,7 +482,7 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 				.toEqual({ freshness: 'subject-changed', subject_baseline: 'changed' });
 			expect(viewRow(db, 'Evidence/Junctions/pre-feature.md'))
 				.toEqual({ freshness: 'not-set', subject_baseline: 'unrecorded' });
-			const summary = evidenceCoverageSummary(db, ONTOLOGY);
+			const summary = await evidenceCoverageSummary(db, ONTOLOGY);
 			expect(summary.excluded_junctions).toBe(1);
 			expect(summary.unbaselined_valid_junctions).toBe(1);
 			// One concept, still covered, because one valid link remains.
@@ -490,11 +490,11 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 		} finally { db.close(); }
 	});
 
-	it('R10: re-approving against the new release restores the count', () => {
+	it('R10: re-approving against the new release restores the count', async () => {
 		// The claim says a flag is a call to act, not a permanent downgrade.
 		const db = createTestDb();
 		try {
-			applyMigrations(db as any);
+			await applyMigrations(db as any);
 			const before = oldRows.find((row) => row['ID'] === 'T1558')!;
 			const after = newById.get('T1558')!;
 			upsertConcept(db, curieOf(before), reviewCidOf(before), 'T1558');
@@ -507,7 +507,7 @@ describeCorpus('Ch 43 central claim, measured on MITRE ATT&CK Enterprise 15.1 ->
 			addAttestation(db, notePathFor('T1558'), curieOf(after), reviewCidOf(after));
 			expect(viewRow(db, notePathFor('T1558')))
 				.toEqual({ freshness: 'not-set', subject_baseline: 'match' });
-			expect(evidenceCoverageSummary(db, ONTOLOGY).covered).toBe(1);
+			expect((await evidenceCoverageSummary(db, ONTOLOGY)).covered).toBe(1);
 		} finally { db.close(); }
 	});
 });
@@ -560,7 +560,7 @@ describe('release lineage on real NIST CSF 1.1 -> 2.0 withdrawal records', () =>
 		});
 	}
 
-	it('R11: a real one-to-many split names every successor, and does not multiply the link', () => {
+	it('R11: a real one-to-many split names every successor, and does not multiply the link', async () => {
 		const lineage = loadLineage();
 		// ID.SC-01 is NIST's own five-way split, verbatim from the CSF 2.0 workbook.
 		const split = lineage.filter((row) => row.subject === 'nist-csf-1-1:id-sc-01');
@@ -568,7 +568,7 @@ describe('release lineage on real NIST CSF 1.1 -> 2.0 withdrawal records', () =>
 
 		const db = createTestDb();
 		try {
-			applyMigrations(db as any);
+			await applyMigrations(db as any);
 			for (const edge of split) { addLineageEdge(db, edge.subject, edge.object); addCsfConcept(db, edge.object); }
 			// One attestation, against the withdrawn 1.1 control. The 2.0 import
 			// left it orphaned: that is the structural-transition regime.
@@ -582,11 +582,11 @@ describe('release lineage on real NIST CSF 1.1 -> 2.0 withdrawal records', () =>
 				bind: { $pred: CANONICAL_EVIDENCE_PREDICATE },
 			});
 
-			const excluded = diagnoseExcludedJunctions(db);
+			const excluded = await diagnoseExcludedJunctions(db);
 			expect(excluded).toHaveLength(1);
 			expect(excluded[0].reason).toBe('subject-superseded');
 
-			const superseded = listSupersededSubjects(db, excluded);
+			const superseded = await listSupersededSubjects(db, excluded);
 			expect(superseded).toHaveLength(1);
 			expect(superseded[0].subject_curie).toBe('nist-csf-1-1:id-sc-01');
 			// The attestation is counted ONCE despite five lineage edges.
@@ -602,7 +602,7 @@ describe('release lineage on real NIST CSF 1.1 -> 2.0 withdrawal records', () =>
 		} finally { db.close(); }
 	});
 
-	it('R12: a real many-to-one merge keeps the old controls as separate decisions', () => {
+	it('R12: a real many-to-one merge keeps the old controls as separate decisions', async () => {
 		const lineage = loadLineage();
 		// NIST folded several 1.1 awareness subcategories into one 2.0 successor.
 		const byObject = new Map<string, string[]>();
@@ -615,7 +615,7 @@ describe('release lineage on real NIST CSF 1.1 -> 2.0 withdrawal records', () =>
 
 		const db = createTestDb();
 		try {
-			applyMigrations(db as any);
+			await applyMigrations(db as any);
 			addCsfConcept(db, target);
 			for (const subject of subjects) addLineageEdge(db, subject, target);
 			subjects.forEach((subject, index) => {
@@ -632,7 +632,7 @@ describe('release lineage on real NIST CSF 1.1 -> 2.0 withdrawal records', () =>
 				});
 			});
 
-			const superseded = listSupersededSubjects(db, diagnoseExcludedJunctions(db));
+			const superseded = await listSupersededSubjects(db, await diagnoseExcludedJunctions(db));
 			// One row per OLD control, not one row for the shared successor: each
 			// carries its own attestation and its own re-review decision.
 			expect(superseded).toHaveLength(subjects.length);
@@ -643,10 +643,10 @@ describe('release lineage on real NIST CSF 1.1 -> 2.0 withdrawal records', () =>
 		} finally { db.close(); }
 	});
 
-	it('R13: an orphan with no lineage edge says so rather than inventing a successor', () => {
+	it('R13: an orphan with no lineage edge says so rather than inventing a successor', async () => {
 		const db = createTestDb();
 		try {
-			applyMigrations(db as any);
+			await applyMigrations(db as any);
 			addCsfConcept(db, 'nist-csf-2:GV.OC-01');
 			db.exec({
 				sql: `INSERT INTO junction_notes
@@ -657,11 +657,11 @@ describe('release lineage on real NIST CSF 1.1 -> 2.0 withdrawal records', () =>
 				              'full', 'approved', NULL, NULL, 'h', '2026-08-28')`,
 				bind: { $pred: CANONICAL_EVIDENCE_PREDICATE },
 			});
-			const excluded = diagnoseExcludedJunctions(db);
+			const excluded = await diagnoseExcludedJunctions(db);
 			expect(excluded).toHaveLength(1);
 			// Not `subject-superseded`: nothing in the vault says it was replaced.
 			expect(excluded[0].reason).toBe('subject-not-a-known-concept');
-			expect(listSupersededSubjects(db, excluded)).toEqual([]);
+			expect(await listSupersededSubjects(db, excluded)).toEqual([]);
 		} finally { db.close(); }
 	});
 });

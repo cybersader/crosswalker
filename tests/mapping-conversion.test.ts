@@ -250,7 +250,7 @@ describe('startConversion notes to table', () => {
 		expect(notesBefore).toHaveLength(3);
 
 		const db = createTestDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		await projectFromTier1(vault.app, db, { projectionMode: 'full' });
 		expect(projectedPaths(db)).toEqual(notesBefore);
 
@@ -526,7 +526,7 @@ describe('readers honour the marker in each phase', () => {
 		vault.faults.failWrite = undefined;
 		const rowIds = parseMappingTable(vault.written.get(TABLE)!).rows.map((row) => `${TABLE}#${row.row_id}`).sort();
 		const db = createTestDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 
 		for (const phase of ['writing', 'verifying'] as const) {
 			setPhase(vault, setId, phase);
@@ -578,7 +578,7 @@ describe('review findings 2026-09-30', () => {
 		const vault = makeVault();
 		const setId = await interruptedToTable(vault);
 		const db = createTestDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		expect((await projectFromTier1(vault.app, db, { projectionMode: 'full' })).success).toBe(true);
 		const before = projectedPaths(db);
 		expect(before).toEqual(vault.notes());
@@ -600,7 +600,7 @@ describe('review findings 2026-09-30', () => {
 		const setId = await interruptedToTable(vault);
 		vault.written.set(markerPath(setId), '{not json');
 		const db = createTestDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		const result = await projectFromTier1(vault.app, db, { projectionMode: 'full' });
 		expect(result.success).toBe(false);
 		expect(projectedPaths(db)).toEqual([]);

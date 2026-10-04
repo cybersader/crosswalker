@@ -272,7 +272,7 @@ describe('Crosswalker plugin — v0.1.6 Phase 2 SSSOM import (E2E)', function ()
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const result = handle.db.exec({
+			const result = await handle.db.exec({
 				sql: `SELECT COUNT(*) FROM closure_cache WHERE subject_id LIKE 'csf:%'`,
 				rowMode: 'array',
 				returnValue: 'resultRows',

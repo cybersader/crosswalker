@@ -1,3 +1,4 @@
+import { asTier2Db, type ExecInput, type Tier2Db, type Tier2DbLike } from './db';
 import {
 	PREDICATE_CHARACTERISTICS,
 	getPredicateCharacteristics,
@@ -166,8 +167,9 @@ const EFFECTIVE_EDGES_CTE = `effective_edges(subject_id, predicate_id, object_id
  * query layer (v0.1.6), this is the SQL fallback when Bases over Tier 1
  * frontmatter isn't sufficient.
  */
-export function getConceptsByOntology(db: any, ontologyId: string): ConceptRow[] {
-	const rows = db.exec({
+export async function getConceptsByOntology(dbLike: Tier2DbLike, ontologyId: string): Promise<ConceptRow[]> {
+	const db = asTier2Db(dbLike);
+	const rows = await db.exec({
 		sql: `
 			SELECT ontology_id, curie, vault_path, title, parent_curie, status, imported_at, modified_at
 			FROM concepts
@@ -177,7 +179,7 @@ export function getConceptsByOntology(db: any, ontologyId: string): ConceptRow[]
 		bind: { $ontology_id: ontologyId },
 		rowMode: 'array',
 		returnValue: 'resultRows',
-	}) as unknown[][];
+	});
 
 	return rows.map((r) => ({
 		ontology_id: String(r[0]),
@@ -205,12 +207,13 @@ export function getConceptsByOntology(db: any, ontologyId: string): ConceptRow[]
  * Subject prefix matches the ontology id (the part before ':' in the
  * subject_id CURIE). Same for object.
  */
-export function crosswalkBetween(
-	db: any,
+export async function crosswalkBetween(
+	dbLike: Tier2DbLike,
 	subjectOntology: string,
 	objectOntology: string,
 	predicateId?: string,
-): MappingRow[] {
+): Promise<MappingRow[]> {
+	const db = asTier2Db(dbLike);
 	// SQLite has no native CURIE-prefix function; use LIKE with the
 	// 'prefix:' pattern. Indexed via idx_mappings_subj / idx_mappings_obj.
 	const subjectLike = `${subjectOntology}:%`;
@@ -240,12 +243,12 @@ export function crosswalkBetween(
 	const bind: Record<string, unknown> = { $subj: subjectLike, $obj: objectLike };
 	if (predicateId) bind.$pred = predicateId;
 
-	const rows = db.exec({
+	const rows = await db.exec({
 		sql,
 		bind,
 		rowMode: 'array',
 		returnValue: 'resultRows',
-	}) as unknown[][];
+	});
 
 	return rows.map((r) => ({
 		mapping_set_id: r[0] === null || r[0] === undefined || r[0] === '' ? null : String(r[0]),
@@ -290,17 +293,18 @@ export function crosswalkBetween(
  * and correct (mtime-based per-row invalidation is a future
  * optimization).
  *
- * @param db sqlite-wasm OO1 DB handle
+ * @param dbLike the Tier 2 database (`Tier2Db`, or a raw handle wrapped in `LocalDb`)
  * @param startCurie e.g. 'nist-csf:Identify' — the starting concept
  * @param predicateId e.g. 'is_equivalent_to' — optional Crosswalker predicate filter
  * @param maxDepth max chain length (default 10; prevents runaway recursion)
  */
-export function closureFromConcept(
-	db: any,
+export async function closureFromConcept(
+	dbLike: Tier2DbLike,
 	startCurie: string,
 	predicateId?: string,
 	maxDepth: number = 10,
-): ClosureEntry[] {
+): Promise<ClosureEntry[]> {
+	const db = asTier2Db(dbLike);
 	if (!Number.isInteger(maxDepth) || maxDepth < 0) {
 		throw new RangeError('maxDepth must be a non-negative integer');
 	}
@@ -308,11 +312,10 @@ export function closureFromConcept(
 
 	const logicalPredicateFilter = predicateId ?? WILDCARD_PREDICATE_FILTER;
 	const physicalCacheKey = cachePredicateKey(logicalPredicateFilter);
-	const hasPredicateFilter = typeof predicateId === 'string';
 
 	// The watermark, not row count, proves cache completeness. A valid cache
 	// partition may contain zero rows when the start concept has no outbound edges.
-	const cached = readCache(
+	const cached = await readCache(
 		db,
 		startCurie,
 		physicalCacheKey,
@@ -325,55 +328,19 @@ export function closureFromConcept(
 
 	let entries: ClosureEntry[] = [];
 	if (maxDepth > 0) {
-		const characteristicsPlan = buildPredicateCharacteristicsSqlPlan();
-		const rows = db.exec({
+		const closure = closureCte(startCurie, predicateId, maxDepth);
+		const rows = await db.exec({
 			sql: `
-				WITH RECURSIVE
-				  ${characteristicsPlan.cte},
-				  ${EFFECTIVE_EDGES_CTE},
-				  closure(start_curie, target, predicate_id, depth, path) AS (
-				    SELECT
-				      $start,
-				      edge.object_id,
-				      edge.predicate_id,
-				      1 AS depth,
-				      '|' || $start || '|' || edge.object_id || '|' AS path
-				    FROM effective_edges edge
-				    WHERE edge.subject_id = $start
-				      ${hasPredicateFilter ? 'AND edge.predicate_id = $pred' : ''}
-
-				    UNION ALL
-
-				    SELECT
-				      closure.start_curie,
-				      edge.object_id,
-				      closure.predicate_id,
-				      closure.depth + 1,
-				      closure.path || edge.object_id || '|'
-				    FROM closure
-				    JOIN effective_edges edge
-				      ON edge.subject_id = closure.target
-				     AND edge.predicate_id = closure.predicate_id
-				    JOIN predicate_characteristics pc
-				      ON pc.predicate_id = closure.predicate_id
-				     AND pc.transitive = 1
-				    WHERE closure.depth < $max
-				      AND instr(closure.path, '|' || edge.object_id || '|') = 0
-				  )
+				${closure.sql}
 				SELECT start_curie, target, MIN(depth) AS shortest_depth
 				FROM closure
 				GROUP BY start_curie, target
 				ORDER BY shortest_depth, target
 			`,
-			bind: {
-				...characteristicsPlan.bind,
-				$start: startCurie,
-				$max: maxDepth,
-				...(hasPredicateFilter ? { $pred: predicateId } : {}),
-			},
+			bind: closure.bind,
 			rowMode: 'array',
 			returnValue: 'resultRows',
-		}) as unknown[][];
+		});
 
 		entries = rows.map((r) => ({
 			start_curie: String(r[0]),
@@ -383,125 +350,213 @@ export function closureFromConcept(
 		}));
 	}
 
-	replaceCache(db, startCurie, physicalCacheKey, maxDepth, entries);
+	await replaceCache(db, startCurie, physicalCacheKey, maxDepth, entries);
 	return entries;
+}
+
+/**
+ * The recursive closure CTE for one start concept, ending in a `closure`
+ * relation of (start_curie, target, predicate_id, depth, path). The reader
+ * selects from it; the precompute inserts from it. One definition, so both can
+ * never compute different closures.
+ */
+function closureCte(
+	startCurie: string,
+	predicateId: string | undefined,
+	maxDepth: number,
+): { sql: string; bind: Record<string, unknown> } {
+	const hasPredicateFilter = typeof predicateId === 'string';
+	const characteristicsPlan = buildPredicateCharacteristicsSqlPlan();
+	return {
+		sql: `
+			WITH RECURSIVE
+			  ${characteristicsPlan.cte},
+			  ${EFFECTIVE_EDGES_CTE},
+			  closure(start_curie, target, predicate_id, depth, path) AS (
+			    SELECT
+			      $start,
+			      edge.object_id,
+			      edge.predicate_id,
+			      1 AS depth,
+			      '|' || $start || '|' || edge.object_id || '|' AS path
+			    FROM effective_edges edge
+			    WHERE edge.subject_id = $start
+			      ${hasPredicateFilter ? 'AND edge.predicate_id = $pred' : ''}
+
+			    UNION ALL
+
+			    SELECT
+			      closure.start_curie,
+			      edge.object_id,
+			      closure.predicate_id,
+			      closure.depth + 1,
+			      closure.path || edge.object_id || '|'
+			    FROM closure
+			    JOIN effective_edges edge
+			      ON edge.subject_id = closure.target
+			     AND edge.predicate_id = closure.predicate_id
+			    JOIN predicate_characteristics pc
+			      ON pc.predicate_id = closure.predicate_id
+			     AND pc.transitive = 1
+			    WHERE closure.depth < $max
+			      AND instr(closure.path, '|' || edge.object_id || '|') = 0
+			  )
+		`,
+		bind: {
+			...characteristicsPlan.bind,
+			$start: startCurie,
+			$max: maxDepth,
+			...(hasPredicateFilter ? { $pred: predicateId } : {}),
+		},
+	};
 }
 
 /**
  * Read a cache partition only when its coverage watermark proves it was
  * completely computed through maxDepth. Returns null for a cache miss;
  * an empty array is a valid cached empty closure.
+ *
+ * One query, one Worker round trip: the watermark row LEFT JOINs the cached
+ * rows, so a partition with a watermark and no rows still yields exactly one
+ * (all-null) row, which is how a computed empty closure is told from a miss.
  */
-function readCache(
-	db: any,
+async function readCache(
+	db: Tier2Db,
 	startCurie: string,
 	physicalCacheKey: string,
 	logicalPredicateFilter: string,
 	maxDepth: number,
-): ClosureEntry[] | null {
-	const state = db.exec({
+): Promise<ClosureEntry[] | null> {
+	const rows = await db.exec({
 		sql: `
-			SELECT computed_max_depth
-			FROM closure_cache_state
-			WHERE subject_id = $start AND predicate_id = $pred
-			LIMIT 1
-		`,
-		bind: { $start: startCurie, $pred: physicalCacheKey },
-		rowMode: 'array',
-		returnValue: 'resultRows',
-	}) as unknown[][];
-
-	if (state.length === 0 || Number(state[0][0]) < maxDepth) {
-		return null;
-	}
-
-	const rows = db.exec({
-		sql: `
-			SELECT subject_id, object_id, shortest_depth
-			FROM closure_cache
-			WHERE subject_id = $start
-			  AND predicate_id = $pred
-			  AND shortest_depth <= $max
-			ORDER BY shortest_depth, object_id
+			SELECT s.computed_max_depth, c.subject_id, c.object_id, c.shortest_depth
+			FROM closure_cache_state s
+			LEFT JOIN closure_cache c
+			  ON c.subject_id = s.subject_id
+			 AND c.predicate_id = s.predicate_id
+			 AND c.shortest_depth <= $max
+			WHERE s.subject_id = $start AND s.predicate_id = $pred
+			ORDER BY c.shortest_depth, c.object_id
 		`,
 		bind: { $start: startCurie, $pred: physicalCacheKey, $max: maxDepth },
 		rowMode: 'array',
 		returnValue: 'resultRows',
-	}) as unknown[][];
+	});
 
-	return rows.map((r) => ({
-		start_curie: String(r[0]),
-		predicate_filter: logicalPredicateFilter,
-		target_curie: String(r[1]),
-		shortest_depth: Number(r[2]),
-	}));
+	if (rows.length === 0 || Number(rows[0][0]) < maxDepth) {
+		return null;
+	}
+
+	return rows
+		.filter((r) => r[1] !== null && r[1] !== undefined)
+		.map((r) => ({
+			start_curie: String(r[1]),
+			predicate_filter: logicalPredicateFilter,
+			target_curie: String(r[2]),
+			shortest_depth: Number(r[3]),
+		}));
+}
+
+/** Clear one cache partition: the first two statements of every replacement. */
+function clearPartitionStatements(startCurie: string, physicalCacheKey: string): ExecInput[] {
+	return [
+		{
+			sql: 'DELETE FROM closure_cache_state WHERE subject_id = $start AND predicate_id = $pred',
+			bind: { $start: startCurie, $pred: physicalCacheKey },
+		},
+		{
+			sql: 'DELETE FROM closure_cache WHERE subject_id = $start AND predicate_id = $pred',
+			bind: { $start: startCurie, $pred: physicalCacheKey },
+		},
+	];
+}
+
+/** Advance a partition's watermark: the last statement of every replacement. */
+function watermarkStatement(startCurie: string, physicalCacheKey: string, maxDepth: number, computedAt: string): ExecInput {
+	return {
+		sql: `
+			INSERT INTO closure_cache_state
+				(subject_id, predicate_id, computed_max_depth, computed_at)
+			VALUES ($subj, $pred, $max, $at)
+		`,
+		bind: {
+			$subj: startCurie,
+			$pred: physicalCacheKey,
+			$max: maxDepth,
+			$at: computedAt,
+		},
+	};
 }
 
 /**
  * Replace one cache partition and advance its coverage watermark atomically.
  * The watermark is written last so a failed row insert cannot advertise
- * completeness the cache does not contain.
+ * completeness the cache does not contain. One batch, one SAVEPOINT (W4).
  */
-function replaceCache(
-	db: any,
+async function replaceCache(
+	db: Tier2Db,
 	startCurie: string,
 	physicalCacheKey: string,
 	maxDepth: number,
 	entries: ClosureEntry[],
-): void {
+): Promise<void> {
 	const computedAt = new Date().toISOString();
-	db.exec('SAVEPOINT closure_cache_replace');
-
-	try {
-		db.exec({
-			sql: 'DELETE FROM closure_cache_state WHERE subject_id = $start AND predicate_id = $pred',
-			bind: { $start: startCurie, $pred: physicalCacheKey },
-		});
-		db.exec({
-			sql: 'DELETE FROM closure_cache WHERE subject_id = $start AND predicate_id = $pred',
-			bind: { $start: startCurie, $pred: physicalCacheKey },
-		});
-
-		for (const entry of entries) {
-			db.exec({
-				sql: `
-					INSERT INTO closure_cache
-						(subject_id, predicate_id, object_id, shortest_depth, computed_at)
-					VALUES ($subj, $pred, $obj, $depth, $at)
-				`,
-				bind: {
-					$subj: entry.start_curie,
-					$pred: physicalCacheKey,
-					$obj: entry.target_curie,
-					$depth: entry.shortest_depth,
-					$at: computedAt,
-				},
-			});
-		}
-
-		db.exec({
+	const statements: ExecInput[] = clearPartitionStatements(startCurie, physicalCacheKey);
+	for (const entry of entries) {
+		statements.push({
 			sql: `
-				INSERT INTO closure_cache_state
-					(subject_id, predicate_id, computed_max_depth, computed_at)
-				VALUES ($subj, $pred, $max, $at)
+				INSERT INTO closure_cache
+					(subject_id, predicate_id, object_id, shortest_depth, computed_at)
+				VALUES ($subj, $pred, $obj, $depth, $at)
 			`,
 			bind: {
-				$subj: startCurie,
+				$subj: entry.start_curie,
 				$pred: physicalCacheKey,
-				$max: maxDepth,
+				$obj: entry.target_curie,
+				$depth: entry.shortest_depth,
 				$at: computedAt,
 			},
 		});
-		db.exec('RELEASE closure_cache_replace');
-	} catch (error) {
-		try {
-			db.exec('ROLLBACK TO closure_cache_replace');
-			db.exec('RELEASE closure_cache_replace');
-		} catch {
-			// Preserve the original cache-write error if rollback also fails.
-		}
-		throw error;
 	}
+	statements.push(watermarkStatement(startCurie, physicalCacheKey, maxDepth, computedAt));
+	await db.execBatch(statements);
+}
+
+/**
+ * Fill one subject's cache partition for the precompute, in at most two Worker
+ * round trips (W4): the cache read, and on a miss one batch that clears the
+ * partition, inserts the closure straight from the recursive CTE, and writes
+ * the watermark last. Same rows and same watermark as `closureFromConcept`.
+ */
+async function precomputeOneSubject(
+	db: Tier2Db,
+	subjectId: string,
+	predicateId: string | undefined,
+	maxDepth: number,
+): Promise<void> {
+	const logicalPredicateFilter = predicateId ?? WILDCARD_PREDICATE_FILTER;
+	const physicalCacheKey = cachePredicateKey(logicalPredicateFilter);
+	const cached = await readCache(db, subjectId, physicalCacheKey, logicalPredicateFilter, maxDepth);
+	if (cached !== null) return;
+
+	const computedAt = new Date().toISOString();
+	const statements: ExecInput[] = clearPartitionStatements(subjectId, physicalCacheKey);
+	if (maxDepth > 0) {
+		const closure = closureCte(subjectId, predicateId, maxDepth);
+		statements.push({
+			sql: `
+				${closure.sql}
+				INSERT INTO closure_cache
+					(subject_id, predicate_id, object_id, shortest_depth, computed_at)
+				SELECT start_curie, $cache_pred, target, MIN(depth), $at
+				FROM closure
+				GROUP BY start_curie, target
+			`,
+			bind: { ...closure.bind, $cache_pred: physicalCacheKey, $at: computedAt },
+		});
+	}
+	statements.push(watermarkStatement(subjectId, physicalCacheKey, maxDepth, computedAt));
+	await db.execBatch(statements);
 }
 
 /**
@@ -513,22 +568,23 @@ function replaceCache(
  * Strategy:
  *   1. Find all distinct effective subject_ids, including characteristic-derived reverse
  *      directions, whose subject CURIE prefix matches sourceOntology.
- *   2. For each subject, call closureFromConcept (which lazy-builds + caches) so
+ *   2. For each subject, fill its cache partition (at most two round trips) so
  *      future queries hit the cache without re-running the recursive CTE.
  *   3. Return the count of (subject_id, target_id) cache rows now populated.
  *
- * Idempotent: re-running on already-cached subjects is cheap (closureFromConcept
- * checks cache before recomputing).
+ * Idempotent: re-running on already-cached subjects is cheap (the cache read
+ * proves the partition complete and nothing is written).
  *
  * @returns Total cached (subject, target) pairs after the precompute.
  */
-export function precomputeClosureForOntologyPair(
-	db: any,
+export async function precomputeClosureForOntologyPair(
+	dbLike: Tier2DbLike,
 	sourceOntology: string,
 	targetOntology: string,
 	predicateId?: string,
 	maxDepth = 10,
-): number {
+): Promise<number> {
+	const db = asTier2Db(dbLike);
 	if (!Number.isInteger(maxDepth) || maxDepth < 0) {
 		throw new RangeError('maxDepth must be a non-negative integer');
 	}
@@ -539,7 +595,7 @@ export function precomputeClosureForOntologyPair(
 	const physicalCacheKey = cachePredicateKey(logicalPredicateFilter);
 	const hasPredicateFilter = typeof predicateId === 'string';
 	const characteristicsPlan = buildPredicateCharacteristicsSqlPlan();
-	const subjects = db.exec({
+	const subjects = await db.exec({
 		sql: `
 			WITH
 			  ${characteristicsPlan.cte},
@@ -555,16 +611,13 @@ export function precomputeClosureForOntologyPair(
 		},
 		rowMode: 'array',
 		returnValue: 'resultRows',
-	}) as unknown[][];
+	});
 
 	for (const row of subjects) {
-		const subjectId = String(row[0]);
-		// closureFromConcept lazy-builds + caches; discard the rows, we want the
-		// side-effect of populating closure_cache.
-		closureFromConcept(db, subjectId, predicateId, maxDepth);
+		await precomputeOneSubject(db, String(row[0]), predicateId, maxDepth);
 	}
 
-	const count = db.exec({
+	const count = await db.exec({
 		sql: `
 			SELECT COUNT(*) FROM closure_cache cc
 			WHERE substr(cc.subject_id, 1, length($sourcePrefix)) = $sourcePrefix
@@ -580,7 +633,7 @@ export function precomputeClosureForOntologyPair(
 		},
 		rowMode: 'array',
 		returnValue: 'resultRows',
-	}) as unknown[][];
+	});
 
 	return Number(count[0]?.[0] ?? 0);
 }

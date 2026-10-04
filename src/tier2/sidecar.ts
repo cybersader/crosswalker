@@ -1,20 +1,29 @@
 /**
  * Tier 2 sidecar lifecycle.
  *
- * Initializes sqlite-wasm using the OPFS sahpool VFS, opens the
- * .crosswalker.sqlite file at vault root, applies schema migrations,
- * and returns a handle for the projector + query API.
+ * Opens the query index (`.crosswalker.sqlite`) on the persistent OPFS sahpool
+ * VFS, applies schema migrations, and returns a handle for the projector and
+ * query API.
+ *
+ * **Where sqlite runs (2026-10-03).** In a dedicated Worker built from a Blob
+ * URL of text inlined in main.js (`worker-source.ts`, `worker-db.ts`). The
+ * sahpool VFS needs `FileSystemFileHandle.createSyncAccessHandle`, which
+ * Chromium exposes only inside dedicated Workers; when it was installed on the
+ * main thread it failed on every host with "Missing required OPFS APIs" and the
+ * index silently ran in memory. If no Worker can be created, the Worker cannot
+ * load sqlite, or persistent storage is unavailable inside it, the index opens
+ * in memory on the main thread exactly as before and says so through
+ * `info().persistent === false` (W5).
  *
  * **WASM packaging**: v0.1.5 ships **WASM-A** — plain
  * `@sqlite.org/sqlite-wasm` (no sqlite-vec). Its installed WASM bytes and
- * module text are embedded into main.js at build time, decoded lazily when
- * this sidecar initializes, and require no loose plugin-folder assets. The
- * official SQLite-team build is hardened for Electron's hybrid
- * `window`+`process` renderer environment via well-established
- * Obsidian-plugin precedent. WASM-B (sqlite-vec
- * compiled in via sqlite-vec-wasm-demo) hit 5 emscripten env-detection
- * issues in succession during integration; the demo artifact assumes
- * pure-browser semantics that Electron's renderer doesn't satisfy.
+ * module text are embedded into main.js at build time and require no loose
+ * plugin-folder assets. The Worker receives both in one init message (the wasm
+ * bytes transferred, not copied) and imports the module from its own Blob URL,
+ * the same path the main thread uses for the in-memory fallback. WASM-B
+ * (sqlite-vec compiled in via sqlite-vec-wasm-demo) hit 5 emscripten
+ * env-detection issues in succession during integration; the demo artifact
+ * assumes pure-browser semantics that Electron's renderer doesn't satisfy.
  *
  * **Vector layer (sqlite-vec) — deferred + revisit-by 2026-11-06**.
  * Tracked in Ch 24 §5 Q4 as a date-bound revisit. Most-likely
@@ -24,30 +33,29 @@
  * ~30 min instead of multi-day. Schema reserves `concept_embeddings`
  * vec0 virtual table commented out so vec lands additively.
  *
- * Per [Ch 23 §9.5](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/), Web
- * Workers are unreliable for this workload — sqlite-wasm runs on the
- * main thread with cooperative yielding handled by the projector.
+ * Per [Ch 23 §9.5](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/)
+ * the engine runs on the main thread with cooperative yielding and does not
+ * depend on Web Workers — narrowed 2026-10-03: applies to the import engine,
+ * not to a pure sqlite host. This Worker touches neither the Obsidian API nor
+ * the DOM; the projector still walks the vault on the main thread and yields.
  */
 
 import { App, Plugin } from 'obsidian';
 import { normalizeSidecarPath } from '../settings/folder-settings';
 import { getSqlite3MjsText, getSqlite3WasmBytes } from './sqlite-assets';
+import { LocalDb, type Tier2Db, type Tier2DbInfo } from './db';
+import { Tier2WorkerHost, tier2WorkerSupported, UNLOAD_GRACE_MS } from './worker-db';
+import { getTier2WorkerText } from './worker-text';
 
 /**
- * Handle returned from openSidecar(). Wraps the sqlite-wasm
- * connection + provides lifecycle methods.
- *
- * The `db` field is intentionally typed loosely (`any`) because
- * sqlite-wasm's TypeScript types are brittle across versions and
- * the API surface we use is small + well-known. Wrapping helpers
- * in projector.ts/queries.ts narrow the surface area.
+ * Handle returned from openSidecar(). Wraps the Tier 2 database and its
+ * lifecycle.
  */
 export interface SidecarHandle {
-	/** Underlying sqlite-wasm OO1 DB instance. */
-	db: any;
+	/** The database. Every call is async; see `db.ts` for the contract. */
+	db: Tier2Db;
 	/** Path within the vault where the .crosswalker.sqlite lives. */
 	sidecarPath: string;
-	/** Close the sqlite handle (commits + flushes OPFS). */
 	/**
 	 * Close the database. Resolves `true` when it actually closed, `false` when
 	 * the underlying close threw.
@@ -68,56 +76,67 @@ export interface SidecarHandle {
 	 */
 	schemaRebuilt: boolean;
 	/**
-	 * Returns the SQLite library version for diagnostics.
+	 * Where the rows live: the VFS, whether they survive a restart, and sqlite's
+	 * name for the file. The settings tab and diagnostics read `persistent`.
+	 */
+	info(): Tier2DbInfo;
+	/**
+	 * Returns the SQLite library version for diagnostics, read once at open.
 	 * v0.1.5 ships plain sqlite-wasm; sqlite-vec is deferred — see Ch 24
 	 * §5 Q4 for the date-bound revisit (2026-11-06).
 	 */
 	sqliteVersion(): string;
 }
 
+/** Main-thread sqlite runtime. Loaded only for the in-memory fallback. */
 let cachedSqlite3: any = null;
 
 /**
- * The utility object handed back by `installOpfsSAHPoolVfs`. It is the only
- * route to deleting a sahpool-backed file: pool files are stored inside an
- * opaque OPFS directory under randomized names, so the path the sidecar was
- * opened with does not exist on disk and cannot be unlinked by path.
- *
- * Cached next to `cachedSqlite3` because both are live runtime handles, not
- * data. Clearing the sidecar must never null either one: the WASM runtime and
- * the installed VFS outlive the file they happen to be holding.
+ * The Worker hosting sqlite and the persistent pool, kept for the plugin's
+ * lifetime. Reusing it across close, clear, and reopen is what keeps the
+ * pool's file handles in one owner: a second Worker would have to wait for the
+ * first to release them. Terminated by `shutdownSidecarHost()` at unload.
  */
-let cachedSahPoolUtil: any = null;
+let host: Tier2WorkerHost | null = null;
 
 /**
- * Whether the most recent `openSidecar()` in this session fell back to
- * `:memory:`. Tri-state on purpose:
+ * What the most recent `openSidecar()` in this session opened. Tri-state on
+ * purpose, read by `clearSidecar()`:
  *
- *   `null`  — no open has been attempted yet, so nothing is known.
- *   `true`  — this session demonstrably never persisted anything.
- *   `false` — this session opened a real pool-backed file.
+ *   `null`                      — no open has been attempted yet.
+ *   `{ persistent: false, ... }` — this session demonstrably never persisted.
+ *   `{ persistent: true, ... }`  — this session opened a real pool-backed file.
  *
- * `clearSidecar()` needs this because "the pool will not install right now" is
- * NOT evidence that no file exists. The installer also rejects when another
- * holder owns the pool's access handles (a second vault window, or a previous
- * WASM instance after a plugin disable/enable, whose handles are never
- * released), and it caches that rejection for the rest of the session. In that
- * case the sidecar is intact on disk and will be served again the moment the
- * contention clears. Inferring "in-memory only" from a failed install would
- * therefore tell the user their data was discarded while every row survived.
+ * "The pool will not install right now" is NOT evidence that no file exists:
+ * the installer also fails while another holder owns the pool's access handles
+ * (a previous plugin instance's Worker still letting go). In that case the
+ * index is intact on disk, so a clear must not claim it was discarded.
  */
-let openedInMemoryThisSession: boolean | null = null;
+let lastOpenInfo: Tier2DbInfo | null = null;
+
+/** The current session's search index state, for the settings tab and diagnostics. */
+export function lastSidecarInfo(): Tier2DbInfo | null {
+	return lastOpenInfo ? { ...lastOpenInfo } : null;
+}
 
 /**
- * Initialize the sqlite-wasm runtime once per plugin lifetime.
- * Subsequent calls return the cached module.
+ * W5. The one user-facing sentence for where the search index lives. Shown in
+ * settings and carried in the troubleshooting details, so the in-memory mode is
+ * never silent.
+ */
+export function searchIndexStatusLine(info: Tier2DbInfo | null): string {
+	if (!info) return 'Search index: starts the first time a search needs it';
+	return info.persistent
+		? 'Search index: stored on this device'
+		: 'Search index: in memory, rebuilt each time Obsidian starts';
+}
+
+/**
+ * Initialize the main-thread sqlite-wasm runtime once per plugin lifetime.
+ * Only the in-memory fallback needs it.
  *
- * `@sqlite.org/sqlite-wasm` ships an Electron-compatible build (no
- * env-detection throws on hybrid `window`+`process` renderer environments).
- * The build embeds its WASM bytes and module text into main.js. WASM decoding
- * happens per initialization attempt; the module text still loads through the
- * established Blob-URL import because Obsidian's app:// URLs cannot be
- * dynamic-imported as ES modules.
+ * The module text still loads through the established Blob-URL import because
+ * Obsidian's app:// URLs cannot be dynamic-imported as ES modules.
  */
 async function initSqlite3(_plugin: Plugin): Promise<any> {
 	if (cachedSqlite3) return cachedSqlite3;
@@ -161,25 +180,30 @@ async function initSqlite3(_plugin: Plugin): Promise<any> {
 }
 
 /**
- * Install (or re-obtain) the OPFS sahpool VFS and return its utility object.
- *
- * The installer memoizes per VFS name, so a second call returns the same pool
- * utility rather than installing a second VFS. That is what lets the clear
- * path get a deletion handle on the same pool an open database is using.
- *
- * Throws when OPFS is unavailable (older WebViews, sandboxed test runners).
- * A failed install is cached as a rejected promise, so every later call throws
- * too. Callers must treat that as "no persistent store exists", not as
- * "deletion failed".
+ * FNV-1a, for a short stable directory name. Not a security boundary: it only
+ * keeps one vault's pool apart from another's under the same origin.
  */
-async function installSahPool(sqlite3: any): Promise<any> {
-	if (cachedSahPoolUtil) return cachedSahPoolUtil;
-	const installer = sqlite3.installOpfsSAHPoolVfs;
-	if (typeof installer !== 'function') {
-		throw new Error('This sqlite-wasm build does not expose installOpfsSAHPoolVfs');
+function fnv1a32(text: string): string {
+	let hash = 2166136261;
+	for (let index = 0; index < text.length; index += 1) {
+		hash ^= text.charCodeAt(index);
+		hash = Math.imul(hash, 16777619);
 	}
-	cachedSahPoolUtil = await installer({});
-	return cachedSahPoolUtil;
+	return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * W3. The plugin-private OPFS directory the pool lives in: one per vault, under
+ * a `crosswalker` root, never the VFS default. Every vault window shares the
+ * app's origin, so a shared directory would let two vaults contend for the same
+ * file handles and read each other's index.
+ */
+export function poolDirectoryFor(app: App): string {
+	const anyApp = app as unknown as { appId?: unknown; vault?: { getName?: () => string } };
+	let vaultName = '';
+	try { vaultName = anyApp.vault?.getName?.() ?? ''; } catch { vaultName = ''; }
+	const appId = typeof anyApp.appId === 'string' ? anyApp.appId : '';
+	return `crosswalker/vault-${fnv1a32(`${appId}|${vaultName}`)}`;
 }
 
 /**
@@ -215,13 +239,46 @@ function sahPoolKeyFor(sidecarPath: string): string {
 }
 
 /**
- * Open (or create + initialize) the Tier 2 sidecar at .crosswalker.sqlite
- * in the vault root.
+ * The live Worker host with persistent storage, starting one when needed.
+ * Resolves `{ host: null, error }` when there is none to be had; the caller
+ * decides what that absence means.
+ */
+async function acquireHost(app: App): Promise<{ host: Tier2WorkerHost | null; error: unknown }> {
+	if (host && !host.dead && host.poolAvailable) return { host, error: null };
+	if (host) {
+		host.terminate();
+		host = null;
+	}
+	if (!tier2WorkerSupported()) {
+		return { host: null, error: new Error('Workers are not available in this environment') };
+	}
+	let started: Tier2WorkerHost;
+	try {
+		started = await Tier2WorkerHost.start({
+			workerText: getTier2WorkerText(),
+			mjsText: getSqlite3MjsText(),
+			wasmBytes: getSqlite3WasmBytes(),
+			poolDirectory: poolDirectoryFor(app),
+		});
+	} catch (error) {
+		return { host: null, error };
+	}
+	if (!started.poolAvailable) {
+		const error = started.poolError ?? new Error('Persistent storage is unavailable');
+		started.terminate();
+		return { host: null, error };
+	}
+	host = started;
+	return { host, error: null };
+}
+
+/**
+ * Open (or create + initialize) the Tier 2 sidecar.
  *
- * Uses the OPFS sahpool VFS (works on Capacitor without COOP/COEP,
- * per Ch 24 §4 mobile-portable path). On desktop Electron, OPFS is
- * available via Chromium; on mobile Capacitor it's available via the
- * Capacitor WebView's OPFS implementation.
+ * Tries the Worker-hosted persistent pool first; falls back to an in-memory
+ * database on the main thread (W5). The fallback logs the same warning it
+ * always has and reports `info().persistent === false`, which the settings
+ * tab shows as "in memory, rebuilt each time Obsidian starts".
  *
  * Schema migrations are applied at open time per migrations.ts.
  */
@@ -230,80 +287,78 @@ export async function openSidecar(
 	app: App,
 	options: { sidecarPath?: string } = {},
 ): Promise<SidecarHandle> {
-	const sqlite3 = await initSqlite3(plugin);
 	// S10. Same reading as `sahPoolKeyFor` and as the settings accessor, so open
 	// and clear cannot disagree about which file the query index is.
 	const sidecarPath = normalizeSidecarPath(options.sidecarPath);
 
-	// OPFS sahpool VFS is registered by sqlite-wasm at init when available.
-	// We open the database via the OPFS path. sqlite-wasm exposes the OO1
-	// DB API at sqlite3.oo1.DB.
-	let db: any;
-	try {
-		// The OPFS sahpool VFS (mobile-portable; no COOP/COEP needed). Its
-		// return value is retained: it is the only object that can delete a
-		// pool-backed file later. The former `?? sqlite3.installOpfsVfs`
-		// fallback was dead code. That symbol is module-local inside
-		// sqlite-wasm and is never assigned onto the sqlite3 namespace.
-		await installSahPool(sqlite3);
-
-		// Open the database. The vault path is relative to the OPFS root
-		// (which sqlite-wasm sees as its filesystem). For v0.1.5 we put
-		// it at the OPFS root with the sidecar name.
-		db = new sqlite3.oo1.DB({
-			filename: `file:${sidecarPath}?vfs=opfs-sahpool`,
-			flags: 'ct',
-		});
-		// Recorded only after the open succeeds, because this `try` covers both
-		// the install and the open: a `:memory:` fallback does not imply the
-		// pool failed to install, and vice versa.
-		openedInMemoryThisSession = false;
-	} catch (err) {
-		// Fall back to in-memory if OPFS isn't available (test environments,
-		// sandbox restrictions). Data won't persist across reload but the
-		// engine still works — projector reprojects from canonical Tier 1
-		// per Ch 24 §2 recovery property.
-		console.warn('[crosswalker tier2] OPFS unavailable; falling back to in-memory sidecar', err);
-		db = new sqlite3.oo1.DB(':memory:');
-		openedInMemoryThisSession = true;
+	let db: Tier2Db | null = null;
+	let fallbackReason: unknown = null;
+	const acquired = await acquireHost(app);
+	if (acquired.host) {
+		try {
+			db = await acquired.host.open(sidecarPath);
+		} catch (err) {
+			fallbackReason = err;
+		}
+	} else {
+		fallbackReason = acquired.error;
 	}
+
+	if (!db) {
+		// Data won't persist across reload but the engine still works: the
+		// projector reprojects from canonical Tier 1 per Ch 24 §2 recovery.
+		console.warn('[crosswalker tier2] OPFS unavailable; falling back to in-memory sidecar', fallbackReason);
+		const sqlite3 = await initSqlite3(plugin);
+		db = new LocalDb(new sqlite3.oo1.DB(':memory:'), { vfs: 'memory', persistent: false, filename: '' });
+	}
+	const opened = db;
+	lastOpenInfo = opened.info();
 
 	// Apply schema migrations (drops + recreates if version mismatch)
 	const { applyMigrations } = await import('./migrations');
-	const schemaRebuilt = applyMigrations(db);
+	const schemaRebuilt = await applyMigrations(opened);
 
-	const sqliteVersion = (): string => {
-		try {
-			const rows = db.exec({
-				sql: 'SELECT sqlite_version()',
-				rowMode: 'array',
-				returnValue: 'resultRows',
-			}) as unknown[][];
-			if (rows.length === 0) return '(unknown)';
-			return String(rows[0][0]);
-		} catch (err) {
-			return `(error: ${(err as Error).message})`;
-		}
-	};
+	let version = '(unknown)';
+	try {
+		const rows = await opened.exec({
+			sql: 'SELECT sqlite_version()',
+			rowMode: 'array',
+			returnValue: 'resultRows',
+		});
+		if (rows.length > 0) version = String(rows[0][0]);
+	} catch (err) {
+		version = `(error: ${(err as Error).message})`;
+	}
 
 	return {
-		db,
+		db: opened,
 		sidecarPath,
-		sqliteVersion,
 		schemaRebuilt,
+		sqliteVersion: () => version,
+		info: () => opened.info(),
 		async close() {
 			try {
-				db.close();
+				await opened.close();
 				return true;
 			} catch (err) {
-				// OPFS sahpool flushes on close, so a throw here means the file
-				// may still hold its access handle. Reported, not swallowed:
-				// see the interface doc for why a delete must not follow.
+				// A throw here means the file may still hold its access handle.
+				// Reported, not swallowed: see the interface doc for why a delete
+				// must not follow.
 				console.warn('[crosswalker tier2] sidecar close failed', err);
 				return false;
 			}
 		},
 	};
+}
+
+/**
+ * W6 unload. Asks the Worker to close, then terminates it after the
+ * acknowledgement or a 500 ms grace. Never throws and need not be awaited.
+ */
+export async function shutdownSidecarHost(graceMs: number = UNLOAD_GRACE_MS): Promise<void> {
+	const current = host;
+	host = null;
+	if (current) await current.shutdown(graceMs);
 }
 
 /**
@@ -313,9 +368,9 @@ export async function openSidecar(
  */
 export interface ClearSidecarResult {
 	/**
-	 * True when the OPFS sahpool installed, i.e. a persisted sidecar file
-	 * could exist in this environment. False means the session ran on the
-	 * `:memory:` fallback and there was never a file to remove.
+	 * True when the persistent pool was reachable, i.e. a persisted sidecar
+	 * file could exist in this environment. False means the session ran on the
+	 * in-memory fallback and there was never a file to remove.
 	 */
 	hadPersistentStore: boolean;
 	/** Pool entries actually removed: the sidecar plus any journal/WAL sibling. */
@@ -323,23 +378,15 @@ export interface ClearSidecarResult {
 }
 
 /**
- * Delete the sidecar file from the OPFS sahpool (used by the
+ * Delete the sidecar file from the persistent pool (used by the
  * `clear-tier-2-sidecar` command). The next openSidecar() call recreates the
  * file, migrations report `schemaRebuilt`, and the projector reprojects from
  * canonical Tier 1, so losing Tier 2 is safe by design.
  *
- * **Precondition: the caller must close and drop its handle first.** Unlinking
- * a file that still has an open sahpool access handle is undefined behavior,
- * and a surviving handle would keep answering queries out of the data the user
- * asked to destroy.
- *
- * **Why this does not use the plain OPFS API.** The previous implementation
- * called `sqlite3.opfs.unlink(path)` behind a `typeof === 'function'` guard.
- * `sqlite3.opfs` belongs to the async-proxy OPFS VFS and is deleted from the
- * namespace during sqlite-wasm's own bootstrap, so the guard was never true:
- * the function returned having done nothing while the command still announced
- * success. Deleting nothing must never look like success. That is the same
- * "absent is not fine" error class as the cache-lag bugs.
+ * **Precondition: the caller must close and drop its handle first** (W6: await
+ * the close, then delete). The delete is a request to the same Worker that
+ * holds the pool, queued behind that close. Unlinking a file that still has an
+ * open access handle is undefined behavior; the Worker refuses it.
  *
  * Deletion is surgical (`unlink` per file) rather than `wipeFiles()`, which
  * would destroy unrelated pool files, or `removeVfs()`, which bricks the VFS
@@ -352,14 +399,11 @@ export async function clearSidecar(
 	plugin: Plugin,
 	sidecarPath: string = '.crosswalker.sqlite',
 ): Promise<ClearSidecarResult> {
-	const sqlite3 = await initSqlite3(plugin);
-
-	let pool: any;
-	try {
-		pool = await installSahPool(sqlite3);
-	} catch (err) {
-		if (openedInMemoryThisSession === true) {
-			// This session opened `:memory:` and the caller has already closed
+	const acquired = await acquireHost(plugin.app);
+	if (!acquired.host) {
+		const err = acquired.error;
+		if (lastOpenInfo !== null && !lastOpenInfo.persistent) {
+			// This session opened in memory and the caller has already closed
 			// that database, which destroyed the only copy of the rows. Absence
 			// is established by what we did, not inferred from what we cannot
 			// see, so reporting "nothing persisted" here is truthful.
@@ -367,12 +411,8 @@ export async function clearSidecar(
 			return { hadPersistentStore: false, removed: [] };
 		}
 		// Otherwise we simply cannot see the pool, and not seeing it is not the
-		// same as it being empty. The installer rejects while another holder
-		// owns the pool's access handles (a second vault window, a stale WASM
-		// instance after a plugin reload), and it caches that rejection for the
-		// session. The file is intact in every one of those cases. Claiming a
-		// reset here would be the original bug restated: a reassuring message
-		// over work that did not happen.
+		// same as it being empty. Claiming a reset here would be the original
+		// bug restated: a reassuring message over work that did not happen.
 		const detail = err instanceof Error ? err.message : String(err);
 		throw new Error(
 			'could not open the query index storage to clear it, so nothing was deleted. '
@@ -381,23 +421,13 @@ export async function clearSidecar(
 		);
 	}
 
-	const key = sahPoolKeyFor(sidecarPath);
-	// Rollback journals and WAL files are pool-persistent too (the schema sets
-	// no journal_mode, so rollback journals exist transiently and a crash can
-	// strand one). Leaving a sibling behind would let a later open recover rows
-	// the user asked us to destroy.
-	const matches = (name: string): boolean => name === key || name.startsWith(`${key}-`);
+	// Rollback journals and WAL files are pool-persistent too, so the Worker
+	// removes the key and every `<key>-` sibling. Leaving a sibling behind
+	// would let a later open recover rows the user asked us to destroy.
+	const { removed, survivors } = await acquired.host.unlink(sahPoolKeyFor(sidecarPath));
 
-	const targets: string[] = (pool.getFileNames() as string[]).filter(matches);
-	for (const name of targets) {
-		// Synchronous despite the name: a map delete plus a header zero-fill
-		// and truncate, not a Promise.
-		pool.unlink(name);
-	}
-
-	// Re-read the pool instead of trusting the unlink return value. Gating the
-	// success path on observing the file gone is the whole point of this fix.
-	const survivors: string[] = (pool.getFileNames() as string[]).filter(matches);
+	// Gating the success path on observing the file gone, not on the unlink
+	// call returning, is the whole point of this function.
 	if (survivors.length > 0) {
 		throw new Error(`the query index file is still present (${survivors.join(', ')})`);
 	}
@@ -405,5 +435,5 @@ export async function clearSidecar(
 	// No separate cache invalidation is needed: the closure cache lives in the
 	// `closure_cache` / `closure_cache_state` tables inside this very file, so
 	// it dies with it. Nothing else in the plugin holds Tier 2 rows in memory.
-	return { hadPersistentStore: true, removed: targets };
+	return { hadPersistentStore: true, removed };
 }

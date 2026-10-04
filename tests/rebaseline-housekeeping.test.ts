@@ -158,7 +158,7 @@ describe('housekeeping re-baselining', () => {
 
 	it('clears exactly the selected housekeeping row without changing attestation facts', async () => {
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		const paths = ['Evidence/one.md', 'Evidence/two.md'];
 		seed(db, paths);
 		const { app, frontmatter, processFrontMatter } = appWithFrontmatter(db, paths);
@@ -209,7 +209,7 @@ describe('housekeeping re-baselining', () => {
 
 	it('resolves the whole selected batch before the first vault write', async () => {
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		seed(db);
 		// Only the first selected file exists in the vault. The second must be
 		// discovered before processFrontMatter touches the first.
@@ -232,7 +232,7 @@ describe('housekeeping re-baselining', () => {
 
 	it('cancellation performs no Tier 1 or Tier 2 write', async () => {
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		seed(db, ['Evidence/one.md']);
 		const { app, processFrontMatter } = appWithFrontmatter(db, ['Evidence/one.md']);
 		const changed = await runHousekeepingRebaselineCommand({
@@ -248,13 +248,13 @@ describe('housekeeping re-baselining', () => {
 		db.close();
 	});
 
-	it('rejects wording rows and incomplete current fingerprints before any write', () => {
+	it('rejects wording rows and incomplete current fingerprints before any write', async () => {
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		seed(db, ['Evidence/one.md']);
 		db.exec(`UPDATE junction_notes SET reviewed_wording_cid='sha256-old-wording'`);
-		expect(() => resolveHousekeepingRebaselineCandidates(db, ['Evidence/one.md']))
-			.toThrow('not a housekeeping-only changed link');
+		await expect(resolveHousekeepingRebaselineCandidates(db, ['Evidence/one.md']))
+			.rejects.toThrow('not a housekeeping-only changed link');
 		db.close();
 
 		const incompleteDb = {
@@ -263,8 +263,8 @@ describe('housekeeping re-baselining', () => {
 				'x:A', CURRENT.reviewCid, CURRENT.wording, null, CURRENT.housekeeping,
 			]],
 		};
-		expect(() => resolveHousekeepingRebaselineCandidates(incompleteDb, ['Evidence/one.md']))
-			.toThrow('has no complete current fingerprint set');
+		await expect(resolveHousekeepingRebaselineCandidates(incompleteDb, ['Evidence/one.md']))
+			.rejects.toThrow('has no complete current fingerprint set');
 	});
 
 	// Regression, 2026-08-28. The command used to resolve candidates, open a
@@ -275,14 +275,14 @@ describe('housekeeping re-baselining', () => {
 	// must not be carried across the decision at all.
 	it('does not carry the database handle across the confirmation dialog', async () => {
 		const before = createDb();
-		applyMigrations(before);
+		await applyMigrations(before);
 		const paths = ['Evidence/one.md'];
 		seed(before, paths);
 
 		// What a reset leaves behind: the old database is gone and the next
 		// open hands back a fresh one.
 		const after = createDb();
-		applyMigrations(after);
+		await applyMigrations(after);
 		seed(after, paths);
 
 		// The app helper asserts Tier 1 lands before Tier 2, and it must make
@@ -320,7 +320,7 @@ describe('housekeeping re-baselining', () => {
 	// action that already took effect.
 	it('reports a recorded baseline when only the derived index update fails', async () => {
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		const paths = ['Evidence/one.md'];
 		seed(db, paths);
 		const { app, frontmatter, processFrontMatter } = appWithFrontmatter(db, paths);
@@ -416,12 +416,12 @@ describe('AM-25: the note is identified before the audit fact is written', () =>
 		'| [[Evidence/two.md]] | `changed` | `housekeeping` | `subject-changed` |',
 	].join('\n');
 
-	it('carries the junction\'s own identity from the index row to the write', () => {
+	it('carries the junction\'s own identity from the index row to the write', async () => {
 		// It was available all along. Selecting it is the whole fix.
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		seed(db, ['Evidence/one.md']);
-		expect(resolveHousekeepingRebaselineCandidates(db, ['Evidence/one.md'])[0].junctionCurie)
+		expect((await resolveHousekeepingRebaselineCandidates(db, ['Evidence/one.md']))[0].junctionCurie)
 			.toBe(junctionCurie(0));
 		db.close();
 	});
@@ -431,7 +431,7 @@ describe('AM-25: the note is identified before the audit fact is written', () =>
 		// note at that path is not the one the row described, and stamping it would
 		// record an attestation against a subject nobody reviewed.
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		const paths = ['Evidence/one.md'];
 		seed(db, paths);
 		const { app, frontmatter, processFrontMatter } = appWithFrontmatter(db, paths, {
@@ -452,7 +452,7 @@ describe('AM-25: the note is identified before the audit fact is written', () =>
 		// "Could not record baselines" alone leaves a person with an audit action
 		// that did nothing and no way to find out why.
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		seed(db, ['Evidence/one.md']);
 		const { app } = appWithFrontmatter(db, ['Evidence/one.md'], {
 			curies: { 'Evidence/one.md': 'cwk:some-other-link' },
@@ -471,7 +471,7 @@ describe('AM-25: the note is identified before the audit fact is written', () =>
 		// half-applied batch of attestation baselines is the worst outcome here:
 		// some claims re-baselined, some not, and nothing saying which.
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		const paths = ['Evidence/one.md', 'Evidence/two.md'];
 		seed(db, paths);
 		const { app, frontmatter, processFrontMatter } = appWithFrontmatter(db, paths, {
@@ -495,7 +495,7 @@ describe('AM-25: the note is identified before the audit fact is written', () =>
 		// Asserted on the wording, because a refusal that lands for the neighbouring
 		// reason still refuses and would hide the missing branch.
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		seed(db, ['Evidence/one.md']);
 		const { app, processFrontMatter } = appWithFrontmatter(db, ['Evidence/one.md'], {
 			curies: { 'Evidence/one.md': null },
@@ -516,11 +516,11 @@ describe('AM-25: the note is identified before the audit fact is written', () =>
 		// fact with nothing to check it against is the state AM-25 forbids, whether
 		// the missing half is the note's or the index's.
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		seed(db, ['Evidence/one.md']);
 		db.exec(`UPDATE junction_notes SET curie=''`);
-		expect(() => resolveHousekeepingRebaselineCandidates(db, ['Evidence/one.md']))
-			.toThrow('no recorded identity in the coverage index');
+		await expect(resolveHousekeepingRebaselineCandidates(db, ['Evidence/one.md']))
+			.rejects.toThrow('no recorded identity in the coverage index');
 		db.close();
 	});
 
@@ -529,7 +529,7 @@ describe('AM-25: the note is identified before the audit fact is written', () =>
 		// nothing may be claimed about it. Never "this is not the link", never an
 		// invitation to move or delete it.
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		seed(db, ['Evidence/one.md']);
 		const { app, processFrontMatter } = appWithFrontmatter(db, ['Evidence/one.md'], {
 			unreadable: ['Evidence/one.md'],
@@ -553,7 +553,7 @@ describe('AM-25: the note is identified before the audit fact is written', () =>
 		// that touched one more key would be an unreviewed change to an audit
 		// record.
 		const db = createDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 		const paths = ['Evidence/one.md'];
 		seed(db, paths);
 		const { app, frontmatter } = appWithFrontmatter(db, paths);

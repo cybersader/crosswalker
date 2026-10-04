@@ -48,7 +48,7 @@ const provenance = (version?: string, importSetId?: string) => ({
 
 describe('Tier 2 v4 import-set, identity, and mapping-set provenance', () => {
 	let db: TestDb;
-	beforeEach(() => { db = createTestDb(); applyMigrations(db); });
+	beforeEach(async () => { db = createTestDb(); await applyMigrations(db); });
 	afterEach(() => db.close());
 
 	it('installs the v4 ownership columns, composed occurrence key, and identity indexes', () => {

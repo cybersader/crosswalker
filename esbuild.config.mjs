@@ -38,6 +38,7 @@ const verifyInlineSqlitePlugin = {
 					bundlePath: resolve(outdir, "main.js"),
 					metafile: result.metafile,
 					assets: sqliteAssets,
+					requireWorkerText: true,
 				});
 			} catch (error) {
 				return {

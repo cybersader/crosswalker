@@ -23,6 +23,7 @@ import {
 	listUnbaselinedValidJunctions,
 } from '../tier2/evidence-coverage';
 import { readProjectionStatus } from '../tier2/projector';
+import { asTier2Db, type Tier2DbLike } from '../tier2/db';
 import { readNoteFrontmatterState } from '../export/vault-reader';
 import { renderEvidenceReport } from './evidence-report';
 
@@ -41,8 +42,9 @@ export interface OntologyChoice {
  * actually projected. A chooser showing a number that disagrees with the report
  * it produces is worse than one showing no number.
  */
-export function listOntologiesForReport(db: any): OntologyChoice[] {
-	const rows = db.exec({
+export async function listOntologiesForReport(dbLike: Tier2DbLike): Promise<OntologyChoice[]> {
+	const db = asTier2Db(dbLike);
+	const rows = await db.exec({
 		sql: `
 			SELECT o.id, o.name, COUNT(c.curie) AS concept_count
 			FROM ontologies o
@@ -52,7 +54,7 @@ export function listOntologiesForReport(db: any): OntologyChoice[] {
 		`,
 		rowMode: 'array',
 		returnValue: 'resultRows',
-	}) as unknown[][];
+	});
 
 	return rows.map((r) => ({
 		id: String(r[0]),
@@ -103,7 +105,7 @@ class OntologyPickerModal extends FuzzySuggestModal<OntologyChoice> {
 /** Everything the runner needs from the plugin, narrowed for testability. */
 export interface EvidenceReportDeps {
 	app: App;
-	openTier2: () => Promise<{ db: any }>;
+	openTier2: () => Promise<{ db: Tier2DbLike }>;
 	/**
 	 * Refresh canonical notes into the report data before reading it. Explicit
 	 * report actions do this even when background refresh-on-load is disabled.
@@ -131,16 +133,16 @@ export async function writeEvidenceReport(
 	// derived from these exact rows rather than from a query of its own, so its
 	// counts cannot describe a different population than the exclusions table
 	// printed a few lines below it.
-	const excluded = diagnoseExcludedJunctions(db);
+	const excluded = await diagnoseExcludedJunctions(db);
 
 	const markdown = renderEvidenceReport({
 		ontologyId,
-		summary: evidenceCoverageSummary(db, ontologyId),
-		rows: evidenceCoverageByConcept(db, ontologyId),
+		summary: await evidenceCoverageSummary(db, ontologyId),
+		rows: await evidenceCoverageByConcept(db, ontologyId),
 		excluded,
-		unbaselined: listUnbaselinedValidJunctions(db),
-		superseded: listSupersededSubjects(db, excluded),
-		status: readProjectionStatus(db),
+		unbaselined: await listUnbaselinedValidJunctions(db),
+		superseded: await listSupersededSubjects(db, excluded),
+		status: await readProjectionStatus(db),
 		generatedAt: now().toISOString(),
 	});
 
@@ -215,7 +217,7 @@ export async function runEvidenceReportCommand(deps: EvidenceReportDeps): Promis
 		}
 	}
 
-	let db: any;
+	let db: Tier2DbLike;
 	try {
 		({ db } = await deps.openTier2());
 	} catch (err) {
@@ -223,7 +225,13 @@ export async function runEvidenceReportCommand(deps: EvidenceReportDeps): Promis
 		return;
 	}
 
-	const choices = listOntologiesForReport(db);
+	let choices: OntologyChoice[];
+	try {
+		choices = await listOntologiesForReport(db);
+	} catch (err) {
+		new Notice(`Could not open the coverage data: ${err instanceof Error ? err.message : String(err)}`);
+		return;
+	}
 	if (choices.length === 0) {
 		new Notice('No imported frameworks found. Import structured data first, then run this report.');
 		return;

@@ -380,7 +380,7 @@ describe('Crosswalker plugin — realistic framework fixtures (integration)', fu
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const rows = handle.db.exec({
+			const rows = await handle.db.exec({
 				sql: 'SELECT id FROM ontologies ORDER BY id',
 				rowMode: 'array',
 				returnValue: 'resultRows',
@@ -442,8 +442,8 @@ describe('Crosswalker plugin — realistic framework fixtures (integration)', fu
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const c = (handle.db.exec({ sql: 'SELECT COUNT(*) FROM concepts', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
-			const m = (handle.db.exec({ sql: 'SELECT COUNT(*) FROM mappings', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
+			const c = (await handle.db.exec({ sql: 'SELECT COUNT(*) FROM concepts', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
+			const m = (await handle.db.exec({ sql: 'SELECT COUNT(*) FROM mappings', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
 			return { concepts: Number(c), mappings: Number(m) };
 		});
 
@@ -457,8 +457,8 @@ describe('Crosswalker plugin — realistic framework fixtures (integration)', fu
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const c = (handle.db.exec({ sql: 'SELECT COUNT(*) FROM concepts', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
-			const m = (handle.db.exec({ sql: 'SELECT COUNT(*) FROM mappings', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
+			const c = (await handle.db.exec({ sql: 'SELECT COUNT(*) FROM concepts', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
+			const m = (await handle.db.exec({ sql: 'SELECT COUNT(*) FROM mappings', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
 			return { concepts: Number(c), mappings: Number(m) };
 		});
 

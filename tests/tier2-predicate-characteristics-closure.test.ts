@@ -82,41 +82,41 @@ function queryRows(db: TestDb, sql: string, bind: Record<string, unknown> = {}):
 describe('Tier 2 predicate-characteristic closure', () => {
 	let db: TestDb;
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		db = createTestDb();
-		applyMigrations(db);
+		await applyMigrations(db);
 	});
 
 	afterEach(() => {
 		db.close();
 	});
 
-	it('derives directional inverse chains for broader and narrower predicates', () => {
+	it('derives directional inverse chains for broader and narrower predicates', async () => {
 		insertMapping(db, 'example:A', 'is_broader_than', 'example:B', 'broader-1');
 		insertMapping(db, 'example:B', 'is_broader_than', 'example:C', 'broader-2');
 
-		expect(targets(closureFromConcept(db, 'example:A', 'is_broader_than', 10))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', 'is_broader_than', 10))).toEqual([
 			['example:B', 1],
 			['example:C', 2],
 		]);
-		expect(targets(closureFromConcept(db, 'example:C', 'is_narrower_than', 10))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:C', 'is_narrower_than', 10))).toEqual([
 			['example:B', 1],
 			['example:A', 2],
 		]);
-		expect(targets(closureFromConcept(db, 'example:B', 'is_narrower_than', 10))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:B', 'is_narrower_than', 10))).toEqual([
 			['example:A', 1],
 		]);
 	});
 
-	it('traverses equivalence symmetrically and transitively in either direction', () => {
+	it('traverses equivalence symmetrically and transitively in either direction', async () => {
 		insertMapping(db, 'example:P', 'is_equivalent_to', 'example:Q', 'equivalent-1');
 		insertMapping(db, 'example:Q', 'is_equivalent_to', 'example:R', 'equivalent-2');
 
-		expect(targets(closureFromConcept(db, 'example:P', 'is_equivalent_to', 10))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:P', 'is_equivalent_to', 10))).toEqual([
 			['example:Q', 1],
 			['example:R', 2],
 		]);
-		expect(targets(closureFromConcept(db, 'example:R', 'is_equivalent_to', 10))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:R', 'is_equivalent_to', 10))).toEqual([
 			['example:Q', 1],
 			['example:P', 2],
 		]);
@@ -126,71 +126,71 @@ describe('Tier 2 predicate-characteristic closure', () => {
 		['is_approximate_to', 'approximate'],
 		['intersects_with', 'intersects'],
 		['no_relationship', 'none'],
-	] as const)('traverses %s symmetrically without chaining', (predicate, suffix) => {
+	] as const)('traverses %s symmetrically without chaining', async (predicate, suffix) => {
 		insertMapping(db, 'example:A', predicate, 'example:B', `${suffix}-1`);
 		insertMapping(db, 'example:B', predicate, 'example:C', `${suffix}-2`);
 
-		expect(targets(closureFromConcept(db, 'example:B', predicate, 10))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:B', predicate, 10))).toEqual([
 			['example:A', 1],
 			['example:C', 1],
 		]);
-		expect(targets(closureFromConcept(db, 'example:A', predicate, 10))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', predicate, 10))).toEqual([
 			['example:B', 1],
 		]);
 	});
 
-	it('does not switch predicates between hops in unfiltered closure', () => {
+	it('does not switch predicates between hops in unfiltered closure', async () => {
 		insertMapping(db, 'example:A', 'is_broader_than', 'example:B', 'mixed-1');
 		insertMapping(db, 'example:B', 'intersects_with', 'example:D', 'mixed-2');
 		insertMapping(db, 'example:D', 'is_broader_than', 'example:E', 'mixed-3');
 		insertMapping(db, 'example:A', 'intersects_with', 'example:X', 'mixed-4');
 
-		expect(targets(closureFromConcept(db, 'example:A', undefined, 10))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', undefined, 10))).toEqual([
 			['example:B', 1],
 			['example:X', 1],
 		]);
 	});
 
-	it('deduplicates explicit reverse storage and terminates on cycles', () => {
+	it('deduplicates explicit reverse storage and terminates on cycles', async () => {
 		insertMapping(db, 'example:A', 'is_equivalent_to', 'example:B', 'duplicate-1');
 		insertMapping(db, 'example:B', 'is_equivalent_to', 'example:A', 'duplicate-2');
 		insertMapping(db, 'example:B', 'is_equivalent_to', 'example:C', 'cycle-1');
 		insertMapping(db, 'example:C', 'is_equivalent_to', 'example:A', 'cycle-2');
 
-		expect(targets(closureFromConcept(db, 'example:A', 'is_equivalent_to', 10))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', 'is_equivalent_to', 10))).toEqual([
 			['example:B', 1],
 			['example:C', 1],
 		]);
 	});
 
-	it('rejects unknown explicit filters before reading a matching cache partition', () => {
+	it('rejects unknown explicit filters before reading a matching cache partition', async () => {
 		db.exec(`
 			INSERT INTO closure_cache_state
 				(subject_id, predicate_id, computed_max_depth, computed_at)
 			VALUES ('example:A', 'predicate-characteristics-v2|unknown', 99, 'old')
 		`);
 
-		expect(() => closureFromConcept(db, 'example:A', 'unknown', 1)).toThrow(
+		await expect(closureFromConcept(db, 'example:A', 'unknown', 1)).rejects.toThrow(
 			new RangeError('Unknown Crosswalker predicate: unknown'),
 		);
-		expect(() =>
+		await expect(
 			precomputeClosureForOntologyPair(db, 'example', 'target', 'unknown', 1),
-		).toThrow(new RangeError('Unknown Crosswalker predicate: unknown'));
+		).rejects.toThrow(new RangeError('Unknown Crosswalker predicate: unknown'));
 	});
 
-	it('excludes unknown stored predicates from filtered and unfiltered closure', () => {
+	it('excludes unknown stored predicates from filtered and unfiltered closure', async () => {
 		insertMapping(db, 'example:A', 'unknown', 'example:Ignored', 'unknown');
 		insertMapping(db, 'example:A', 'is_broader_than', 'example:B', 'known');
 
-		expect(targets(closureFromConcept(db, 'example:A', undefined, 2))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', undefined, 2))).toEqual([
 			['example:B', 1],
 		]);
-		expect(targets(closureFromConcept(db, 'example:A', 'is_broader_than', 2))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', 'is_broader_than', 2))).toEqual([
 			['example:B', 1],
 		]);
 	});
 
-	it('keeps negated equivalence directly queryable but excludes both closure directions and precompute', () => {
+	it('keeps negated equivalence directly queryable but excludes both closure directions and precompute', async () => {
 		db.exec({
 			sql: `
 				INSERT INTO mappings
@@ -207,7 +207,7 @@ describe('Tier 2 predicate-characteristic closure', () => {
 			},
 		});
 
-		expect(crosswalkBetween(db, 'example', 'example', 'is_equivalent_to')).toEqual([
+		expect(await crosswalkBetween(db, 'example', 'example', 'is_equivalent_to')).toEqual([
 			expect.objectContaining({
 				mapping_set_id: 'set:negation-proof',
 				subject_id: 'example:A',
@@ -216,11 +216,11 @@ describe('Tier 2 predicate-characteristic closure', () => {
 				source_path: 'Mappings/negated-equivalence.md',
 			}),
 		]);
-		expect(closureFromConcept(db, 'example:A', 'is_equivalent_to', 1)).toEqual([]);
-		expect(closureFromConcept(db, 'example:B', 'is_equivalent_to', 1)).toEqual([]);
+		expect(await closureFromConcept(db, 'example:A', 'is_equivalent_to', 1)).toEqual([]);
+		expect(await closureFromConcept(db, 'example:B', 'is_equivalent_to', 1)).toEqual([]);
 		db.exec('DELETE FROM closure_cache_state');
 		expect(
-			precomputeClosureForOntologyPair(db, 'example', 'example', 'is_equivalent_to', 1),
+			await precomputeClosureForOntologyPair(db, 'example', 'example', 'is_equivalent_to', 1),
 		).toBe(0);
 		expect(queryRows(db, 'SELECT COUNT(*) FROM closure_cache_state')).toEqual([[0]]);
 		expect(queryRows(db, 'SELECT COUNT(*) FROM closure_cache')).toEqual([[0]]);
@@ -233,7 +233,7 @@ describe('Tier 2 predicate-characteristic closure', () => {
 	// ignored rather than reused. A cache key that does not cover its own inputs
 	// is the exact bug fixed on 2026-08-20, and the only reason this is cheap to
 	// get right is that the cache is rebuildable.
-	it('does not reuse a closure partition written under the previous semantics version', () => {
+	it('does not reuse a closure partition written under the previous semantics version', async () => {
 		insertMapping(db, 'example:A', 'is_broader_than', 'example:B', 'version-1');
 
 		// A stale v1 partition claiming a target that does not exist. If the
@@ -249,7 +249,7 @@ describe('Tier 2 predicate-characteristic closure', () => {
 			VALUES ('example:A', 'predicate-characteristics-v1|is_broader_than', 'example:STALE', 1, 'old')
 		`);
 
-		expect(targets(closureFromConcept(db, 'example:A', 'is_broader_than', 5))).toEqual([
+		expect(targets(await closureFromConcept(db, 'example:A', 'is_broader_than', 5))).toEqual([
 			['example:B', 1],
 		]);
 		expect(
@@ -266,22 +266,22 @@ describe('Tier 2 predicate-characteristic closure', () => {
 
 	// Lineage rides the same recursive CTE as every other transitive predicate.
 	// No bespoke traversal exists, and this is the assertion that says so.
-	it('walks lineage chains through the ordinary closure machinery', () => {
+	it('walks lineage chains through the ordinary closure machinery', async () => {
 		insertMapping(db, 'r4:AC-2', 'superseded_by', 'r5:AC-2', 'lineage-1');
 		insertMapping(db, 'r5:AC-2', 'superseded_by', 'r6:PT-1', 'lineage-2');
 
-		expect(targets(closureFromConcept(db, 'r4:AC-2', 'superseded_by', 5))).toEqual([
+		expect(targets(await closureFromConcept(db, 'r4:AC-2', 'superseded_by', 5))).toEqual([
 			['r5:AC-2', 1],
 			['r6:PT-1', 2],
 		]);
-		expect(closureFromConcept(db, 'r6:PT-1', 'superseded_by', 5)).toEqual([]);
+		expect(await closureFromConcept(db, 'r6:PT-1', 'superseded_by', 5)).toEqual([]);
 	});
 
-	it('precomputes concepts that are subjects only through a derived inverse edge', () => {
+	it('precomputes concepts that are subjects only through a derived inverse edge', async () => {
 		insertMapping(db, 'source:A', 'is_broader_than', 'target:B', 'inverse-subject');
 
 		expect(
-			precomputeClosureForOntologyPair(db, 'target', 'source', 'is_narrower_than', 2),
+			await precomputeClosureForOntologyPair(db, 'target', 'source', 'is_narrower_than', 2),
 		).toBe(1);
 		expect(
 			queryRows(

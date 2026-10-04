@@ -97,44 +97,44 @@ function addJunction(db: TestDb, path: string, overrides: Record<string, unknown
 
 describe('evidence coverage anti-join', () => {
 	let db: TestDb;
-	beforeEach(() => {
+	beforeEach(async () => {
 		db = createTestDb();
-		applyMigrations(db as any);
+		await applyMigrations(db as any);
 	});
 	afterEach(() => db.close());
 
-	it('reports a control that has no evidence at all', () => {
+	it('reports a control that has no evidence at all', async () => {
 		// The original failure: this row could not exist, because a Bases filter
 		// has no note to emit for an absent relationship.
 		addConcept(db, `${ONTOLOGY}:AC-1`);
-		const gaps = conceptsWithoutValidEvidence(db, ONTOLOGY);
+		const gaps = await conceptsWithoutValidEvidence(db, ONTOLOGY);
 		expect(gaps.map((r) => r.curie)).toEqual([`${ONTOLOGY}:AC-1`]);
 		expect(gaps[0].coverage_state).toBe('uncovered');
 	});
 
-	it('does not report a control that has valid evidence', () => {
+	it('does not report a control that has valid evidence', async () => {
 		addConcept(db, `${ONTOLOGY}:AC-1`);
 		addJunction(db, 'Evidence/j1.md');
-		expect(conceptsWithoutValidEvidence(db, ONTOLOGY)).toHaveLength(0);
+		expect(await conceptsWithoutValidEvidence(db, ONTOLOGY)).toHaveLength(0);
 	});
 
-	it('separates partial evidence from full coverage', () => {
+	it('separates partial evidence from full coverage', async () => {
 		// Partial evidence is not a gap, and is also not coverage. Collapsing the
 		// two is how a half-satisfied control gets reported as satisfied.
 		addConcept(db, `${ONTOLOGY}:AC-1`);
 		addJunction(db, 'Evidence/j1.md', { coverage: 'partial' });
-		const [row] = evidenceCoverageByConcept(db, ONTOLOGY);
+		const [row] = await evidenceCoverageByConcept(db, ONTOLOGY);
 		expect(row.coverage_state).toBe('partial');
 		expect(row.valid_count).toBe(1);
 		expect(row.full_count).toBe(0);
-		expect(conceptsWithoutValidEvidence(db, ONTOLOGY)).toHaveLength(0);
+		expect(await conceptsWithoutValidEvidence(db, ONTOLOGY)).toHaveLength(0);
 	});
 
-	it('counts a control once regardless of how many junctions it has', () => {
+	it('counts a control once regardless of how many junctions it has', async () => {
 		addConcept(db, `${ONTOLOGY}:AC-1`);
 		addJunction(db, 'Evidence/j1.md');
 		addJunction(db, 'Evidence/j2.md', { curie: 'cwk:j2' });
-		const summary = evidenceCoverageSummary(db, ONTOLOGY);
+		const summary = await evidenceCoverageSummary(db, ONTOLOGY);
 		expect(summary.total_concepts).toBe(1);
 		expect(summary.covered).toBe(1);
 	});
@@ -142,9 +142,9 @@ describe('evidence coverage anti-join', () => {
 
 describe('junctions that must not count', () => {
 	let db: TestDb;
-	beforeEach(() => {
+	beforeEach(async () => {
 		db = createTestDb();
-		applyMigrations(db as any);
+		await applyMigrations(db as any);
 		addConcept(db, `${ONTOLOGY}:AC-1`);
 	});
 	afterEach(() => db.close());
@@ -159,19 +159,19 @@ describe('junctions that must not count', () => {
 		['an identity matching no concept', { subject_curie: 'nist-800-53:NOPE' }, 'subject-not-a-known-concept'],
 	];
 
-	it.each(cases)('%s leaves the control uncovered', (_label, overrides) => {
+	it.each(cases)('%s leaves the control uncovered', async (_label, overrides) => {
 		addJunction(db, 'Evidence/j1.md', overrides);
-		expect(conceptsWithoutValidEvidence(db, ONTOLOGY)).toHaveLength(1);
+		expect(await conceptsWithoutValidEvidence(db, ONTOLOGY)).toHaveLength(1);
 	});
 
-	it.each(cases)('%s is diagnosed rather than silently dropped', (_label, overrides, reason) => {
+	it.each(cases)('%s is diagnosed rather than silently dropped', async (_label, overrides, reason) => {
 		addJunction(db, 'Evidence/j1.md', overrides);
-		const excluded = diagnoseExcludedJunctions(db);
+		const excluded = await diagnoseExcludedJunctions(db);
 		expect(excluded).toHaveLength(1);
 		expect(excluded[0].reason).toBe(reason);
 	});
 
-	it('reports the inverted direction as a findable problem, not as zero coverage', () => {
+	it('reports the inverted direction as a findable problem, not as zero coverage', async () => {
 		// The GRC guide published `subject: [[MFA-Policy]]`, `object: [[AC-2]]`.
 		// Read literally that says the policy has evidence, so the control gets
 		// nothing. Without a diagnostic the team sees 0% and no reason why.
@@ -180,38 +180,38 @@ describe('junctions that must not count', () => {
 			subject_curie: 'evidence:MFA-Policy',
 			object: '[[AC-1]]',
 		});
-		expect(conceptsWithoutValidEvidence(db, ONTOLOGY)).toHaveLength(1);
-		expect(diagnoseExcludedJunctions(db)[0].reason).toBe('subject-not-a-known-concept');
+		expect(await conceptsWithoutValidEvidence(db, ONTOLOGY)).toHaveLength(1);
+		expect((await diagnoseExcludedJunctions(db))[0].reason).toBe('subject-not-a-known-concept');
 	});
 
-	it('counts excluded junctions in the summary so a reader can ask about them', () => {
+	it('counts excluded junctions in the summary so a reader can ask about them', async () => {
 		addJunction(db, 'Evidence/j1.md', { predicate: 'implements' });
-		const summary = evidenceCoverageSummary(db, ONTOLOGY);
+		const summary = await evidenceCoverageSummary(db, ONTOLOGY);
 		expect(summary.uncovered).toBe(1);
 		expect(summary.excluded_junctions).toBe(1);
 	});
 
-	it('leaves valid junctions out of the exclusion report', () => {
+	it('leaves valid junctions out of the exclusion report', async () => {
 		addJunction(db, 'Evidence/good.md');
-		expect(diagnoseExcludedJunctions(db)).toHaveLength(0);
+		expect(await diagnoseExcludedJunctions(db)).toHaveLength(0);
 	});
 });
 
 describe('scoping', () => {
 	let db: TestDb;
-	beforeEach(() => {
+	beforeEach(async () => {
 		db = createTestDb();
-		applyMigrations(db as any);
+		await applyMigrations(db as any);
 	});
 	afterEach(() => db.close());
 
-	it('does not leak concepts from another ontology into the report', () => {
+	it('does not leak concepts from another ontology into the report', async () => {
 		addConcept(db, `${ONTOLOGY}:AC-1`);
 		addConcept(db, 'cis-v8:1.1', '1.1', 'cis-v8');
-		expect(evidenceCoverageByConcept(db, ONTOLOGY).map((r) => r.curie)).toEqual([`${ONTOLOGY}:AC-1`]);
+		expect((await evidenceCoverageByConcept(db, ONTOLOGY)).map((r) => r.curie)).toEqual([`${ONTOLOGY}:AC-1`]);
 	});
 
-	it('returns an empty report for an ontology with no concepts rather than throwing', () => {
-		expect(evidenceCoverageSummary(db, 'not-imported').total_concepts).toBe(0);
+	it('returns an empty report for an ontology with no concepts rather than throwing', async () => {
+		expect((await evidenceCoverageSummary(db, 'not-imported')).total_concepts).toBe(0);
 	});
 });

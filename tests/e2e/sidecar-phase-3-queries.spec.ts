@@ -292,7 +292,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 3 query API + closure cache', func
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const rows = handle.db.exec({
+			const rows = await handle.db.exec({
 				sql: 'SELECT COUNT(*) FROM closure_cache',
 				rowMode: 'array',
 				returnValue: 'resultRows',
@@ -314,7 +314,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 3 query API + closure cache', func
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const rows = handle.db.exec({
+			const rows = await handle.db.exec({
 				sql: `
 					SELECT subject_id, predicate_id, object_id, shortest_depth
 					FROM closure_cache
@@ -372,7 +372,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 3 query API + closure cache', func
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const rows = handle.db.exec({
+			const rows = await handle.db.exec({
 				sql: 'SELECT COUNT(*) FROM closure_cache',
 				rowMode: 'array',
 				returnValue: 'resultRows',
@@ -392,7 +392,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 3 query API + closure cache', func
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const rows = handle.db.exec({
+			const rows = await handle.db.exec({
 				sql: 'SELECT COUNT(*) FROM closure_cache',
 				rowMode: 'array',
 				returnValue: 'resultRows',

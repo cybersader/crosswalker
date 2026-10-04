@@ -225,7 +225,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 2 projector', function () {
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const result = handle.db.exec({
+			const result = await handle.db.exec({
 				sql: "SELECT curie, title, ontology_id FROM concepts WHERE ontology_id = 'phase2' ORDER BY curie",
 				rowMode: 'array',
 				returnValue: 'resultRows',
@@ -249,7 +249,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 2 projector', function () {
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const result = handle.db.exec({
+			const result = await handle.db.exec({
 				sql: "SELECT subject_id, predicate_id, object_id FROM mappings WHERE source_path LIKE $like ORDER BY subject_id",
 				bind: { $like: dir + '/%' },
 				rowMode: 'array',
@@ -278,7 +278,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 2 projector', function () {
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const result = handle.db.exec({
+			const result = await handle.db.exec({
 				sql: "SELECT subject, predicate, object, coverage FROM junction_notes WHERE vault_path LIKE $like ORDER BY subject",
 				bind: { $like: dir + '/%' },
 				rowMode: 'array',
@@ -303,7 +303,7 @@ describe('Crosswalker plugin — v0.1.5 Phase 2 projector', function () {
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const result = handle.db.exec({
+			const result = await handle.db.exec({
 				sql: "SELECT id FROM ontologies WHERE id LIKE 'phase2%' ORDER BY id",
 				rowMode: 'array',
 				returnValue: 'resultRows',
@@ -321,9 +321,9 @@ describe('Crosswalker plugin — v0.1.5 Phase 2 projector', function () {
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const concepts = (handle.db.exec({ sql: 'SELECT COUNT(*) FROM concepts', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
-			const mappings = (handle.db.exec({ sql: 'SELECT COUNT(*) FROM mappings', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
-			const junctions = (handle.db.exec({ sql: 'SELECT COUNT(*) FROM junction_notes', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
+			const concepts = (await handle.db.exec({ sql: 'SELECT COUNT(*) FROM concepts', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
+			const mappings = (await handle.db.exec({ sql: 'SELECT COUNT(*) FROM mappings', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
+			const junctions = (await handle.db.exec({ sql: 'SELECT COUNT(*) FROM junction_notes', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
 			return { concepts: Number(concepts), mappings: Number(mappings), junctions: Number(junctions) };
 		});
 
@@ -338,9 +338,9 @@ describe('Crosswalker plugin — v0.1.5 Phase 2 projector', function () {
 			// @ts-expect-error
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const concepts = (handle.db.exec({ sql: 'SELECT COUNT(*) FROM concepts', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
-			const mappings = (handle.db.exec({ sql: 'SELECT COUNT(*) FROM mappings', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
-			const junctions = (handle.db.exec({ sql: 'SELECT COUNT(*) FROM junction_notes', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
+			const concepts = (await handle.db.exec({ sql: 'SELECT COUNT(*) FROM concepts', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
+			const mappings = (await handle.db.exec({ sql: 'SELECT COUNT(*) FROM mappings', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
+			const junctions = (await handle.db.exec({ sql: 'SELECT COUNT(*) FROM junction_notes', rowMode: 'array', returnValue: 'resultRows' }) as unknown[][])[0][0];
 			return { concepts: Number(concepts), mappings: Number(mappings), junctions: Number(junctions) };
 		});
 

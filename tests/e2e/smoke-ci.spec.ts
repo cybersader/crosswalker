@@ -181,12 +181,12 @@ describe('Crosswalker plugin — CI vertical smoke', function () {
 			// @ts-expect-error - internal plugin registry used only by E2E.
 			const plugin = app.plugins.plugins.crosswalker;
 			const handle = await plugin.openTier2();
-			const selected = handle.db.exec({
+			const selected = await handle.db.exec({
 				sql: 'SELECT 1',
 				rowMode: 'array',
 				returnValue: 'resultRows',
 			}) as unknown[][];
-			const versionRows = handle.db.exec({
+			const versionRows = await handle.db.exec({
 				sql: "SELECT value FROM schema_meta WHERE key = 'schema_version' LIMIT 1",
 				rowMode: 'array',
 				returnValue: 'resultRows',

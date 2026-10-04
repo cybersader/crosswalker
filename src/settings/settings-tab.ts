@@ -1,3 +1,4 @@
+import { lastSidecarInfo, searchIndexStatusLine } from '../tier2/sidecar';
 import {
 	AbstractInputSuggest,
 	App,
@@ -1054,6 +1055,12 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+		// W5. Where the index lives this session, in one plain sentence, so the
+		// in-memory mode is never silent.
+		details.createDiv({
+			cls: 'setting-item-description crosswalker-search-index-status',
+			text: searchIndexStatusLine(this.plugin.tier2Handle?.info() ?? lastSidecarInfo()),
+		});
 
 		new Setting(details)
 			.setName('Evidence link folder')

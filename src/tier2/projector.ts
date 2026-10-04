@@ -29,6 +29,7 @@ import { normalizeMappingSetId, readStoredPredicateModifier } from '../utils/map
 import { readReviewGroupCids } from '../generation/hash';
 import { readMappingTables, tableRowsAsEdgeRecords } from '../mappings/mapping-table-reader';
 import { conversionReadRule, importSetIdOf, readConversionReadState, unusableMarkerMessage, type ConversionReadRule } from '../mappings/conversion-marker';
+import { asTier2Db, Tier2DbError, type ExecInput, type Tier2Db, type Tier2DbLike } from './db';
 
 /**
  * Result of a projection pass. Counts per Tier 2 table + skipped (files
@@ -89,10 +90,127 @@ export interface ProjectionOptions {
 	shouldAbort?: () => boolean;
 }
 
+/** Where per-row statements go. The projection writer is the only sink. */
+interface StatementSink {
+	push(statement: ExecInput): void;
+}
+
+type RowCounter = 'concepts' | 'mappings' | 'junction_notes';
+
+/** The statements one vault file (or one mapping-table row) produced. */
+interface PendingGroup {
+	path: string;
+	statements: ExecInput[];
+	/** The count this row incremented, undone if its SQL later fails. */
+	counter: RowCounter | null;
+	/** Index in `result.errors` of this row's own JS error, when it had one. */
+	errorIndex: number | null;
+}
+
+/**
+ * W4 (2026-10-03). Accumulates the projection's per-row statements and writes
+ * them as one `execBatch` per yield window, instead of one Worker round trip
+ * per statement.
+ *
+ * Per-row error attribution is preserved exactly. Before batching, a failing
+ * statement threw inside that row's `try`, the statements before it in the row
+ * had already run, and the row was recorded as an error with sqlite's message.
+ * A batch is all-or-nothing, so on failure the writer finds the row that owns
+ * the failing statement, records that row's error the same way, keeps only the
+ * statements that row ran before the failure, and resends the window.
+ */
+class ProjectionWriter implements StatementSink {
+	private groups: PendingGroup[] = [];
+	private current: PendingGroup | null = null;
+
+	constructor(
+		private readonly db: Tier2Db,
+		private readonly result: ProjectionResult,
+		private readonly debug?: DebugLog,
+	) {}
+
+	/** Start the statements of one row. */
+	begin(path: string): void {
+		this.current = { path, statements: [], counter: null, errorIndex: null };
+		this.groups.push(this.current);
+	}
+
+	push(statement: ExecInput): void {
+		if (!this.current) this.begin('<tier2-write>');
+		(this.current as PendingGroup).statements.push(statement);
+	}
+
+	/** The current row's statements are complete and it counted toward `key`. */
+	counted(key: RowCounter): void {
+		this.result.counts[key] += 1;
+		if (this.current) this.current.counter = key;
+	}
+
+	/** The current row failed in JS; remember where its error was recorded. */
+	failed(errorIndex: number): void {
+		if (this.current) this.current.errorIndex = errorIndex;
+	}
+
+	async flush(): Promise<void> {
+		let groups = this.groups.filter((group) => group.statements.length > 0);
+		this.groups = [];
+		this.current = null;
+		// Each failure removes at least one statement, so this terminates.
+		while (groups.length > 0) {
+			const statements: ExecInput[] = [];
+			const owners: Array<[number, number]> = [];
+			groups.forEach((group, groupIndex) => {
+				group.statements.forEach((statement, localIndex) => {
+					statements.push(statement);
+					owners.push([groupIndex, localIndex]);
+				});
+			});
+			try {
+				await this.db.execBatch(statements);
+				return;
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				const index = err instanceof Tier2DbError ? err.statementIndex : null;
+				if (index === null || index < 0 || index >= owners.length) {
+					// Not a statement failure (the database went away). Nothing in
+					// this window was written; say so once and stop.
+					this.result.errors.push({ vault_path: '<tier2-write>', message });
+					this.result.counts.errors += 1;
+					this.debug?.warn('tier2', 'projection-write-error', 'Tier 2 write failed', { error: message });
+					return;
+				}
+				const [groupIndex, localIndex] = owners[index];
+				const group = groups[groupIndex];
+				this.recordRowError(group, message);
+				group.statements = group.statements.slice(0, localIndex);
+				groups = groups.filter((candidate) => candidate.statements.length > 0);
+			}
+		}
+	}
+
+	private recordRowError(group: PendingGroup, message: string): void {
+		if (group.counter) {
+			this.result.counts[group.counter] -= 1;
+			group.counter = null;
+		}
+		if (group.errorIndex !== null) {
+			// The SQL failure happened first in the original order, so it is the
+			// error this row reports.
+			this.result.errors[group.errorIndex].message = message;
+		} else {
+			this.result.errors.push({ vault_path: group.path, message });
+			this.result.counts.errors += 1;
+			group.errorIndex = this.result.errors.length - 1;
+		}
+		this.debug?.warn('tier2', 'projection-row-error', `Projection row error at ${group.path}`, { path: group.path, error: message });
+	}
+}
+
 /**
  * Project Tier 1 frontmatter into the Tier 2 SQLite sidecar.
  *
- * - `db` is the sqlite-wasm OO1 DB handle from `openSidecar()`.
+ * - `db` is the `Tier2Db` from `openSidecar()` (a raw OO1-shaped handle is
+ *   wrapped in `LocalDb`).
  * - Walks `app.vault.getMarkdownFiles()` lazily (one file at a time;
  *   never accumulates the full vault state in RAM).
  * - Per-file frontmatter via `app.metadataCache.getFileCache(file)?.frontmatter`.
@@ -101,9 +219,10 @@ export interface ProjectionOptions {
  */
 export async function projectFromTier1(
 	app: App,
-	db: any,
+	dbLike: Tier2DbLike,
 	options: ProjectionOptions = {},
 ): Promise<ProjectionResult> {
+	const db = asTier2Db(dbLike);
 	const startMs = Date.now();
 	const yieldEvery = options.yieldEvery ?? 50;
 	const fullProjection = options.projectionMode === 'full';
@@ -127,13 +246,13 @@ export async function projectFromTier1(
 
 	options.debug?.info('tier2', 'projection-start', 'projectFromTier1: starting');
 
-	// Pre-prepare statements (sqlite-wasm OO1 supports prepared statements
-	// via db.prepare; using db.exec with parameter binding is also fine).
-	// We use db.exec with $-prefixed bind params for simplicity.
+	// Per-row statements are written one batch per yield window (W4).
+	const writer = new ProjectionWriter(db, result, options.debug);
 
-	// Track ontologies seen so we don't issue redundant upserts
+	// Track ontologies seen so we don't issue redundant upserts. Marked when the
+	// upsert is queued, which is before it is written.
 	const ontologiesSeen = new Set<string>();
-	if (fullProjection) initializeProjectionMarks(db);
+	if (fullProjection) await initializeProjectionMarks(db);
 
 	// Slice 4. A set mid-conversion is projected from one storage form only (see
 	// `formToReadFor`); the other form's artifacts are skipped and, in a full
@@ -157,8 +276,9 @@ export async function projectFromTier1(
 	for (const file of filtered) {
 		i += 1;
 
-		// Cooperative yield every N files
+		// Cooperative yield every N files, after writing the window so far.
 		if (i % yieldEvery === 0) {
+			await writer.flush();
 			await new Promise<void>((r) => setTimeout(r, 0));
 			// Checked immediately after the yield, because the yield is the only
 			// point where anything else can run -- and therefore the only point
@@ -169,6 +289,7 @@ export async function projectFromTier1(
 			}
 		}
 
+		writer.begin(file.path);
 		try {
 			const cacheEntry = app.metadataCache.getFileCache(file);
 			if (fullProjection && !cacheEntry) {
@@ -207,9 +328,9 @@ export async function projectFromTier1(
 			const kind = typeof fm.kind === 'string' ? fm.kind : 'concept';
 
 			if (kind === 'junction-note') {
-				upsertJunctionNote(db, file, fm);
-				if (fullProjection) markJunctionNoteSeen(db, file.path);
-				result.counts.junction_notes += 1;
+				upsertJunctionNote(writer, file, fm);
+				if (fullProjection) markJunctionNoteSeen(writer, file.path);
+				writer.counted('junction_notes');
 			} else if (kind === 'mapping-set') {
 				// A mapping set's release record (Tier 1 `kind: mapping-set`) is not a
 				// concept and not a mapping; the query database has no row for it.
@@ -220,41 +341,44 @@ export async function projectFromTier1(
 				continue;
 			} else if (kind === 'crosswalk-edge') {
 				// Crosswalk-edges span two ontologies — register both subject + object.
-				ensureOntologyForKind(db, fm, ontologiesSeen, file.path, 'crosswalk-edge');
+				ensureOntologyForKind(writer, fm, ontologiesSeen, file.path, 'crosswalk-edge');
 				let predicateModifier: '' | 'NOT';
 				try {
 					predicateModifier = readStoredPredicateModifier(fm);
 				} catch (error) {
 					// Never retain a previously projected positive row after canonical
 					// Markdown becomes explicitly malformed at the modifier boundary.
-					db.exec({
+					writer.push({
 						sql: 'DELETE FROM mappings WHERE source_path = $source_path',
 						bind: { $source_path: file.path },
 					});
 					throw error;
 				}
-				upsertMapping(db, file.path, fm, predicateModifier);
-				if (fullProjection) markMappingSeen(db, file.path);
-				result.counts.mappings += 1;
+				upsertMapping(writer, file.path, fm, predicateModifier);
+				if (fullProjection) markMappingSeen(writer, file.path);
+				writer.counted('mappings');
 			} else {
 				// default / 'concept'
-				ensureOntologyForKind(db, fm, ontologiesSeen, file.path, 'concept');
-				upsertConcept(db, file, fm);
+				ensureOntologyForKind(writer, fm, ontologiesSeen, file.path, 'concept');
+				upsertConcept(writer, file, fm);
 				if (fullProjection) {
-					markConceptSeen(db, deriveConceptOntologyId(fm), String(fm.curie).trim());
+					markConceptSeen(writer, deriveConceptOntologyId(fm), String(fm.curie).trim());
 				}
-				result.counts.concepts += 1;
+				writer.counted('concepts');
 			}
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			result.errors.push({ vault_path: file.path, message: msg });
 			result.counts.errors += 1;
+			writer.failed(result.errors.length - 1);
 			options.debug?.warn('tier2', 'projection-row-error', `Projection row error at ${file.path}`, { path: file.path, error: msg });
 		}
 	}
+	// Rows processed before an abort were written before it, as they always were.
+	await writer.flush();
 
 	if (!result.aborted) {
-		await projectMappingTables(app, db, options, fullProjection, ontologiesSeen, result, reads);
+		await projectMappingTables(app, writer, options, fullProjection, ontologiesSeen, result, reads);
 	}
 
 	let prunedRows = 0;
@@ -264,8 +388,8 @@ export async function projectFromTier1(
 	if (fullProjection && !result.aborted) {
 		try {
 			if (result.errors.length === 0) {
-				for (const ontologyId of ontologiesSeen) markOntologySeen(db, ontologyId);
-				prunedRows = pruneUnseenRows(db);
+				await db.execBatch([...ontologiesSeen].map((ontologyId) => markOntologySeenStatement(ontologyId)));
+				prunedRows = await pruneUnseenRows(db);
 			}
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -273,7 +397,7 @@ export async function projectFromTier1(
 			result.counts.errors += 1;
 			options.debug?.warn('tier2', 'projection-prune-error', 'Tier 2 pruning failed', { error: msg });
 		} finally {
-			dropProjectionMarks(db, options.debug);
+			await dropProjectionMarks(db, options.debug);
 		}
 	}
 
@@ -281,7 +405,7 @@ export async function projectFromTier1(
 	// their coverage watermarks atomically (Ch 18 §2.5). A stale watermark with
 	// no rows would otherwise turn an invalidated closure into a false empty hit.
 	if (result.counts.mappings > 0 || prunedRows > 0) {
-		invalidateClosureCaches(db, options.debug);
+		await invalidateClosureCaches(db, options.debug);
 	}
 
 	// Final ontology count is from the seen-set
@@ -303,7 +427,7 @@ export async function projectFromTier1(
 	// same reason it does not prune: it cannot speak for notes it never read,
 	// and a stamp claiming full coverage is exactly how a stale posture gets
 	// presented as the current one.
-	recordProjectionStamp(db, {
+	await recordProjectionStamp(db, {
 		mode: fullProjection && !result.aborted ? 'full' : 'partial',
 		success: result.success,
 	});
@@ -336,7 +460,7 @@ export async function projectFromTier1(
  */
 async function projectMappingTables(
 	app: App,
-	db: any,
+	writer: ProjectionWriter,
 	options: ProjectionOptions,
 	fullProjection: boolean,
 	ontologiesSeen: Set<string>,
@@ -374,18 +498,22 @@ async function projectMappingTables(
 			continue;
 		}
 		for (const record of tableRowsAsEdgeRecords(table)) {
+			writer.begin(record.source_path);
 			try {
 				const fm = record.frontmatter as Record<string, any>;
-				ensureOntologyForKind(db, fm, ontologiesSeen, table.path, 'crosswalk-edge');
-				upsertMapping(db, record.source_path, fm, readStoredPredicateModifier(fm));
-				if (fullProjection) markMappingSeen(db, record.source_path);
-				result.counts.mappings += 1;
+				ensureOntologyForKind(writer, fm, ontologiesSeen, table.path, 'crosswalk-edge');
+				upsertMapping(writer, record.source_path, fm, readStoredPredicateModifier(fm));
+				if (fullProjection) markMappingSeen(writer, record.source_path);
+				writer.counted('mappings');
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				result.errors.push({ vault_path: record.source_path, message: msg });
 				result.counts.errors += 1;
+				writer.failed(result.errors.length - 1);
 			}
 		}
+		// One batch per table: a table read is the yield point here.
+		await writer.flush();
 	}
 }
 
@@ -393,8 +521,8 @@ async function projectMappingTables(
 // Full-projection pruning helpers
 // ============================================================================
 
-function initializeProjectionMarks(db: any): void {
-	db.exec(`
+async function initializeProjectionMarks(db: Tier2Db): Promise<void> {
+	await db.exec(`
 		DROP TABLE IF EXISTS temp.crosswalker_seen_concepts;
 		DROP TABLE IF EXISTS temp.crosswalker_seen_mappings;
 		DROP TABLE IF EXISTS temp.crosswalker_seen_junction_notes;
@@ -410,35 +538,35 @@ function initializeProjectionMarks(db: any): void {
 	`);
 }
 
-function markConceptSeen(db: any, ontologyId: string, curie: string): void {
-	db.exec({
+function markConceptSeen(sink: StatementSink, ontologyId: string, curie: string): void {
+	sink.push({
 		sql: `INSERT OR IGNORE INTO temp.crosswalker_seen_concepts (ontology_id, curie)
 			VALUES ($ontology_id, $curie)`,
 		bind: { $ontology_id: ontologyId, $curie: curie },
 	});
 }
 
-function markMappingSeen(db: any, sourcePath: string): void {
-	markPathSeen(db, 'crosswalker_seen_mappings', 'source_path', sourcePath);
+function markMappingSeen(sink: StatementSink, sourcePath: string): void {
+	sink.push(markPathSeenStatement('crosswalker_seen_mappings', 'source_path', sourcePath));
 }
 
-function markJunctionNoteSeen(db: any, vaultPath: string): void {
-	markPathSeen(db, 'crosswalker_seen_junction_notes', 'vault_path', vaultPath);
+function markJunctionNoteSeen(sink: StatementSink, vaultPath: string): void {
+	sink.push(markPathSeenStatement('crosswalker_seen_junction_notes', 'vault_path', vaultPath));
 }
 
-function markOntologySeen(db: any, ontologyId: string): void {
-	markPathSeen(db, 'crosswalker_seen_ontologies', 'id', ontologyId);
+function markOntologySeenStatement(ontologyId: string): ExecInput {
+	return markPathSeenStatement('crosswalker_seen_ontologies', 'id', ontologyId);
 }
 
-function markPathSeen(db: any, table: string, column: string, value: string): void {
-	db.exec({
+function markPathSeenStatement(table: string, column: string, value: string): ExecInput {
+	return {
 		sql: `INSERT OR IGNORE INTO temp.${table} (${column}) VALUES ($value)`,
 		bind: { $value: value },
-	});
+	};
 }
 
-function pruneUnseenRows(db: any): number {
-	const countRows = db.exec({
+async function pruneUnseenRows(db: Tier2Db): Promise<number> {
+	const countRows = await db.exec({
 		sql: `
 			SELECT
 				(SELECT COUNT(*) FROM concepts AS c
@@ -467,51 +595,44 @@ function pruneUnseenRows(db: any): number {
 		`,
 		rowMode: 'array',
 		returnValue: 'resultRows',
-	}) as unknown[][];
+	});
 	const staleCount = Number(countRows?.[0]?.[0] ?? 0);
 	if (staleCount === 0) return 0;
 
-	try {
-		db.exec(`
-			SAVEPOINT tier2_prune;
+	// One batch, one SAVEPOINT (W4): every delete lands or none does. The batch
+	// rolls itself back on failure and rethrows.
+	await db.execBatch([`
 			DELETE FROM concepts
 			WHERE NOT EXISTS (
 				SELECT 1 FROM temp.crosswalker_seen_concepts AS seen
 				WHERE seen.ontology_id = concepts.ontology_id AND seen.curie = concepts.curie
-			);
+			)
+	`, `
 			DELETE FROM mappings
 			WHERE NOT EXISTS (
 				SELECT 1 FROM temp.crosswalker_seen_mappings AS seen
 				WHERE seen.source_path = mappings.source_path
-			);
+			)
+	`, `
 			DELETE FROM junction_notes
 			WHERE NOT EXISTS (
 				SELECT 1 FROM temp.crosswalker_seen_junction_notes AS seen
 				WHERE seen.vault_path = junction_notes.vault_path
-			);
+			)
+	`, `
 			DELETE FROM ontologies
 			WHERE NOT EXISTS (
 				SELECT 1 FROM temp.crosswalker_seen_ontologies AS seen
 				WHERE seen.id = ontologies.id
-			);
-			RELEASE tier2_prune;
-		`);
-	} catch (err) {
-		try {
-			db.exec('ROLLBACK TO tier2_prune');
-			db.exec('RELEASE tier2_prune');
-		} catch {
-			// Preserve the prune error if rollback also fails.
-		}
-		throw err;
-	}
+			)
+	`]);
 
 	return staleCount;
 }
 
-function dropProjectionMarks(db: any, debug?: DebugLog): void {
+async function dropProjectionMarks(db: Tier2Db, debug?: DebugLog): Promise<void> {
 	try {
-		db.exec(`
+		await db.exec(`
 			DROP TABLE IF EXISTS temp.crosswalker_seen_concepts;
 			DROP TABLE IF EXISTS temp.crosswalker_seen_mappings;
 			DROP TABLE IF EXISTS temp.crosswalker_seen_junction_notes;
@@ -524,21 +645,14 @@ function dropProjectionMarks(db: any, debug?: DebugLog): void {
 	}
 }
 
-function invalidateClosureCaches(db: any, debug?: DebugLog): void {
+async function invalidateClosureCaches(db: Tier2Db, debug?: DebugLog): Promise<void> {
 	try {
-		db.exec(`
-			SAVEPOINT closure_cache_invalidate;
-			DELETE FROM closure_cache_state;
-			DELETE FROM closure_cache;
-			RELEASE closure_cache_invalidate;
-		`);
+		// One batch, one SAVEPOINT (W4): rows and watermarks go together.
+		await db.execBatch([
+			'DELETE FROM closure_cache_state',
+			'DELETE FROM closure_cache',
+		]);
 	} catch (err) {
-		try {
-			db.exec('ROLLBACK TO closure_cache_invalidate');
-			db.exec('RELEASE closure_cache_invalidate');
-		} catch {
-			// Preserve the invalidation error if rollback also fails.
-		}
 		// Non-fatal: cache tables may not exist if migrations have not run.
 		debug?.warn('tier2', 'closure-cache-invalidate-failed', 'Closure cache invalidate failed (non-fatal)', {
 			error: err instanceof Error ? err.message : String(err),
@@ -550,7 +664,7 @@ function invalidateClosureCaches(db: any, debug?: DebugLog): void {
 // Per-kind upsert helpers
 // ============================================================================
 
-function upsertConcept(db: any, file: TFile, fm: Record<string, any>): void {
+function upsertConcept(sink: StatementSink, file: TFile, fm: Record<string, any>): void {
 	const ontologyId = deriveConceptOntologyId(fm);
 	const curie = String(fm.curie ?? '').trim();
 	if (!curie) {
@@ -566,7 +680,7 @@ function upsertConcept(db: any, file: TFile, fm: Record<string, any>): void {
 	const modifiedAt = new Date(file.stat.mtime).toISOString();
 	const reviewGroups = readReviewGroupCids(fm._crosswalker?.review_groups);
 
-	db.exec({
+	sink.push({
 		sql: `
 			INSERT OR REPLACE INTO concepts
 				(ontology_id, curie, vault_path, source_hash, import_set_id, title, review_cid, review_wording_cid, review_scope_cid, review_housekeeping_cid, parent_curie, status, imported_at, modified_at)
@@ -591,7 +705,7 @@ function upsertConcept(db: any, file: TFile, fm: Record<string, any>): void {
 	});
 }
 
-function upsertJunctionNote(db: any, file: TFile, fm: Record<string, any>): void {
+function upsertJunctionNote(sink: StatementSink, file: TFile, fm: Record<string, any>): void {
 	const curie = String(fm.curie ?? '').trim();
 	if (!curie) {
 		throw new Error(`junction-note frontmatter missing required 'curie' field`);
@@ -626,7 +740,7 @@ function upsertJunctionNote(db: any, file: TFile, fm: Record<string, any>): void
 		? readReviewGroupCids((reviewedAgainst as Record<string, unknown>).review_groups)
 		: null;
 
-	db.exec({
+	sink.push({
 		sql: `
 			INSERT OR REPLACE INTO junction_notes
 				(vault_path, curie, subject, subject_curie, predicate, object, object_curie, coverage, reviewer, review_date, status, confidence, scope, expires_at, notes, reviewed_against_curie, reviewed_against_cid, reviewed_wording_cid, reviewed_scope_cid, reviewed_housekeeping_cid, import_set_id, source_hash, modified_at)
@@ -661,7 +775,7 @@ function upsertJunctionNote(db: any, file: TFile, fm: Record<string, any>): void
 }
 
 function upsertMapping(
-	db: any,
+	sink: StatementSink,
 	sourcePath: string,
 	fm: Record<string, any>,
 	predicateModifier: '' | 'NOT',
@@ -677,7 +791,7 @@ function upsertMapping(
 	const importSetId = extractImportSetId(fm);
 
 	const mappingSetId = normalizeMappingSetId(fm.mapping_set_id);
-	db.exec({
+	sink.push({
 		sql: `
 			INSERT INTO mappings
 				(import_set_id, mapping_set_id, subject_id, predicate_id, predicate_modifier, object_id, match_type, match_confidence, mapping_justification, mapping_provider, mapping_date, creator_id, review_status, source_path, source_hash)
@@ -729,7 +843,7 @@ function upsertMapping(
  * future milestone when the projector also walks ImportRecipe metadata.
  */
 function ensureOntologyForKind(
-	db: any,
+	sink: StatementSink,
 	fm: Record<string, any>,
 	seen: Set<string>,
 	vaultPath: string,
@@ -752,7 +866,7 @@ function ensureOntologyForKind(
 	const version = kind === 'concept' ? extractSourceVersion(fm) : '';
 	for (const id of ids) {
 		if (kind === 'crosswalk-edge' && seen.has(id)) continue;
-		db.exec({
+		sink.push({
 			sql: `
 				INSERT INTO ontologies
 					(id, name, version, base_path, upstream_url, recipe_id, imported_at, control_count)
@@ -949,22 +1063,20 @@ const PROJECTION_STAMP_KEYS = {
  * projection that otherwise succeeded. A missing stamp is reported honestly as
  * "unknown" downstream, which is the correct thing for a reader to see.
  */
-function recordProjectionStamp(
-	db: any,
+async function recordProjectionStamp(
+	db: Tier2Db,
 	stamp: { mode: 'full' | 'partial'; success: boolean },
-): void {
+): Promise<void> {
 	try {
 		const rows: Array<[string, string]> = [
 			[PROJECTION_STAMP_KEYS.at, new Date().toISOString()],
 			[PROJECTION_STAMP_KEYS.mode, stamp.mode],
 			[PROJECTION_STAMP_KEYS.ok, stamp.success ? 'true' : 'false'],
 		];
-		for (const [key, value] of rows) {
-			db.exec({
-				sql: 'INSERT OR REPLACE INTO schema_meta(key, value) VALUES ($key, $value)',
-				bind: { $key: key, $value: value },
-			});
-		}
+		await db.execBatch(rows.map(([key, value]) => ({
+			sql: 'INSERT OR REPLACE INTO schema_meta(key, value) VALUES ($key, $value)',
+			bind: { $key: key, $value: value },
+		})));
 	} catch {
 		// Intentionally swallowed — see the doc comment above.
 	}
@@ -985,15 +1097,16 @@ export interface ProjectionStatus {
  * rather than a plausible default, because a report claiming a freshness it
  * cannot substantiate is worse than one admitting it does not know.
  */
-export function readProjectionStatus(db: any): ProjectionStatus {
-	const read = (key: string): string | null => {
+export async function readProjectionStatus(dbLike: Tier2DbLike): Promise<ProjectionStatus> {
+	const db = asTier2Db(dbLike);
+	const read = async (key: string): Promise<string | null> => {
 		try {
-			const rows = db.exec({
+			const rows = await db.exec({
 				sql: 'SELECT value FROM schema_meta WHERE key = $key LIMIT 1',
 				bind: { $key: key },
 				rowMode: 'array',
 				returnValue: 'resultRows',
-			}) as unknown[][];
+			});
 			const value = rows?.[0]?.[0];
 			return value === undefined || value === null ? null : String(value);
 		} catch {
@@ -1001,10 +1114,10 @@ export function readProjectionStatus(db: any): ProjectionStatus {
 		}
 	};
 
-	const mode = read(PROJECTION_STAMP_KEYS.mode);
-	const ok = read(PROJECTION_STAMP_KEYS.ok);
+	const mode = await read(PROJECTION_STAMP_KEYS.mode);
+	const ok = await read(PROJECTION_STAMP_KEYS.ok);
 	return {
-		lastProjectedAt: read(PROJECTION_STAMP_KEYS.at),
+		lastProjectedAt: await read(PROJECTION_STAMP_KEYS.at),
 		mode: mode === 'full' || mode === 'partial' ? mode : 'unknown',
 		succeeded: ok === null ? null : ok === 'true',
 	};

@@ -213,7 +213,7 @@ async function project(): Promise<{
 		const plugin = app.plugins.plugins['crosswalker'];
 		const result = await plugin.runProjection();
 		const handle = await plugin.openTier2();
-		const rows = handle.db.exec({
+		const rows = await handle.db.exec({
 			sql: 'SELECT vault_path, freshness, subject_baseline, change_kind FROM junction_notes_with_freshness ORDER BY vault_path',
 			rowMode: 'array',
 			returnValue: 'resultRows',
@@ -253,7 +253,7 @@ async function junctionState(paths: string[]): Promise<Record<string, {
 			changeKind: string | null;
 		}> = {};
 		for (const selectedPath of selectedPaths) {
-			const rows = handle.db.exec({
+			const rows = await handle.db.exec({
 				sql: `SELECT status, reviewer, review_date, coverage, reviewed_against_cid,
 				             subject_baseline, change_kind
 				      FROM junction_notes_with_freshness WHERE vault_path = $path`,
@@ -645,11 +645,11 @@ describe('Ch 43 — a real ATT&CK release re-import, end to end', function () {
 			// @ts-expect-error — Crosswalker E2E API
 			const plugin = app.plugins.plugins['crosswalker'];
 			const handle = await plugin.openTier2();
-			const changed = handle.db.exec({
+			const changed = await handle.db.exec({
 				sql: "SELECT vault_path FROM junction_notes_with_freshness WHERE freshness = 'subject-changed' ORDER BY vault_path",
 				rowMode: 'array', returnValue: 'resultRows',
 			}) as unknown[][];
-			const unbaselined = handle.db.exec({
+			const unbaselined = await handle.db.exec({
 				sql: "SELECT vault_path FROM junction_notes_with_freshness WHERE subject_baseline = 'unrecorded' ORDER BY vault_path",
 				rowMode: 'array', returnValue: 'resultRows',
 			}) as unknown[][];

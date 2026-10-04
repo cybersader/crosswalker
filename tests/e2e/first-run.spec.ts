@@ -127,7 +127,7 @@ async function observeAutomaticStartupProjection(): Promise<any> {
 		if (!terminal || terminal.op !== 'auto-projection-complete' || !handle) {
 			return { terminal, diagnostics, handlePresent: Boolean(handle), fileNames, counts: {}, status: {} };
 		}
-		const countRows = handle.db.exec({
+		const countRows = await handle.db.exec({
 			sql: `
 				SELECT 'concepts', COUNT(*) FROM concepts
 				UNION ALL SELECT 'mappings', COUNT(*) FROM mappings
@@ -137,7 +137,7 @@ async function observeAutomaticStartupProjection(): Promise<any> {
 			rowMode: 'array',
 			returnValue: 'resultRows',
 		}) as unknown[][];
-		const statusRows = handle.db.exec({
+		const statusRows = await handle.db.exec({
 			sql: "SELECT key, value FROM schema_meta WHERE key IN ('last_projected_at','last_projection_mode','last_projection_success') ORDER BY key",
 			rowMode: 'array',
 			returnValue: 'resultRows',

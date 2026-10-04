@@ -80,6 +80,7 @@
  */
 
 import { closureFromConcept } from './queries';
+import { asTier2Db, type Tier2Db, type Tier2DbLike } from './db';
 
 /** The one predicate that constitutes a claim of evidence coverage. */
 export const CANONICAL_EVIDENCE_PREDICATE = 'has_evidence';
@@ -285,8 +286,9 @@ function deriveState(fullCount: number, validCount: number): CoverageState {
  * ever describe controls that already have evidence, which is the opposite of
  * the question being asked.
  */
-export function evidenceCoverageByConcept(db: any, ontologyId: string): EvidenceCoverageRow[] {
-	const rows = db.exec({
+export async function evidenceCoverageByConcept(dbLike: Tier2DbLike, ontologyId: string): Promise<EvidenceCoverageRow[]> {
+	const db = asTier2Db(dbLike);
+	const rows = await db.exec({
 		sql: `
 			SELECT
 				c.curie,
@@ -323,8 +325,8 @@ export function evidenceCoverageByConcept(db: any, ontologyId: string): Evidence
  * Concepts with zero valid evidence — the trustworthy replacement for the
  * withdrawn `length(evidence) == 0` Base and for backlink counting.
  */
-export function conceptsWithoutValidEvidence(db: any, ontologyId: string): EvidenceCoverageRow[] {
-	return evidenceCoverageByConcept(db, ontologyId).filter((row) => row.valid_count === 0);
+export async function conceptsWithoutValidEvidence(dbLike: Tier2DbLike, ontologyId: string): Promise<EvidenceCoverageRow[]> {
+	return (await evidenceCoverageByConcept(dbLike, ontologyId)).filter((row) => row.valid_count === 0);
 }
 
 /**
@@ -333,8 +335,9 @@ export function conceptsWithoutValidEvidence(db: any, ontologyId: string): Evide
  * that tells a reader how much data was set aside before the percentages above
  * it were computed.
  */
-export function evidenceCoverageSummary(db: any, ontologyId: string): EvidenceCoverageSummary {
-	const rows = evidenceCoverageByConcept(db, ontologyId);
+export async function evidenceCoverageSummary(dbLike: Tier2DbLike, ontologyId: string): Promise<EvidenceCoverageSummary> {
+	const db = asTier2Db(dbLike);
+	const rows = await evidenceCoverageByConcept(db, ontologyId);
 	let covered = 0;
 	let partial = 0;
 	let uncovered = 0;
@@ -349,8 +352,8 @@ export function evidenceCoverageSummary(db: any, ontologyId: string): EvidenceCo
 		covered,
 		partial,
 		uncovered,
-		excluded_junctions: diagnoseExcludedJunctions(db).length,
-		unbaselined_valid_junctions: listUnbaselinedValidJunctions(db).length,
+		excluded_junctions: (await diagnoseExcludedJunctions(db)).length,
+		unbaselined_valid_junctions: (await listUnbaselinedValidJunctions(db)).length,
 	};
 }
 
@@ -369,8 +372,9 @@ export function evidenceCoverageSummary(db: any, ontologyId: string): EvidenceCo
  * this file, so the count can never describe a different population than the
  * percentages it sits beside.
  */
-export function listUnbaselinedValidJunctions(db: any): UnbaselinedJunction[] {
-	const rows = db.exec({
+export async function listUnbaselinedValidJunctions(dbLike: Tier2DbLike): Promise<UnbaselinedJunction[]> {
+	const db = asTier2Db(dbLike);
+	const rows = await db.exec({
 		sql: `
 			SELECT j.vault_path, j.subject, j.subject_curie, j.subject_baseline
 			FROM junction_notes_with_freshness j
@@ -384,7 +388,7 @@ export function listUnbaselinedValidJunctions(db: any): UnbaselinedJunction[] {
 		bind: { $predicate: CANONICAL_EVIDENCE_PREDICATE },
 		rowMode: 'array',
 		returnValue: 'resultRows',
-	}) as unknown[][];
+	});
 
 	return rows.map((r) => ({
 		vault_path: String(r[0]),
@@ -413,8 +417,9 @@ export function listUnbaselinedValidJunctions(db: any): UnbaselinedJunction[] {
  * that is the branch the freshness view already picked; the second fact is not
  * lost, it is carried separately on `subject_baseline`.
  */
-export function diagnoseExcludedJunctions(db: any): ExcludedJunction[] {
-	const rows = db.exec({
+export async function diagnoseExcludedJunctions(dbLike: Tier2DbLike): Promise<ExcludedJunction[]> {
+	const db = asTier2Db(dbLike);
+	const rows = await db.exec({
 		sql: `
 			SELECT
 				j.vault_path,
@@ -450,7 +455,7 @@ export function diagnoseExcludedJunctions(db: any): ExcludedJunction[] {
 		bind: { $predicate: CANONICAL_EVIDENCE_PREDICATE },
 		rowMode: 'array',
 		returnValue: 'resultRows',
-	}) as unknown[][];
+	});
 
 	return rows.map((r) => ({
 		vault_path: String(r[0]),
@@ -478,11 +483,12 @@ export function diagnoseExcludedJunctions(db: any): ExcludedJunction[] {
  * @param excluded already-diagnosed rows, when the caller has them. Omitted, the
  *   diagnosis is run here.
  */
-export function listSupersededSubjects(
-	db: any,
+export async function listSupersededSubjects(
+	dbLike: Tier2DbLike,
 	excluded?: ExcludedJunction[],
-): SupersededSubject[] {
-	const rows = (excluded ?? diagnoseExcludedJunctions(db)).filter(
+): Promise<SupersededSubject[]> {
+	const db = asTier2Db(dbLike);
+	const rows = (excluded ?? await diagnoseExcludedJunctions(db)).filter(
 		(row) => row.reason === 'subject-superseded' && row.subject_curie !== null,
 	);
 	if (rows.length === 0) return [];
@@ -502,18 +508,21 @@ export function listSupersededSubjects(
 		// Forward-only by construction: the effective-edge traversal stores the
 		// inverse of each row under the inverse predicate, so filtering on
 		// `superseded_by` walks old -> new and never new -> old.
-		const reached = closureFromConcept(
+		const reached = await closureFromConcept(
 			db,
 			subjectCurie,
 			'superseded_by',
 			SUCCESSOR_WALK_MAX_DEPTH,
 		);
-		const successors = reached
-			.map((entry) => ({
+		const looked: SupersededSubject['successors'] = [];
+		for (const entry of reached) {
+			looked.push({
 				curie: entry.target_curie,
 				depth: entry.shortest_depth,
-				...lookupConcept(db, entry.target_curie),
-			}))
+				...(await lookupConcept(db, entry.target_curie)),
+			});
+		}
+		const successors = looked
 			.sort((a, b) => a.depth - b.depth || a.curie.localeCompare(b.curie));
 
 		out.push({
@@ -532,8 +541,8 @@ export function listSupersededSubjects(
  * Nulls mean "not in this vault", never "does not exist": the lineage edge that
  * named it is an assertion in its own right and is reported either way.
  */
-function lookupConcept(db: any, curie: string): { title: string | null; vault_path: string | null } {
-	const rows = db.exec({
+async function lookupConcept(db: Tier2Db, curie: string): Promise<{ title: string | null; vault_path: string | null }> {
+	const rows = await db.exec({
 		sql: `
 			SELECT title, vault_path
 			FROM concepts
@@ -544,7 +553,7 @@ function lookupConcept(db: any, curie: string): { title: string | null; vault_pa
 		bind: { $curie: curie },
 		rowMode: 'array',
 		returnValue: 'resultRows',
-	}) as unknown[][];
+	});
 
 	if (rows.length === 0) return { title: null, vault_path: null };
 	const title = rows[0][0];

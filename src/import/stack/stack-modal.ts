@@ -1,5 +1,6 @@
 /** Framework stack picker, recognition, review and sequential framework import. */
 import { plural } from '../../utils/plural';
+import { copyTextWithFallback } from '../../utils/clipboard';
 import { App, Modal, Notice, Setting, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
 import { computeSourceByteDigest } from '../../generation/hash';
@@ -231,12 +232,8 @@ export class StackSetupModal extends Modal {
 		const footer = root.createDiv({ cls: 'crosswalker-stack-footer' });
 		const buttons = new Setting(footer);
 		buttons.addButton((button) => button.setButtonText('Copy checklist').onClick(async () => {
-			try {
-				await navigator.clipboard.writeText(checklistPlainText(rows));
-				new Notice('Checklist copied as plain text.');
-			} catch {
-				new Notice('Clipboard access failed. Check clipboard permissions and try again.');
-			}
+			const outcome = await copyTextWithFallback(this.app, checklistPlainText(rows), 'Checklist');
+			if (outcome === 'copied') new Notice('Checklist copied as plain text.');
 		}));
 		buttons.addButton((button) => button.setButtonText('Back').onClick(() => { this.screen = 'picker'; this.render(); }));
 		buttons.addButton((button) => button.setButtonText('Next: add the files').setCta()

@@ -129,8 +129,8 @@ function addAttestation(db: TestDb, path: string, subjectCurie: string): void {
 	});
 }
 
-function reasonFor(db: TestDb, path: string): string | undefined {
-	return diagnoseExcludedJunctions(db).find((row) => row.vault_path === path)?.reason;
+async function reasonFor(db: TestDb, path: string): Promise<string | undefined> {
+	return (await diagnoseExcludedJunctions(db)).find((row) => row.vault_path === path)?.reason;
 }
 
 function targets(entries: ReturnType<typeof closureFromConcept>): [string, number][] {
@@ -139,21 +139,21 @@ function targets(entries: ReturnType<typeof closureFromConcept>): [string, numbe
 
 describe('release lineage travels the ordinary crosswalk path', () => {
 	let db: TestDb;
-	beforeEach(() => {
+	beforeEach(async () => {
 		db = createTestDb();
-		applyMigrations(db as any);
+		await applyMigrations(db as any);
 	});
 	afterEach(() => db.close());
 
 	// --- the four cardinalities the verdict names --------------------------
 
-	it('one-to-one: a rename resolves to a single successor', () => {
+	it('one-to-one: a rename resolves to a single successor', async () => {
 		addConcept(db, `${NEW_RELEASE}:AC-2`, 'AC-2');
 		addLineageEdge(db, `${OLD}:AC-2`, `${NEW_RELEASE}:AC-2`);
 		addAttestation(db, 'Evidence/j1.md', `${OLD}:AC-2`);
 
-		expect(reasonFor(db, 'Evidence/j1.md')).toBe('subject-superseded');
-		const [row] = listSupersededSubjects(db);
+		expect(await reasonFor(db, 'Evidence/j1.md')).toBe('subject-superseded');
+		const [row] = await listSupersededSubjects(db);
 		expect(row.subject_curie).toBe(`${OLD}:AC-2`);
 		expect(row.attestation_count).toBe(1);
 		expect(row.successors.map((s) => [s.curie, s.depth])).toEqual([
@@ -165,14 +165,14 @@ describe('release lineage travels the ordinary crosswalk path', () => {
 	// THE case a flat `previous_ids` field could not express. One old control,
 	// two replacements, and the reader has to see both — picking one for them is
 	// exactly the inference this design refuses to make.
-	it('one-to-many: a split lists every replacement, at depth 1', () => {
+	it('one-to-many: a split lists every replacement, at depth 1', async () => {
 		addConcept(db, `${NEW_RELEASE}:PT-1`, 'PT-1');
 		addConcept(db, `${NEW_RELEASE}:PT-2`, 'PT-2');
 		addLineageEdge(db, `${OLD}:AR-1`, `${NEW_RELEASE}:PT-1`);
 		addLineageEdge(db, `${OLD}:AR-1`, `${NEW_RELEASE}:PT-2`);
 		addAttestation(db, 'Evidence/j1.md', `${OLD}:AR-1`);
 
-		const [row] = listSupersededSubjects(db);
+		const [row] = await listSupersededSubjects(db);
 		expect(row.successors.map((s) => [s.curie, s.depth])).toEqual([
 			[`${NEW_RELEASE}:PT-1`, 1],
 			[`${NEW_RELEASE}:PT-2`, 1],
@@ -184,7 +184,7 @@ describe('release lineage travels the ordinary crosswalk path', () => {
 	// The mirror case: two old controls folded into one. Each dangling subject
 	// is its own row, both naming the same replacement, because each carries its
 	// own attestations and its own re-review decision.
-	it('many-to-one: a merge reports each old control separately', () => {
+	it('many-to-one: a merge reports each old control separately', async () => {
 		addConcept(db, `${NEW_RELEASE}:AC-2`, 'AC-2');
 		addLineageEdge(db, `${OLD}:AC-2`, `${NEW_RELEASE}:AC-2`);
 		addLineageEdge(db, `${OLD}:AC-2(1)`, `${NEW_RELEASE}:AC-2`);
@@ -192,7 +192,7 @@ describe('release lineage travels the ordinary crosswalk path', () => {
 		addAttestation(db, 'Evidence/j2.md', `${OLD}:AC-2(1)`);
 		addAttestation(db, 'Evidence/j3.md', `${OLD}:AC-2(1)`);
 
-		const rows = listSupersededSubjects(db);
+		const rows = await listSupersededSubjects(db);
 		expect(rows.map((r) => [r.subject_curie, r.attestation_count])).toEqual([
 			[`${OLD}:AC-2`, 1],
 			[`${OLD}:AC-2(1)`, 2],
@@ -206,22 +206,22 @@ describe('release lineage travels the ordinary crosswalk path', () => {
 	// The honesty case. No lineage edge means nobody asserted a replacement, and
 	// the answer is "nobody knows", never a name Crosswalker guessed from a
 	// similar-looking identifier.
-	it('an orphan with no successor edge reports honestly and invents nothing', () => {
+	it('an orphan with no successor edge reports honestly and invents nothing', async () => {
 		addConcept(db, `${NEW_RELEASE}:AC-2`, 'AC-2');
 		addAttestation(db, 'Evidence/j1.md', `${OLD}:AC-2`);
 
-		expect(reasonFor(db, 'Evidence/j1.md')).toBe('subject-not-a-known-concept');
-		expect(listSupersededSubjects(db)).toEqual([]);
+		expect(await reasonFor(db, 'Evidence/j1.md')).toBe('subject-not-a-known-concept');
+		expect(await listSupersededSubjects(db)).toEqual([]);
 	});
 
 	// --- walk semantics ----------------------------------------------------
 
-	it('follows a multi-release chain and labels its depth', () => {
+	it('follows a multi-release chain and labels its depth', async () => {
 		addConcept(db, 'nist-r6:PT-1', 'PT-1', 'nist-r6');
 		addLineageEdge(db, `${OLD}:AC-2`, `${NEW_RELEASE}:AC-2`);
 		addLineageEdge(db, `${NEW_RELEASE}:AC-2`, 'nist-r6:PT-1');
 
-		expect(targets(closureFromConcept(db, `${OLD}:AC-2`, 'superseded_by', SUCCESSOR_WALK_MAX_DEPTH))).toEqual([
+		expect(targets(await closureFromConcept(db, `${OLD}:AC-2`, 'superseded_by', SUCCESSOR_WALK_MAX_DEPTH))).toEqual([
 			[`${NEW_RELEASE}:AC-2`, 1],
 			['nist-r6:PT-1', 2],
 		]);
@@ -231,14 +231,14 @@ describe('release lineage travels the ordinary crosswalk path', () => {
 	// each stored row's inverse under the inverse predicate. Filtering the walk
 	// on `superseded_by` therefore travels old -> new only. Pinned rather than
 	// commented, because a change to that CTE would silently reverse it.
-	it('walks forward only: querying from the newest end returns nothing', () => {
+	it('walks forward only: querying from the newest end returns nothing', async () => {
 		addLineageEdge(db, `${OLD}:AC-2`, `${NEW_RELEASE}:AC-2`);
 		addLineageEdge(db, `${NEW_RELEASE}:AC-2`, 'nist-r6:PT-1');
 
-		expect(closureFromConcept(db, 'nist-r6:PT-1', 'superseded_by', SUCCESSOR_WALK_MAX_DEPTH)).toEqual([]);
+		expect(await closureFromConcept(db, 'nist-r6:PT-1', 'superseded_by', SUCCESSOR_WALK_MAX_DEPTH)).toEqual([]);
 		// ...and the inverse spelling walks the other way, which is why it has to
 		// be a real enum member rather than an implied direction.
-		expect(targets(closureFromConcept(db, 'nist-r6:PT-1', 'supersedes', SUCCESSOR_WALK_MAX_DEPTH))).toEqual([
+		expect(targets(await closureFromConcept(db, 'nist-r6:PT-1', 'supersedes', SUCCESSOR_WALK_MAX_DEPTH))).toEqual([
 			[`${NEW_RELEASE}:AC-2`, 1],
 			[`${OLD}:AC-2`, 2],
 		]);
@@ -247,13 +247,13 @@ describe('release lineage travels the ordinary crosswalk path', () => {
 	// Lineage recorded from the newer end is the SAME assertion. The diagnosis
 	// has to agree with the walk, or a vault whose mapping set spells it
 	// `supersedes` would be told no successor exists while the walk found one.
-	it('recognises lineage stored under the inverse spelling', () => {
+	it('recognises lineage stored under the inverse spelling', async () => {
 		addConcept(db, `${NEW_RELEASE}:AC-2`, 'AC-2');
 		addLineageEdge(db, `${NEW_RELEASE}:AC-2`, `${OLD}:AC-2`, { predicate: 'supersedes' });
 		addAttestation(db, 'Evidence/j1.md', `${OLD}:AC-2`);
 
-		expect(reasonFor(db, 'Evidence/j1.md')).toBe('subject-superseded');
-		expect(listSupersededSubjects(db)[0].successors.map((s) => s.curie)).toEqual([
+		expect(await reasonFor(db, 'Evidence/j1.md')).toBe('subject-superseded');
+		expect((await listSupersededSubjects(db))[0].successors.map((s) => s.curie)).toEqual([
 			`${NEW_RELEASE}:AC-2`,
 		]);
 	});
@@ -261,22 +261,22 @@ describe('release lineage travels the ordinary crosswalk path', () => {
 	// An explicit denial is not a lead. `NOT superseded_by` states that the
 	// object does NOT replace the subject; walking it would manufacture a
 	// successor out of the exact assertion that there is none.
-	it('never walks an explicitly negated lineage edge', () => {
+	it('never walks an explicitly negated lineage edge', async () => {
 		addConcept(db, `${NEW_RELEASE}:PT-9`, 'PT-9');
 		addLineageEdge(db, `${OLD}:AC-2`, `${NEW_RELEASE}:PT-9`, { modifier: 'NOT' });
 		addAttestation(db, 'Evidence/j1.md', `${OLD}:AC-2`);
 
-		expect(reasonFor(db, 'Evidence/j1.md')).toBe('subject-not-a-known-concept');
-		expect(listSupersededSubjects(db)).toEqual([]);
-		expect(closureFromConcept(db, `${OLD}:AC-2`, 'superseded_by', SUCCESSOR_WALK_MAX_DEPTH)).toEqual([]);
+		expect(await reasonFor(db, 'Evidence/j1.md')).toBe('subject-not-a-known-concept');
+		expect(await listSupersededSubjects(db)).toEqual([]);
+		expect(await closureFromConcept(db, `${OLD}:AC-2`, 'superseded_by', SUCCESSOR_WALK_MAX_DEPTH)).toEqual([]);
 	});
 
-	it('names a successor that is asserted but not imported here', () => {
+	it('names a successor that is asserted but not imported here', async () => {
 		addConcept(db, `${NEW_RELEASE}:AC-2`, 'AC-2'); // an unrelated concept, so the ontology exists
 		addLineageEdge(db, `${OLD}:AR-1`, `${NEW_RELEASE}:PT-3`);
 		addAttestation(db, 'Evidence/j1.md', `${OLD}:AR-1`);
 
-		const [row] = listSupersededSubjects(db);
+		const [row] = await listSupersededSubjects(db);
 		expect(row.successors).toEqual([
 			{ curie: `${NEW_RELEASE}:PT-3`, depth: 1, title: null, vault_path: null },
 		]);
@@ -284,22 +284,22 @@ describe('release lineage travels the ordinary crosswalk path', () => {
 
 	// The count in the superseded table and the rows in the exclusions table are
 	// the same population by construction. This asserts the construction.
-	it('derives its rows from the exclusion diagnosis, not a parallel query', () => {
+	it('derives its rows from the exclusion diagnosis, not a parallel query', async () => {
 		addConcept(db, `${NEW_RELEASE}:AC-2`, 'AC-2');
 		addLineageEdge(db, `${OLD}:AC-2`, `${NEW_RELEASE}:AC-2`);
 		addAttestation(db, 'Evidence/j1.md', `${OLD}:AC-2`);
 		addAttestation(db, 'Evidence/j2.md', `${OLD}:AC-2`);
 
-		const excluded = diagnoseExcludedJunctions(db);
+		const excluded = await diagnoseExcludedJunctions(db);
 		const supersededRows = excluded.filter((r) => r.reason === 'subject-superseded');
-		const [group] = listSupersededSubjects(db, excluded);
+		const [group] = await listSupersededSubjects(db, excluded);
 		expect(group.attestation_count).toBe(supersededRows.length);
 	});
 
 	// A non-evidence predicate is diagnosed on the predicate, not on lineage:
 	// the ladder puts the more actionable problem first, and this pins that
 	// lineage did not jump the queue.
-	it('does not relabel a junction whose real problem is its predicate', () => {
+	it('does not relabel a junction whose real problem is its predicate', async () => {
 		addLineageEdge(db, `${OLD}:AC-2`, `${NEW_RELEASE}:AC-2`);
 		db.exec({
 			sql: `INSERT INTO junction_notes
@@ -309,8 +309,8 @@ describe('release lineage travels the ordinary crosswalk path', () => {
 			              'full', 'approved', NULL, NULL, 'h', '2026-08-28')`,
 			bind: { $sc: `${OLD}:AC-2` },
 		});
-		expect(reasonFor(db, 'Evidence/j1.md')).toBe('predicate-not-canonical');
-		expect(listSupersededSubjects(db)).toEqual([]);
+		expect(await reasonFor(db, 'Evidence/j1.md')).toBe('predicate-not-canonical');
+		expect(await listSupersededSubjects(db)).toEqual([]);
 	});
 });
 

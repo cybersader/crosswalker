@@ -105,35 +105,35 @@ describe('report path', () => {
 
 describe('ontology chooser', () => {
 	let db: TestDb;
-	beforeEach(() => { db = createTestDb(); applyMigrations(db as any); });
+	beforeEach(async () => { db = createTestDb(); await applyMigrations(db as any); });
 	afterEach(() => db.close());
 
-	it('counts concepts actually projected, not a stored total', () => {
+	it('counts concepts actually projected, not a stored total', async () => {
 		// ontologies.control_count is a stored number that can drift from the
 		// rows present. A chooser disagreeing with its own report erodes trust
 		// in both.
 		seedOntology(db, 'nist-800-53', ['nist:AC-1', 'nist:AC-2']);
 		db.exec("UPDATE ontologies SET control_count = 999 WHERE id = 'nist-800-53'");
-		expect(listOntologiesForReport(db)[0].conceptCount).toBe(2);
+		expect((await listOntologiesForReport(db))[0].conceptCount).toBe(2);
 	});
 
-	it('still lists an ontology whose concepts have not been projected yet', () => {
+	it('still lists an ontology whose concepts have not been projected yet', async () => {
 		// Otherwise a partially-projected vault silently offers no frameworks
 		// and the user concludes the import failed.
 		seedOntology(db, 'cis-v8', []);
-		expect(listOntologiesForReport(db).map((o) => o.id)).toEqual(['cis-v8']);
+		expect((await listOntologiesForReport(db)).map((o) => o.id)).toEqual(['cis-v8']);
 	});
 
-	it('lists every ontology in a stable order', () => {
+	it('lists every ontology in a stable order', async () => {
 		seedOntology(db, 'nist-800-53', ['nist:AC-1']);
 		seedOntology(db, 'cis-v8', ['cis:1.1']);
-		expect(listOntologiesForReport(db).map((o) => o.id)).toEqual(['cis-v8', 'nist-800-53']);
+		expect((await listOntologiesForReport(db)).map((o) => o.id)).toEqual(['cis-v8', 'nist-800-53']);
 	});
 });
 
 describe('writing the report', () => {
 	let db: TestDb;
-	beforeEach(() => { db = createTestDb(); applyMigrations(db as any); });
+	beforeEach(async () => { db = createTestDb(); await applyMigrations(db as any); });
 	afterEach(() => db.close());
 
 	function deps(app: ReturnType<typeof mockApp>) {
