@@ -2,6 +2,12 @@ import 'wdio-obsidian-service';
 import type { Options } from '@wdio/types';
 import path from 'path';
 import { killOrphanedTestProcesses } from './tests/e2e/helpers/process-hygiene';
+import * as jsonResultsReporterModule from './tests/e2e/helpers/json-results-reporter';
+
+// The helper compiles as CommonJS under the wdio TS loader, so its default
+// export can arrive wrapped once more; unwrap to the reporter class.
+const JsonResultsReporter = ((jsonResultsReporterModule as unknown as { default: { default?: unknown } }).default.default
+  ?? jsonResultsReporterModule.default) as typeof jsonResultsReporterModule.default;
 
 /**
  * WebdriverIO + wdio-obsidian-service config.
@@ -100,7 +106,14 @@ export const config: Options.Testrunner = {
   }],
 
   services: ['obsidian'],
-  reporters: ['obsidian'],
+  // CW_E2E_RESULTS_DIR (set by the nightly workflow) adds a JSON results file
+  // per spec for scripts/check-known-red.mjs; local runs are unchanged.
+  reporters: [
+    'obsidian',
+    ...(process.env.CW_E2E_RESULTS_DIR
+      ? [[JsonResultsReporter, { resultsDir: path.resolve(process.env.CW_E2E_RESULTS_DIR) }] as [typeof JsonResultsReporter, { resultsDir: string }]]
+      : []),
+  ],
 
   // Where wdio-obsidian-service caches downloaded Obsidian builds
   cacheDir: path.resolve('.obsidian-cache'),

@@ -296,26 +296,44 @@ Before committing, run the matching commands:
 
 | Files changed | Command |
 |---|---|
-| Any files | **all six Static Checks gates** (see below) |
+| Any files | **`bun run check`**: all ten Static Checks gates (see below) |
 | `src/**` | `bun run lint` + `bun run test` |
-| `docs/**` (any `.mdx`) | the six gates. A full `cd docs && bun run build` is the expensive confirmation, and CI runs it authoritatively on every push |
+| `docs/**` (any `.mdx`) | `bun run check`. A full `cd docs && bun run build` is the expensive confirmation, and CI runs it authoritatively on every push |
 | `tools/fixtures/synthetic/**` (CSV changes) | `bun run fixtures` |
 | `spec/**` | `bun run fixtures` (regenerate) + verify `bun run build` |
 
-**Run all six, not a subset.** The `Static Checks` CI workflow runs exactly these, and a partial local pass reads as a green light while CI still fails:
+**Run all ten, not a subset: `bun run check`.** It runs every `check:*` script in `package.json` in sequence (except `check:fixtures-drift`, which belongs with fixture changes) and prints one summary table (`scripts/check-all.mjs`). The `Static Checks` CI workflow runs exactly these, and a partial local pass reads as a green light while CI still fails:
 
 ```
-bun run check:personal-data   # no paths, usernames, emails, secrets, AI attribution
-bun run check:mdx             # MDX parses
-bun run check:frontmatter     # required frontmatter fields present and well-formed
-bun run check:not-content     # inline HTML/SVG diagrams carry class="not-content"
-bun run check:log-labels      # zz-log sidebar labels lead with "MM-DD · " from the filename
-bun run check:links           # every internal doc link resolves to a real page
+bun run check:personal-data       # no paths, usernames, emails, secrets, AI attribution
+bun run check:mdx                 # MDX parses
+bun run check:frontmatter         # required frontmatter fields present and well-formed
+bun run check:not-content         # inline HTML/SVG diagrams carry class="not-content"
+bun run check:log-labels          # zz-log sidebar labels lead with "MM-DD · " from the filename
+bun run check:links               # every internal doc link resolves to a real page and #anchor
+bun run check:freshness           # living-page markers: one, unscoped, at most 30 days old
+bun run check:unverified-claims   # "not observed"/"not verified"/... sentences carry (tracked: <link>)
+bun run check:roadmap-sync        # milestone status glyphs agree across the four roadmap sources
+bun run check:repo-paths          # repo paths named in docs and CHANGELOG exist in git
 ```
 
 They cost a few seconds combined. Running three of five is how a docs publish failed CI on 2026-08-21 for a sidebar label.
 
-`check:links` was added 2026-08-28 after a sweep found 68 files linking to challenge briefs that had been archived out from under them. Astro deploys broken internal links without complaint, so every one was a silent 404 and the site built green throughout. It knows about the routes `starlight-blog` and `starlight-tags` generate; if a route-generating plugin is added or re-prefixed in `docs/astro.config.mjs`, update `GENERATED_ROUTE_PREFIXES` in `scripts/check-links.mjs` in the same change.
+### Gates (knowledge-ops, 2026-10-03)
+
+Each gate exists because something slipped through a checklist. Mechanical rules live here as gates; the judgment rules above stay a checklist.
+
+| What slipped | Gate | Rule it enforces |
+|---|---|---|
+| A living page carried a fresh `Status last verified` marker that only covered one row | `check:freshness` | A marker is a whole-page claim: one per page, canonical `**Status last verified:** YYYY-MM-DD`, no scope words (only, row, cell, scoped, paragraph, an "Earlier" chain), at most 30 days old. Scoped re-checks go in a note below the marker. Warns when most of a page's dates are older than 90 days |
+| "Persistence was not observed" sat in the CHANGELOG for five months with no owner | `check:unverified-claims` | In `CHANGELOG.md` `[Unreleased]` and on living pages, a sentence saying not observed, not verified, not yet verified, unverified, not tested or could not test carries `(tracked: #anchor)` or `(tracked: /crosswalker/...)` that resolves, usually to `CHANGELOG.md` § Follow-ups |
+| The roadmap index described May while the milestone pages said October | `check:roadmap-sync` | Milestone status glyphs agree across the milestone pages, the milestone hub, the roadmap index and `ROADMAP.md`; a Done milestone is not listed under "Active" |
+| A log said the repo gains a file that is gitignored; renamed files left stale references | `check:repo-paths` | Backtick repo paths in docs and CHANGELOG exist in `git ls-files`. Opt out with `(local, gitignored)` or `(planned)` right after the token |
+| Heading renames broke anchors the link gate could not see | `check:links` | `#fragment` links match a heading slug or an `id` on the target page |
+| Spec reds on `main` nobody saw, because CI ran only the smoke spec | nightly `e2e-nightly.yml` + `tests/e2e/KNOWN_RED.md` | Every red case is listed with since-date, reason and tracked link; an unlisted red, a listed `red` case that passes, or an entry older than 30 days fails the run (`scripts/check-known-red.mjs`) |
+| The search index never persisted on any host | `tier2-vfs-probe.spec.ts` in the CI smoke job | The stored-index mode is asserted on every plugin change |
+
+`check:links` was added 2026-08-28 (anchors 2026-10-03) after a sweep found 68 files linking to challenge briefs that had been archived out from under them. Astro deploys broken internal links without complaint, so every one was a silent 404 and the site built green throughout. It knows about the routes `starlight-blog` and `starlight-tags` generate; if a route-generating plugin is added or re-prefixed in `docs/astro.config.mjs`, update `GENERATED_ROUTE_PREFIXES` in `scripts/lib/doc-pages.mjs` in the same change.
 
 ### Why this lives here (the design rule)
 

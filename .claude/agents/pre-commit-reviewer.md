@@ -18,12 +18,13 @@ You are invoked via the Agent tool with the user's intent: "review my staged cha
 1. Run `git status --short` to see staged + unstaged files
 2. Run `git diff --cached` to see staged content
 3. Run `git log -3 --oneline` for recent context
-4. Apply the **16-check audit** below
-5. Produce a report (see "Output shape" below)
+4. Run `bun run check` once and include its summary table in the report. It runs every mechanical gate (personal data, MDX, frontmatter, not-content, log labels, links and anchors, living-page freshness, unverified claims, roadmap sync, repo paths). Do not re-implement those gates by hand; a red gate is a ❌ Blocking item quoted from its output
+5. Apply the **16-check audit** below, which covers the judgment the gates cannot make
+6. Produce a report (see "Output shape" below)
 
 You finish in 2-5 minutes. If the diff is huge (>1000 lines), you can ask for narrowed scope.
 
-**Checks 1–11** are diff-triggered (something in the staged set implies something else is missing). **Checks 12–16** are *staleness* checks — they fire on content that is NOT in the diff but is adjacent to it, because the 2026-07-27 KB audit showed the expensive failures were all pages nobody touched. Run 12–16 against the living pages listed in [`.claude/CLAUDE.md` § Documentation update reminders — freshness discipline](https://github.com/cybersader/crosswalker/blob/main/.claude/CLAUDE.md#documentation-update-reminders--freshness-discipline). None of 12–16 block.
+**Checks 1–11** are diff-triggered (something in the staged set implies something else is missing). **Checks 12–16** are *staleness* checks — they fire on content that is NOT in the diff but is adjacent to it, because the 2026-07-27 KB audit showed the expensive failures were all pages nobody touched. Run 12–16 against the living pages listed in [`.claude/CLAUDE.md` § Documentation update reminders — freshness discipline](https://github.com/cybersader/crosswalker/blob/main/.claude/CLAUDE.md#documentation-update-reminders--freshness-discipline). None of 12–16 block; the mechanical half of 12 is the `check:freshness` gate, which does.
 
 ## The 16-check audit
 
@@ -249,39 +250,26 @@ git diff --cached --name-only | grep -E '^\.claude/skills/[^/]+/SKILL\.md$'
 git diff --cached --name-only | grep -q '^\.claude/CLAUDE\.md$' || echo "claude.md not staged"
 ```
 
-### 12. Stale `Status last verified` on adjacent living pages
+### 12. Adjacent living page describes what this commit changes
 
-**Pattern**: the diff touches `src/`, `spec/`, or a UI flow, AND a **living page** in that area carries a `Status last verified: YYYY-MM-DD` older than **30 days** — or carries no marker at all.
+**Mechanical part moved to a gate (2026-10-03).** `check:freshness` (in `bun run check` and CI) now fails a marker older than 30 days, a malformed or scoped marker, and a second marker on one page. This check keeps only the judgment the gate cannot make.
+
+**Pattern**: the diff changes `src/`, `spec/`, or a UI flow, AND a **living page** describes that behavior. A fresh marker does not help: the page was verified against the code *before* this change.
 
 Adjacency map (diff path → living pages that describe it):
 
 | Diff touches | Living pages to check |
 |---|---|
-| `src/import/**`, `src/ui/**`, wizard/workbench code | `getting-started/quick-start.mdx`, `getting-started/*.mdx` |
+| `src/import/**`, `src/ui/**`, wizard/workbench code | `getting-started/quick-start.mdx`, `getting-started/*.mdx`, `features/import-wizard.mdx` |
 | `spec/*.schema.json` | `agent-context/v0-1-schema-spec.mdx` |
 | `src/render/**`, `src/generation/**`, `src/tier2/**` | `concepts/system-model.mdx`, `concepts/system-architecture.mdx` |
+| `src/settings/**` | `reference/settings.mdx` |
 | any `src/**` closing a milestone phase | `reference/roadmap/milestones/index.mdx` + the matching `v0-1-N-*.mdx` |
 | new/renamed vocabulary in code | `concepts/terminology.mdx` |
 
-**Action**: ⚠ "`<page>` is a living page with `Status last verified: <date>` (<N> days old) and this commit changes what it describes — re-verify against `<source of truth>` and bump the marker, or note the deferral in the commit body." If the marker is **missing entirely**: ⚠ "`<page>` is a living page with no `Status last verified` marker — add one per the freshness-discipline table."
+**Action**: ⚠ "`<page>` describes what this commit changes — re-verify the affected section against `<source of truth>`, then either bump the marker (whole-page re-check) or add a dated re-check note below it (one section), or note the deferral in the commit body." Also ⚠ when a marker was bumped in the diff but the body of the page did not change and the commit body names no re-verification: a bump without a check is worse than a stale date.
 
-**Why**: The 2026-07-27 audit found a quick-start documenting a UI flow that had been removed, and a schema-spec page promising fields the machine schema never shipped. Both pages were correct when written; nothing in the workflow ever forced a re-check. Path-keyed reminders only fire when an agent *edits* the page — this check fires when it doesn't.
-
-**How to detect**:
-```bash
-today=$(date +%s)
-git diff --cached --name-only | grep -qE '^(src|spec)/' && \
-for p in docs/src/content/docs/getting-started/*.mdx \
-         docs/src/content/docs/agent-context/v0-1-schema-spec.mdx \
-         docs/src/content/docs/concepts/{terminology,system-model,system-architecture}.mdx \
-         docs/src/content/docs/reference/roadmap/milestones/index.mdx; do
-  [ -f "$p" ] || continue
-  d=$(grep -oE 'Status last verified:?\*{0,2} *[0-9]{4}-[0-9]{2}-[0-9]{2}' "$p" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
-  if [ -z "$d" ]; then echo "12 WARN: $p has NO 'Status last verified' marker"; continue; fi
-  age=$(( (today - $(date -d "$d" +%s)) / 86400 ))
-  [ "$age" -gt 30 ] && echo "12 WARN: $p last verified $d ($age days ago)"
-done
-```
+**Why**: The 2026-07-27 audit found a quick-start documenting a removed UI flow and a schema-spec page promising fields the machine schema never shipped. The 2026-10-03 roadmap carried a fresh marker over months-old prose. Age and shape are now gated; whether the words still match the code is still judgment.
 
 ### 13. Counts / enums drifted from their cited source
 
