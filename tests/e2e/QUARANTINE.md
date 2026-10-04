@@ -6,13 +6,18 @@ Quarantined means **unverified or failing**, never passing. These specs are excl
 
 **Release rule:** any row marked **Yes** must be removed from quarantine before release. Rows marked **No** still count as quarantined and must be reported separately from passing tests.
 
-| Spec | Verdict | Evidence | Date added | Exact removal condition | Blocks release | Review by |
-|---|---|---|---|---|:---:|---|
-| `visual-cri-recipe.spec.ts` | Unclear: changed, never re-run since 2026-08-27 | A new managed-region assertion was added and never executed ([not verified](../../.workspace/2026-08-27-managed-regions-verification.md#not-verified-and-why)). | 2026-08-27 | Observe every declaration, including `missingRegion`, pass in real Obsidian and inspect fresh, distinct captures without recording restricted source text in public artifacts. | No | 2026-09-10 |
-| `visual-graph.spec.ts` | Unclear: failed in the 2026-08-27 clean-seed full run and has not been isolated since | The later full default run names it among the six failing spec files, but no declaration-level diagnosis was recorded ([full-run evidence](../../.workspace/2026-08-27-ch46-verification.md#no-regression-in-recipes-that-declare-neither-where-nor-joins)). | 2026-08-27 | Run it singly on the clean seed, classify and repair the failure, then observe every declaration pass with fresh graph captures. | No | 2026-09-10 |
-| `visual-layout-widths.spec.ts` | Unclear: failed in the 2026-08-27 clean-seed full run and has not been isolated since | The later full default run names it among the six failing spec files, but no declaration-level diagnosis was recorded ([full-run evidence](../../.workspace/2026-08-27-ch46-verification.md#no-regression-in-recipes-that-declare-neither-where-nor-joins)). | 2026-08-27 | Run it singly on the clean seed and observe all viewport, overflow, focus, and capture declarations pass at every declared width. | No | 2026-09-10 |
-| `visual-settings.spec.ts` | Unclear | Triage row 46 could not distinguish an Obsidian settings API/harness change from a plugin registration defect; the attempted focused run never reached a declaration ([triage row 46 and D1](../../.workspace/2026-08-24-e2e-triage.md#6-unclear-declarations-and-exact-evidence-needed)). It still failed in the 2026-08-27 clean-seed full run ([full-run evidence](../../.workspace/2026-08-27-ch46-verification.md#no-regression-in-recipes-that-declare-neither-where-nor-joins)). | 2026-08-24 | Run it singly, prove the Crosswalker settings tab is active rather than a generic settings shell, then observe every navigation and capture declaration pass. | No | 2026-09-10 |
-| `visual-wizard-formats.spec.ts` | Test rot | Triage rows 47–49 identify stale first-`.modal` selection after modal lifecycle changes; the clean-seed full run still failed ([triage rows 47–49](../../.workspace/2026-08-24-e2e-triage.md#1-summary-table), [full-run evidence](../../.workspace/2026-08-27-ch46-verification.md#no-regression-in-recipes-that-declare-neither-where-nor-joins)). | 2026-08-24 | Scope every action to the visible `.crosswalker-wizard-modal`, reset modal/draft state per declaration, and observe every XLSX/JSON declaration pass singly on the clean seed. | No | 2026-09-10 |
+| Spec | Verdict | Evidence | Date added | Last re-checked | Exact removal condition | Blocks release | Review by |
+|---|---|---|---|---|---|:---:|---|
+
+## Released from quarantine (2026-10-03)
+
+- `visual-settings.spec.ts`: released 2026-10-03. The spec's hardcoded card count and title list predated the Import recipes card (shipped 2026-10-02); updated to twelve cards and run singly: 1 passing, screenshots show the settings tab active with the full card grid.
+Each spec below was re-run singly via `bun run e2e:xvfb` against the current plugin build (not against stale screenshots or memory), and its fresh screenshots were read and judged against the original quarantine reason.
+
+- `visual-cri-recipe.spec.ts`: 4/4 passed. Fresh captures show note bodies rendering correctly (not bodyless), resolving the unexecuted `missingRegion`/managed-region concern. No spec change was needed.
+- `visual-graph.spec.ts`: 1/1 passed. Fresh captures show a legible, connected graph with correctly linked hub and facet notes. No spec change was needed.
+- `visual-layout-widths.spec.ts`: 1/1 passed across all 11 declared widths. Fresh captures show a consistent left/right content clip at every width; this is the forced-container-width-without-resizing-the-fixed-size-harness-window artifact the spec's own methodology documents, not a new regression. No spec change was needed.
+- `visual-wizard-formats.spec.ts`: 6/6 passed. Fresh captures across the JSON record picker, XLSX and JSON Step 2 column configuration, both full generate loops, and the unknown-filter-field error path all show correct behavior, including an actionable error naming the unknown field and listing available columns. The original "stale first-`.modal` selection" concern no longer reproduces. No spec change was needed.
 
 ## Verified green and therefore not quarantined
 
