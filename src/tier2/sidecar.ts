@@ -197,13 +197,20 @@ function fnv1a32(text: string): string {
  * a `crosswalker` root, never the VFS default. Every vault window shares the
  * app's origin, so a shared directory would let two vaults contend for the same
  * file handles and read each other's index.
+ *
+ * Keyed on `app.appId` alone when the host provides one. Desktop Obsidian sets it
+ * to the vault's stable id (it keys its own per-vault localStorage on it), and the
+ * browser host sets one per member and workspace. The vault name is not part of
+ * the key: it changes on a rename, and a moved key strands the persisted index.
+ * The name is only the fallback for a host with no appId.
  */
 export function poolDirectoryFor(app: App): string {
 	const anyApp = app as unknown as { appId?: unknown; vault?: { getName?: () => string } };
+	const appId = typeof anyApp.appId === 'string' ? anyApp.appId : '';
+	if (appId) return `crosswalker/vault-${fnv1a32(appId)}`;
 	let vaultName = '';
 	try { vaultName = anyApp.vault?.getName?.() ?? ''; } catch { vaultName = ''; }
-	const appId = typeof anyApp.appId === 'string' ? anyApp.appId : '';
-	return `crosswalker/vault-${fnv1a32(`${appId}|${vaultName}`)}`;
+	return `crosswalker/vault-${fnv1a32(`|${vaultName}`)}`;
 }
 
 /**
