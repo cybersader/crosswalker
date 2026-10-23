@@ -2574,9 +2574,19 @@ export class ImportFlow {
 		// second spelling that used to be here is what let this guard miss.
 		const root = this.currentOutputPath();
 		if (!root) return null;
-		const prefix = `${root}/`;
-		const occupant = sets.find((set) => set.paths.some((path) => path.startsWith(prefix)));
+		// Compare case-folded: Windows and macOS file systems treat `NIST-mini` and
+		// `nist-mini` as one folder, so a case-only difference is the same collision.
+		const prefix = `${root}/`.toLowerCase();
+		let occupiedAs: string | null = null;
+		const occupant = sets.find((set) => set.paths.some((path) => {
+			if (!path.toLowerCase().startsWith(prefix)) return false;
+			occupiedAs = path.slice(0, root.length);
+			return true;
+		}));
 		if (!occupant) return null;
+		if (occupiedAs !== null && occupiedAs !== root) {
+			return `${root} is the same folder as ${occupiedAs} on Windows and macOS, and ${occupiedAs} already holds notes from the import set ${this.setDisplayName(occupant)}. Choose another folder for this import, or refresh that set instead.`;
+		}
 		return `${root} already holds notes from the import set ${this.setDisplayName(occupant)}. Choose another folder for this import, or refresh that set instead.`;
 	}
 
