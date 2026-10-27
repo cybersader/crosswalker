@@ -1,5 +1,5 @@
 import { plural } from './utils/plural';
-import { Plugin, Notice, TFile, TFolder, MarkdownView, Platform, apiVersion, normalizePath, type WorkspaceLeaf } from 'obsidian';
+import { Plugin, Notice, Modal, ButtonComponent, TFile, TFolder, MarkdownView, Platform, apiVersion, normalizePath, type WorkspaceLeaf } from 'obsidian';
 import { CrosswalkerSettings, DEFAULT_SETTINGS } from './settings/settings-data';
 import { outputRootPath, outputRootFile, evidenceJunctionFolder, evidenceReportFolder, tier2SidecarPath } from './settings/folder-settings';
 import {
@@ -580,7 +580,6 @@ export default class CrosswalkerPlugin extends Plugin {
 					const { newSetSchemeFor } = await import('./generation/import-set');
 
 					// Pick a fixture via a small AskUserQuestion-style modal
-					const { Modal, ButtonComponent } = await import('obsidian');
 					const picked = await new Promise<string | null>((resolve) => {
 						const modal = new Modal(this.app);
 						modal.contentEl.createEl('h2', { text: 'Import a bundled test fixture' });
@@ -689,7 +688,6 @@ export default class CrosswalkerPlugin extends Plugin {
 			name: 'Developer tools: delete a test import',
 			callback: async () => {
 				const { scanGeneratedImports, deleteImportedNotes } = await import('./views/reset-imports');
-				const { Modal, ButtonComponent, Notice } = await import('obsidian');
 				const groups = await scanGeneratedImports(this.app);
 				const deletable = groups.filter((g) => !g.protected);
 				const totalDeletable = deletable.reduce((n, g) => n + g.count, 0);

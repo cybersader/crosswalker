@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: two developer commands did nothing when run (2026-10-27)
+
+- **What was wrong.** "Developer tools: import bundled test data" and "Developer tools: delete a test import" loaded their dialog classes with a dynamic `import('obsidian')`. The bundle kept that as a native `import()`, which cannot resolve the `obsidian` module, so both commands threw "Failed to resolve module specifier 'obsidian'" and showed nothing. Found by driving the bundled-fixture command in OpenClast's local browser harness.
+- **Fix.** Both commands use the static `obsidian` import. A new unit test (`tests/no-dynamic-obsidian-import.test.ts`) fails if any source file imports `obsidian` dynamically again.
+- **Verified.** The same harness run now imports the ISO 27001 to SOC 2 fixture (10 junction notes, 10 mappings projected, no page errors) and renders the coverage matrix pivot view.
+
 ### Fixed: the reporting database notice names the note it skipped (2026-10-27)
 
 - **What was wrong.** When the startup refresh of the reporting database skipped a malformed note, the notice read "finished with 1 note errors" and told the user to file a bug report. It did not say which note, though the usual cause is that note's own properties. Found by running the plugin in OpenClast's local browser harness against a synthetic vault with a deliberately incomplete junction note.
