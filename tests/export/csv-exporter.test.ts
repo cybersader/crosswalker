@@ -106,6 +106,18 @@ describe('exportFolderAsCsv — vault-scoped entry point', () => {
 		expect(parsed.data.map((r) => r.curie).sort()).toEqual(['nist:AC-2', 'nist:AC-3']);
 	});
 
+	it('counts mapping notes so a folder of mappings can name the right export', async () => {
+		const { app, written } = makeMockApp();
+		written.set(
+			'_crosswalker/mappings/cw-1.md',
+			buildNoteContent({ curie: 'xwalk:1', kind: 'crosswalk-edge', subject_id: 'nist:AC-2', predicate_id: 'is_equivalent_to', object_id: 'iso:A.1' }, ''),
+		);
+
+		const result = await exportFolderAsCsv(app, '_crosswalker/mappings');
+		expect(result.rowCount).toBe(0);
+		expect(result.mappingCount).toBe(1);
+	});
+
 	it('surfaces skipped notes from vault-reader without failing the export', async () => {
 		const { app, written } = makeMockApp();
 		written.set('Frameworks/no-frontmatter.md', '# no frontmatter here\n');
