@@ -15,6 +15,8 @@ export interface MinimalVaultNode {
 	children?: MinimalVaultNode[];
 	/** `_crosswalker.producer.kind`, when this is a Markdown note. */
 	producerKind?: string;
+	/** Top-level `kind`, which marks relationship notes (junction, edge, mapping set). */
+	noteKind?: string;
 	/** Canonical ontology identity derived from the note's CURIE prefix. */
 	ontologyId?: string;
 	/** `_crosswalker.recipe.id`, used only to choose the best display label/action. */
@@ -34,20 +36,26 @@ export interface InstalledOntologySummary {
 	recipeId?: string;
 }
 
-/** Plugin output, as distinct from curated or external fixture generation. */
-const PLUGIN_PRODUCER_KIND = 'plugin-engine';
+/**
+ * Tier 1 notes that describe a relationship or a mapping set, not a concept
+ * of a framework. They carry a CURIE too, so they are excluded by kind.
+ */
+const RELATIONSHIP_NOTE_KINDS = new Set(['junction-note', 'crosswalk-edge', 'mapping-set']);
 
 type RecipeIdentity = { id: string; label: string; ontology: string };
 
 /**
  * Derive installed frameworks from note identity, never from folder shape.
  *
- * Every plugin-generated Markdown note contributes to the group named by its
- * ontology id (the prefix before `:` in `curie`, populated by the adapter).
+ * Every concept note stamped with a Crosswalker producer contributes to the
+ * group named by its ontology id (the prefix before `:` in `curie`, populated
+ * by the adapter). Any producer counts, not only the plugin: a valid Tier 1
+ * producer is first-class (commitment 1), and the import wizard's set
+ * discovery already counts every stamped set, so the two surfaces agree.
  * Therefore a flat import whose notes live directly under the output root and
  * a hierarchical import spread across nested folders produce the same summary.
- * Hand-authored notes, external fixtures, and notes without a usable identity
- * do not register. Underscore-prefixed subtrees remain excluded because they
+ * Unstamped hand-authored notes, relationship notes, and notes without a
+ * usable identity do not register. Underscore-prefixed subtrees remain excluded because they
  * are Crosswalker/internal or protected-corpus storage, not user imports.
  */
 export function deriveInstalledOntologies(
@@ -71,7 +79,8 @@ export function deriveInstalledOntologies(
 			return;
 		}
 		if (!node.name.toLowerCase().endsWith('.md')) return;
-		if (node.producerKind !== PLUGIN_PRODUCER_KIND) return;
+		if (!node.producerKind?.trim()) return;
+		if (node.noteKind && RELATIONSHIP_NOTE_KINDS.has(node.noteKind)) return;
 		const id = node.ontologyId?.trim();
 		if (!id) return;
 

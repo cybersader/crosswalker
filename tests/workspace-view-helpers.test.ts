@@ -91,16 +91,35 @@ describe('deriveInstalledOntologies', () => {
 		expect(deriveInstalledOntologies(root, registry)).toEqual([]);
 	});
 
-	it('omits external fixtures even when they carry Crosswalker identity metadata', () => {
+	it('counts notes from any Crosswalker producer, not only the plugin', () => {
 		const root: MinimalVaultNode = {
 			path: 'Ontologies',
 			name: 'Ontologies',
-			children: [{
-				path: 'Ontologies/NIST-mini.md',
-				name: 'NIST-mini.md',
-				producerKind: 'external-cli',
-				ontologyId: 'nist-800-53',
-			}],
+			children: [
+				generated('Ontologies/NIST-mini/AC-1.md', 'nist-800-53', { producerKind: 'external-cli' }),
+				generated('Ontologies/NIST-mini/AC-2.md', 'nist-800-53', { producerKind: 'agent' }),
+				generated('Ontologies/MITRE/T1001.md', 'mitre-attack'),
+			],
+		};
+		const ids = deriveInstalledOntologies(root, registry).map((s) => s.id).sort();
+		expect(ids).toEqual(['mitre-attack', 'nist-800-53']);
+	});
+
+	it('omits junction, crosswalk edge, and mapping set notes even though they carry a CURIE', () => {
+		const root: MinimalVaultNode = {
+			path: 'Ontologies',
+			name: 'Ontologies',
+			children: ['junction-note', 'crosswalk-edge', 'mapping-set'].map((noteKind) =>
+				generated(`Ontologies/Edges/${noteKind}.md`, 'nist-800-53', { noteKind })),
+		};
+		expect(deriveInstalledOntologies(root, registry)).toEqual([]);
+	});
+
+	it('omits notes with a CURIE but no producer stamp', () => {
+		const root: MinimalVaultNode = {
+			path: 'Ontologies',
+			name: 'Ontologies',
+			children: [generated('Ontologies/hand.md', 'nist-800-53', { producerKind: '  ' })],
 		};
 		expect(deriveInstalledOntologies(root, registry)).toEqual([]);
 	});
