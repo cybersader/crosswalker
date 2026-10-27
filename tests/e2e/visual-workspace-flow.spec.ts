@@ -525,7 +525,7 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 		expect(provenance.hasImportSet).toBe(true);
 		expect(provenance.hasProducer).toBe(true);
 
-		// -- Stage H: dark theme capture of the home screen (both-theme check).
+		// -- Stage H: dark and light captures of the home screen (both-theme check).
 		const prevTheme = await browser.executeObsidian(() => {
 			const b = document.body;
 			const wasDark = b.classList.contains('theme-dark');
@@ -535,9 +535,16 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 		});
 		await browser.pause(300);
 		await browser.saveScreenshot(path.join(OUT, 'view-08-dark.png'));
+		await browser.executeObsidian(() => {
+			document.body.classList.remove('theme-dark');
+			document.body.classList.add('theme-light');
+		});
+		await browser.pause(300);
+		await browser.saveScreenshot(path.join(OUT, 'view-08-light.png'));
 		await browser.executeObsidian((_a, wasDark: unknown) => {
 			const b = document.body;
-			if (wasDark === 'light') { b.classList.remove('theme-dark'); b.classList.add('theme-light'); }
+			b.classList.toggle('theme-dark', wasDark === 'dark');
+			b.classList.toggle('theme-light', wasDark !== 'dark');
 		}, prevTheme);
 		await browser.pause(200);
 

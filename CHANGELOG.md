@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: the status bar and workspace count frameworks from any import tool (2026-10-27)
+
+- **What was wrong.** The status bar and the workspace's installed list counted only frameworks the plugin itself generated. A framework written by another tool in the same note format (an external script, an agent) showed "no frameworks yet", while the import wizard listed it as an existing import. Found by driving the wizard in browser-hosted Obsidian (OpenClast) against a vault seeded by the fixture tool.
+- **What changed.** Any note stamped with a Crosswalker producer and a concept identity counts, matching the rule that any tool emitting valid notes is a first-class producer. Junction, crosswalk edge and mapping set notes still do not count as frameworks, and underscore-prefixed folders stay excluded. The count is still of frameworks, not imports: two imports of one framework show as 1.
+- Tests: `tests/workspace-view-helpers.test.ts` (3 new cases). `tests/e2e/visual-workspace-flow.spec.ts` now also captures the home screen in light theme; both themes checked.
+
 ### Fixed: a new import is stopped when its folder differs from an occupied one only by letter case (2026-10-23)
 
 - **What was wrong.** The import wizard refuses to put a new set into a folder that already holds another set's notes. That check compared folder names exactly, so `Frameworks/nist-mini` counted as free next to an existing set in `Frameworks/NIST-mini`. Windows and macOS treat those as one folder, so a new set could land inside another set's folder there. Found by driving the real wizard in browser-hosted Obsidian (OpenClast): importing `nist-mini.csv` into a vault that already had `Frameworks/NIST-mini` went ahead without a warning.

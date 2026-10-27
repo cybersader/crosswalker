@@ -33,6 +33,7 @@ export const VIEW_TYPE_CROSSWALKER_WORKSPACE = 'crosswalker-workspace';
 
 interface NoteIdentityFacts {
 	producerKind?: string;
+	noteKind?: string;
 	ontologyId?: string;
 	recipeId?: string;
 }
@@ -47,6 +48,7 @@ function identityFactsFromFrontmatter(frontmatter: unknown): NoteIdentityFacts {
 	if (!frontmatter || typeof frontmatter !== 'object') return {};
 	const fm = frontmatter as {
 		curie?: unknown;
+		kind?: unknown;
 		_crosswalker?: {
 			producer?: { kind?: unknown };
 			source_ref?: { curie?: unknown };
@@ -57,6 +59,7 @@ function identityFactsFromFrontmatter(frontmatter: unknown): NoteIdentityFacts {
 	const recipeId = fm._crosswalker?.recipe?.id;
 	return {
 		...(typeof producerKind === 'string' ? { producerKind } : {}),
+		...(typeof fm.kind === 'string' ? { noteKind: fm.kind } : {}),
 		...(curiePrefix(fm.curie) || curiePrefix(fm._crosswalker?.source_ref?.curie)
 			? { ontologyId: curiePrefix(fm.curie) ?? curiePrefix(fm._crosswalker?.source_ref?.curie) }
 			: {}),
@@ -67,8 +70,8 @@ function identityFactsFromFrontmatter(frontmatter: unknown): NoteIdentityFacts {
 /**
  * Identity facts for one note, preferring Obsidian's metadata cache and falling
  * back to a direct frontmatter read while the cache catches up after generation.
- * Path never participates: provenance establishes that Crosswalker produced the
- * note, and the CURIE prefix establishes which framework owns it.
+ * Path never participates: provenance establishes that a Crosswalker producer made
+ * the note, and the CURIE prefix establishes which framework owns it.
  */
 async function noteIdentityFactsOf(file: TFile, app: App): Promise<NoteIdentityFacts> {
 	const cached = identityFactsFromFrontmatter(app.metadataCache.getFileCache(file)?.frontmatter);
