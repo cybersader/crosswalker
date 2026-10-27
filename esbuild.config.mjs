@@ -91,6 +91,15 @@ const context = await esbuild.context({
 
 if (prod) {
 	await context.rebuild();
+	// The release bundle stays at the repo root (release and e2e workflows read
+	// it there); mirror it into the test vault so `bun run build` never leaves a
+	// stale plugin behind for manual testing or a workspace push.
+	const testVaultPlugin = "test-vault/.obsidian/plugins/crosswalker/";
+	mkdirSync(testVaultPlugin, { recursive: true });
+	for (const asset of ["main.js", "manifest.json", "styles.css"]) {
+		copyFileSync(asset, testVaultPlugin + asset);
+	}
+	console.log(`[crosswalker] copied release bundle to ${testVaultPlugin}`);
 	process.exit(0);
 } else {
 	copyFileSync("manifest.json", outdir + "manifest.json");

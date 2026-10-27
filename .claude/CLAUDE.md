@@ -264,7 +264,7 @@ See `docs/src/content/docs/development/setup.mdx` for the full `bun run` referen
 | `bun run serve` | Interactive menu — docs dev, plugin watch, parallel both, tunnel sharing, tests |
 | `bun run dev` | Plugin watch build → `test-vault/.obsidian/plugins/crosswalker/` |
 | `bun run fixtures` | Regenerate Tier 1 markdown test fixtures |
-| `bun run build` | Plugin production build (type-check + bundle) |
+| `bun run build` | Plugin production build (type-check + bundle) to the repo root, also copied into `test-vault/.obsidian/plugins/crosswalker/` |
 | `bun run lint` | ESLint (community-plugin rules — required for submission) |
 | `cd docs && bun run build` | Docs site build (must pass before deploy) |
 
