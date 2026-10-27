@@ -4080,7 +4080,9 @@ export class ImportFlow {
 			const estimate = estimateOutput(this.parsedData, config);
 
 			container.createEl('div', { cls: 'crosswalker-generate-summary' }, (div) => {
-				div.createEl('p', { text: 'Will create:' });
+				// A refresh only creates notes for rows the set does not own yet, so
+				// these source totals are not a creation count there.
+				div.createEl('p', { text: refreshSet ? 'This source holds:' : 'Will create:' });
 				div.createEl('ul', {}, (ul) => {
 					ul.createEl('li', { text: `~${plural(estimate.folderCount, 'folder')}` });
 					ul.createEl('li', { text: `~${plural(estimate.noteCount, 'note')}` });

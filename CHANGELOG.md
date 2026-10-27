@@ -14,6 +14,11 @@ The 0.1 design phase concluded 2026-05-04 and implementation began the same day.
 - **Fix.** Both commands use the static `obsidian` import. A new unit test (`tests/no-dynamic-obsidian-import.test.ts`) fails if any source file imports `obsidian` dynamically again.
 - **Verified.** The same harness run now imports the ISO 27001 to SOC 2 fixture (10 junction notes, 10 mappings projected, no page errors) and renders the coverage matrix pivot view.
 
+### Fixed: the refresh preview no longer promises notes it will not create (2026-10-27)
+
+- **What was wrong.** On Step 4, refreshing an existing set still listed "Will create: ~3 folders, ~8 notes" although every one of those notes already existed; the run then created 0 and skipped 8. Found by importing the same synthetic CSV twice in OpenClast's local browser harness.
+- **Fix.** When a refresh target is chosen, the same totals are headed "This source holds:". A first import still reads "Will create:". Screenshot-checked in both themes through the harness.
+
 ### Fixed: the reporting database notice names the note it skipped (2026-10-27)
 
 - **What was wrong.** When the startup refresh of the reporting database skipped a malformed note, the notice read "finished with 1 note errors" and told the user to file a bug report. It did not say which note, though the usual cause is that note's own properties. Found by running the plugin in OpenClast's local browser harness against a synthetic vault with a deliberately incomplete junction note.
