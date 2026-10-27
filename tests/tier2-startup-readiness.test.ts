@@ -4,6 +4,7 @@ import { settleVaultIndex } from '../src/generation/import-set';
 import {
 	countTier2StartupPendingFiles,
 	projectionErrorDiagnostics,
+	projectionErrorNotice,
 	waitForTier2StartupReadiness,
 } from '../src/tier2/startup-readiness';
 
@@ -320,5 +321,29 @@ describe('projection error diagnostics', () => {
 			expect(sample.vault_path.length).toBeLessThanOrEqual(256);
 			expect(sample.message.length).toBeLessThanOrEqual(512);
 		}
+	});
+});
+
+describe('projectionErrorNotice', () => {
+	it('names the one skipped note in singular form', () => {
+		const text = projectionErrorNotice([{ vault_path: 'Frameworks/Demo/link-1.md' }]);
+		expect(text).toContain('skipped 1 note: Frameworks/Demo/link-1.md.');
+		expect(text).not.toContain('1 note errors');
+		expect(text).not.toContain('—');
+	});
+
+	it('counts several skipped notes and names the first', () => {
+		const text = projectionErrorNotice([
+			{ vault_path: 'Frameworks/Demo/a.md' },
+			{ vault_path: 'Frameworks/Demo/b.md' },
+		]);
+		expect(text).toContain('skipped 2 notes, starting with Frameworks/Demo/a.md.');
+		expect(text).not.toContain('b.md');
+	});
+
+	it('bounds a very long path', () => {
+		const text = projectionErrorNotice([{ vault_path: `${'x'.repeat(400)}.md` }]);
+		expect(text).toContain(`${'x'.repeat(256)}...`);
+		expect(text).not.toContain('x'.repeat(257));
 	});
 });

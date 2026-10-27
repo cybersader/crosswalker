@@ -165,3 +165,21 @@ export function projectionErrorDiagnostics(
 		errorSamplesTruncated: truncated,
 	};
 }
+
+/**
+ * Notice text for a startup projection that skipped notes. Names the first
+ * skipped note so the user can open and fix it: the usual cause is a note's
+ * own properties, not a plugin bug. The projector's per-note message is
+ * internal vocabulary and stays in the diagnostics bundle.
+ */
+export function projectionErrorNotice(
+	errors: ReadonlyArray<{ vault_path: string }>,
+): string {
+	const first = errors[0]?.vault_path ?? '';
+	const named = first.length > ERROR_PATH_LIMIT ? `${first.slice(0, ERROR_PATH_LIMIT)}...` : first;
+	const lead = errors.length === 1
+		? `The reporting database skipped 1 note: ${named}. Check that note's properties.`
+		: `The reporting database skipped ${errors.length} notes, starting with ${named}. Check those notes' properties.`;
+	return `${lead} Your notes remain available. If the properties look correct, run `
+		+ '"Developer tools: copy troubleshooting details to clipboard" and include the result in a bug report.';
+}

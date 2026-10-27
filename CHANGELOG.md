@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: the reporting database notice names the note it skipped (2026-10-27)
+
+- **What was wrong.** When the startup refresh of the reporting database skipped a malformed note, the notice read "finished with 1 note errors" and told the user to file a bug report. It did not say which note, though the usual cause is that note's own properties. Found by running the plugin in OpenClast's local browser harness against a synthetic vault with a deliberately incomplete junction note.
+- **What changed.** The notice now says how many notes were skipped, in correct singular or plural form, names the first one, and asks the user to check its properties before filing a bug report. The projector's internal per-note message stays in the troubleshooting details. Long paths are cut at 256 characters.
+- Tests: `tests/tier2-startup-readiness.test.ts` (3 new cases). Verified in the browser harness: the notice text, plus a light and dark screenshot of it.
+
 ### Fixed: the status bar and workspace count frameworks from any import tool (2026-10-27)
 
 - **What was wrong.** The status bar and the workspace's installed list counted only frameworks the plugin itself generated. A framework written by another tool in the same note format (an external script, an agent) showed "no frameworks yet", while the import wizard listed it as an existing import. Found by driving the wizard in browser-hosted Obsidian (OpenClast) against a vault seeded by the fixture tool.
