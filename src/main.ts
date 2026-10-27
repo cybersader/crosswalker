@@ -60,7 +60,7 @@ import { runEvidenceReportCommand } from './views/evidence-report-command';
 import { runHousekeepingRebaselineCommand } from './views/rebaseline-housekeeping';
 import { EvidenceLinkModal } from './views/evidence-link-modal';
 import { projectFromTier1, type ProjectionResult } from './tier2/projector';
-import { projectionErrorDiagnostics, waitForTier2StartupReadiness } from './tier2/startup-readiness';
+import { projectionErrorDiagnostics, projectionErrorNotice, waitForTier2StartupReadiness } from './tier2/startup-readiness';
 import {
 	getConceptsByOntology,
 	crosswalkBetween,
@@ -1458,12 +1458,7 @@ export default class CrosswalkerPlugin extends Plugin {
 					...errorDiagnostics,
 				});
 				if (!result.aborted && !result.success && result.errors.length > 0) {
-					new Notice(
-						`Reporting database refresh finished with ${result.errors.length} note errors. `
-						+ 'Your notes remain available. Run "Developer tools: copy troubleshooting details to clipboard" '
-						+ 'and include the result in a bug report.',
-						9000,
-					);
+					new Notice(projectionErrorNotice(result.errors), 9000);
 				}
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
