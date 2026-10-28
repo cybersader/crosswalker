@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: Command line for import, validate and export (2026-10-27)
+
+- **What it does.** `bun run cw -- <command>` runs the plugin's own import, check and export code against a plain folder, without Obsidian. Commands: `import` (any recognized source, or a named recipe, into a new or existing import set), `validate` (checks every Crosswalker note against the published schema), `export` (`csv`, `sssom` or `strm` from a folder), and `recipes` (lists the built-in recipe ids). Exit codes: 0 ok, 1 usage or runtime error, 2 validation failures. `replay` is listed but says it is not available from the command line yet, because Run again is still tied to the wizard.
+- **Same result by UI, script, agent or CI.** `--deterministic` pins the clock and the new set ids, so the same command on the same file writes byte-identical notes. The command line writes through a small folder-backed stand-in for the vault (`cli/fs-app.ts`) that refuses any path leaving the folder; no `src/` file changed to support it.
+- **Demo vault.** `bun run demo:build -- --out <dir>` builds a demo vault offline through the command line only: NIST CSF 2.0, NIST SP 800-53 r5 and MITRE ATT&CK samples (plus MITRE F3 when its sample is present), CSF to 800-53 and CSF to ATT&CK mappings, five synthetic evidence notes linked to controls (three approved), five Bases query files targeted at the demo's own import sets, and a `Start here.md` note. It uses committed public or synthetic samples only, refuses restricted framework content, ends by running `validate`, and fails if any note is invalid.
+- **Verified.** New tests in `tests/cli/`: the folder stand-in round trip and path refusal, parity with the plugin import path (`managedContentEquivalent` finds no differences for `nist-mini.csv`), byte-identical trees across two deterministic runs, and a demo build smoke test (vault validates, expected folders present, no restricted content).
+
 ### Fixed: CSV export of a mappings folder now says what to do (2026-10-27)
 
 - **What was wrong.** "Import and export: export folder as CSV" exports framework notes only. Run on a folder of mapping notes, it said "No notes found under ... Nothing exported", which was untrue and gave no next step. Found by driving all three folder exports in OpenClast's local browser harness.

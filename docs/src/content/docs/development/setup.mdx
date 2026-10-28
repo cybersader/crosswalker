@@ -132,6 +132,9 @@ These all work standalone if you prefer not to use the orchestrator:
 | **Fixtures + spec** | |
 | `bun run fixtures` | Regenerate Tier 1 test fixtures into `test-vault/Frameworks/NIST-mini/` from `tools/fixtures/synthetic/nist-mini.csv`; also re-emits the committed reference `.base` views from `tools/fixtures/examples/` (`--examples` flag) |
 | `bun run reset` | Clear ad-hoc test imports from `test-vault/` (dry-run by default; `-- --yes` to delete). Removes only Crosswalker-generated notes outside the protected corpus (`_licensed/`, `NIST-mini/`, `_crosswalker/`, `GRC analysis/`, `PROVENANCE.md`). Double-click `reset.bat` for a preview-then-confirm one-click |
+| **Command line** | |
+| `bun run cw -- <command>` | Run import, validate or export against a plain folder without Obsidian. Commands: `import`, `validate`, `export`, `recipes`; add `--deterministic` for byte-identical output. Exit codes: 0 ok, 1 usage or runtime error, 2 validation failures. `bun run cw -- --help` lists the options |
+| `bun run demo:build -- --out <dir>` | Build the demo vault offline through `cw` only: NIST CSF 2.0, SP 800-53 r5 and ATT&CK samples, two mapping sets, synthetic evidence, Bases query files and `Start here.md`. Ends with `cw validate` and fails on any invalid note; never includes restricted framework content |
 | **Docs** | |
 | `cd docs && bun run dev` | Docs Astro dev server |
 | `cd docs && bun run build` | Docs production build → `docs/dist` |

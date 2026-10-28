@@ -1,0 +1,6 @@
+subject,subject_curie,object,coverage,scope
+AC-1,nist-800-53:AC-1,Access Control Policy,full,Organization-wide policy document
+AC-2,nist-800-53:AC-2,Quarterly Account Review,partial,Production directory accounts only
+AC-2,nist-800-53:AC-2,Joiner Mover Leaver Runbook,partial,Covers account creation and removal steps
+AC-3,nist-800-53:AC-3,Role Matrix,full,Application roles and their permissions
+AC-6,nist-800-53:AC-6,Admin Access Review,partial,Administrator group membership review

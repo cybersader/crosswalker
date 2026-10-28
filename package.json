@@ -28,6 +28,8 @@
 		"e2e:xvfb": "env -u WAYLAND_DISPLAY xvfb-run -a -s \"-screen 0 1600x1000x24\" wdio run wdio.conf.mts",
 		"e2e:openclast": "bash tests/openclast/run-smoke.sh",
 		"e2e:clean": "node scripts/e2e-clean.mjs",
+		"cw": "bun --preload ./cli/preload.ts cli/main.ts",
+		"demo:build": "bun scripts/demo-build.mjs",
 		"fixtures": "bun tools/generate-fixtures.ts --source tools/fixtures/synthetic/nist-mini.csv --target test-vault/Frameworks/NIST-mini --ontology nist-mini --clean --deterministic --examples tools/fixtures/examples",
 		"reset": "node scripts/reset-test-vault.mjs",
 		"check:fixtures-drift": "bun scripts/check-fixtures-drift.mjs",
