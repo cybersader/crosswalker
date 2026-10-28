@@ -1,4 +1,6 @@
 ---
+Control Family: Audit
+Control Name: Audit Record Review
 related:
   - "[[AU-2]]"
   - "[[AU-3]]"
@@ -18,7 +20,7 @@ _crosswalker:
     version: golden
   recipe:
     id: sample-nist-controls
-    hash: sha256-e7c549fd22fac2e84a46fd1b25bb9cc4bcee687adbb2b5bec887a9ecdaefd494
+    hash: sha256-5dbc162571cd9a159553a2db01609793484ced9545cb50d22ba9a43ad85eaa6b
   concept_cid: sha256-2a5caebae301eba7b995be6c211b9c65dfb8597cef6b37a47c017b572cf4e08a
 ---
 

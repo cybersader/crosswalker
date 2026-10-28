@@ -1,4 +1,6 @@
 ---
+Control Family: Configuration Management
+Control Name: Policy and Procedures
 related:
   - "[[CM-2]]"
   - "[[CM-6]]"
@@ -18,7 +20,7 @@ _crosswalker:
     version: golden
   recipe:
     id: sample-nist-controls
-    hash: sha256-e7c549fd22fac2e84a46fd1b25bb9cc4bcee687adbb2b5bec887a9ecdaefd494
+    hash: sha256-5dbc162571cd9a159553a2db01609793484ced9545cb50d22ba9a43ad85eaa6b
   concept_cid: sha256-8813cb1a3cc531fd5cf851334bf2f4536200499c476c839f3b97eca6df6a7d66
 ---
 

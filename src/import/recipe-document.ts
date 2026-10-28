@@ -11,7 +11,7 @@ import {
 	type RecipeRegions,
 } from './mapping/serialize';
 import type { ImportMapping } from './mapping/types';
-import { DEFAULT_MISSING, isConstantRef, toSourceRefs } from './mapping/types';
+import { DEFAULT_MISSING, isConstantRef, isImpliedLinkPredicate, toSourceRefs } from './mapping/types';
 import { interpolationColumn, parseTemplateSegments } from '../render/template';
 
 export const CURRENT_RECIPE_SPEC = 'https://crosswalker.dev/spec/recipe.schema.json' as const;
@@ -635,7 +635,7 @@ export function diagnoseEditableMapping(mapping: ImportMapping): RecipeDocumentD
 						));
 					}
 				} else if (destination.primitive === 'link') {
-					if (destination.predicate || destination.direction !== 'parent-on-child') {
+					if (!isImpliedLinkPredicate(destination)) {
 						diagnostics.push(blocking(
 							'link-semantics-not-portable',
 							destPath,

@@ -1,4 +1,6 @@
 ---
+Control Family: Configuration Management
+Control Name: Configuration Settings
 related:
   - "[[CM-2]]"
   - "[[CM-8]]"
@@ -18,7 +20,7 @@ _crosswalker:
     version: golden
   recipe:
     id: sample-nist-controls
-    hash: sha256-e7c549fd22fac2e84a46fd1b25bb9cc4bcee687adbb2b5bec887a9ecdaefd494
+    hash: sha256-5dbc162571cd9a159553a2db01609793484ced9545cb50d22ba9a43ad85eaa6b
   concept_cid: sha256-b96755b317158dae7c25893adafde5643ae9ae09646b9a248b07c42031c87770
 ---
 

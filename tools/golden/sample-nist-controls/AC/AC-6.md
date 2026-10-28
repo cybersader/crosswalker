@@ -1,4 +1,6 @@
 ---
+Control Family: Access Control
+Control Name: Least Privilege
 related:
   - "[[AC-2]]"
   - "[[AC-3]]"
@@ -18,7 +20,7 @@ _crosswalker:
     version: golden
   recipe:
     id: sample-nist-controls
-    hash: sha256-e7c549fd22fac2e84a46fd1b25bb9cc4bcee687adbb2b5bec887a9ecdaefd494
+    hash: sha256-5dbc162571cd9a159553a2db01609793484ced9545cb50d22ba9a43ad85eaa6b
   concept_cid: sha256-4e30df5565c83335a591102849ec732afd95e6151562b3b2aace3d91e52422ae
 ---
 

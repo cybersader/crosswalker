@@ -402,6 +402,15 @@ describe('instantiation — facet + parent-column', () => {
 		expect(kinds).toContain('tag');
 		expect(kinds).toContain('link');
 	});
+
+	// A tag is slugged, so on its own it loses the source value. The exact value
+	// also lands as a property, which keeps the note faithful and lets an export
+	// write the column back.
+	it('a facet also keeps its exact value as a property', () => {
+		const mapping = instantiate(BROWSABLE_FRAMEWORK, detect(rows));
+		const facet = mapping.mappings.flatMap((m) => m.levels).find((l) => l.source.column === 'tactic');
+		expect(facet?.destinations.map((d) => d.primitive)).toEqual(['property', 'tag']);
+	});
 });
 
 // ===========================================================================

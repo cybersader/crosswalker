@@ -1,4 +1,6 @@
 ---
+Control Family: Access Control
+Control Name: Separation of Duties
 related:
   - "[[AC-2]]"
   - "[[AC-3]]"
@@ -18,7 +20,7 @@ _crosswalker:
     version: golden
   recipe:
     id: sample-nist-controls
-    hash: sha256-e7c549fd22fac2e84a46fd1b25bb9cc4bcee687adbb2b5bec887a9ecdaefd494
+    hash: sha256-5dbc162571cd9a159553a2db01609793484ced9545cb50d22ba9a43ad85eaa6b
   concept_cid: sha256-08e34175dd15445a6ba94074af78f333d7b92b6a28a9122d1505b728cff90dd7
 ---
 

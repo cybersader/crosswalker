@@ -434,6 +434,20 @@ export interface ImportMapping {
 export const DEFAULT_MISSING: MissingPolicy = 'skip';
 
 /**
+ * A link predicate that only restates what the link shape already means:
+ * `skos:broader` on a single parent-on-child link, `skos:related` on a list
+ * link. Detection attaches these; nothing renders them, so a recipe that
+ * drops them loses nothing. Any other predicate is real semantics.
+ */
+export function isImpliedLinkPredicate(destination: Destination): boolean {
+	if (destination.primitive !== 'link' || destination.direction !== 'parent-on-child') return false;
+	if (destination.predicate === undefined) return true;
+	return destination.list === true
+		? destination.predicate === 'skos:related'
+		: destination.predicate === 'skos:broader';
+}
+
+/**
  * Canonical destination ordering. Reconstruction (`fromRecipe`) sorts a level's
  * destinations by this rank so that serialize∘deserialize is order-stable and
  * the round-trip law can assert deep-equality. Construct test mappings in this

@@ -74,6 +74,12 @@ export interface EdgeProposal {
 	frontmatterKey: string;
 	/** Forward-compat `graph_edges` predicate (SKOS broader by default). */
 	predicate: string;
+	/**
+	 * List delimiters seen in the cells, most frequent first. Set only for a
+	 * multi-value link, so the recipe splits and export rejoins on what the
+	 * source actually used rather than a default.
+	 */
+	split?: string[];
 }
 
 /**
@@ -1072,6 +1078,13 @@ function detectFacet(column: string, values: string[], rowCount: number): Detect
 	};
 }
 
+/** Delimiters seen, most frequent first (ties keep LIST_DELIMITERS order). */
+function observedSplit(counts: Map<string, number>): { split?: string[] } {
+	const seen = LIST_DELIMITERS.filter((d) => (counts.get(d) ?? 0) > 0);
+	if (seen.length === 0) return {};
+	return { split: [...seen].sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0)) };
+}
+
 /** Split a cell on common list delimiters (`,` `;`), trimming pieces. */
 function splitMultiValue(value: string): string[] {
 	let pieces = [value];
@@ -1593,10 +1606,15 @@ function detectMultiValueLink(
 	let cells = 0;
 	let atoms = 0;
 	let matched = 0;
+	const delimiterCounts = new Map<string, number>();
 	for (const cell of columnValues) {
 		const pieces = splitMultiValue(cell);
 		if (pieces.length === 0) continue;
 		cells++;
+		for (const d of LIST_DELIMITERS) {
+			const n = cell.split(d).length - 1;
+			if (n > 0) delimiterCounts.set(d, (delimiterCounts.get(d) ?? 0) + n);
+		}
 		for (const p of pieces) {
 			atoms++;
 			if (idSet.has(p)) matched++;
@@ -1619,6 +1637,7 @@ function detectMultiValueLink(
 			idColumn,
 			frontmatterKey: 'related',
 			predicate: 'skos:related',
+			...observedSplit(delimiterCounts),
 		},
 	};
 }

@@ -200,14 +200,54 @@ describe('planRecipeColumns', () => {
 					{ level: 'control', mechanism: 'file', template: '{id}.md' },
 					{ level: 'theme', mechanism: 'tag', template: '{theme}' },
 				],
-				also_emit: { frontmatter: { managed_links: { related: '[[{related}]]' } } },
+				also_emit: { frontmatter: { managed_links: { related: { template: '{related}' } } } },
+			},
+		} as unknown as CrosswalkerImportRecipe;
+		const plan = planRecipeColumns(recipe);
+		expect(plan.columns.map((c) => c.column)).toEqual(['id', 'related']);
+		const reasons = Object.fromEntries(plan.omitted.map((o) => [o.column, o.reason]));
+		expect(reasons.theme).toBe(OMIT_REASONS.tags);
+		expect(reasons.related).toBeUndefined();
+	});
+
+	it('still omits a column inside a built-up link template', () => {
+		const recipe = {
+			recipe: 'composite-link',
+			source: { ontology: 'unit' },
+			target: {
+				layout: [{ level: 'control', mechanism: 'file', template: '{id}.md' }],
+				also_emit: { frontmatter: { managed_links: { related: { template: 'Controls/{related}' }, pair: { template: '{a} and {b}' } } } },
 			},
 		} as unknown as CrosswalkerImportRecipe;
 		const plan = planRecipeColumns(recipe);
 		expect(plan.columns.map((c) => c.column)).toEqual(['id']);
 		const reasons = Object.fromEntries(plan.omitted.map((o) => [o.column, o.reason]));
-		expect(reasons.theme).toBe(OMIT_REASONS.tags);
-		expect(reasons.related).toBe(OMIT_REASONS.links);
+		expect(reasons).toEqual({ related: OMIT_REASONS.links, a: OMIT_REASONS.links, b: OMIT_REASONS.links });
+	});
+
+	it('takes the brackets off a bare link on the way back, alias included', () => {
+		const recipe = {
+			recipe: 'bare-link',
+			source: { ontology: 'unit' },
+			target: {
+				layout: [{ level: 'control', mechanism: 'file', template: '{id}.md' }],
+				also_emit: { frontmatter: { managed: { parent: '[[{parent}]]' }, managed_links: { related: { template: '{related}', split: [';'] } } } },
+			},
+		} as unknown as CrosswalkerImportRecipe;
+		const plan = planRecipeColumns(recipe);
+		const parent = plan.columns.find((c) => c.column === 'parent') as ColumnPlan;
+		const cell = (value: unknown) =>
+			inverseCell(parent, { path: 'X/AC-2.md', frontmatter: { parent: value }, text: '' }, null, plan).value;
+		expect(cell('[[AC-1]]')).toBe('AC-1');
+		expect(cell('[[AC-1|Access policy]]')).toBe('AC-1');
+		expect(cell(['[[AC-1]]', '[[AC-3]]'])).toBe('AC-1|AC-3');
+		// A value the user edited into plain text comes back as written.
+		expect(cell('AC-1')).toBe('AC-1');
+		expect(cell(undefined)).toBe('');
+		// A link array joins on its first split delimiter, so it re-imports to the same links.
+		const related = plan.columns.find((c) => c.column === 'related') as ColumnPlan;
+		const list = inverseCell(related, { path: 'X/AC-2.md', frontmatter: { related: ['[[AC-1]]', '[[PM-9]]'] }, text: '' }, null, plan);
+		expect(list.value).toBe('AC-1;PM-9');
 	});
 });
 
