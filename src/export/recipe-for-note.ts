@@ -21,7 +21,7 @@ import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import { loadForImport, type RecipeLibraryFiles } from '../import/recipe-library';
 import { recipeRunDigest } from '../import/recipe-runs';
 import { LEGACY_RECIPE_ID_SENTINEL } from '../generation/legacy-recipe-shim';
-import { readImportSetRecipe } from '../import/import-set-recipes';
+import { readImportSetRecipe, type ImportSetRecipeFiles } from '../import/import-set-recipes';
 
 /** Why a note exported without its recipe. */
 export type RecipeFallbackReason =
@@ -94,7 +94,15 @@ export class NoteRecipeResolver {
 		'digest-mismatch': 0,
 	};
 
-	constructor(private readonly files: RecipeLibraryFiles = EMPTY_RECIPE_LIBRARY) {}
+	/**
+	 * `copies` reads the recipe copies imports keep with their sets. Those are
+	 * vault state, not library state, so they are read even when no saved
+	 * library is passed. Default: the library's own file layer.
+	 */
+	constructor(
+		private readonly files: RecipeLibraryFiles = EMPTY_RECIPE_LIBRARY,
+		private readonly copies: Pick<ImportSetRecipeFiles, 'exists' | 'read'> = files,
+	) {}
 
 	async resolve(frontmatter: Record<string, unknown>): Promise<NoteRecipe> {
 		const result = await this.lookup(frontmatter);
@@ -125,7 +133,7 @@ export class NoteRecipeResolver {
 		const key = `${setId}\u0000${digest}`;
 		let pending = this.snapshots.get(key);
 		if (!pending) {
-			pending = readImportSetRecipe(this.files, setId, digest);
+			pending = readImportSetRecipe(this.copies, setId, digest);
 			this.snapshots.set(key, pending);
 		}
 		return pending;

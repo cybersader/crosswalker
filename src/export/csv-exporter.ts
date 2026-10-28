@@ -28,6 +28,7 @@
 import Papa from 'papaparse';
 import type { App } from 'obsidian';
 import { readVaultTree, type ConceptRow, type HubRow, type SkippedNote } from './vault-reader';
+import { vaultImportSetRecipeFiles } from '../import/import-set-recipes';
 import { NoteRecipeResolver, EMPTY_RECIPE_LIBRARY, type RecipeFallbackReason } from './recipe-for-note';
 import {
 	planRecipeColumns,
@@ -325,7 +326,8 @@ export async function exportFolderAsCsv(
 	options: CsvExportOptions = {},
 ): Promise<CsvExportResult> {
 	const tree = await readVaultTree(app, rootPath);
-	const resolver = new NoteRecipeResolver(options.library ?? EMPTY_RECIPE_LIBRARY);
+	const library = options.library ?? EMPTY_RECIPE_LIBRARY;
+	const resolver = new NoteRecipeResolver(library, vaultImportSetRecipeFiles(app) ?? library);
 	const input: RecipeAwareRow[] = [];
 	for (const row of tree.concepts) {
 		const found = await resolver.resolve(row.frontmatter);
