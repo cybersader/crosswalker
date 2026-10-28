@@ -177,9 +177,9 @@ export function crosswalkEdgesToStrmTsv(edges: CrosswalkEdgeRow[], options: Strm
 			continue;
 		}
 		const relationship = STRM_TO_OLIR[edge.predicate_id] ?? 'intersects with';
-		// Read like the crosswalk mapping file export does (slice 2): notes from
-		// that importer store confidence as `sssom_confidence`, and reading only
-		// `match_confidence` exported their strength as empty.
+		// Read like the crosswalk mapping file export does (slice 2): older notes
+		// from that importer store confidence as text `sssom_confidence`, and
+		// reading only `match_confidence` exported their strength as empty.
 		const confidence = edgeConfidence(edge);
 		const strength = confidence !== undefined ? String(Math.round(confidence * 10)) : '';
 

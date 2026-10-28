@@ -64,7 +64,9 @@ describe('renderRecipeTemplate — plain substitution', () => {
 			confidence_threshold: 0.85,
 		});
 		expect(out).not.toBeNull();
-		expect(out).toContain('confidence >= 0.85');
+		expect(out).toContain("'match_confidence >= 0.85'");
+		// Unrated edges stay in the matrix: blank confidence is unknown, not low.
+		expect(out).toContain('match_confidence.isEmpty()');
 		// Defaults should not leak as the literal `{{...}}` string
 		expect(out).not.toContain('{{');
 	});
@@ -72,8 +74,8 @@ describe('renderRecipeTemplate — plain substitution', () => {
 	it('substitutes missing params as empty string', () => {
 		const out = renderRecipeTemplate('nist-csf-coverage-matrix', {});
 		expect(out).not.toBeNull();
-		// Pattern: `confidence >= ` followed by something
-		expect(out).toContain('confidence >=');
+		// Pattern: `match_confidence >= ` followed by something
+		expect(out).toContain('match_confidence >=');
 		// Still no leftover Mustache tokens
 		expect(out).not.toMatch(/\{\{[\w_]+\}\}/);
 	});

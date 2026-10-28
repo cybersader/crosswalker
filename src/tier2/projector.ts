@@ -820,7 +820,9 @@ function upsertMapping(
 			$predicate_modifier: predicateModifier,
 			$object_id: objectId,
 			$match_type: stringOrNull(fm.match_type),
-			$match_confidence: numberOrNull(fm.match_confidence),
+			// Mapping notes written before the plugin emitted the numeric field
+			// carry the same confidence as text under `sssom_confidence`.
+			$match_confidence: numberOrNull(fm.match_confidence) ?? numberOrNull(fm.sssom_confidence),
 			$mapping_justification: stringOrNull(fm.mapping_justification),
 			$mapping_provider: stringOrNull(fm.mapping_provider),
 			$mapping_date: stringOrNull(fm.mapping_date),

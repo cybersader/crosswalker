@@ -166,7 +166,7 @@ describe('Crosswalker plugin — v0.1.6 Phase 2 SSSOM import (E2E)', function ()
 								source_framework: source,
 								target_framework: target,
 								sssom_predicate: '{sssom_predicate}',
-								sssom_confidence: '{confidence}',
+								match_confidence: '{confidence|optional|number}',
 							},
 							user_preserve: ['*notes*'],
 						},

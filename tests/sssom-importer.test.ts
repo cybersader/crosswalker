@@ -157,6 +157,28 @@ describe('importSssom — publisher ID-only mapping rows', () => {
 	});
 });
 
+describe('importSssom — confidence', () => {
+	// Tier 1 types match_confidence as a number from 0 to 1. The queries and the
+	// query database read that field, so a text copy under another key left every
+	// imported edge unrated. Blank is unknown and must not become 0.
+	it('writes match_confidence as a number and leaves it out when the row has none', async () => {
+		const tsv = `subject_id\tpredicate_id\tobject_id\tmapping_justification\tconfidence
+foo:A\tskos:exactMatch\tbar:A\tsynthetic\t0.85
+foo:B\tskos:exactMatch\tbar:B\tsynthetic\t`;
+		const { app, written } = makeMockApp();
+		const result = await importSssom(app, tsv, null, null, { runTier2Projection: false, importSet: 'new-set-qualified' });
+		expect(result.generation?.success).toBe(true);
+		const edges = [...written.values()]
+			.filter((text) => !/^kind: mapping-set$/m.test(text))
+			.map((text) => parseYaml(/^---\n([\s\S]*?)\n---/.exec(text)![1]) as Record<string, unknown>);
+		const rated = edges.find((fm) => fm.subject_id === 'foo:A')!;
+		const unrated = edges.find((fm) => fm.subject_id === 'foo:B')!;
+		expect(rated.match_confidence).toBe(0.85);
+		expect(unrated).not.toHaveProperty('match_confidence');
+		for (const fm of edges) expect(fm).not.toHaveProperty('sssom_confidence');
+	});
+});
+
 describe('importSssom — SKOS→STRM direction convention', () => {
 	// Pins the direction semantics (fixed 2026-06-12 — the original map inverted SKOS).
 	// Per the SKOS spec, `A skos:broadMatch B` states B is the BROADER concept (A ⊂ B),

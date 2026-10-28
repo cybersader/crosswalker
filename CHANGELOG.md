@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: mapping confidence reaches queries and the query database (2026-10-28)
+
+- **What was wrong.** Imported mappings stored their confidence as text under `sssom_confidence`. The published note format (`spec/tier1.schema.json`) names the field `match_confidence` and types it as a number from 0 to 1, and both readers use that name: the query database projected every confidence as empty, and the shipped coverage query filtered on a `confidence` field no note carries, so it dropped every mapping.
+- **Now.** Mapping import writes `match_confidence` as a number. A row with no confidence gets no field: blank means unknown, never 0 (the new `optional` template filter, `{confidence|optional|number}`, says so explicitly; without it a blank number still fails loudly). The coverage queries keep mappings with no rating and filter rated ones by `match_confidence`. Saved queries regenerate to the new filter.
+- **Mapping tables.** A table row whose confidence is not a number is now skipped with a row error that says how to fix it, instead of being carried as text. Converting between notes and a table writes the numeric field.
+- **Older notes keep working.** The query database, the table conversion and the exporters still read `sssom_confidence` on notes imported before this change; re-importing the set rewrites them to `match_confidence`.
+- **Verified.** Unit tests for the filter, the importer (rated and unrated rows), the table parser (non-numeric row), the legacy upgrade through the table, and the query templates.
+
 ### Added: Command line for import, validate and export (2026-10-27)
 
 - **What it does.** `bun run cw -- <command>` runs the plugin's own import, check and export code against a plain folder, without Obsidian. Commands: `import` (any recognized source, or a named recipe, into a new or existing import set), `validate` (checks every Crosswalker note against the published schema), `export` (`csv`, `sssom` or `strm` from a folder), and `recipes` (lists the built-in recipe ids). Exit codes: 0 ok, 1 usage or runtime error, 2 validation failures. `replay` is listed but says it is not available from the command line yet, because Run again is still tied to the wizard.

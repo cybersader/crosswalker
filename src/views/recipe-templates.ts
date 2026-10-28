@@ -37,7 +37,9 @@ const TEMPLATES: Record<string, string> = {
 {{#mapping_set}}    - 'note._crosswalker.import_set.id == "{{mapping_set}}"'
     - 'kind == "crosswalk-edge"'
 {{/mapping_set}}{{^mapping_set}}    - file.inFolder("_crosswalker/mappings/csf-to-800-53")
-{{/mapping_set}}    - 'confidence >= {{confidence_threshold}}'
+{{/mapping_set}}    - or:
+        - match_confidence.isEmpty()
+        - 'match_confidence >= {{confidence_threshold}}'
     - or:
         - predicate_modifier.isEmpty()
         - 'predicate_modifier != "NOT"'
@@ -56,7 +58,9 @@ views:
 {{#mapping_set}}    - 'note._crosswalker.import_set.id == "{{mapping_set}}"'
     - 'kind == "crosswalk-edge"'
 {{/mapping_set}}{{^mapping_set}}    - file.inFolder("_crosswalker/mappings/csf-to-mitre")
-{{/mapping_set}}    - 'confidence >= {{confidence_threshold}}'
+{{/mapping_set}}    - or:
+        - match_confidence.isEmpty()
+        - 'match_confidence >= {{confidence_threshold}}'
     - or:
         - predicate_modifier.isEmpty()
         - 'predicate_modifier != "NOT"'
