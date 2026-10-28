@@ -13,6 +13,7 @@ import {
 import type { ImportMapping } from './mapping/types';
 import { DEFAULT_MISSING, isConstantRef, isImpliedLinkPredicate, toSourceRefs } from './mapping/types';
 import { interpolationColumn, parseTemplateSegments } from '../render/template';
+import { slugifyForCurie } from '../generation/curie';
 
 export const CURRENT_RECIPE_SPEC = 'https://crosswalker.dev/spec/recipe.schema.json' as const;
 
@@ -159,7 +160,16 @@ export function createFreshRecipeDocument(
 		...regions.layout.map((entry) => entry.level),
 		...(nest?.map((entry) => entry.level) ?? []),
 	]);
-	const ontology = slug(sourceOntology) || 'source';
+	// A fresh document MINTS its ontology id from a file or sheet name, so it
+	// must mint one that is also a valid CURIE prefix (letter first). The id
+	// becomes the prefix of every concept curie and of the automatic
+	// parent_curie template; a name like "2024 controls.csv" used to mint
+	// "2024-controls", which the parent-identity guard rightly refused, so the
+	// workbench threw before it opened for any digit-led file with a parent
+	// column. slugifyForCurie is the same function generation stamps prefixes
+	// with, so notes get exactly the prefix they got before this change.
+	// Loaded (library or user) recipes keep their canonical ontology untouched.
+	const ontology = slugifyForCurie(slug(sourceOntology) || 'source');
 	const canonical: CrosswalkerImportRecipe = {
 		recipe: `custom-${ontology}`,
 		spec_version: CURRENT_RECIPE_SPEC,

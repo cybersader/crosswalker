@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: a new source named with a leading digit and a parent column opens in the workbench (2026-10-28)
+
+- **A fresh source now gets a usable source name.** With no saved recipe picked, the workbench names the source after its file. A name that starts with a digit (`2024 controls.csv`, `800-53 sample.csv`) became `2024-controls`, which cannot label notes. When the file also had a parent column, the parent link check refused that name and the workbench failed to open. A fresh source name now starts with a letter (`cw-2024-controls`), using the same rule the importer already applied to every note label, so notes get the same labels as before (`src/import/recipe-document.ts`).
+- **A saved recipe with such a name still stops, with a clear message.** The importer does not silently rename a recipe's own source name. The preview and the import step now say what to change: fix the recipe's source name, or dismiss the Parent column card (`src/import/mapping/diagnostics.ts`).
+- **Tests.** `tests/workbench-fresh-parent-column.test.ts` opens fresh sources with a parent column under several file names, both as detected and as assigned by hand, checks the recipe passes its guards, and imports it: each child links to its parent, and the parent label matches the note labels. The digit-led cases fail without the fix.
+
 ### Fixed: evidence links imported without a destination no longer land in a doubled folder (2026-10-28)
 
 - **The evidence recipe's file name is now relative to its destination.** Its default destination is `Evidence/Junctions`, and its file template also began with `Evidence/Junctions/`, so an import that kept the default wrote every link note to `Evidence/Junctions/Evidence/Junctions/`. The template is now `jn-{subject|slug}-{object|slug}.md`, like every other shipped recipe (`recipes/starter/evidence-junction-notes.json`). The recipe's hash moves as a result (documented and pinned in `tests/source-hash-stability.test.ts`). Imports already made keep replaying from their own recipe copy, so their notes do not move.

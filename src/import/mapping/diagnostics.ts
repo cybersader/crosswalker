@@ -22,6 +22,18 @@
  */
 const NOTHING_PLACED = /(\/source\/levels|\/target\/layout)\b[^;]*must not have fewer than 1 items/i;
 
+/**
+ * The workbench's refusal to link rows to their parents when a loaded recipe's
+ * `source.ontology` is not a valid CURIE prefix (for example `cri-profile-2.0`).
+ * The refusal is deliberate: the canonical id is never silently rewritten. The
+ * user still needs to know what to change.
+ */
+const PARENT_IDENTITY_PREFIX = /Cannot derive parent_curie: recipe source\.ontology must be a lowercase CURIE prefix/;
+
+/** Plain-language replacement for the parent identity prefix refusal. */
+export const PARENT_IDENTITY_PREFIX_MESSAGE =
+	'This recipe\'s source name cannot label parent links. Edit the recipe so its source name uses only lowercase letters, digits, hyphens or underscores and starts with a letter, or dismiss the Parent column card, then try again.';
+
 /** Plain-language replacement for the empty-layout validator error. */
 export const NOTHING_PLACED_MESSAGE =
 	'No column is set to place notes in the vault. Open a column\'s mapping and turn on File names, Folders, or One file, then try again.';
@@ -31,5 +43,7 @@ export const NOTHING_PLACED_MESSAGE =
  * this error has no translation yet (the caller keeps its own generic wording).
  */
 export function explainRecipeError(message: string): string | null {
-	return NOTHING_PLACED.test(message) ? NOTHING_PLACED_MESSAGE : null;
+	if (NOTHING_PLACED.test(message)) return NOTHING_PLACED_MESSAGE;
+	if (PARENT_IDENTITY_PREFIX.test(message)) return PARENT_IDENTITY_PREFIX_MESSAGE;
+	return null;
 }
