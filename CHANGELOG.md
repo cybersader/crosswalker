@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: detected recipes keep link columns and their delimiters; CSV export rebuilds them (2026-10-28)
+
+- **Detected recipes record the list delimiter.** When an import works out its own layout, a column of linked ids now records the delimiters the source actually uses, most frequent first (`split` on the link). Before, a semicolon list came back from export joined with commas (`src/import/detection.ts`, `src/import/mapping/instantiate.ts`).
+- **Implied link meanings no longer block portability.** A parent link implies "broader" and a list of related ids implies "related". Neither can be written into managed frontmatter, so the portability check now accepts them instead of refusing the recipe. Any other predicate still blocks (`isImpliedLinkPredicate` in `src/import/mapping/types.ts`, `src/import/recipe-document.ts`). The command line drops its own workaround for this.
+- **CSV export rebuilds link columns.** A property written as `[[{column}]]` and a link list whose template is one bare column are unbracketed on the way back, and lists are joined with the recorded delimiter. Links built from anything more than one column stay listed under "Not included" (`src/export/csv-inverse.ts`).
+- **Round trip proved from the command line.** `tests/cli/detected-round-trip.test.ts` imports a synthetic CSV with no recipe, exports it, and checks every cell, including a semicolon list. The sample NIST golden output changed only in its recipe hash.
+
 ### Changed: command line reads workbooks; demo uses the full NIST catalogs (2026-10-28)
 
 - **Workbooks from the command line.** `cw import` takes `--sheet <name>` and `--header-row <n>` (counted from 1). A CSV refuses both flags and a JSON source refuses `--header-row`, each with a plain reason. When a workbook import fails without the right sheet, the error lists the workbook's sheets and the sheet and header row the recipe was written for (`cli/crosswalker.ts`, `tests/cli/workbook-flags.test.ts`).

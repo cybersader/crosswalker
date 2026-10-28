@@ -34,7 +34,6 @@ import { listXLSXSheets } from '../src/import/parsers/xlsx-parser';
 import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import { MappingWorkbench } from '../src/import/workbench';
 import { patchRecipeDocument } from '../src/import/recipe-document';
-import type { ImportMapping } from '../src/import/mapping/types';
 import { importSssom } from '../src/import/sssom-importer';
 import { exportFolderAsCsv } from '../src/export/csv-exporter';
 import { csvExportNotice } from '../src/export/csv-inverse';
@@ -287,13 +286,9 @@ export function defaultRecipeEntry(parsedData: ParsedData, ontology: string, des
 	});
 	// Regions are built while the detected parent link still carries its
 	// `skos:broader` predicate, because that is what derives `parent_curie`.
-	// The predicate itself is not written anywhere (managed frontmatter cannot
-	// carry it, see mapping/types.ts), so the portability check would block a
-	// predicate that renders nothing. Patch the canonical document with the same
-	// regions over a mapping without that implied predicate. Any other
-	// predicate or direction is left in place and still blocks.
+	// The portability check accepts that implied predicate (isImpliedLinkPredicate).
 	const regions = workbench.buildFinalRegions();
-	const mapping = withoutImpliedBroader(workbench.getMapping());
+	const mapping = workbench.getMapping();
 	const patched = patchRecipeDocument(workbench.getRecipeDocument(), { mapping, regions });
 	if (!patched.ok) {
 		throw new Error(patched.diagnostics
@@ -302,25 +297,6 @@ export function defaultRecipeEntry(parsedData: ParsedData, ontology: string, des
 			.join('; '));
 	}
 	return libraryRegistryEntry(patched.recipe as CrosswalkerImportRecipe);
-}
-
-/** Drop `skos:broader` from parent-on-child link destinations: it is the implied meaning of a parent link. */
-function withoutImpliedBroader(mapping: ImportMapping): ImportMapping {
-	return {
-		...mapping,
-		mappings: mapping.mappings.map((structure) => ({
-			...structure,
-			levels: structure.levels.map((level) => ({
-				...level,
-				destinations: level.destinations.map((destination) => {
-					if (destination.primitive !== 'link' || destination.direction !== 'parent-on-child'
-						|| destination.predicate !== 'skos:broader') return destination;
-					const { predicate: _implied, ...rest } = destination;
-					return rest;
-				}),
-			})),
-		})),
-	};
 }
 
 function setFlag(flags: Flags): string | undefined {
@@ -439,7 +415,7 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 			entry = defaultRecipeEntry(parsedData, ontology, destination!, debug);
 		} catch (error) {
 			const cause = error instanceof Error ? error.message : String(error);
-			throw new CliError(`Could not work out a layout for ${source.name}: ${cause}. Pass a recipe with --recipe, then run the import again.`);
+			throw new CliError(`Could not work out a layout for ${source.name}: ${cause.replace(/\.$/, '')}. Pass a recipe with --recipe, then run the import again.`);
 		}
 	}
 

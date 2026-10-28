@@ -251,7 +251,17 @@ describe('multi-value-link — related column referencing an id set', () => {
 			idColumn: 'technique_id',
 			frontmatterKey: 'related',
 			predicate: 'skos:related',
+			split: [','],
 		});
+	});
+
+	// The recipe must split and rejoin on what the source used, or a CSV export
+	// writes `T1002,T1003` back for a source that said `T1002;T1003`.
+	it('records the delimiter the cells use, most frequent first', () => {
+		const semicolon = multiValueRows.map((r) => ({ ...r, related: String(r.related).replace(', ', ';') }));
+		expect(findKind(detect(semicolon), 'multi-value-link')!.proposal).toMatchObject({ split: [';'] });
+		const mixed = semicolon.map((r, i) => (i < 2 ? { ...r, related: String(r.related).replace(';', ',') } : r));
+		expect(findKind(detect(mixed), 'multi-value-link')!.proposal).toMatchObject({ split: [';', ','] });
 	});
 
 	it('is distinct from single-value parent-column (raw multi-value cells do not match)', () => {

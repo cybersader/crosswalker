@@ -347,12 +347,18 @@ function leafLevel(preset: Preset, column: string): LevelRule {
 function instantiateFacet(preset: Preset, column: string): StructureMapping | null {
 	const dests = preset.facets?.destinations;
 	if (!dests || dests.length === 0) return null;
+	// A facet tag is slugged (`Access Control` -> `access-control`), so a tag alone
+	// loses the source value. The exact value also lands as a property, so the
+	// note keeps what the source said and an export can write it back.
+	const exact: PresetDestination[] = dests.some((d) => d.primitive === 'property')
+		? []
+		: [{ primitive: 'property' }];
 	return {
 		levels: [
 			{
 				level: column,
 				source: { column },
-				destinations: dests.map((d) => mapDestination(d, { column })),
+				destinations: [...exact, ...dests].map((d) => mapDestination(d, { column })),
 				naming: 'part',
 				missing: DEFAULT_MISSING,
 				materialize: false,
@@ -403,6 +409,7 @@ function instantiateLink(
 						linkKey: proposal.frontmatterKey,
 						predicate: proposal.predicate,
 						list,
+						...(list && proposal.split ? { split: proposal.split } : {}),
 					}),
 				),
 				naming: 'part',
@@ -440,6 +447,8 @@ interface DestContext {
 	predicate?: string;
 	/** True → a list-valued (multi-value) link destination. */
 	list?: boolean;
+	/** Delimiters the source used for a list link, most frequent first. */
+	split?: string[];
 }
 
 /** Fill a preset's generic destination with this source's column-bound params. */
@@ -467,6 +476,7 @@ function mapDestination(preset: PresetDestination, ctx: DestContext): Destinatio
 				direction: preset.direction ?? 'parent-on-child',
 				...(ctx.predicate ? { predicate: ctx.predicate } : {}),
 				...(ctx.list ? { list: true } : {}),
+				...(ctx.list && ctx.split ? { split: [...ctx.split] } : {}),
 			});
 		case 'property':
 			return { primitive: 'property', key: ctx.propertyKey ?? ctx.column, ...(preset.list ? { list: true } : {}) };

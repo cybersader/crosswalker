@@ -384,6 +384,42 @@ describe('RecipeDocument canonical preservation boundary', () => {
 	});
 });
 
+describe('implied link predicates stay portable', () => {
+	const withLink = (link: Record<string, unknown>): ImportMapping => ({
+		version: 1,
+		mappings: [{
+			id: 'm1',
+			levels: [{
+				level: 'concept',
+				source: [{ column: 'id' }],
+				naming: 'value',
+				missing: 'skip',
+				destinations: [{ primitive: 'link', key: 'k', direction: 'parent-on-child', ...link } as never],
+			}],
+		}],
+	} as unknown as ImportMapping);
+	const linkCodes = (link: Record<string, unknown>) => diagnoseEditableMapping(withLink(link))
+		.map((diagnostic) => diagnostic.code)
+		.filter((code) => code === 'link-semantics-not-portable');
+
+	it.each([
+		['no predicate', {}],
+		['broader on a single parent link', { predicate: 'skos:broader' }],
+		['related on a list link', { predicate: 'skos:related', list: true }],
+	])('accepts %s', (_name, link) => {
+		expect(linkCodes(link)).toEqual([]);
+	});
+
+	it.each([
+		['a custom predicate', { predicate: 'skos:exactMatch' }],
+		['related on a single link', { predicate: 'skos:related' }],
+		['broader on a list link', { predicate: 'skos:broader', list: true }],
+		['a non-default direction', { direction: 'both' }],
+	])('still blocks %s', (_name, link) => {
+		expect(linkCodes(link)).toEqual(['link-semantics-not-portable']);
+	});
+});
+
 describe('MappingWorkbench RecipeDocument integration', () => {
 	function workbench(): { wb: MappingWorkbench; parsedData: ParsedData } {
 		const row = richRow();

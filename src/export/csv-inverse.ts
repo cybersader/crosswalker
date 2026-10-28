@@ -32,7 +32,8 @@ import { scanRegions, findSpan } from '../generation/managed-body';
 type BodyFormat = 'text' | 'code' | 'quote' | 'list';
 
 export type ColumnSource =
-	| { kind: 'property'; key: string }
+	/** `link`: the value was written as `[[value]]`, so the brackets come off on the way back. */
+	| { kind: 'property'; key: string; link?: boolean; joiner?: string }
 	| { kind: 'section'; index: number; heading: string; depth: number; format: BodyFormat }
 	| { kind: 'append'; format: BodyFormat }
 	| { kind: 'folder'; level: string; folderIndex: number; lossy: boolean }
@@ -220,14 +221,34 @@ export function planRecipeColumns(recipe: CrosswalkerImportRecipe): RecipeColumn
 	for (const [key, raw] of Object.entries(managed)) {
 		if (typeof raw !== 'string') continue;
 		if (raw.includes('[[')) {
-			noteAll(raw, OMIT_REASONS.links);
+			// `[[{column}]]` is written verbatim, so taking the brackets off gives the
+			// value back exactly. Anything more built up than that stays omitted.
+			const inner = /^\[\[(.*)\]\]$/.exec(raw)?.[1];
+			const bare = inner !== undefined && !inner.includes('[[') && !inner.includes(']]') ? bareColumn(inner) : undefined;
+			if (bare?.ok) addSource(bare.column, { kind: 'property', key, link: true });
+			else noteAll(raw, OMIT_REASONS.links);
 			continue;
 		}
 		const bare = bareColumn(raw);
 		if (bare.ok) addSource(bare.column, { kind: 'property', key });
 		else noteAll(raw, bare.reason);
 	}
-	for (const template of templatesUnder(frontmatter.managed_links)) noteAll(template, OMIT_REASONS.links);
+	// A link array whose template is one bare column was split on its delimiters
+	// and each piece bracketed. Unbracketing the items and joining them with the
+	// first delimiter gives a cell that re-imports to the same links.
+	const managedLinks = (frontmatter.managed_links ?? {}) as Record<string, unknown>;
+	for (const [key, spec] of Object.entries(managedLinks)) {
+		const s = (spec ?? {}) as { template?: unknown; split?: unknown };
+		if (typeof s.template !== 'string') {
+			for (const template of templatesUnder(spec)) noteAll(template, OMIT_REASONS.links);
+			continue;
+		}
+		const bare = s.template.includes('[[') ? undefined : bareColumn(s.template);
+		if (bare?.ok) {
+			const split = Array.isArray(s.split) && typeof s.split[0] === 'string' ? s.split[0] : ',';
+			addSource(bare.column, { kind: 'property', key, link: true, joiner: split });
+		} else noteAll(s.template, OMIT_REASONS.links);
+	}
 
 	// Body projections. A section is exact only when nothing that could run on
 	// into it follows (the next projection is absent or is itself a section).
@@ -402,10 +423,17 @@ export interface CellResult {
 	fromName: boolean;
 }
 
-function joinValue(v: unknown): string {
+function joinValue(v: unknown, link = false, joiner = '|'): string {
 	if (v === undefined || v === null) return '';
-	if (Array.isArray(v)) return v.map((x) => String(x)).join('|');
-	return String(v);
+	const one = (x: unknown) => (link ? unlink(String(x)) : String(x));
+	if (Array.isArray(v)) return v.map(one).join(joiner);
+	return one(v);
+}
+
+/** `[[target]]` or `[[target|alias]]` back to `target`. Anything else is returned as is. */
+function unlink(text: string): string {
+	const m = /^\[\[([^\]|]*)(?:\|[^\]]*)?\]\]$/.exec(text.trim());
+	return m ? m[1] : text;
 }
 
 /** The `_crosswalker.layout_values` stamp, grouped by level. */
@@ -464,8 +492,8 @@ export function inverseCell(
 	const kinds = (k: ColumnSource['kind']) => plan.sources.filter((s) => s.kind === k);
 
 	for (const s of kinds('property')) {
-		const key = (s as { key: string }).key;
-		return { value: joinValue(note.frontmatter[key]), fromName: false };
+		const { key, link, joiner } = s as Extract<ColumnSource, { kind: 'property' }>;
+		return { value: joinValue(note.frontmatter[key], link === true, joiner), fromName: false };
 	}
 	if (body) {
 		for (const s of kinds('section')) {
