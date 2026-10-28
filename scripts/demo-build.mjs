@@ -35,14 +35,15 @@ const START_HERE = 'Start here.md';
 export const RESTRICTED = /(_licensed|\bcri\b|cri-profile|iso[-_ ]?27|\biso\b|soc[-_ ]?2|\bpci\b|\bcis\b|cis-controls|\bscf\b)/i;
 
 const FRAMEWORKS = [
-	{ key: 'csf', label: 'NIST CSF 2.0 (Govern and Identify functions)', source: 'tools/fixtures/realistic/nist-csf-2.0-govern-identify.csv', ontology: 'nist-csf-2', destination: 'Frameworks/NIST-CSF-2.0' },
-	{ key: 'sp80053', label: 'NIST SP 800-53 Rev. 5 (Access Control family)', source: 'tools/fixtures/realistic/nist-800-53-ac-family.csv', ontology: 'nist-800-53', destination: 'Frameworks/NIST-SP-800-53-r5' },
-	{ key: 'attack', label: 'MITRE ATT&CK (Persistence techniques)', source: 'tools/fixtures/realistic/mitre-attack-persistence-subset.csv', ontology: 'mitre-attack', destination: 'Frameworks/MITRE-ATT&CK' },
+	// The full public NIST catalogs, so every CSF to 800-53 link lands on two real notes.
+	{ key: 'csf', label: 'NIST CSF 2.0', source: 'Frameworks/csf2.xlsx', how: ['--recipe', 'recipes/import/nist-csf-2.json', '--sheet', 'CSF 2.0', '--header-row', '2'], destination: 'Frameworks/NIST-CSF-2.0' },
+	{ key: 'sp80053', label: 'NIST SP 800-53 Rev. 5', source: 'Frameworks/NIST_SP-800-53_rev5_catalog_load.csv', how: ['--recipe', 'recipes/import/nist-800-53-flat.json'], destination: 'Frameworks/NIST-SP-800-53-r5' },
+	{ key: 'attack', label: 'MITRE ATT&CK (Persistence techniques)', source: 'tools/fixtures/realistic/mitre-attack-persistence-subset.csv', how: ['--ontology', 'mitre-attack'], destination: 'Frameworks/MITRE-ATT&CK' },
 ];
 
 const MAPPINGS = [
 	{ key: 'csfTo80053', label: 'NIST CSF 2.0 to SP 800-53', source: 'recipes/import/crosswalks/nist-csf-2-to-nist-800-53.sssom.tsv', destination: '_crosswalker/mappings/csf-to-800-53' },
-	{ key: 'csfToAttack', label: 'NIST CSF to MITRE ATT&CK', source: 'tools/fixtures/realistic/nist-csf-to-mitre-attack.sssom.tsv', destination: '_crosswalker/mappings/csf-to-mitre' },
+	{ key: 'csfToAttack', label: 'NIST CSF 2.0 to MITRE ATT&CK', source: 'tools/fixtures/demo/nist-csf-2-to-mitre-attack.sssom.tsv', destination: '_crosswalker/mappings/csf-to-mitre' },
 ];
 
 const EVIDENCE_LINKS = 'tools/fixtures/demo/evidence-links.csv';
@@ -153,7 +154,7 @@ function startHere(frameworks, mappings) {
 	const lines = [
 		'# Start here',
 		'',
-		'This vault was built by Crosswalker from public sample data. It shows several security frameworks side by side, the links between them, and evidence attached to controls.',
+		'This vault was built by Crosswalker from public data. It holds the full NIST CSF 2.0 and NIST SP 800-53 Rev. 5 catalogs, a sample of MITRE techniques, the links between them, and evidence attached to controls.',
 		'',
 		'## What is in it',
 		'',
@@ -164,13 +165,14 @@ function startHere(frameworks, mappings) {
 		'',
 		'## Try this',
 		'',
-		'1. Open `Frameworks/NIST-SP-800-53-r5/AC/AC-2.md`. Its properties and links come straight from the source spreadsheet.',
-		'2. Open `Queries/Approved evidence by control.base`. Three evidence links are approved; two are still waiting for review.',
-		'3. Open an evidence link in `Evidence/Junctions` and set `status` to `approved`. The query picks it up. Importing the evidence spreadsheet again keeps your review fields.',
+		'1. Open `Frameworks/NIST-CSF-2.0/PR.AA-01.md` and look at its backlinks. Each one is a link note to a SP 800-53 control or a MITRE technique, and both ends open a real note.',
+		'2. Open `Frameworks/NIST-SP-800-53-r5/AC-2.md`. Its properties come straight from the NIST catalog spreadsheet.',
+		'3. Open `Queries/Approved evidence by control.base`. Three evidence links are approved; two are still waiting for review.',
+		'4. Open an evidence link in `Evidence/Junctions` and set `status` to `approved`. The query picks it up. Importing the evidence spreadsheet again keeps your review fields.',
 		'',
 		'## What is only partly here',
 		'',
-		'The frameworks are small samples so the vault stays quick to open. The link files are complete, so many links point at controls that are not in this vault. Those links are kept and show up as unresolved until the full framework is imported.',
+		'The MITRE techniques and the CSF to ATT&CK links are small synthetic samples, so read them as a shape, not as coverage. A few CSF to 800-53 links name a whole control family or CSF category rather than one control, or a control newer than the catalog here. The catalogs have no note for those ids, so those links stay unresolved.',
 		'',
 		'## How it was built',
 		'',
@@ -209,7 +211,7 @@ function main() {
 	const sets = {};
 	for (const f of FRAMEWORKS) {
 		checkSource(f.source);
-		sets[f.key] = step(out, f.label, ['import', '--source', f.source, '--ontology', f.ontology, '--destination', f.destination, '--deterministic']);
+		sets[f.key] = step(out, f.label, ['import', '--source', f.source, ...f.how, '--destination', f.destination, '--deterministic']);
 	}
 	for (const m of MAPPINGS) {
 		checkSource(m.source);
