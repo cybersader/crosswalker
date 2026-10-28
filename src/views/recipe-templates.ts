@@ -34,14 +34,16 @@
 const TEMPLATES: Record<string, string> = {
 	'nist-csf-coverage-matrix': `filters:
   and:
-    - file.inFolder("_crosswalker/mappings/csf-to-800-53")
-    - 'confidence >= {{confidence_threshold}}'
+{{#mapping_set}}    - 'note._crosswalker.import_set.id == "{{mapping_set}}"'
+    - 'kind == "crosswalk-edge"'
+{{/mapping_set}}{{^mapping_set}}    - file.inFolder("_crosswalker/mappings/csf-to-800-53")
+{{/mapping_set}}    - 'confidence >= {{confidence_threshold}}'
     - or:
         - predicate_modifier.isEmpty()
         - 'predicate_modifier != "NOT"'
 views:
   - type: crosswalker-pivot
-    name: "NIST CSF → 800-53 coverage matrix"
+    name: "{{#mapping_set}}Mapping coverage matrix{{/mapping_set}}{{^mapping_set}}NIST CSF → 800-53 coverage matrix{{/mapping_set}}"
     config:
       rowsBy: "subject_id"
       colsBy: "object_id"
@@ -51,15 +53,17 @@ views:
 
 	'nist-csf-to-mitre-coverage': `filters:
   and:
-    - file.inFolder("_crosswalker/mappings/csf-to-mitre")
-    - 'confidence >= {{confidence_threshold}}'
+{{#mapping_set}}    - 'note._crosswalker.import_set.id == "{{mapping_set}}"'
+    - 'kind == "crosswalk-edge"'
+{{/mapping_set}}{{^mapping_set}}    - file.inFolder("_crosswalker/mappings/csf-to-mitre")
+{{/mapping_set}}    - 'confidence >= {{confidence_threshold}}'
     - or:
         - predicate_modifier.isEmpty()
         - 'predicate_modifier != "NOT"'
 {{#tactic_filter}}    - 'tactic == "{{tactic_filter}}"'
 {{/tactic_filter}}views:
   - type: crosswalker-pivot
-    name: "NIST CSF → MITRE ATT&CK coverage"
+    name: "{{#mapping_set}}Mapping coverage matrix by tactic{{/mapping_set}}{{^mapping_set}}NIST CSF → MITRE ATT&CK coverage{{/mapping_set}}"
     config:
       rowsBy: "subject_id"
       colsBy: "object_id"
@@ -67,9 +71,16 @@ views:
       empty: "gap"
       heatmap: true`,
 
+	// Spans every mapping set, so it selects mapping notes by identity (every
+	// crosswalk edge carries kind: crosswalk-edge, whichever writer made it),
+	// not by the demo folder it used to name. It has no set param, so a saved
+	// query regenerates with this filter. That is the one deliberate exception
+	// to byte-identical regeneration: the old folder filter found nothing outside
+	// the demo vault, and the release record note (kind: mapping-set) that sits
+	// beside the edges is no longer counted as a mapping.
 	'crosswalk-density-by-framework': `filters:
   and:
-    - file.inFolder("_crosswalker/mappings")
+    - 'kind == "crosswalk-edge"'
     - or:
         - predicate_modifier.isEmpty()
         - 'predicate_modifier != "NOT"'
@@ -112,31 +123,40 @@ views:
     summaries:
       subject: Count`,
 
+	// TODO: a default wizard import turns a family column into a folder level and writes no family property, so family_filter matches nothing there.
 	'controls-by-family-list': `filters:
   and:
-    - file.inFolder("Frameworks/CIS-Controls-v8")
-{{#family_filter}}    - 'family == "{{family_filter}}"'
+{{#framework_set}}    - 'note._crosswalker.import_set.id == "{{framework_set}}"'
+{{/framework_set}}{{^framework_set}}    - file.inFolder("Frameworks/CIS-Controls-v8")
+{{/framework_set}}{{#family_filter}}    - 'family == "{{family_filter}}"'
 {{/family_filter}}views:
   - type: list
-    name: "CIS Controls by family"
+    name: "{{#framework_set}}Controls by family{{/framework_set}}{{^framework_set}}CIS Controls by family{{/framework_set}}"
     order:
       - family
       - id`,
 
 	'skos-hierarchy-narrower': `filters:
   and:
-    - file.inFolder("Frameworks/MITRE-ATT&CK")
-views:
+{{#framework_set}}    - 'note._crosswalker.import_set.id == "{{framework_set}}"'
+{{/framework_set}}{{^framework_set}}    - file.inFolder("Frameworks/MITRE-ATT&CK")
+{{/framework_set}}views:
   # Hierarchy renderer ships in v0.1.7-v0.1.8 — Bases falls back to
   # table view until then. The data + structure are correct; only the
   # custom visualization is "renderer coming soon".
-  - type: table
+{{#framework_set}}  - type: table
+    name: "Framework hierarchy"
+    order:
+      - file.folder
+      - parent
+      - file.name
+{{/framework_set}}{{^framework_set}}  - type: table
     name: "MITRE ATT&CK tactic → technique hierarchy"
     order:
       - tactic
       - parent
       - id
-      - title`,
+      - title{{/framework_set}}`,
 };
 
 /**
@@ -151,6 +171,10 @@ export function getRecipeTemplate(recipeId: string): string | null {
  *   - Simple substitution: `{{name}}` → params[name]
  *   - Section conditional: `{{#name}}...{{/name}}` → block content only if
  *     params[name] is truthy (non-empty string, non-zero number, true)
+ *   - Inverted section: `{{^name}}...{{/name}}` → block content only if
+ *     params[name] is NOT truthy. Templates pair the two so a saved query
+ *     whose params predate a new param (e.g. the chosen set) regenerates
+ *     byte-identically to the template it was created from.
  *
  * Unknown params in the template (no value in `params`) substitute as empty
  * string — the picker's UI should ensure all params have at least their
@@ -165,25 +189,27 @@ export function renderRecipeTemplate(
 	return interpolate(template, params);
 }
 
-function interpolate(template: string, params: Record<string, unknown>): string {
-	let out = template;
-
-	// 1. Section conditionals: {{#name}}...{{/name}}
-	//    Block content only renders if params[name] is truthy.
-	out = out.replace(/\{\{#([\w_]+)\}\}([\s\S]*?)\{\{\/\1\}\}/g, (_match, name, block) => {
-		const v = params[name];
-		const truthy =
-			(typeof v === 'string' && v.length > 0) ||
-			(typeof v === 'number' && v !== 0) ||
-			(typeof v === 'boolean' && v) ||
-			(Array.isArray(v) && v.length > 0);
-		return truthy ? interpolatePlain(block, params) : '';
-	});
-
+export function interpolate(template: string, params: Record<string, unknown>): string {
+	// 1. Sections: {{#name}}...{{/name}} renders when params[name] is truthy,
+	//    {{^name}}...{{/name}} when it is not. Blocks may nest other names.
 	// 2. Plain substitutions: {{name}}
-	out = interpolatePlain(out, params);
+	return interpolatePlain(renderSections(template, params), params);
+}
 
-	return out;
+function renderSections(s: string, params: Record<string, unknown>): string {
+	return s.replace(/\{\{([#^])([\w_]+)\}\}([\s\S]*?)\{\{\/\2\}\}/g, (_match, sigil: string, name: string, block: string) => {
+		const show = sigil === '#' ? isTruthy(params[name]) : !isTruthy(params[name]);
+		return show ? renderSections(block, params) : '';
+	});
+}
+
+function isTruthy(v: unknown): boolean {
+	return (
+		(typeof v === 'string' && v.length > 0) ||
+		(typeof v === 'number' && v !== 0) ||
+		(typeof v === 'boolean' && v) ||
+		(Array.isArray(v) && v.length > 0)
+	);
 }
 
 function interpolatePlain(s: string, params: Record<string, unknown>): string {

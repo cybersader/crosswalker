@@ -904,7 +904,11 @@ export interface QueryViewOptions {
 	[k: string]: unknown;
 }
 export interface QueryParam {
-	type: 'string' | 'number' | 'boolean' | 'date' | 'concept' | 'ontology';
+	type: 'string' | 'number' | 'boolean' | 'date' | 'concept' | 'ontology' | 'import-set';
+	/**
+	 * Only with type import-set (additive SchemaVer 1.19.0). Which imported sets the parameter offers: 'framework' sets of concept notes, or 'mapping' sets of relationship notes (crosswalk edges, junctions). The value is the chosen set's minted import set id; templates filter on _crosswalker.import_set.id, never on a folder path.
+	 */
+	kind?: 'framework' | 'mapping';
 	default?: unknown;
 	required?: boolean;
 	description?: string;

@@ -1,6 +1,11 @@
 module.exports = {
   testEnvironment: 'jsdom',
   testMatch: ["**/tests/**/*.test.ts"],
+  // Agent worktrees live under .claude/worktrees/ inside the checkout; without
+  // this, a run here also executes another branch's tests against this branch's
+  // spec files and fails on the mismatch.
+  testPathIgnorePatterns: ["/node_modules/", "<rootDir>/.claude/"],
+  modulePathIgnorePatterns: ["<rootDir>/.claude/"],
   collectCoverage: false,
   transform: {
     '^.+\\.ts$': 'ts-jest',

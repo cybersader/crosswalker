@@ -41,8 +41,8 @@
   "query": {
     "version": "1.0.0",
     "id": "nist-csf-coverage-matrix",
-    "title": "NIST CSF -> 800-53 coverage matrix",
-    "description": "Pivot view: CSF subcategories on rows, 800-53 controls on cols, count of mappings in cells. The launch-market Coverage Matrix recipe per Settled #2.",
+    "title": "Mapping coverage matrix",
+    "description": "Pivot of one mapping set: source concepts on rows, target concepts on columns, the number of mappings in each cell. Gaps show where nothing maps.",
     "shape": "pivot",
     "primitives": {
       "from": "nist-olir",
@@ -66,6 +66,11 @@
       }
     },
     "params": {
+      "mapping_set": {
+        "type": "import-set",
+        "kind": "mapping",
+        "description": "The mapping set to show. Choose one of the crosswalks you imported."
+      },
       "confidence_threshold": {
         "type": "number",
         "default": 0.7,
