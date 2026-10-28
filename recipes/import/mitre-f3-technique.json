@@ -1,0 +1,48 @@
+{
+  "$comment": "PURPOSE AND SHAPE: Imports the MITRE Fight Fraud Framework (F3) techniques sheet as one flat note per technique, named by its technique id. F3 is published by the MITRE Center for Threat-Informed Defense under the Apache License 2.0 at https://github.com/center-for-threat-informed-defense/fight-fraud-framework (public/f3-excel-v1.2.xlsx). SOURCE BINDING: the workbook's first sheet, `Techniques`, with headers Technique ID, Technique, Description, Tactic ID, Tactic Name, Added Date, Modified Date (138 data rows in the v1.2 data files, checked 2026-10-27). The second sheet, `Tactics` (Tactic ID, Tactic Name, Tactic Description), is a different shape and does not match this recipe. MULTI-TACTIC: a technique can sit under several tactics; the sheet encodes that as a comma-plus-space list in ONE cell, in parallel in both tactic columns (for example `TA0001, TA0002, FA0001` beside `Initial Access, Execution, Positioning`). 41 of 138 rows carry more than one tactic. This follows the ATT&CK recipe exactly: {<column>|optional|split(,)} emits a real YAML list (split trims each item), so Bases facets on tactics rather than matching substrings. IDENTIFIERS: F3-new techniques use F1xxx ids (sub-techniques dotted, F1002.001); 46 rows reuse ATT&CK technique ids (T1xxx) verbatim, and 6 of the 8 tactics reuse ATT&CK tactic ids (TA00xx) while the 2 F3-new tactics use FA ids. Notes are still minted under the mitre-f3 ontology: whether a reused T id should resolve to the same concept identity as the ATT&CK import is an open question (2026-10-27 log), not something this recipe decides. KNOWN GAP (no parent link): the sheet has no sub-technique-of column, and the closed filter set cannot derive one without self-referencing every top-level technique ({Technique ID|split(.,0)} returns F1001 for F1001), so no parent wikilink is emitted. DELIBERATELY DROPPED: Added Date and Modified Date are populated on only a handful of rows in v1.2 and arrive as spreadsheet-formatted text the filter set cannot normalize to ISO dates; source drift is tracked by _crosswalker.concept_cid instead. BODY: Description is prose and goes in a Description section, not a property. RIGHTS: Apache License 2.0 permits redistribution with attribution and a pointer to the licence, so the final body projection appends MITRE's notice and the licence link to every note.",
+  "recipe": "mitre-f3-technique-flat",
+  "source": {
+    "ontology": "mitre-f3",
+    "levels": [
+      "technique"
+    ]
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "technique",
+        "mechanism": "file",
+        "template": "{Technique ID|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "frontmatter": {
+        "managed": {
+          "title": "{Technique|trim}",
+          "technique_id": "{Technique ID|trim}",
+          "tactic_ids": "{Tactic ID|optional|split(,)}",
+          "tactics": "{Tactic Name|optional|split(,)}"
+        },
+        "user_preserve": [
+          "reviewer",
+          "status",
+          "notes"
+        ]
+      },
+      "body": [
+        {
+          "template": "{Description|trim}",
+          "position": "section",
+          "heading": "Description",
+          "heading_depth": 2,
+          "format": "text"
+        },
+        {
+          "template": "© 2026 MITRE. MITRE Fight Fraud Framework (F3), licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0. Source: https://github.com/center-for-threat-informed-defense/fight-fraud-framework",
+          "position": "append",
+          "format": "quote"
+        }
+      ]
+    }
+  }
+}

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: MITRE Fight Fraud Framework (F3) (2026-10-27)
+
+- **What a user gets.** The `Techniques` sheet of MITRE's F3 Excel file (`f3-excel-v1.2.xlsx`) is now a one-click recognized source. It imports as one note per technique, named by its id, with tactic ids and tactic names as real lists. A technique under several tactics lists them all, so a Bases view can facet on one tactic. The description goes in the body, and every note carries MITRE's Apache 2.0 notice.
+- **Pieces.** Recipe `recipes/import/mitre-f3-technique.json` (`mitre-f3-technique-flat`), a registry entry under the `mitre-f3` ontology with source guidance, a synthetic fixture (`tools/fixtures/synthetic/mitre-f3-mini.csv`), and `tests/mitre-f3-recipe.test.ts`. The bundled stack presets are unchanged.
+- **Kept apart from ATT&CK.** F3 reuses 46 ATT&CK technique ids and 6 ATT&CK tactic ids (source: v1.2 data files, checked 2026-10-27). Recognition is pinned both ways, so an F3 sheet is not taken for ATT&CK and an ATT&CK sheet is not taken for F3. Whether a shared id should resolve to the same concept is an open question in the [2026-10-27 F3 log](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-27-mitre-f3-added/).
+- **Docs.** F3 is listed beside ATT&CK, D3FEND, and ENGAGE across the framework, registry, and getting-started pages, with a full section in [framework data sources](https://cybersader.github.io/crosswalker/reference/framework-data-sources/#mitre-fight-fraud-framework-f3).
+- **Verified.** Unit tests on the synthetic fixture. A local run against the publisher's v1.2 file recognized the sheet at a score of 100 and rendered 138 unique notes, 41 with more than one tactic, with no id and name list length mismatches.
+
 ### Fixed: shipped queries target a set you choose, not demo folders (2026-10-27)
 
 - **What was wrong.** The shipped query templates ("Insert query" in the recipe picker) filtered on folders that exist only in the demo vault, such as `_crosswalker/mappings/csf-to-800-53` and `Frameworks/CIS-Controls-v8`. In any other vault the inserted view was empty, with no hint why.

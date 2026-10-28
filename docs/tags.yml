@@ -10,7 +10,7 @@ tags:
     color: "#2596be"
   frameworks-mitre:
     label: "MITRE"
-    description: "MITRE frameworks (ATT&CK, D3FEND, ENGAGE)"
+    description: "MITRE frameworks (ATT&CK, D3FEND, ENGAGE, F3)"
     color: "#2596be"
   frameworks-mapping:
     label: "Framework mapping"
