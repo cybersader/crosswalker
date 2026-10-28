@@ -13,7 +13,7 @@
       {
         "level": "evidence",
         "mechanism": "file",
-        "template": "Evidence/Junctions/jn-{subject|slug}-{object|slug}.md",
+        "template": "jn-{subject|slug}-{object|slug}.md",
         "kind": "junction-note"
       }
     ],

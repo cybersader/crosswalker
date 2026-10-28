@@ -248,6 +248,22 @@ describe('recognized recipes (D-3: reconcile, do not pick a winner)', () => {
 		expect(resolveDestinationDefault('Ontologies', 'evidence.csv', entry('evidence-junction-notes'))).toBe('Evidence/Junctions');
 	});
 
+	it('no shipped recipe names its own destination folder in its file template', () => {
+		// Templates are placed under the destination. The evidence recipe's template
+		// once repeated `Evidence/Junctions`, so a default import wrote to
+		// `Evidence/Junctions/Evidence/Junctions/`.
+		const doubled = RECIPE_REGISTRY.flatMap((e) => {
+			const folders = [e.suggestedFolder, recognizedDestination(e, 'Ontologies')]
+				.filter((f): f is string => !!f && f.includes('/'));
+			const layout = (e.recipe as { target?: { layout?: { template?: string }[] } }).target?.layout ?? [];
+			return layout
+				.map((step) => step.template ?? '')
+				.filter((t) => folders.some((f) => t.startsWith(`${f}/`)))
+				.map((t) => `${e.id}: ${t}`);
+		});
+		expect(doubled).toEqual([]);
+	});
+
 	it('the recognized card and the write path name the same folder', () => {
 		// The card in renderRecognizedCard and the accessor every write path reads
 		// must agree, or the wizard promises one folder and writes to another.

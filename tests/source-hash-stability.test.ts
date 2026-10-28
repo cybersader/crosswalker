@@ -20,8 +20,10 @@
  * exceptions are `cri-profile-v2-2.json`: Wave 2d deliberately moved its target
  * hash from sha256-3f44049e... to sha256-84e795b6... by declaring
  * `target.crosswalks`, and `crosswalk-edge.json`: optional source fields moved
- * its target hash from sha256-ed118a18... to sha256-b810f5af.... All other
- * pins remain at their baseline.
+ * its target hash from sha256-ed118a18... to sha256-b810f5af..., and
+ * `evidence-junction-notes.json`: its file template stopped repeating its own
+ * default destination folder, moving its target hash from sha256-99368af8...
+ * to sha256-e2f58e92.... All other pins remain at their baseline.
  *
  * Six shipped recipes have since adopted `source.where` to select their own
  * rows (SchemaVer 1.9.0), so their LIVE hash legitimately differs from the
@@ -142,6 +144,15 @@ describe('A1 — the source-stage code change moved no shipped recipe hash', () 
 		]);
 		expect(GOLDEN['recipes/import/cri-profile-v2-2.json']).toBe(
 			'sha256-84e795b6529a60615e9183f9e63aac43a991bc8f5a0f4b430ed80413bf7deaf7',
+		);
+	});
+
+	it('pins the evidence recipe hash move to its destination-relative template', () => {
+		const entry = recipes.find((r) => r.relPath === 'recipes/starter/evidence-junction-notes.json');
+		const layout = entry?.recipe.target.layout as { template?: string }[] | undefined;
+		expect(layout?.map((step) => step.template)).toEqual(['jn-{subject|slug}-{object|slug}.md']);
+		expect(GOLDEN['recipes/starter/evidence-junction-notes.json']).toBe(
+			'sha256-e2f58e928fd9b83bbad21ca657be80af72b07a6cef7ffd9dae31cf190ff5d83a',
 		);
 	});
 

@@ -222,9 +222,8 @@ function main() {
 		write(out, `Evidence/Documents/${name}.md`, `---\ntitle: ${name}\nkind: evidence-document\n---\n\n${body}\n`);
 	}
 	checkSource(EVIDENCE_LINKS);
-	// The evidence recipe's file template already names Evidence/Junctions, so the
-	// destination is the vault root.
-	sets.evidence = step(out, 'Evidence links', ['import', '--source', EVIDENCE_LINKS, '--recipe', 'evidence-junction-notes', '--destination', '.', '--deterministic']);
+	// No destination: the evidence recipe's own default is Evidence/Junctions.
+	sets.evidence = step(out, 'Evidence links', ['import', '--source', EVIDENCE_LINKS, '--recipe', 'evidence-junction-notes', '--deterministic']);
 	for (const file of APPROVED_LINKS) approve(out, file);
 
 	if (fs.existsSync(path.join(REPO, F3.source))) {
