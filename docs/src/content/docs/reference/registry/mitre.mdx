@@ -1,6 +1,6 @@
 ---
 title: MITRE
-description: MITRE Corporation — publishes ATT&CK, D3FEND, ENGAGE and funds the Center for Threat-Informed Defense.
+description: MITRE Corporation — publishes ATT&CK, D3FEND, ENGAGE, the Fight Fraud Framework (F3) and funds the Center for Threat-Informed Defense.
 tags: [frameworks, frameworks-mitre]
 volatility: stable
 sidebar:
@@ -19,6 +19,7 @@ date: 2026-04-04
 | [ATT&CK](/crosswalker/reference/framework-data-sources/#mitre-attck-enterprise) | Adversary tactics & techniques (200+) | Biannual, STIX changelogs |
 | [D3FEND](/crosswalker/reference/framework-data-sources/#mitre-d3fend) | Defensive countermeasures | Continuous |
 | [ENGAGE](/crosswalker/reference/framework-data-sources/#mitre-engage) | Cyber denial & deception | Ad-hoc |
+| [F3](/crosswalker/reference/framework-data-sources/#mitre-fight-fraud-framework-f3) (Fight Fraud Framework) | Fraud adversary tactics & techniques for financial services; reuses some ATT&CK ids. Published through CTID | Changelog in the repository; no release tags |
 
 Funds [CTID](/crosswalker/reference/registry/ctid/) via MITRE Engenuity.
 
@@ -26,8 +27,11 @@ Funds [CTID](/crosswalker/reference/registry/ctid/) via MITRE Engenuity.
 
 ATT&CK is the versioning gold standard — STIX 2.1 JSON with `revoked-by` deprecation chains. The [EvolutionPattern](/crosswalker/agent-context/zz-log/2026-04-03-evolution-pattern-taxonomy-draft/): `biannual`, `rare` breaking, `evolving` IDs, `structured_complete` changelog.
 
+F3 has a bundled recognized-source recipe (`mitre-f3-technique-flat`). It shares technique ids with ATT&CK, so a vault holding both can contain two notes for one id string; see the [2026-10-27 log](/crosswalker/agent-context/zz-log/2026-10-27-mitre-f3-added/).
+
 ## Links
 
 - [attack.mitre.org](https://attack.mitre.org/)
 - [d3fend.mitre.org](https://d3fend.mitre.org/)
+- [MITRE Fight Fraud Framework (F3)](https://ctid.mitre.org/fightfraud)
 - [Framework versioning: ATT&CK](/crosswalker/concepts/framework-versioning/#mitre-attck--the-gold-standard)

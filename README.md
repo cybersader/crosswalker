@@ -67,7 +67,7 @@ The same source can land as a deep folder tree, a single document with nested he
 
 | | Feature | Details |
 |---|---|---|
-| :zap: | **Import workspace** | A dedicated workspace tab walks you from file to review screen; recognized sources get a one-click fast path — NIST CSF 2.0, NIST SP 800-53 Rev 5, CIS Controls v8, MITRE ATT&CK techniques, CRI Profile 2.2, SCF 2026, and OLIR-style crosswalk files — and everything else goes through guided column mapping or a live shape-mapping workbench (beta) |
+| :zap: | **Import workspace** | A dedicated workspace tab walks you from file to review screen; recognized sources get a one-click fast path — NIST CSF 2.0, NIST SP 800-53 Rev 5, CIS Controls v8, MITRE ATT&CK techniques, MITRE Fight Fraud Framework (F3) techniques, CRI Profile 2.2, SCF 2026, and OLIR-style crosswalk files — and everything else goes through guided column mapping or a live shape-mapping workbench (beta) |
 | :bar_chart: | **Smart parsing** | CSV, XLSX, and JSON sources — CSV streaming for files over 5 MB, column type auto-detection |
 | :file_folder: | **Flexible layouts** | Combine folders, headings, tags, and WikiLinks in one set of import rules. The same source can produce a deep folder tree, a flat tag-indexed collection, or a hybrid |
 | :link: | **Typed links** | WikiLinks with metadata for crosswalk relationships and evidence links. Capture not just "AC-2 maps to ISO A.9.2.1" but how, by whom, and how complete |

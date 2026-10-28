@@ -100,6 +100,7 @@ import nistCsf2CprtHierarchical from '../../recipes/import/nist-csf-2-cprt-hiera
 import nistCsf2Cprt from '../../recipes/import/nist-csf-2-cprt.json';
 import nistCsf2Flat from '../../recipes/import/nist-csf-2.json';
 import mitreAttackTechnique from '../../recipes/import/mitre-attack-technique.json';
+import mitreF3Technique from '../../recipes/import/mitre-f3-technique.json';
 import cisControlsV8Controls from '../../recipes/import/cis-controls-v8-controls.json';
 import cisControlsV8Flat from '../../recipes/import/cis-controls-v8.json';
 import scf2026Flat from '../../recipes/import/scf-2026-flat.json';
@@ -416,6 +417,23 @@ const DEFAULTS: Record<
 				'Grouping techniques by tactic (kill-chain phase) is the single most useful ATT&CK facet. Facet hub notes stay off, but the reasoning below is no longer why: as of 2026-08-26 the recipe binds the ATT&CK xlsx, which ships explicit clean `tactics` and `sub-technique of` columns, so the recipe now emits a `tactics` property and a real `parent` wikilink (453 of 656 techniques). The former blockers -- no tactic column in the STIX shape, and a naive prefix split self-referencing top-level techniques -- no longer apply. What still argues against hub notes is that a technique can carry several tactics and the grammar has no split-into-plain-array, so `tactics` lands as a comma-joined scalar rather than a facetable list.',
 		},
 	},
+	'mitre-f3-technique-flat': {
+		label: 'MITRE Fight Fraud Framework (F3) techniques',
+		description: 'Each fraud technique becomes a note keyed by its technique id, with its tactics as a list.',
+		suggestedFolder: 'Frameworks/MITRE F3',
+		// Declared after ATT&CK, whose broader 'MITRE' alias wins first for a header naming both.
+		ontologyAliases: ['Fight Fraud', 'F3'],
+		// F-prefixed ids only. F3 also reuses ATT&CK T ids verbatim; those keep resolving to ATT&CK,
+		// which is declared first. Whether a reused id is the same concept is an open question.
+		idPattern: '^F\\d{4}(\\.\\d{3})?$',
+		recommendedEnrichment: {
+			childrenLists: false,
+			facetNotes: 'notes',
+			facetField: 'tactics',
+			rationale:
+				'Eight tactics, two of them fraud-specific (Positioning, Monetization), make a clean, small facet, and the recipe already emits `tactics` as a real list. Not turned on: tactic hub notes would be the first facet-notes pass against a bundled recipe, the same reason ATT&CK leaves it off.',
+		},
+	},
 	'cis-controls-v8-controls': {
 		label: 'CIS Controls v8 (controls)',
 		description: 'Each CIS control becomes a note with its title and description.',
@@ -580,6 +598,14 @@ const SOURCE_GUIDANCE: Record<
 			note: 'Use the Excel export, not the STIX bundle.',
 		},
 		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#mitre-attck-enterprise`,
+	},
+	'mitre-f3-technique-flat': {
+		sourceLink: {
+			label: 'Get the F3 Excel export from MITRE',
+			url: 'https://github.com/center-for-threat-informed-defense/fight-fraud-framework',
+			note: 'Use the Techniques sheet of the Excel file in the public folder.',
+		},
+		docsUrl: `${FRAMEWORK_DATA_SOURCES_URL}#mitre-fight-fraud-framework-f3`,
 	},
 	'cis-controls-v8-controls': {
 		sourceLink: {
@@ -752,6 +778,7 @@ export const RECIPE_REGISTRY: RecipeRegistryEntry[] = [
 	toEntry(nistCsf2Cprt),
 	toEntry(nistCsf2Flat),
 	toEntry(mitreAttackTechnique),
+	toEntry(mitreF3Technique),
 	toEntry(cisControlsV8Controls),
 	toEntry(cisControlsV8Flat),
 	toEntry(scf2026Flat),

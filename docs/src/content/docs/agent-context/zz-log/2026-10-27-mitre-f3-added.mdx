@@ -1,0 +1,85 @@
+---
+title: "MITRE Fight Fraud Framework (F3) added as a recognized source"
+description: "The owner asked for MITRE's Fight Fraud Framework (F3) across the knowledge base and wherever else it applies. F3 is now a one-click recognized import with a bundled recipe, and the framework pages list it. Records how F3 reuses ATT&CK ids and leaves open whether a shared id should resolve to the same concept."
+tags: [log, frameworks-mitre, import, recipes, identity]
+date: 2026-10-27
+sidebar:
+  label: "10-27 · MITRE F3 added"
+  order: -20261027.1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="What this page is">
+A **delivery record** for a short-term addition, not an architectural decision. It records what was added for the MITRE Fight Fraud Framework (F3) and one question it raises that is deliberately left open.
+</Aside>
+
+## 1. The request
+
+On 2026-10-27 the owner asked to add F3 from MITRE in the short term "to everything in the KB and wherever else applicable". The intent is coverage: F3 should appear wherever its sibling MITRE frameworks appear, and it should import with the same one-click head start that ATT&CK gets.
+
+## 2. What F3 is
+
+F3 is a catalogue of the tactics and techniques fraud adversaries use against financial institutions. MITRE publishes it through the [Center for Threat-Informed Defense](/crosswalker/reference/registry/ctid/) under the Apache License 2.0, at [ctid.mitre.org/fightfraud](https://ctid.mitre.org/fightfraud), with data files in the [F3 repository](https://github.com/center-for-threat-informed-defense/fight-fraud-framework) (Excel, JSON, STIX, and a Navigator layer). It follows the [ATT&CK](/crosswalker/reference/framework-data-sources/#mitre-attck-enterprise) model: tactics, techniques, and dotted sub-techniques, with one technique allowed under several tactics.
+
+F3 describes adversary behaviour only. It publishes no defensive controls or mitigations, so today it is a source framework to import and query, not a crosswalk target for a control catalogue.
+
+## 3. What was added
+
+| Where | What |
+|---|---|
+| `recipes/import/mitre-f3-technique.json` | Bundled recipe `mitre-f3-technique-flat`: one flat note per technique, named by its id; tactic ids and names as real lists; the description in the body; MITRE's licence notice appended |
+| `src/import/recipe-registry.ts` | Registry entry under the `mitre-f3` ontology, with source guidance pointing at the data-sources section. The bundled stack presets are unchanged, because adding F3 there would change which sources an existing stack selects |
+| `tools/fixtures/synthetic/mitre-f3-mini.csv`, `tests/mitre-f3-recipe.test.ts` | Synthetic fixture with invented ids and names, and tests that pin recognition both ways (F3 is not taken for ATT&CK, and ATT&CK is not taken for F3) and the multi-tactic encoding |
+| [Framework data sources § F3](/crosswalker/reference/framework-data-sources/#mitre-fight-fraud-framework-f3) | Formats, the exact binding, the identifier scheme, and gotchas |
+| [MITRE](/crosswalker/reference/registry/mitre/), [CTID](/crosswalker/reference/registry/ctid/), [registry index](/crosswalker/reference/registry/) | F3 listed among MITRE outputs |
+| [Framework corpus](/crosswalker/reference/framework-corpus/), [framework landscape](/crosswalker/agent-context/framework-landscape/), [framework standards](/crosswalker/concepts/framework-standards/), [institutional landscape](/crosswalker/concepts/institutional-landscape/), [framework crosswalks](/crosswalker/agent-context/framework-crosswalks/) | F3 rows and subsections beside ATT&CK, D3FEND, and ENGAGE |
+| [Security and GRC teams](/crosswalker/getting-started/grc-teams/), `README.md` | F3 in the plain-language list of one-click sources |
+
+**How multi-tactic is encoded.** The `Techniques` sheet puts every tactic of a technique in one cell as a comma-plus-space list, in parallel in the `Tactic ID` and `Tactic Name` columns. The recipe splits both cells into lists, as the ATT&CK recipe does, so a Bases view can facet on a single tactic. Against the v1.2 Excel file, 41 of 138 techniques carry more than one tactic, and every row's id list and name list have the same length (source: a local recognize-and-render run, 2026-10-27).
+
+## 4. The ATT&CK overlap
+
+F3 does not mint all of its own ids. In the v1.2 data files (source: `f3-excel-v1.2.xlsx`, checked 2026-10-27):
+
+| Record | Count | Identifier |
+|---|---|---|
+| Techniques new to F3 | 92 | `F` ids, for example `F1002`, `F1002.001` |
+| Techniques reused from ATT&CK | 46 | ATT&CK `T` ids, unchanged |
+| Tactics reused from ATT&CK | 6 | ATT&CK `TA` ids |
+| Tactics new to F3 | 2 | `FA` ids (Positioning, Monetization) |
+
+The recipe mints every note under the `mitre-f3` ontology, which keeps an F3 import and an ATT&CK import apart in the vault and in the reporting database.
+
+## 5. Open question: should a shared id mean the same concept?
+
+<Aside type="caution" title="Not decided">
+This is an open question. Nothing in this delivery decides it.
+</Aside>
+
+When a vault holds both ATT&CK and F3, technique `T1566` exists twice: once as `mitre-attack:T1566` and once as `mitre-f3:T1566`. Should the F3 note for a reused T id resolve to the same [concept identity](/crosswalker/concepts/terminology/) as the ATT&CK note?
+
+| Option | What it gives | What it costs |
+|---|---|---|
+| Keep them separate (today's behaviour) | Each framework stays faithful to its publisher, release, and wording. Refresh and orphan handling stay per [import set](/crosswalker/concepts/terminology/) | A user sees two notes for one technique and must link them by hand to see ATT&CK coverage through F3 |
+| Resolve to one identity | One note per technique, and coverage carries over automatically | Two publishers' releases would write to one concept, which conflicts with the [import set ownership rules](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/) and with per-set refresh |
+| Keep them separate and emit an `exactMatch` crosswalk edge per reused id | Both faithful notes, plus a typed link a query can follow | Crosswalker would be publishing a mapping MITRE did not publish, so it needs its own provenance and review status |
+
+Questions an architect session should settle: whether a mechanical id match is evidence enough for a mapping, who the author of that mapping is, and whether a reused tactic id carries the same meaning when F3 applies it to fraud.
+
+## 6. Follow-ups
+
+- Settle the open question in §5 before anyone builds an F3-to-ATT&CK link.
+- F3 currently publishes adversary behaviours only, with no defensive controls or mitigations. If MITRE adds a controls layer, it becomes a crosswalk target (for example F3 controls to NIST 800-53) and this page should be revisited.
+- The F3 `Tactics` sheet has its own shape and is not a recognized source yet. A tactic-notes recipe would give tactic descriptions their own notes.
+- The sheet has no sub-technique-of column, so the recipe emits no parent link from a sub-technique to its technique. Adding one needs a filter that can derive a parent id without making top-level techniques point at themselves.
+- F3 tags no releases in its repository, so a refresh is tracked by content digest rather than by a published version tag.
+
+## Related
+
+- [Framework data sources § MITRE Fight Fraud Framework (F3)](/crosswalker/reference/framework-data-sources/#mitre-fight-fraud-framework-f3)
+- [MITRE](/crosswalker/reference/registry/mitre/) and [CTID](/crosswalker/reference/registry/ctid/) registry pages
+- [Framework crosswalks](/crosswalker/agent-context/framework-crosswalks/)
+- [Framework landscape](/crosswalker/agent-context/framework-landscape/)
+- [Terminology](/crosswalker/concepts/terminology/)
+- [What makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/)
