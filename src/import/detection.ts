@@ -591,8 +591,13 @@ export function detectStructure(
 	}
 
 	// id-like columns: mostly-unique value sets. Used as parent-column reference
-	// sets and to exclude id columns from facet/title proposals.
-	const idColumns = data.columns.filter((c) => (distinctnessByColumn.get(c) ?? 0) >= ID_DISTINCTNESS_MIN);
+	// sets and to exclude id columns from facet/title proposals. Ranked by how much
+	// their values look like identifiers, so a unique prose or title column that
+	// happens to come first never stands in for the real id column.
+	const idColumns = rankIdColumns(
+		data.columns.filter((c) => (distinctnessByColumn.get(c) ?? 0) >= ID_DISTINCTNESS_MIN),
+		valuesByColumn,
+	);
 	const idColumnSet = new Set(idColumns);
 
 	const rowCount = countRows(data, valuesByColumn);
@@ -1416,6 +1421,22 @@ function isIdLikeValue(value: string): boolean {
 	if (value === '' || /\s/.test(value)) return false;
 	if (!/[0-9]/.test(value)) return false; // a pure word is a predicate/facet, not an id
 	return ID_LIKE_RE.test(value);
+}
+
+/**
+ * Orders near-unique columns so the most identifier-shaped comes first: values
+ * without whitespace, then values matching the id pattern. Source order breaks
+ * ties. Column position alone says nothing about which column is the identity.
+ */
+function rankIdColumns(columns: string[], valuesByColumn: Map<string, string[]>): string[] {
+	const rate = (values: string[], test: (value: string) => boolean): number =>
+		values.length === 0 ? 0 : values.reduce((n, v) => (test(v) ? n + 1 : n), 0) / values.length;
+	const scored = columns.map((column, index) => {
+		const values = valuesByColumn.get(column) ?? [];
+		return { column, index, token: rate(values, (v) => !/\s/.test(v)), idShape: rate(values, isIdLikeValue) };
+	});
+	scored.sort((a, b) => b.token - a.token || b.idShape - a.idShape || a.index - b.index);
+	return scored.map((s) => s.column);
 }
 
 function isPredicateLikeValue(value: string): boolean {
