@@ -66,7 +66,7 @@ Make the portable parts of the import/export chain explicit without collapsing d
 - [x] Preserve recognized/fresh recipe identity, `crosswalk-edge` kind, opaque fields, and canonical body through workbench preview/generation
 - [x] Verify with rich fixture, codegen drift gate, unit suite, and real Obsidian E2E ([synthesis](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/))
 - [x] Settle the public UI term while retaining `ImportRecipe` as the machine-contract name (**recipe**; [Gate 2 record](/crosswalker/agent-context/zz-log/2026-10-02-recipe-library-gate-2-ratification/))
-- [x] Store canonical user configurations under `_crosswalker/import-recipes/` (moved from the sketched `_crosswalker/recipes/import/` so the query-recipe loader never reads them) without rebuilding them from the smaller workbench model
+- [x] Store canonical user configurations under `_crosswalker/import-recipes/` (moved from the sketched `_crosswalker/recipes/import/` so the query-recipe loader never reads them) without rebuilding them from the smaller workbench model. Each import also keeps the recipe it ran under `_crosswalker/import-sets/` (see CHANGELOG.md [Unreleased])
 - [x] Add save, reopen, browse, inspect, export, and delete UI; preserve identity, hash, ancestry, opaque fields, and portability blockers across the full lifecycle (library slice 2026-10-02; delivery detail in [CHANGELOG.md — Unreleased](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present))
 
 ### Track 2 — Source/run binding and exact replay

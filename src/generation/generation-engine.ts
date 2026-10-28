@@ -61,6 +61,7 @@ import { readNoteFrontmatterState, type NoteFrontmatterRead } from '../export/va
 import { buildProvenance } from './provenance';
 import { computeRecipeDocumentDigest } from './hash';
 import { normalizeRecipe } from '../import/recipe-document';
+import { IMPORT_SET_RECIPES_FOLDER, keepImportSetRecipe, vaultImportSetRecipeFiles } from '../import/import-set-recipes';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import { derivationOf, resolveImportSet, type ImportSetDerivation, type ImportSetOption, type ImportSetReference } from './import-set';
 import { SSSOM_CURIE_PREFIX, crosswalkEdgeCuriePrefix, sssomEdgeCurie } from './crosswalk-identity';
@@ -1271,6 +1272,11 @@ export async function generateNotes(
 			debug,
 		);
 
+		// Only the portable recipe path (recipeOverride) keeps a copy. The legacy
+		// column-mapping shim's recipe is rebuilt on every run and its notes export
+		// as properties only by design.
+		if (options.recipeOverride) await keepRunRecipe(app, recipe, importSet.id, result, debug);
+
 		// Final progress update
 		if (options.onProgress) {
 			options.onProgress(completed, total, 'Complete');
@@ -1852,6 +1858,50 @@ function recipeDocumentDigestFor(recipe: object): string | undefined {
  */
 function stampedRecipeDocumentDigest(recipe: object, options: { provenanceRecipe?: { recipeDocumentDigest?: string } }): string | undefined {
 	return options.provenanceRecipe ? options.provenanceRecipe.recipeDocumentDigest : recipeDocumentDigestFor(recipe);
+}
+
+/**
+ * Keep a copy of the exact recipe this run executed, under the import set it
+ * wrote into (see src/import/import-set-recipes.ts), so a recipe-aware CSV
+ * export can invert notes whose recipe was never saved, or was edited since.
+ * Keyed by the minted set id and the digest the notes carry, never by a path.
+ *
+ * Runs only when notes were written or kept: they are what carry the stamp the
+ * copy is looked up by. Never fails the import: a write failure becomes one
+ * warning that names the cause and the fix.
+ */
+async function keepRunRecipe(
+	app: App,
+	recipe: object,
+	importSetId: string | undefined,
+	result: GenerationResult,
+	debug?: DebugLog,
+): Promise<void> {
+	if (!importSetId) return;
+	if (result.created.length + result.upToDate.length + result.skipped.length === 0) return;
+	// No digest means the notes carry none either (a recipe that cannot be
+	// normalized stamps nothing), so there is no key a reader could look up.
+	const digest = recipeDocumentDigestFor(recipe);
+	if (!digest) return;
+	const files = vaultImportSetRecipeFiles(app);
+	if (!files) return;
+	const kept = await keepImportSetRecipe(
+		files,
+		importSetId,
+		recipe as unknown as CrosswalkerImportRecipe,
+		digest,
+	);
+	if (kept.ok) {
+		if (kept.outcome === 'skipped') debug?.warn('generation', 'run-recipe-skipped', `Run recipe copy skipped: ${kept.reason}`, { importSetId, digest });
+		return;
+	}
+	result.runRecipeKeepFailed = true;
+	result.warnings ??= [];
+	result.warnings.push({
+		row: 0,
+		message: `Crosswalker could not keep a copy of the recipe this import ran, so exporting these notes as CSV may give properties only. Check that the vault folder ${IMPORT_SET_RECIPES_FOLDER} is writable, then run the import again.`,
+	});
+	debug?.error('generation', 'run-recipe-keep-failed', 'Could not keep a copy of the run recipe', { path: kept.path, error: kept.error });
 }
 
 function buildNoteDataViaRender(
@@ -3920,6 +3970,11 @@ export async function generateFromRecipe(
 		result,
 		debug,
 	);
+
+	// A run stamping another recipe's identity (`provenanceRecipe`, the mapping
+	// conversion job) executes a transport variant, not the stamped recipe, so it
+	// has no copy to keep: the set's original import already kept one.
+	if (!options.provenanceRecipe) await keepRunRecipe(app, recipe, importSet.id, result, debug);
 
 	if (options.onProgress) options.onProgress(completed, total, 'Complete');
 	if (result.errors.length > 0) result.success = false;

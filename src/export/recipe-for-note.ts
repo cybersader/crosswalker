@@ -8,8 +8,12 @@
  * a recipe's columns look: two releases of one framework can sit side by side,
  * and a guess there exports the wrong columns without saying so.
  *
- * When the recipe cannot be found or is not the revision that wrote the note,
- * the note falls back to a frontmatter-only row and the reason is counted, so
+ * When the library has no such recipe, or holds a later revision of it, the
+ * copy the import kept under `_crosswalker/import-sets/<set id>/` is tried
+ * next, keyed by the note's import set id and digest. That covers recipes that
+ * were never saved and saved recipes edited after the run.
+ *
+ * When the recipe still cannot be found, the note falls back to a frontmatter-only row and the reason is counted, so
  * the export notice can say what happened and what to do.
  */
 
@@ -17,6 +21,7 @@ import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import { loadForImport, type RecipeLibraryFiles } from '../import/recipe-library';
 import { recipeRunDigest } from '../import/recipe-runs';
 import { LEGACY_RECIPE_ID_SENTINEL } from '../generation/legacy-recipe-shim';
+import { readImportSetRecipe } from '../import/import-set-recipes';
 
 /** Why a note exported without its recipe. */
 export type RecipeFallbackReason =
@@ -54,9 +59,15 @@ export const EMPTY_RECIPE_LIBRARY: RecipeLibraryFiles = {
 	},
 };
 
-function recipeStamp(frontmatter: Record<string, unknown>): { id?: string; digest?: string } {
+function recipeStamp(frontmatter: Record<string, unknown>): { id?: string; digest?: string; setId?: string } {
 	const provenance = frontmatter._crosswalker;
 	if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) return {};
+	const importSet = (provenance as Record<string, unknown>).import_set;
+	const setIdRaw =
+		importSet && typeof importSet === 'object' && !Array.isArray(importSet)
+			? (importSet as Record<string, unknown>).id
+			: undefined;
+	const setId = typeof setIdRaw === 'string' && setIdRaw !== '' ? setIdRaw : undefined;
 	const recipe = (provenance as Record<string, unknown>).recipe;
 	if (!recipe || typeof recipe !== 'object' || Array.isArray(recipe)) return {};
 	const r = recipe as Record<string, unknown>;
@@ -65,7 +76,7 @@ function recipeStamp(frontmatter: Record<string, unknown>): { id?: string; diges
 		typeof r.recipe_document_digest === 'string' && r.recipe_document_digest !== ''
 			? r.recipe_document_digest
 			: undefined;
-	return { id, digest };
+	return { id, digest, setId };
 }
 
 /**
@@ -74,6 +85,7 @@ function recipeStamp(frontmatter: Record<string, unknown>): { id?: string; diges
  */
 export class NoteRecipeResolver {
 	private readonly cache = new Map<string, Promise<NoteRecipe>>();
+	private readonly snapshots = new Map<string, Promise<CrosswalkerImportRecipe | null>>();
 	/** Fallback counts by reason, for the export notice. */
 	readonly fallbacks: Record<RecipeFallbackReason, number> = {
 		'no-recipe': 0,
@@ -90,15 +102,31 @@ export class NoteRecipeResolver {
 		return result;
 	}
 
-	private lookup(frontmatter: Record<string, unknown>): Promise<NoteRecipe> {
-		const { id, digest } = recipeStamp(frontmatter);
-		if (!id) return Promise.resolve({ ok: false, reason: 'no-recipe' });
-		if (id === LEGACY_RECIPE_ID_SENTINEL) return Promise.resolve({ ok: false, reason: 'legacy' });
+	private async lookup(frontmatter: Record<string, unknown>): Promise<NoteRecipe> {
+		const { id, digest, setId } = recipeStamp(frontmatter);
+		if (!id) return { ok: false, reason: 'no-recipe' };
+		if (id === LEGACY_RECIPE_ID_SENTINEL) return { ok: false, reason: 'legacy' };
 		const key = `${id}\u0000${digest ?? ''}`;
 		let pending = this.cache.get(key);
 		if (!pending) {
 			pending = this.load(id, digest, key);
 			this.cache.set(key, pending);
+		}
+		const found = await pending;
+		if (found.ok || !digest || !setId) return found;
+		// The library cannot supply this revision. The import kept the exact recipe
+		// it ran with its set, so try that copy before giving up.
+		const snapshot = await this.snapshot(setId, digest);
+		return snapshot ? { ok: true, id, recipe: snapshot, key } : found;
+	}
+
+	/** One read per (import set, digest), however many notes share it. */
+	private snapshot(setId: string, digest: string): Promise<CrosswalkerImportRecipe | null> {
+		const key = `${setId}\u0000${digest}`;
+		let pending = this.snapshots.get(key);
+		if (!pending) {
+			pending = readImportSetRecipe(this.files, setId, digest);
+			this.snapshots.set(key, pending);
 		}
 		return pending;
 	}
