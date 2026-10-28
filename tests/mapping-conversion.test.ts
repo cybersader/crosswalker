@@ -49,6 +49,14 @@ interface Faults {
 	renameThrows?: boolean;
 }
 
+/**
+ * Every written path except the recipe copy each import keeps under
+ * `_crosswalker/import-sets/`, which the conversion never reads or retires.
+ */
+function writtenExceptRecipeCopies(vault: { written: Map<string, unknown> }): string[] {
+	return [...vault.written.keys()].filter((path) => !path.startsWith('_crosswalker/import-sets/'));
+}
+
 /** A vault double with real TFile/TFolder handles, both listings, a trash and an adapter. */
 function makeVault() {
 	const written = new Map<string, string>();
@@ -266,7 +274,7 @@ describe('startConversion notes to table', () => {
 		expect(new Set(progress.map((p) => p.phase))).toEqual(new Set(['writing', 'verifying', 'retiring']));
 
 		// Marker gone, notes in the vault trash (never hard-deleted), one table left.
-		expect([...vault.written.keys()]).toEqual([TABLE]);
+		expect(writtenExceptRecipeCopies(vault)).toEqual([TABLE]);
 		expect([...vault.trashed.keys()].sort()).toEqual([...notesBefore, `${FOLDER}/demo-map.md`].sort());
 		const table = parseMappingTable(vault.written.get(TABLE)!);
 		expect(table.errors).toEqual([]);
@@ -294,7 +302,7 @@ describe('startConversion notes to table', () => {
 		vault.faults.renameThrows = true;
 		const result = await startConversion(vault.app, {}, setId, 'table');
 		expect(result.ok).toBe(true);
-		expect([...vault.written.keys()]).toEqual([TABLE]);
+		expect(writtenExceptRecipeCopies(vault)).toEqual([TABLE]);
 	});
 });
 
@@ -370,7 +378,7 @@ describe('interruption and resume', () => {
 		const [marker] = await readConversionMarkers(vault.app);
 		const resumed = await resumeConversion(vault.app, {}, marker);
 		expect(resumed).toMatchObject({ ok: true, phaseReached: 'done', rows: 3, trashed: 4 });
-		expect([...vault.written.keys()]).toEqual([TABLE]);
+		expect(writtenExceptRecipeCopies(vault)).toEqual([TABLE]);
 	});
 
 	it('table to notes: an interruption after the notes are written resumes without duplicating a note', async () => {

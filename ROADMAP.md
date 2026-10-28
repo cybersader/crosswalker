@@ -92,7 +92,7 @@ Concrete, shippable. ~1.2 MB plugin total. Tier 1 + Tier 2 sqlite-wasm sidecar b
 - [ ] Junction note generation as new code path in the generation engine; non-destructive, git-history-preserving
 - [ ] Tier 2 sqlite-wasm sidecar projector — new `packages/core/` module; auto-runs on vault load; lazy closure cache
 - [ ] Bases-shaped query render layer (Dataview replaced)
-- [ ] Portability chain: STRM/SSSOM/CSV export; explicit OSCAL target-shape decision; reusable ImportRecipe library under `_crosswalker/import-recipes/` (library slice landed 2026-10-02); separate exact source/run binding (Run again slice landed 2026-10-02); minimal MappingSet identity/membership/integrity/provenance/license envelope with inspect/export UI
+- [ ] Portability chain: STRM/SSSOM/CSV export; explicit OSCAL target-shape decision; reusable ImportRecipe library under `_crosswalker/import-recipes/` (library slice landed 2026-10-02; each import also keeps the recipe it ran under `_crosswalker/import-sets/`); separate exact source/run binding (Run again slice landed 2026-10-02); minimal MappingSet identity/membership/integrity/provenance/license envelope with inspect/export UI
 - [ ] Execution records, audit, and package manifests: one terminal Execution Record per run; execution-linked provenance/log events; git + Ed25519 + FRE 902(13) consume it; a separate Package Manifest inventories and attests each distributed release
 - [ ] Bundle target — under 500 KB plugin core + ~600 KB sqlite-wasm sidecar = ~1.2 MB compressed total
 
