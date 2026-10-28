@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: the command-line tool is type-checked in every build (2026-10-28)
+
+- **`bun run build` now checks `cli/` too.** The plugin check only covered `src/`, so type errors in the command-line tool went unnoticed. A second pass with `tsconfig.cli.json` now runs before the bundle. It adds the bun and node types; the plugin check now lists its types explicitly (`node`, `jest`) so bun-only APIs can't slip into plugin code.
+- **The 8 errors it found are fixed.** Missing types for `js-yaml` and bun (now dev dependencies `@types/js-yaml` and `@types/bun`), an untyped plugin builder in `cli/preload.ts`, and four file and folder constructions that only type-check against the test stand-in for Obsidian the tool runs on (named once as `StandInTFile` and `StandInTFolder` in `cli/fs-app.ts`). No behavior changed.
+
 ### Fixed: evidence links imported without a destination no longer land in a doubled folder (2026-10-28)
 
 - **The evidence recipe's file name is now relative to its destination.** Its default destination is `Evidence/Junctions`, and its file template also began with `Evidence/Junctions/`, so an import that kept the default wrote every link note to `Evidence/Junctions/Evidence/Junctions/`. The template is now `jn-{subject|slug}-{object|slug}.md`, like every other shipped recipe (`recipes/starter/evidence-junction-notes.json`). The recipe's hash moves as a result (documented and pinned in `tests/source-hash-stability.test.ts`). Imports already made keep replaying from their own recipe copy, so their notes do not move.

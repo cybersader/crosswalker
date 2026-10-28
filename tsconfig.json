@@ -20,7 +20,8 @@
 			"ES7"
 		],
 		"outDir": "./dist",
-		"rootDir": "."
+		"rootDir": ".",
+		"types": ["node", "jest"]
 	},
 	"include": [
 		"src/**/*.ts",

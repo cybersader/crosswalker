@@ -21,7 +21,7 @@ import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import * as yaml from 'js-yaml';
 import { TFile } from 'obsidian';
-import { createFsApp, vaultRelative, type FsApp } from './fs-app';
+import { createFsApp, StandInTFile, vaultRelative, type FsApp } from './fs-app';
 import { DEFAULT_SETTINGS } from '../src/settings/settings-data';
 import {
 	RECIPE_REGISTRY,
@@ -242,7 +242,7 @@ function readSource(flags: Flags): { abs: string; name: string; bytes: Buffer } 
 
 /** A stand-in TFile for a source that lives outside the vault: only its name is read. */
 function sourceHandle(name: string): TFile {
-	const file = new TFile(name) as TFile & { name: string; extension: string };
+	const file = new StandInTFile(name) as TFile & { name: string; extension: string };
 	file.name = name;
 	file.extension = (name.split('.').pop() ?? '').toLowerCase();
 	return file;

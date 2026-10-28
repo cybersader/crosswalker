@@ -11,7 +11,7 @@
  * Keep this table in step with `jest.config.js`. The command line never runs
  * the query database, so the sqlite entries only need to resolve.
  */
-import { plugin } from 'bun';
+import { plugin, type PluginBuilder } from 'bun';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -56,7 +56,7 @@ function unsupported(name: string): unknown {
 
 plugin({
 	name: 'crosswalker-cli-module-map',
-	setup(build) {
+	setup(build: PluginBuilder) {
 		// Virtual modules: bun resolves a bare id through `module()` before it
 		// looks in node_modules, which is the effect of the jest mapper.
 		for (const [id, file] of Object.entries(MAP)) {
