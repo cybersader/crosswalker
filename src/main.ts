@@ -24,12 +24,13 @@ import {
 	exportFolderAsSssomTsv,
 	releaseRecordLine,
 	exportFolderAsCsv,
+	csvExportNotice,
 	exportSiblingPath,
 	writeExportFile,
 	runFolderTypedTableExport,
 } from './export';
 import { ConfigBrowserModal } from './config/config-browser-modal';
-import { RecipeLibraryModal } from './import/recipe-library-modal';
+import { RecipeLibraryModal, obsidianRecipeLibraryFiles } from './import/recipe-library-modal';
 import { VaultImportFilePicker } from './ui/vault-file-picker';
 import { buildCrosswalkerPivotViewFactory } from './views/crosswalker-pivot-view';
 import {
@@ -1145,7 +1146,9 @@ export default class CrosswalkerPlugin extends Plugin {
 			callback: () => {
 				new ExportFolderPickerModal(this.app, (folder) => {
 					void (async () => {
-						const result = await exportFolderAsCsv(this.app, folder.path);
+						const result = await exportFolderAsCsv(this.app, folder.path, {
+							library: obsidianRecipeLibraryFiles(this.app),
+						});
 						if (result.rowCount === 0 && result.mappingCount) {
 							new Notice(`"${folder.path}" holds ${result.mappingCount} mapping${result.mappingCount === 1 ? '' : 's'} and no framework notes, so there is nothing to export as CSV. To export mappings, run Export folder as a crosswalk mapping file.`, 10000);
 							return;
@@ -1156,13 +1159,9 @@ export default class CrosswalkerPlugin extends Plugin {
 						}
 						const destPath = exportSiblingPath(folder, 'csv');
 						await writeExportFile(this.app, destPath, result.csv);
-						new Notice(
-							`Exported ${result.rowCount} note${result.rowCount === 1 ? '' : 's'} to ${destPath}` +
-								(result.skipped.length > 0
-									? ` (${result.skipped.length} note${result.skipped.length === 1 ? '' : 's'} skipped)`
-									: ''),
-							6000,
-						);
+						const notice = csvExportNotice({ ...result, skippedCount: result.skipped.length }, destPath);
+						// A notice that names omitted columns or fallbacks needs time to read.
+						new Notice(notice, notice.includes('\n') ? 15000 : 6000);
 					})();
 				}).open();
 			},

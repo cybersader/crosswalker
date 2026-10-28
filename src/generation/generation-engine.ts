@@ -2046,6 +2046,9 @@ function buildNoteDataViaRender(
 			// A SECOND hash: concept_cid is untouched, byte for byte.
 			reviewCid: computeReviewCid({ curie, scope: sourceScope }),
 			reviewGroups: computeReviewGroupCids({ curie, scope: sourceScope }, recipe),
+			// SchemaVer 1.8.0: the folder levels' values, so an export rebuilds
+			// them from the note instead of parsing its path.
+			layoutValues,
 		},
 		PLUGIN_VERSION,
 	);
@@ -3584,6 +3587,9 @@ export async function generateFromRecipe(
 					conceptCid: computeConceptCid({ curie, scope: identityScope }),
 					reviewCid,
 					reviewGroups,
+					// SchemaVer 1.8.0: the folder levels' values, so an export rebuilds
+					// them from the note instead of parsing its path.
+					layoutValues,
 				},
 				PLUGIN_VERSION,
 			);

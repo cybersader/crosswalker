@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Changed: CSV export rebuilds the source columns (2026-10-27)
+
+- **What changed.** "Export folder as CSV" on a framework imported with a recipe now gives back the source columns, in source row order. Each note's recipe is found by identity (the recipe id written on the note, loaded from the recipe library or the built-in recipes, and checked against the recipe digest written on the note). Each column is read back from where the recipe put it: a property from the note's properties, a section or appended text from the managed body with its formatting removed, and a folder or file level from the recorded folder values, then the folder hub, then the heading, then the path. The recipe is never guessed from a folder name, file name or column names.
+- **Round trip.** Import the synthetic NIST mini source, export it, and import the export into a new set with the same recipe: the managed content is the same, both for new notes and for notes written before this change (`tests/export/csv-round-trip-nist.test.ts`).
+- **When a column cannot come back exactly**, the notice names it and says why: a column only stored as tags or links, a value combined with other text in its template, a repeated folder level, or a value recovered from a file name that may have lost characters. When a note's recipe is missing from the library, those notes export their properties only and the notice says to restore the recipe from Recipes, then export again.
+- **Additive.** Notes with no recipe, or from the older column mapping import, export exactly as before. Header order is the recipe's columns, then the remaining properties.
+- **Schema.** Tier 1 SchemaVer 1.8.0 adds the optional concept provenance `layout_values` (the folder level values a row rendered), written at import. Existing notes gain it on their next refresh.
+- **Modules.** `src/export/recipe-for-note.ts` (recipe lookup by identity, cached), `src/export/csv-inverse.ts` (column plan, per-destination inverse, notice text); `src/export/csv-exporter.ts` wires them in. Unit tests in `tests/export/recipe-aware-csv.test.ts`.
+
 ### Fixed: CSV export of a mappings folder now says what to do (2026-10-27)
 
 - **What was wrong.** "Import and export: export folder as CSV" exports framework notes only. Run on a folder of mapping notes, it said "No notes found under ... Nothing exported", which was untrue and gave no next step. Found by driving all three folder exports in OpenClast's local browser harness.
