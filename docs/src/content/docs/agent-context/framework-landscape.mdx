@@ -33,7 +33,14 @@ tags: [frameworks, frameworks-nist, frameworks-mitre, grc]
 - **Structure**: Tactic > Technique > Sub-technique
 - **Example**: Execution (TA0002) > T1059 (Command Scripting) > T1059.001 (PowerShell)
 - **Size**: ~200 techniques with sub-techniques
-- **Related**: D3FEND (defensive), ENGAGE (deception). Maintained crosswalks to NIST 800-53 via [CTID](/crosswalker/reference/registry/ctid/).
+- **Related**: D3FEND (defensive), ENGAGE (deception), F3 (fraud; reuses ATT&CK ids). Maintained crosswalks to NIST 800-53 via [CTID](/crosswalker/reference/registry/ctid/).
+
+### MITRE Fight Fraud Framework (F3)
+- **Authored by**: [MITRE](/crosswalker/reference/registry/mitre/), through [CTID](/crosswalker/reference/registry/ctid/)
+- **Structure**: Tactic > Technique > Sub-technique, the same shape as ATT&CK; one technique can sit under several tactics
+- **Audience**: fraud and financial-crime teams in financial services
+- **Identifiers**: new techniques use `F` ids; some techniques and most tactics reuse ATT&CK ids unchanged
+- **Crosswalks**: none published. The overlap with ATT&CK is by shared ids only ([open question](/crosswalker/agent-context/zz-log/2026-10-27-mitre-f3-added/))
 
 ### CRI Profile v2.0
 - **Authored by**: [CRI](/crosswalker/reference/registry/cri/) (Cyber Risk Institute)
@@ -49,6 +56,7 @@ tags: [frameworks, frameworks-nist, frameworks-mitre, grc]
 | NIST CSF | `PR.AA-01` | 3 (function/category/subcategory) |
 | CIS v8 | `1.1`, `1.2` | 2-3 (control/safeguard/IG) |
 | MITRE ATT&CK | `T1059`, `T1059.001` | 2-3 (tactic/technique/sub) |
+| MITRE F3 | `F1002`, `F1002.001` (plus reused ATT&CK `T` ids) | 2-3 (tactic/technique/sub) |
 
 Understanding these patterns informs column type detection and auto-mapping.
 
@@ -63,6 +71,7 @@ Frameworks change — see [framework versioning](/crosswalker/concepts/framework
 | MITRE ATT&CK | v16.x | Biannual (Apr/Oct), sub-techniques Jul 2020 | [Versions archive](https://attack.mitre.org/resources/versions/) |
 | CIS Controls | v8.1 | May 2021 (20→18 controls) | [Change log](https://www.cisecurity.org/insights/white-papers/cis-controls-v8-change-log) |
 | CRI Profile | v2.1 | Feb 2024 (added Extend function) | [v2.0 mapping](https://cyberriskinstitute.org/cri-issues-profile-version-2-0/) |
+| MITRE F3 | v1.2 data files | 2026 first release; changelog in the repository, no release tags | [F3 repository](https://github.com/center-for-threat-informed-defense/fight-fraud-framework) |
 | MITRE D3FEND | Ongoing | Continuous ontology updates | [D3FEND Resources](https://d3fend.mitre.org/resources/) |
 
 ## Real-world adoption: CRI Profile

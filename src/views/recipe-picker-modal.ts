@@ -213,15 +213,24 @@ export class RecipePickerModal extends Modal {
 			const details = card.createEl('div', { cls: 'crosswalker-card-details' });
 			const initialValues =
 				this.existing && this.existing.recipe === recipe.id ? this.existing.params : undefined;
-			this.currentEditor = renderParameterEditor(details, recipe, initialValues);
+			// Apply stays disabled until every set choice is made (a framework or
+			// mapping set the query targets is chosen, never guessed).
+			let applyButton: ButtonComponent | null = null;
+			const editor = renderParameterEditor(details, recipe, initialValues, {
+				app: this.app,
+				onValidityChange: (complete) => applyButton?.setDisabled(!complete),
+			});
+			this.currentEditor = editor;
 
 			const insertRow = details.createEl('div', { cls: 'crosswalker-card-actions crosswalker-insert-row' });
 			const isUpdateForThisRecipe = this.existing && this.existing.recipe === recipe.id;
-			new ButtonComponent(insertRow)
+			applyButton = new ButtonComponent(insertRow)
 				.setButtonText(isUpdateForThisRecipe ? 'Update' : 'Apply')
 				.setCta()
+				.setDisabled(!editor.isComplete())
 				.onClick(() => {
-					const params = this.currentEditor?.getValues() ?? {};
+					if (!editor.isComplete()) return;
+					const params = editor.getValues();
 					this.resolve({
 						action: 'insert',
 						recipeId: recipe.id,
