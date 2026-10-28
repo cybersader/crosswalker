@@ -39,7 +39,7 @@
     "version": "1.0.0",
     "id": "crosswalk-density-by-framework",
     "title": "Crosswalk density by framework pair",
-    "description": "Table of (source_framework, target_framework, mapping_count). Shows where the crosswalk corpus is dense vs sparse.",
+    "description": "Table of every imported crosswalk, counted by source and target framework. Shows which framework pairs are well mapped and which are thin.",
     "shape": "table",
     "primitives": {
       "from": "nist-olir",

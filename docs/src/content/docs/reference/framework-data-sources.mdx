@@ -8,7 +8,7 @@ tags: [frameworks, import-transforms, frameworks-nist, frameworks-mitre]
 
 Crosswalker ships recognized-source imports for the framework files below today. This page is the canonical technical reference for obtaining each source, choosing the matching [recipe](/crosswalker/concepts/terminology/#recipe), selecting the exact worksheet and header row, checking the real record count, and avoiding imports that look successful but are wrong.
 
-**Status last verified:** 2026-09-24 — stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
+**Status last verified:** 2026-10-27 — the MITRE F3 binding verified against the publisher's v1.2 Excel file by a local recognize-and-render run (source: `recipes/import/mitre-f3-technique.json`); other rows unchanged since 2026-09-24, when stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
 
 The bundled recipes live in the [Crosswalker plugin repository](https://github.com/cybersader/crosswalker/tree/main/recipes/import). Community recipes and contribution guidance live in [crosswalker-recipes](https://github.com/cybersader/crosswalker-recipes). Framework content is not bundled: obtain each source from its publisher and confirm that the publisher's terms fit your use.
 
@@ -32,6 +32,7 @@ The bundled recipes live in the [Crosswalker plugin repository](https://github.c
 | NIST CSF 2.0 | CPRT JSON | element collection | n/a | **906 total: 679 concept elements** + 227 non-concept (excluded by the recipe) | `nist-csf-2-cprt`, `nist-csf-2-cprt-hierarchical` |
 | NIST CSF 2.0 withdrawal lineage | Derived edge list (`recipes/import/crosswalks/nist-csf-2-withdrawal-lineage.csv`) | CSV header | 0 | 279 total: **127 successor references** + 152 pass-through rows | `nist-csf-2-withdrawal-lineage` |
 | MITRE ATT&CK Enterprise | Excel export | `techniques` | 0 | **656** | `mitre-attack-technique-flat` |
+| MITRE Fight Fraud Framework (F3) | Excel export (`f3-excel-v1.2.xlsx`) | `Techniques` | 0 | **138** | `mitre-f3-technique-flat` |
 | CIS Controls v8.1.2 | Controls workbook | `Controls v8.1.2` | 0 | **171**: 153 safeguards + 18 controls | `cis-controls-v8-flat`, `cis-controls-v8-controls` |
 | CRI Profile v2.2 | Profile workbook | `CRI Profile v2.2 Structure` | **2** | **472**: F 7 / C 28 / S 119 / DS 318 | `cri-profile-v2-2-flat` |
 | Secure Controls Framework 2026.1 | SCF workbook | `SCF 2026.1` | 0 | **1,468 × 369 columns** | `scf-2026-flat` |
@@ -61,6 +62,7 @@ This is a practical pointer, not legal advice and not a replacement for the publ
 |---|---|
 | NIST publications | NIST describes its US Government works as generally not subject to US copyright; check the [NIST copyright policy](https://www.nist.gov/oism/copyrights) and any third-party notices in the specific publication. |
 | MITRE ATT&CK | MITRE permits use subject to its [ATT&CK terms of use](https://attack.mitre.org/resources/legal-and-branding/terms-of-use/), including attribution requirements. The bundled recipe carries the MITRE notice into generated notes. |
+| MITRE Fight Fraud Framework (F3) | Published under the [Apache License 2.0](https://github.com/center-for-threat-informed-defense/fight-fraud-framework/blob/main/LICENSE), which permits redistribution with the licence and attribution. The bundled recipe carries MITRE's notice and the licence link into generated notes. |
 | CIS Controls | The publisher applies restrictive terms, including CC BY-NC-ND language. Registration is required to obtain the workbook. Confirm whether sharing generated notes is permitted for your situation. |
 | CRI Profile | CRI's [Profile FAQ](https://cyberriskinstitute.org/the-profile/profile-faq/) describes restrictive CC BY-NC-ND terms. Confirm whether sharing generated notes is permitted for your situation. |
 | Secure Controls Framework | SCF publishes CC BY-ND language plus separate terms governing use and derivatives. Read the [SCF terms and conditions](https://securecontrolsframework.com/terms-and-conditions) and confirm your intended use. |
@@ -210,6 +212,55 @@ The recipe emits tactics, platforms, and data sources as arrays; adds parent lin
 - **Mitigations are not imported.** They require a join through a separate relationships sheet, which this recipe does not perform.
 - **Contributor and date fields are omitted.** Contributor delimiters are ambiguous, and source dates are not normalized ISO values.
 
+## MITRE Fight Fraud Framework (F3)
+
+**What it is:** a matrix of fraud adversary behaviours (tactics and techniques), built like [ATT&CK](#mitre-attck-enterprise) but aimed at fraud teams in financial services. Published in 2026 by the MITRE [Center for Threat-Informed Defense](/crosswalker/reference/registry/ctid/).
+
+**Obtain it:** the [F3 site](https://ctid.mitre.org/fightfraud) or the [F3 repository](https://github.com/center-for-threat-informed-defense/fight-fraud-framework). The repository's `public/` folder holds every published format. The repository has no release tags; its content changelog runs ahead of the data files, which are labelled v1.2.
+
+**Bundled recipe:** `mitre-f3-technique-flat`, which produces one note per technique or sub-technique.
+
+### Published formats
+
+| Format | File in `public/` | Shape |
+|---|---|---|
+| Excel | `f3-excel-v1.2.xlsx` | Two sheets, `Techniques` and `Tactics`. **The bundled recipe reads this one.** |
+| JSON | `f3-v1.json` | One flat list of tactic and technique records |
+| STIX 2.1 | `f3-stix.json` | A STIX bundle; needs a different recipe |
+| ATT&CK Navigator layer | `f3-navigator.json` | A visualization layer, not a catalog |
+
+### Exact binding and result
+
+| Item | Verified value |
+|---|---|
+| Sheet | `Techniques` |
+| Header row | Index 0 |
+| Rows | **138** (source: `public/f3-excel-v1.2.xlsx`, checked 2026-10-27) |
+| Columns | 7: Technique ID; Technique; Description; Tactic ID; Tactic Name; Added Date; Modified Date |
+| Second sheet | `Tactics` (Tactic ID; Tactic Name; Tactic Description). It is a different shape and is not matched by the technique recipe |
+
+The recipe emits `tactic_ids` and `tactics` as lists, keeps the description in the note body, and carries MITRE's notice and the Apache licence link into every generated note.
+
+### Identifier scheme and the ATT&CK overlap
+
+| Kind | Pattern | Count in v1.2 |
+|---|---|---:|
+| Technique new in F3 | `F` plus four digits, dotted for sub-techniques (`F1002`, `F1002.001`) | 92 |
+| Technique reused from ATT&CK | ATT&CK `T` ids, unchanged | 46 |
+| Tactic reused from ATT&CK | ATT&CK `TA` ids | 6 |
+| Tactic new in F3 | `FA` ids (Positioning, Monetization) | 2 |
+
+(Counts source: `public/f3-v1.json` and `public/f3-excel-v1.2.xlsx`, checked 2026-10-27.)
+
+F3 overlaps ATT&CK **by shared identifiers, not by a published crosswalk**. A reused technique id is the same string in both frameworks, and F3 publishes no mapping file stating how the two relate. Whether a reused id should resolve to the same concept as an ATT&CK import is an open question, recorded in the [2026-10-27 log](/crosswalker/agent-context/zz-log/2026-10-27-mitre-f3-added/). Today the recipe mints every F3 note under its own `mitre-f3` ontology, and recognition by id pattern claims only the `F` ids for F3.
+
+### Gotchas
+
+- **Several tactics share one cell.** A technique can sit under more than one tactic. The Excel file writes them as one comma-separated list, in parallel in both tactic columns (`TA0001, TA0002, FA0001` beside `Initial Access, Execution, Positioning`). 41 of 138 rows do this. The recipe splits both columns into lists of the same length.
+- **No parent column.** The sheet has no sub-technique-of column, so the recipe emits no parent link. The relation is visible only in the dotted id.
+- **Dates are omitted.** Added Date and Modified Date are filled on only a few rows and are not ISO values.
+- **Tactic names follow ATT&CK's newer split.** F3 names `TA0005` Stealth and uses `TA0112` Defense Impairment. Check names against the ATT&CK release you import alongside it.
+
 ## CIS Controls v8.1.2
 
 **Obtain it:** [CIS Controls](https://www.cisecurity.org/controls). Registration is required. Crosswalker does not distribute the workbook.
@@ -353,6 +404,7 @@ Crosswalks between frameworks require separate mapping files:
 | CRI ↔ CSF 2.0 | CRI Excel (NIST CSF v2 Mapping sheet) |
 | CSF 2.0 ↔ NIST 800-53 | [NIST Concept Crosswalk](https://csrc.nist.gov/Projects/Cybersecurity-Framework/Filters) |
 | NIST 800-53 ↔ ATT&CK | [Center for Threat-Informed Defense](https://github.com/center-for-threat-informed-defense/attack-control-framework-mappings) |
+| F3 ↔ ATT&CK | None published. F3 reuses ATT&CK ids directly; see [MITRE F3](#mitre-fight-fraud-framework-f3) |
 | ATT&CK ↔ D3FEND | [d3fend.mitre.org mapping data](https://d3fend.mitre.org/resources/) |
 | CSF 2.0 ↔ CIS v8 | [CIS Controls Mapping to CSF 2.0](https://www.cisecurity.org/controls/v8) |
 | D3FEND ↔ NIST 800-53 | D3FEND semantic mappings (`d3fend_to_nist80053.csv`) |

@@ -1,0 +1,5 @@
+Technique ID,Technique,Description,Tactic ID,Tactic Name,Added Date,Modified Date
+F9001,Synthetic fraud technique one,Synthetic description written for tests. Not F3 content.,FA9001,Synthetic Tactic A,,
+F9002,Synthetic fraud technique two,"Synthetic description with a comma, written for tests.","TA9001, FA9001","Synthetic Tactic B, Synthetic Tactic A",,
+F9002.001,Synthetic fraud sub-technique,Synthetic sub-technique description for tests.,"TA9001, FA9001, FA9002","Synthetic Tactic B, Synthetic Tactic A, Synthetic Tactic C",,
+T9999,Synthetic reused attack-style id,Synthetic row using a T-prefixed id to model reuse of ATT&CK ids.,TA9001,Synthetic Tactic B,,
