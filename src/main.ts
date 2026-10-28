@@ -1146,6 +1146,10 @@ export default class CrosswalkerPlugin extends Plugin {
 				new ExportFolderPickerModal(this.app, (folder) => {
 					void (async () => {
 						const result = await exportFolderAsCsv(this.app, folder.path);
+						if (result.rowCount === 0 && result.mappingCount) {
+							new Notice(`"${folder.path}" holds ${result.mappingCount} mapping${result.mappingCount === 1 ? '' : 's'} and no framework notes, so there is nothing to export as CSV. To export mappings, run Export folder as a crosswalk mapping file.`, 10000);
+							return;
+						}
 						if (result.rowCount === 0) {
 							new Notice(`No notes found under "${folder.path}". Nothing exported.`, 6000);
 							return;

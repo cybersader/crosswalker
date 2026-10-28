@@ -32,6 +32,9 @@ export interface CsvExportResult {
 	rowCount: number;
 	columns: string[];
 	skipped: SkippedNote[];
+	/** Mapping notes found under the folder. The CSV holds concepts only, so a
+	 *  folder of mappings exports nothing and the caller names the right export. */
+	mappingCount?: number;
 }
 
 /** Array values join with `|` (readable, and distinct from CSV's own `,` delimiter so Papa's quoting stays predictable). Scalars stringify as-is. */
@@ -137,5 +140,6 @@ export async function exportFolderAsCsv(
 	const tree = await readVaultTree(app, rootPath);
 	const result = conceptsToCsv(tree.concepts, options);
 	result.skipped.push(...tree.skipped);
+	result.mappingCount = tree.crosswalkEdges.length + tree.junctionNotes.length;
 	return result;
 }

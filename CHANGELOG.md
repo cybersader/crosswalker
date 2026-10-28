@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: CSV export of a mappings folder now says what to do (2026-10-27)
+
+- **What was wrong.** "Import and export: export folder as CSV" exports framework notes only. Run on a folder of mapping notes, it said "No notes found under ... Nothing exported", which was untrue and gave no next step. Found by driving all three folder exports in OpenClast's local browser harness.
+- **Fix.** The CSV exporter now also counts the mapping notes it passed over (`mappingCount` on its result). When a folder holds mappings and no framework notes, the notice says how many mappings it holds and points to "Export folder as a crosswalk mapping file".
+- **Verified.** Unit test in `tests/export/csv-exporter.test.ts`. In the same harness run, the crosswalk mapping file export and the typed mapping table export each wrote 10 mappings with their release record, and the CSV export showed the new notice. No page errors.
+
 ### Fixed: two developer commands did nothing when run (2026-10-27)
 
 - **What was wrong.** "Developer tools: import bundled test data" and "Developer tools: delete a test import" loaded their dialog classes with a dynamic `import('obsidian')`. The bundle kept that as a native `import()`, which cannot resolve the `obsidian` module, so both commands threw "Failed to resolve module specifier 'obsidian'" and showed nothing. Found by driving the bundled-fixture command in OpenClast's local browser harness.
