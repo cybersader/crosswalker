@@ -60,6 +60,11 @@ export const EMPTY_RECIPE_LIBRARY: RecipeLibraryFiles = {
 	},
 };
 
+/** The import set id a note's provenance names, when it names one. */
+export function importSetIdOf(frontmatter: Record<string, unknown>): string | undefined {
+	return recipeStamp(frontmatter).setId;
+}
+
 function recipeStamp(frontmatter: Record<string, unknown>): { id?: string; digest?: string; setId?: string } {
 	const provenance = frontmatter._crosswalker;
 	if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) return {};

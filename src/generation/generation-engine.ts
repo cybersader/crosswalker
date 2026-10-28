@@ -61,7 +61,7 @@ import { readNoteFrontmatterState, type NoteFrontmatterRead } from '../export/va
 import { buildProvenance } from './provenance';
 import { computeRecipeDocumentDigest } from './hash';
 import { normalizeRecipe } from '../import/recipe-document';
-import { IMPORT_SET_RECIPES_FOLDER, keepImportSetRecipe, vaultImportSetRecipeFiles } from '../import/import-set-recipes';
+import { IMPORT_SET_RECIPES_FOLDER, keepImportSetRecipe, keepImportSetSourceColumns, vaultImportSetRecipeFiles } from '../import/import-set-recipes';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import { derivationOf, resolveImportSet, type ImportSetDerivation, type ImportSetOption, type ImportSetReference } from './import-set';
 import { SSSOM_CURIE_PREFIX, crosswalkEdgeCuriePrefix, sssomEdgeCurie } from './crosswalk-identity';
@@ -1277,7 +1277,7 @@ export async function generateNotes(
 		// the default import path, so without the copy most notes export as
 		// properties only. Same rule as generateFromRecipe; this entry point has no
 		// `provenanceRecipe` override, so the stamped recipe is always the run's.
-		await keepRunRecipe(app, recipe, importSet.id, result, debug);
+		await keepRunRecipe(app, recipe, importSet.id, parsedData.columns, result, debug);
 
 		// Final progress update
 		if (options.onProgress) {
@@ -1868,6 +1868,10 @@ function stampedRecipeDocumentDigest(recipe: object, options: { provenanceRecipe
  * export can invert notes whose recipe was never saved, or was edited since.
  * Keyed by the minted set id and the digest the notes carry, never by a path.
  *
+ * The source's column order is recorded beside it, so the export can lay its
+ * columns out the way the source file did. That record costs only column
+ * order when it cannot be written, so a failure there is logged, not warned.
+ *
  * Runs only when notes were written or kept: they are what carry the stamp the
  * copy is looked up by. Never fails the import: a write failure becomes one
  * warning that names the cause and the fix.
@@ -1876,11 +1880,17 @@ async function keepRunRecipe(
 	app: App,
 	recipe: object,
 	importSetId: string | undefined,
+	sourceColumns: readonly string[],
 	result: GenerationResult,
 	debug?: DebugLog,
 ): Promise<void> {
 	if (!importSetId) return;
 	if (result.created.length + result.upToDate.length + result.skipped.length === 0) return;
+	const columnFiles = vaultImportSetRecipeFiles(app);
+	if (columnFiles) {
+		const order = await keepImportSetSourceColumns(columnFiles, importSetId, sourceColumns);
+		if (!order.ok) debug?.warn('generation', 'source-columns-keep-failed', 'Could not record the source column order', { path: order.path, error: order.error });
+	}
 	// No digest means the notes carry none either (a recipe that cannot be
 	// normalized stamps nothing), so there is no key a reader could look up.
 	const digest = recipeDocumentDigestFor(recipe);
@@ -3996,7 +4006,7 @@ export async function generateFromRecipe(
 	// A run stamping another recipe's identity (`provenanceRecipe`, the mapping
 	// conversion job) executes a transport variant, not the stamped recipe, so it
 	// has no copy to keep: the set's original import already kept one.
-	if (!options.provenanceRecipe) await keepRunRecipe(app, recipe, importSet.id, result, debug);
+	if (!options.provenanceRecipe) await keepRunRecipe(app, recipe, importSet.id, parsedData.columns, result, debug);
 
 	if (options.onProgress) options.onProgress(completed, total, 'Complete');
 	if (result.errors.length > 0) result.success = false;

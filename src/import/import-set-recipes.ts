@@ -54,8 +54,8 @@ export function importSetRecipePath(importSetId: string, digest: string): string
 
 export type KeepRecipeResult =
 	| { ok: true; outcome: 'written' | 'unchanged'; path: string }
-	/** Nothing to keep: the keys are malformed, or the recipe does not hash to the digest. */
-	| { ok: true; outcome: 'skipped'; reason: 'bad-key' | 'digest-differs' }
+	/** Nothing to keep: the keys are malformed, the recipe does not hash to the digest, or the source named no columns. */
+	| { ok: true; outcome: 'skipped'; reason: 'bad-key' | 'digest-differs' | 'no-columns' }
 	| { ok: false; path: string; error: string };
 
 /** Parse, validate, and check the digest. Null when the text is not this revision. */
@@ -104,16 +104,113 @@ export async function keepImportSetRecipe(
 			// A file at this name that is not this revision (damaged or hand-edited)
 			// is replaced: the name promises this digest's content.
 		} else {
-			const parts = path.split('/').slice(0, -1);
-			for (let i = 1; i <= parts.length; i++) {
-				const folder = parts.slice(0, i).join('/');
-				if (!(await files.exists(folder))) await files.mkdir(folder);
-			}
+			await ensureParentFolders(files, path);
 		}
 		await files.write(path, text);
 		return { ok: true, outcome: 'written', path };
 	} catch (err) {
 		return { ok: false, path, error: err instanceof Error ? err.message : String(err) };
+	}
+}
+
+async function ensureParentFolders(files: ImportSetRecipeFiles, path: string): Promise<void> {
+	const parts = path.split('/').slice(0, -1);
+	for (let i = 1; i <= parts.length; i++) {
+		const folder = parts.slice(0, i).join('/');
+		if (!(await files.exists(folder))) await files.mkdir(folder);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Source column order
+// ---------------------------------------------------------------------------
+//
+// A recipe names the columns it reads, in the order its layout and properties
+// mention them, but not the order the source file lists them in. That order
+// is a fact about the source, not the recipe, so the run records it next to
+// the recipe copy:
+//
+//   `_crosswalker/import-sets/<import set id>/source-columns.json`
+//
+// The CSV export lays its recipe columns out in this order, so a round trip
+// gives back the source's own header. It records the latest run into the set:
+// a refresh from a reordered file reorders the export to match.
+
+export interface SourceColumnsRecord {
+	kind: 'source-columns';
+	columns: string[];
+}
+
+/** The path for one set's source column order, or null when the set id is malformed. */
+export function importSetSourceColumnsPath(importSetId: string): string | null {
+	if (!SET_ID_RE.test(importSetId)) return null;
+	return `${IMPORT_SET_RECIPES_FOLDER}/${importSetId}/source-columns.json`;
+}
+
+function serializeSourceColumns(columns: string[]): string {
+	const record: SourceColumnsRecord = { kind: 'source-columns', columns };
+	return `${JSON.stringify(record, null, 2)}\n`;
+}
+
+/** Null unless `text` is a source column record with a non-empty list of distinct names. */
+function parseSourceColumns(text: string): string[] | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+	const record = parsed as Partial<SourceColumnsRecord>;
+	if (record.kind !== 'source-columns' || !Array.isArray(record.columns)) return null;
+	const columns = record.columns;
+	if (columns.length === 0 || !columns.every((c) => typeof c === 'string')) return null;
+	if (new Set(columns).size !== columns.length) return null;
+	return columns;
+}
+
+/**
+ * Record the source's column order for a set. Writes nothing when the same
+ * order is already recorded. Empty names (a blank header cell) are dropped;
+ * duplicates keep their first position.
+ */
+export async function keepImportSetSourceColumns(
+	files: ImportSetRecipeFiles,
+	importSetId: string,
+	columns: readonly string[],
+): Promise<KeepRecipeResult> {
+	const path = importSetSourceColumnsPath(importSetId);
+	if (!path) return { ok: true, outcome: 'skipped', reason: 'bad-key' };
+	const distinct = Array.from(new Set(columns.filter((c) => typeof c === 'string' && c !== '')));
+	if (distinct.length === 0) return { ok: true, outcome: 'skipped', reason: 'no-columns' };
+	const text = serializeSourceColumns(distinct);
+	try {
+		if (await files.exists(path)) {
+			const existing = await files.read(path);
+			const recorded = parseSourceColumns(existing);
+			if (recorded && recorded.join('\u0000') === distinct.join('\u0000')) return { ok: true, outcome: 'unchanged', path };
+		} else {
+			await ensureParentFolders(files, path);
+		}
+		await files.write(path, text);
+		return { ok: true, outcome: 'written', path };
+	} catch (err) {
+		return { ok: false, path, error: err instanceof Error ? err.message : String(err) };
+	}
+}
+
+/** Read a set's source column order. Null when absent or not a valid record. */
+export async function readImportSetSourceColumns(
+	files: Pick<ImportSetRecipeFiles, 'exists' | 'read'>,
+	importSetId: string,
+): Promise<string[] | null> {
+	const path = importSetSourceColumnsPath(importSetId);
+	if (!path) return null;
+	try {
+		if (!(await files.exists(path))) return null;
+		return parseSourceColumns(await files.read(path));
+	} catch {
+		return null;
 	}
 }
 
