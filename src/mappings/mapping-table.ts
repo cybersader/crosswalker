@@ -310,6 +310,13 @@ export function parseMappingTable(tsv: string): ParsedMappingTable {
 		const result: Record<string, unknown> = {};
 		for (const column of STRINGS) if (record[column] !== undefined && record[column] !== '') result[column] = record[column];
 		let malformed = false;
+		// A confidence is a number (SSSOM, and Tier 1 match_confidence). The SSSOM
+		// parser skips a non-number the same way; a hand edit like "high" would
+		// otherwise reach the note form as text no query can compare.
+		if (typeof result.confidence === 'string' && !Number.isFinite(Number(result.confidence.trim()))) {
+			rowErrors.push(`Confidence "${result.confidence}" on row ${rowNumber} is not a number. Use a value from 0 to 1, or leave it empty.`);
+			malformed = true;
+		}
 		for (const [column, key] of [['crosswalker_notes', 'notes'], ['crosswalker_extra', 'extra']] as const) {
 			if (!record[column]) continue;
 			try {
@@ -325,7 +332,7 @@ export function parseMappingTable(tsv: string): ParsedMappingTable {
 		if (malformed) { skipped++; continue; }
 		rows.push(result as unknown as MappingTableRow);
 	}
-	if (skipped) warnings.push(`Skipped ${skipped} mapping table row${skipped === 1 ? '' : 's'} with missing required values or malformed JSON.`);
+	if (skipped) warnings.push(`Skipped ${skipped} mapping table row${skipped === 1 ? '' : 's'} with missing required values, malformed JSON, or a confidence that is not a number.`);
 	return { header, rows, errors, rowErrors, warnings, provenance };
 }
 
@@ -385,7 +392,14 @@ export function edgeFrontmatterToTableRow(
 			routed.add(key);
 		}
 	}
-	if (typeof fm.sssom_confidence === 'string' && fm.sssom_confidence !== '') {
+	// The confidence: Tier 1's numeric `match_confidence`, or the text
+	// `sssom_confidence` notes written before it carried the number. The table
+	// cell is text either way. When both are present the number wins and the
+	// older key stays in `extra`, so nothing is dropped.
+	if (typeof fm.match_confidence === 'number' && Number.isFinite(fm.match_confidence)) {
+		row.confidence = String(fm.match_confidence);
+		routed.add('match_confidence');
+	} else if (typeof fm.sssom_confidence === 'string' && fm.sssom_confidence !== '') {
 		row.confidence = fm.sssom_confidence;
 		routed.add('sssom_confidence');
 	}
@@ -417,7 +431,13 @@ export function tableRowToEdgeFrontmatter(row: MappingTableRow, header: MappingT
 		const value = row[key];
 		if (value !== undefined) fm[key] = value;
 	}
-	if (row.confidence !== undefined) fm.sssom_confidence = row.confidence;
+	if (row.confidence !== undefined) {
+		// The number, as a fresh import writes it. Text that is not a number (a
+		// table read before the parser checked) stays under the older text key.
+		const value = Number(row.confidence.trim());
+		if (row.confidence.trim() !== '' && Number.isFinite(value)) fm.match_confidence = value;
+		else fm.sssom_confidence = row.confidence;
+	}
 	if (header.source_framework !== undefined) fm.source_framework = header.source_framework;
 	if (header.target_framework !== undefined) fm.target_framework = header.target_framework;
 	const curie = derivedEdgeCurie(row, header);

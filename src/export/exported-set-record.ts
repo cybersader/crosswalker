@@ -81,9 +81,9 @@ export function releaseRecordState(
 }
 
 /**
- * An edge's confidence, whichever field stored it: the typed `match_confidence`,
- * else `sssom_confidence` (the crosswalk mapping file importer stores it there,
- * as a string, because its template emits text), else `confidence`. Shared by
+ * An edge's confidence, whichever field stored it: the typed `match_confidence`
+ * (what every importer writes now), else `sssom_confidence` (text, from mapping
+ * notes written before the importer emitted the number), else `confidence`. Shared by
  * both exporters, so a typed mapping table carries the strength a crosswalk
  * mapping file export carries.
  */

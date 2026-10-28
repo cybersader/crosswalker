@@ -1,12 +1,12 @@
 {
-  "$comment": "Frozen 2026-10-27: what each shipped query template rendered before templates gained a set parameter. A saved query whose params lack the set parameter must regenerate byte-identically to these. crosswalk-density-by-framework is deliberately absent: it moved from a folder filter to kind == crosswalk-edge.",
+  "$comment": "Frozen 2026-10-27: what each shipped query template rendered before templates gained a set parameter. A saved query whose params lack the set parameter must regenerate byte-identically to these. crosswalk-density-by-framework is deliberately absent: it moved from a folder filter to kind == crosswalk-edge. Updated 2026-10-28: the confidence filter reads the typed match_confidence and keeps unrated edges; the old filter named a field no note carries, so every edge was dropped. Saved queries regenerate to this deliberately.",
   "cases": [
     {
       "recipe": "nist-csf-coverage-matrix",
       "params": {
         "confidence_threshold": 0.7
       },
-      "expected": "filters:\n  and:\n    - file.inFolder(\"_crosswalker/mappings/csf-to-800-53\")\n    - 'confidence >= 0.7'\n    - or:\n        - predicate_modifier.isEmpty()\n        - 'predicate_modifier != \"NOT\"'\nviews:\n  - type: crosswalker-pivot\n    name: \"NIST CSF → 800-53 coverage matrix\"\n    config:\n      rowsBy: \"subject_id\"\n      colsBy: \"object_id\"\n      cellOp: \"count\"\n      empty: \"gap\"\n      heatmap: true"
+      "expected": "filters:\n  and:\n    - file.inFolder(\"_crosswalker/mappings/csf-to-800-53\")\n    - or:\n        - match_confidence.isEmpty()\n        - 'match_confidence >= 0.7'\n    - or:\n        - predicate_modifier.isEmpty()\n        - 'predicate_modifier != \"NOT\"'\nviews:\n  - type: crosswalker-pivot\n    name: \"NIST CSF → 800-53 coverage matrix\"\n    config:\n      rowsBy: \"subject_id\"\n      colsBy: \"object_id\"\n      cellOp: \"count\"\n      empty: \"gap\"\n      heatmap: true"
     },
     {
       "recipe": "nist-csf-to-mitre-coverage",
@@ -14,7 +14,7 @@
         "confidence_threshold": 0.7,
         "tactic_filter": ""
       },
-      "expected": "filters:\n  and:\n    - file.inFolder(\"_crosswalker/mappings/csf-to-mitre\")\n    - 'confidence >= 0.7'\n    - or:\n        - predicate_modifier.isEmpty()\n        - 'predicate_modifier != \"NOT\"'\nviews:\n  - type: crosswalker-pivot\n    name: \"NIST CSF → MITRE ATT&CK coverage\"\n    config:\n      rowsBy: \"subject_id\"\n      colsBy: \"object_id\"\n      cellOp: \"count\"\n      empty: \"gap\"\n      heatmap: true"
+      "expected": "filters:\n  and:\n    - file.inFolder(\"_crosswalker/mappings/csf-to-mitre\")\n    - or:\n        - match_confidence.isEmpty()\n        - 'match_confidence >= 0.7'\n    - or:\n        - predicate_modifier.isEmpty()\n        - 'predicate_modifier != \"NOT\"'\nviews:\n  - type: crosswalker-pivot\n    name: \"NIST CSF → MITRE ATT&CK coverage\"\n    config:\n      rowsBy: \"subject_id\"\n      colsBy: \"object_id\"\n      cellOp: \"count\"\n      empty: \"gap\"\n      heatmap: true"
     },
     {
       "recipe": "nist-csf-to-mitre-coverage",
@@ -22,7 +22,7 @@
         "confidence_threshold": 0.5,
         "tactic_filter": "Persistence"
       },
-      "expected": "filters:\n  and:\n    - file.inFolder(\"_crosswalker/mappings/csf-to-mitre\")\n    - 'confidence >= 0.5'\n    - or:\n        - predicate_modifier.isEmpty()\n        - 'predicate_modifier != \"NOT\"'\n    - 'tactic == \"Persistence\"'\nviews:\n  - type: crosswalker-pivot\n    name: \"NIST CSF → MITRE ATT&CK coverage\"\n    config:\n      rowsBy: \"subject_id\"\n      colsBy: \"object_id\"\n      cellOp: \"count\"\n      empty: \"gap\"\n      heatmap: true"
+      "expected": "filters:\n  and:\n    - file.inFolder(\"_crosswalker/mappings/csf-to-mitre\")\n    - or:\n        - match_confidence.isEmpty()\n        - 'match_confidence >= 0.5'\n    - or:\n        - predicate_modifier.isEmpty()\n        - 'predicate_modifier != \"NOT\"'\n    - 'tactic == \"Persistence\"'\nviews:\n  - type: crosswalker-pivot\n    name: \"NIST CSF → MITRE ATT&CK coverage\"\n    config:\n      rowsBy: \"subject_id\"\n      colsBy: \"object_id\"\n      cellOp: \"count\"\n      empty: \"gap\"\n      heatmap: true"
     },
     {
       "recipe": "controls-by-family-list",

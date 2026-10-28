@@ -77,7 +77,7 @@ views:
       - object_id
       - sssom_predicate
       - mapping_justification
-      - confidence
+      - match_confidence
     summaries:
       file.name: Filled
 `;
@@ -174,7 +174,9 @@ If you have notes with legacy \`crosswalker_query:\` frontmatter from before Pha
 filters:
   and:
     - file.inFolder("_crosswalker/mappings/csf-to-800-53")
-    - 'confidence >= 0.7'
+    - or:
+        - match_confidence.isEmpty()
+        - 'match_confidence >= 0.7'
 views:
   - type: crosswalker-pivot
     name: "NIST CSF → 800-53 coverage matrix"
@@ -192,7 +194,9 @@ views:
 filters:
   and:
     - file.inFolder("_crosswalker/mappings/csf-to-mitre")
-    - 'confidence >= 0.7'
+    - or:
+        - match_confidence.isEmpty()
+        - 'match_confidence >= 0.7'
 views:
   - type: crosswalker-pivot
     name: "NIST CSF → MITRE ATT&CK coverage"

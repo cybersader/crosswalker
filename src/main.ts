@@ -1632,7 +1632,7 @@ export default class CrosswalkerPlugin extends Plugin {
 				type: 'property',
 				key: 'cellOf',
 				displayName: 'Cell value (for non-count ops)',
-				placeholder: 'e.g. confidence, sssom_confidence',
+				placeholder: 'e.g. match_confidence',
 				filter: (prop) => prop.startsWith('note.') || !prop.includes('.'),
 			},
 			{

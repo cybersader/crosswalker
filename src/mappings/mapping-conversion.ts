@@ -584,7 +584,8 @@ function notesToTableProblem(setId: string, notes: EdgeNote[]): string | null {
 
 /**
  * Edge-note fields the engine writes as text but YAML can hand back typed
- * (`sssom_confidence: 0.9` reads as a number). Put back to text before the
+ * (an older note's `sssom_confidence: 0.9` reads as a number; the current
+ * `match_confidence` is a number on purpose and is not listed). Put back to text before the
  * codec routes them, so a typed read does not move a managed fact into
  * `extra` and fail the parity check.
  */

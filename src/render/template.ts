@@ -45,6 +45,8 @@ import { isTier1CuriePrefix } from '../validation/validator';
 interface FilterCtx {
 	template: string;
 	report?: RenderReport;
+	/** The interpolation opened with `optional`: a blank value means absent. */
+	optional?: boolean;
 }
 
 export class RenderError extends Error {
@@ -424,7 +426,7 @@ function evaluateInterpolation(
 
 	let value = resolvePath(interp, scope, originalTemplate, optional, report);
 
-	const ctx: FilterCtx = { template: originalTemplate, report };
+	const ctx: FilterCtx = { template: originalTemplate, report, optional };
 	for (const call of optional ? interp.filters.slice(1) : interp.filters) {
 		value = applyFilter(call, value, ctx);
 	}
@@ -611,7 +613,16 @@ const FILTERS: Record<string, (v: unknown, arg?: string, ctx?: FilterCtx) => unk
 		const local = String(value).trim();
 		return `${arg}:${local}`;
 	},
-	number: (v) => {
+	number: (v, _arg, ctx) => {
+		// Number('') is 0, so a blank cell used to become a confident zero. Blank
+		// is absent: under `optional` it renders empty (the key is then omitted);
+		// without it, it is an error like any other non-number.
+		if (typeof v !== 'number' && (v === undefined || v === null || String(v).trim() === '')) {
+			if (ctx?.optional) return '';
+			throw new RenderError(
+				`number filter got a blank value in template "${ctx?.template ?? ''}". Start the filters with optional to allow blanks, e.g. {var|optional|number}.`,
+			);
+		}
 		const value = typeof v === 'number' ? v : Number(String(v).trim());
 		if (!Number.isFinite(value)) {
 			throw new RenderError(`number filter requires a finite numeric value; got "${String(v)}".`);

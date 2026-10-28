@@ -97,6 +97,17 @@ describe('renderTemplate', () => {
 		expect(() => renderTemplateValue('{c|number}', { c: 'high' })).toThrow(/finite numeric value/);
 	});
 
+	it('treats a blank number as absent only when the template opts in with optional', () => {
+		// Blank is unknown, never 0: a 0 confidence would read as "no overlap".
+		for (const c of ['', '   ', undefined, null]) {
+			expect(renderTemplateValue('{c|optional|number}', { c })).toBe('');
+			// A missing value already throws as missing; a blank one names the opt-in.
+			expect(() => renderTemplateValue('{c|number}', { c })).toThrow(c === undefined || c === null ? /undefined\/null/ : /optional/);
+		}
+		expect(renderTemplateValue('{c|optional|number}', { c: '0.5' })).toBe(0.5);
+		expect(renderTemplateValue('{c|optional|number}', { c: '0' })).toBe(0);
+	});
+
 	it('applies the truncate filter with argument', () => {
 		expect(renderTemplate('{c|truncate(5)}', { c: 'abcdefghij' })).toBe('abcde');
 		// Below the limit → unchanged

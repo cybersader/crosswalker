@@ -801,11 +801,11 @@ export function buildSyntheticRecipe(source: string, target: string): Recipe {
 						target_framework: target,
 						// Preserve the original SSSOM predicate before STRM normalization
 						sssom_predicate: '{sssom_predicate}',
-						// SSSOM confidence preserved as a string (Tier 1's typed
-						// match_confidence requires a number; render engine emits
-						// strings — leave the strictly-typed field for a follow-up
-						// that adds numeric template coercion).
-						sssom_confidence: '{confidence}',
+						// Tier 1's typed confidence field, as a number so Bases and
+						// the query database can compare it. A blank cell is absent,
+						// never 0: the key is omitted. Notes written before this read
+						// the older string key `sssom_confidence`; readers accept both.
+						match_confidence: '{confidence|optional|number}',
 					},
 					user_preserve: ['review_status', 'reviewer', '*notes*'],
 				},

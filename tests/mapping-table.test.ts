@@ -70,7 +70,7 @@ describe('Crosswalker mapping-table ledger', () => {
 		};
 		const synthetic = {
 			...shared, object_label: 'Target', mapping_provider: 'Demo',
-			predicate_modifier: 'NOT', sssom_confidence: '0.72',
+			predicate_modifier: 'NOT', match_confidence: 0.72,
 		};
 		const column = { ...shared };
 		for (const fm of [synthetic, column]) {
@@ -82,6 +82,34 @@ describe('Crosswalker mapping-table ledger', () => {
 			);
 		}
 		expect(edgeFrontmatterToTableRow({}).error).toMatch(/subject_id/);
+	});
+	it('reads the older text confidence and writes the typed number back', () => {
+		const base = {
+			subject_id: 'demo-a:X-5', predicate_id: 'is_equivalent_to', object_id: 'demo-b:Y-5',
+			source_framework: 'demo-a', target_framework: 'demo-b',
+		};
+		const legacy = edgeFrontmatterToTableRow({ ...base, sssom_confidence: '0.80' });
+		expect(legacy.row?.confidence).toBe('0.80');
+		expect(legacy.row?.extra ?? {}).not.toHaveProperty('sssom_confidence');
+		const back = tableRowToEdgeFrontmatter(assignMappingRowIds([legacy.row!])[0], header);
+		expect(back.match_confidence).toBe(0.8);
+		expect(back).not.toHaveProperty('sssom_confidence');
+		// Both keys: the number wins the cell, the older key is kept as a user field.
+		const both = edgeFrontmatterToTableRow({ ...base, match_confidence: 0.4, sssom_confidence: '0.9' });
+		expect(both.row?.confidence).toBe('0.4');
+		expect(both.row?.extra).toMatchObject({ sssom_confidence: '0.9' });
+		// No confidence stays absent, never 0.
+		const none = tableRowToEdgeFrontmatter(assignMappingRowIds([edgeFrontmatterToTableRow(base).row!])[0], header);
+		expect(none).not.toHaveProperty('match_confidence');
+		expect(none).not.toHaveProperty('sssom_confidence');
+	});
+	it('skips a row whose confidence is not a number, with an actionable message', () => {
+		const tsv = serializeMappingTable(header, [first, second]).replace('\t0.72\t', '\thigh\t');
+		expect(tsv).toContain('\thigh\t');
+		const parsed = parseMappingTable(tsv);
+		expect(parsed.rows.map((row) => row.subject_id)).toEqual(['demo-a:X-2']);
+		expect(parsed.rowErrors.join(' ')).toMatch(/Confidence "high" on row \d+ is not a number\. Use a value from 0 to 1, or leave it empty\./);
+		expect(parsed.warnings.join(' ')).toMatch(/confidence that is not a number/);
 	});
 	it('preserves blank and typed user fields through the actual TSV codec', () => {
 		const fm = {
