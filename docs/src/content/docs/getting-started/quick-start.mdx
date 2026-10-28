@@ -79,7 +79,7 @@ Once an import looks the way you want, keep its shape so next quarter's export t
 
 1. **Save it.** On the review screen (or after generating), choose **Save as recipe**, give it a name and an optional one-line description. A recipe saves how columns become folders, notes, properties and links. Your source file is not saved.
 2. **Reuse it.** On the next import, pick the new file. If it matches a recipe you saved, a card labeled **Your recipe** offers it; nothing is chosen for you. You can also choose **Use a saved recipe** on the first step and pick one yourself.
-3. **Browse and share.** Run **Crosswalker: Browse import recipes** (or open **Import recipes** in settings) to inspect what each recipe does in folder-and-note terms, and to export, import, duplicate, rename or delete recipes. Each recipe is one `.json` file in `_crosswalker/import-recipes/`, so you can hand it to a teammate or keep it in version control.
+3. **Browse and share.** Run **Crosswalker: Browse import recipes** (or open **Import recipes** in settings) to inspect what each recipe does in folder-and-note terms, and to export, import, duplicate, rename or delete recipes. Each recipe is one `.json` file in `_crosswalker/import-recipes/`, so you can hand it to a teammate or keep it in version control. Separately, each import keeps a copy of the exact recipe it ran under `_crosswalker/import-sets/`, so exporting those notes as CSV works even for a recipe you never saved or edited later.
 
 Editing a built-in or saved recipe and saving it again makes a new recipe that records what it was based on. A recipe you saved yourself can also be replaced in place; the old version goes to the trash.
 

@@ -450,6 +450,11 @@ export interface GenerationResult {
 	success: boolean;
 	/** Actual import set resolved for a native recipe run (even if no notes were written). */
 	importSetId?: string;
+	/**
+	 * True when the run could not keep its copy of the recipe it executed under
+	 * `_crosswalker/import-sets/<set id>/`. Non-fatal; a warning says what to do.
+	 */
+	runRecipeKeepFailed?: boolean;
 	/** Files actually created or changed by this run. */
 	created: string[];
 	/** Existing files whose merged content was byte-identical. */

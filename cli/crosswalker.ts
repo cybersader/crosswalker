@@ -35,6 +35,7 @@ import { patchRecipeDocument } from '../src/import/recipe-document';
 import type { ImportMapping } from '../src/import/mapping/types';
 import { importSssom } from '../src/import/sssom-importer';
 import { exportFolderAsCsv } from '../src/export/csv-exporter';
+import { csvExportNotice } from '../src/export/csv-inverse';
 import { exportFolderAsSssomTsv } from '../src/export/sssom-exporter';
 import { exportFolderAsStrmTsv, releaseFilePathFor, strmReleaseFileContent } from '../src/export/strm-tsv-exporter';
 import { validateTier1Frontmatter } from '../src/validation/validator';
@@ -497,6 +498,8 @@ async function commandExport(flags: Flags, io: Io): Promise<number> {
 
 	let rows: number;
 	let skipped: number;
+	// The CSV export says what it could not rebuild, the same lines the plugin shows.
+	let csvNotice: string | null = null;
 	if (format === 'csv') {
 		const result = await exportFolderAsCsv(app as never, folder);
 		if (result.rowCount === 0 && (result.mappingCount ?? 0) > 0) {
@@ -505,6 +508,7 @@ async function commandExport(flags: Flags, io: Io): Promise<number> {
 		fs.writeFileSync(outAbs, result.csv);
 		rows = result.rowCount;
 		skipped = result.skipped.length;
+		csvNotice = csvExportNotice({ ...result, skippedCount: skipped }, out);
 	} else if (format === 'sssom') {
 		const result = await exportFolderAsSssomTsv(app as never, folder);
 		fs.writeFileSync(outAbs, result.tsv);
@@ -527,7 +531,7 @@ async function commandExport(flags: Flags, io: Io): Promise<number> {
 		io.err(`Nothing to export from ${folder} as ${format}. Check the folder holds ${format === 'csv' ? 'imported concepts' : 'mappings'}.`);
 		return 1;
 	}
-	io.out(`Exported ${rows} rows from ${folder} to ${out}${skipped ? ` (${skipped} notes skipped)` : ''}.`);
+	io.out(csvNotice ?? `Exported ${rows} rows from ${folder} to ${out}${skipped ? ` (${skipped} notes skipped)` : ''}.`);
 	return 0;
 }
 

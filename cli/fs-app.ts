@@ -19,6 +19,8 @@
  *   vault.trash                   mapping-set duplicate cleanup (moves to .trash/)
  *   vault.delete                  removal helpers
  *   vault.getRoot                 folder pickers
+ *   vault.adapter                 exists / read / write / mkdir: the recipe copy
+ *                                 each import keeps (import-set-recipes.ts)
  *   fileManager.renameFile        engine relocation (generation-engine.ts)
  *   metadataCache.getFileCache    existing-note, identity-index, import-set,
  *                                 vault-reader, sssom-importer. Never null for an
@@ -27,7 +29,7 @@
  *
  * Probed as optional and left absent on purpose: metadataCache.on / offref
  * (settleVaultIndex only subscribes when a file is unindexed, which never
- * happens here) and vault.adapter (only the table-form mapping conversion).
+ * happens here).
  * Any other method throws "not supported from the command line: <method>".
  *
  * Paths are vault-relative and `/`-separated. Absolute paths and `..` segments
@@ -312,6 +314,30 @@ export function createFsApp(rootDir: string): FsApp {
 			detach(entry);
 		},
 	}, 'vault', new Set(['adapter', 'on', 'off', 'offref', 'config']));
+
+	// The raw file layer. Obsidian indexes adapter writes from its file watcher;
+	// here the write is indexed straight away, so the vault view stays in step.
+	(vault as any).adapter = {
+		exists: async (path: string) => fs.existsSync(abs(path)),
+		read: async (path: string) => fs.readFileSync(abs(path), 'utf8'),
+		write: async (path: string, text: string) => {
+			const key = vaultKey(path);
+			fs.mkdirSync(nodePath.dirname(abs(key)), { recursive: true });
+			fs.writeFileSync(abs(key), text);
+			const existing = entries.get(key);
+			if (existing instanceof TFile) { refreshStat(existing); return; }
+			if (isHidden(key)) return;
+			ensureFolderEntry(parentPath(key));
+			const file = makeFile(key);
+			entries.set(key, file);
+			attach(file);
+		},
+		mkdir: async (path: string) => {
+			const key = vaultKey(path);
+			fs.mkdirSync(abs(key), { recursive: true });
+			if (!isHidden(key)) ensureFolderEntry(key);
+		},
+	};
 
 	const metadataCache = strict({
 		getFileCache: (file: { path: string } | null | undefined) => {

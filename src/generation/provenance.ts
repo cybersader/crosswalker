@@ -19,6 +19,7 @@
 
 import type { ImportSetReference } from './import-set';
 import type { ReviewGroupCids } from './hash';
+import type { LayoutValue } from '../render/types';
 
 const SPEC_VERSION = 'https://crosswalker.dev/spec/tier1.schema.json';
 
@@ -57,6 +58,13 @@ export interface ProvenanceInput {
 	reviewCid?: string;
 	/** Optional recipe-driven explanation hashes for a changed reviewCid. */
 	reviewGroups?: ReviewGroupCids;
+	/**
+	 * Optional (SchemaVer 1.8.0): the value each directory level of the
+	 * concept's path rendered, straight from render(). Stamped so a CSV export
+	 * rebuilds folder-level source columns from the note itself, never by
+	 * parsing a path the user may have renamed. Omitted when empty.
+	 */
+	layoutValues?: LayoutValue[];
 }
 
 const PRODUCER_NAME = 'crosswalker-plugin';
@@ -130,6 +138,14 @@ export function buildProvenance(input: ProvenanceInput, pluginVersion: string): 
 
 	if (input.reviewGroups) {
 		block.review_groups = { ...input.reviewGroups };
+	}
+
+	if (input.layoutValues && input.layoutValues.length > 0) {
+		block.layout_values = input.layoutValues.map((v) => ({
+			level: v.level,
+			value: v.value,
+			...(v.identity !== undefined ? { identity: v.identity } : {}),
+		}));
 	}
 
 	return block;
