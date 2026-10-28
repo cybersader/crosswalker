@@ -7,7 +7,7 @@ import {
 	newSetSchemeFor,
 	settleVaultIndex,
 } from '../generation/import-set';
-import { outputRootPath } from '../settings/folder-settings';
+import { evidenceJunctionFolder, outputRootPath } from '../settings/folder-settings';
 import type { GenerationError, ImportRecipe, ParsedData } from '../types/config';
 import { recognizedDestination } from './import-wizard';
 import { MappingWorkbench } from './workbench';
@@ -141,7 +141,7 @@ export async function runRecognizedImport(
 	req: RecognizedImportRequest,
 ): Promise<RecognizedImportOutcome> {
 	const root = outputRootPath(plugin.settings);
-	const destination = req.destination ?? recognizedDestination(req.entry, root) ?? root;
+	const destination = req.destination ?? recognizedDestination(req.entry, root, evidenceJunctionFolder(plugin.settings)) ?? root;
 	const empty: RecognizedImportOutcome = {
 		ok: false,
 		destination,

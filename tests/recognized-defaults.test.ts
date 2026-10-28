@@ -7,7 +7,7 @@
  * they're unit-testable without mounting the wizard's DOM.
  */
 
-import { recognizedDestination, honestEnrichment, shouldAutoApplyRecognizedMatch } from '../src/import/import-wizard';
+import { recognizedDestination, resolveDestinationDefault, honestEnrichment, shouldAutoApplyRecognizedMatch } from '../src/import/import-wizard';
 import { RECIPE_REGISTRY, type RecipeRegistryEntry } from '../src/import/recipe-registry';
 
 function entry(id: string): RecipeRegistryEntry {
@@ -82,6 +82,37 @@ describe('recognizedDestination (spec §7m)', () => {
 	it('returns null for the generic single-segment fallback, so the caller derives from the file name', () => {
 		const generic = { ...entry('scf-2026-flat'), suggestedFolder: 'Frameworks' };
 		expect(recognizedDestination(generic, 'Ontologies')).toBeNull();
+	});
+});
+
+describe('recognizedDestination: evidence link folder setting (2026-10-28)', () => {
+	// Bulk evidence link imports must land where the single-link command writes:
+	// the user's evidence link folder setting, not the registry's curated folder.
+	it('a junction-note recipe lands in the evidence link folder when one is given', () => {
+		const e = entry('evidence-junction-notes');
+		expect(e.routingKind).toBe('junction-note');
+		expect(recognizedDestination(e, 'Ontologies', 'Audit/Links')).toBe('Audit/Links');
+	});
+
+	it('a junction-note recipe keeps its curated folder when no evidence folder is given', () => {
+		const e = entry('evidence-junction-notes');
+		expect(recognizedDestination(e, 'Ontologies')).toBe(e.suggestedFolder);
+	});
+
+	it('a crosswalk-edge recipe ignores the evidence folder and keeps its curated folder', () => {
+		const e = entry('olir-crosswalk-edge');
+		expect(e.routingKind).toBe('crosswalk-edge');
+		expect(recognizedDestination(e, 'Ontologies', 'Audit/Links')).toBe(e.suggestedFolder);
+	});
+
+	it('a concept recipe is unaffected by the evidence folder', () => {
+		const e = entry('cis-controls-v8-flat');
+		expect(recognizedDestination(e, 'Ontologies', 'Audit/Links')).toBe(recognizedDestination(e, 'Ontologies'));
+	});
+
+	it('resolveDestinationDefault passes the evidence folder through for a junction-note recipe', () => {
+		const e = entry('evidence-junction-notes');
+		expect(resolveDestinationDefault('Ontologies', 'evidence.csv', e, 'Audit/Links')).toBe('Audit/Links');
 	});
 });
 

@@ -5,7 +5,7 @@ import { App, Modal, Notice, Setting, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
 import { computeSourceByteDigest } from '../../generation/hash';
 import { discoverImportSets, settleVaultIndex } from '../../generation/import-set';
-import { outputRootPath } from '../../settings/folder-settings';
+import { evidenceJunctionFolder, outputRootPath } from '../../settings/folder-settings';
 import { MAPPING_PRESETS } from '../recipe-registry';
 import { ImportWizardModal, recognizedDestination, refreshRootProblem } from '../import-wizard';
 import { parseRecognizedSource, runRecognizedImport } from '../run-recognized-import';
@@ -370,7 +370,11 @@ export class StackSetupModal extends Modal {
 
 	/** Choose a free address for a NEW set; never infer set identity from this path. */
 	private destinationFor(candidate: StackCandidate): string {
-		const preferred = recognizedDestination(candidate.slot.entry, outputRootPath(this.plugin.settings))
+		const preferred = recognizedDestination(
+			candidate.slot.entry,
+			outputRootPath(this.plugin.settings),
+			evidenceJunctionFolder(this.plugin.settings),
+		)
 			?? outputRootPath(this.plugin.settings);
 		if (!this.app.vault.getAbstractFileByPath(preferred)) return preferred;
 		let suffix = 2;
