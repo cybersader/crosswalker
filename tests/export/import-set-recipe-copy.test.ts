@@ -378,3 +378,174 @@ describe('export resolver without a recipe anywhere', () => {
 		expect(resolver.fallbacks.missing).toBe(1);
 	});
 });
+
+describe('classic column-mapping imports keep their recipe too', () => {
+	// The classic wizard's config, as it saves one: hierarchy to folders, the
+	// note title from a column, mapped source columns to frontmatter keys. One
+	// key differs from its column, so the export must map it back by recipe.
+	const classicConfig = (name?: string) => ({
+		...(name ? { name } : {}),
+		mapping: {
+			hierarchy: [{ column: 'family', level: 1 }],
+			frontmatter: [
+				{ column: 'id', key: 'id' },
+				{ column: 'name', key: 'name' },
+				{ column: 'family_name', key: 'family_label' },
+				{ column: 'parent', key: 'parent' },
+				{ column: 'description', key: 'description' },
+			],
+			links: [],
+			body: [],
+			filename: { template: '{id|fs-safe}', sanitize: true },
+		},
+	}) as unknown as Partial<ImportRecipe>;
+
+	async function classicImport(app: unknown, parsed: ParsedData, config: Partial<ImportRecipe>) {
+		const options: GenerationOptions = {
+			basePath: 'Frameworks/nist-mini',
+			overwriteMode: 'replace',
+			createFolders: true,
+			sourceFileName: 'nist-mini.csv',
+		};
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const result = await generateNotes(app as any, parsed, config, options, debug);
+		expect(result.errors).toEqual([]);
+		return result;
+	}
+
+	for (const name of [undefined, 'NIST mini classic']) {
+		it(`keeps the copy and exports the source columns (${name ? 'named' : 'nameless'} config)`, async () => {
+			const parsed = await sourceRows();
+			const { app, files, folders } = memoryVault();
+			const result = await classicImport(app, parsed, classicConfig(name));
+			expect(result.runRecipeKeepFailed).toBeFalsy();
+
+			const note = [...files.entries()].find(([p]) => p.endsWith('/AC-1.md'))!;
+			const stamp = frontmatterOf(note[1])._crosswalker;
+			expect(stamp.recipe.id).toBe(name ?? 'legacy-config');
+			expect(stamp.import_set.id).toBe(result.importSetId);
+			const digest = stamp.recipe.recipe_document_digest as string;
+			expect(digest).toMatch(/^sha256-[a-f0-9]{64}$/);
+
+			// Keyed by the minted set id and the digest the notes carry.
+			const path = importSetRecipePath(result.importSetId!, digest)!;
+			expect(path).toBe(`${IMPORT_SET_RECIPES_FOLDER}/${result.importSetId}/recipe-${digest}.json`);
+			expect(files.has(path)).toBe(true);
+			const kept = await readImportSetRecipe(vaultLibrary(files, folders), result.importSetId!, digest);
+			expect(kept).not.toBeNull();
+			expect(recipeRunDigest(kept!)).toBe(digest);
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const exported = await exportFolderAsCsv(app as any, 'Frameworks/nist-mini', { library: vaultLibrary(files, folders) });
+			expect(exported.fallbacks).toEqual({ 'no-recipe': 0, legacy: 0, missing: 0, 'digest-mismatch': 0 });
+			expect(exported.rowCount).toBe(parsed.rowCount);
+			const back = await parseCSV(exported.csv);
+			// Source column names, not the frontmatter keys they were mapped to.
+			for (const col of ['id', 'family_name', 'parent', 'description']) expect(back.columns).toContain(col);
+			expect(back.columns).not.toContain('family_label');
+			const byId = new Map(back.rows.map((r) => [String(r.id), r]));
+			for (const row of parsed.rows) {
+				const out = byId.get(String(row.id));
+				expect(out).toBeDefined();
+				expect(String(out!.description ?? '')).toBe(String(row.description ?? ''));
+				expect(String(out!.family_name ?? '')).toBe(String(row.family_name ?? ''));
+			}
+		});
+	}
+});
+
+describe('classic body columns round trip through the recipe copy', () => {
+	// The classic wizard's "body" role: the column becomes a `## <key>` section.
+	// Before the shim translated mapping.body, the copy had no body projection
+	// and this column was the one source column the export could not restore.
+	const bodyConfig = {
+		mapping: {
+			hierarchy: [{ column: 'family', level: 1 }],
+			frontmatter: [
+				{ column: 'id', key: 'id' },
+				{ column: 'name', key: 'name' },
+				{ column: 'family_name', key: 'family_name' },
+				{ column: 'parent', key: 'parent' },
+			],
+			links: [],
+			body: [{ column: 'description', heading: 'description' }],
+			filename: { template: '{id|fs-safe}', sanitize: true },
+		},
+	} as unknown as Partial<ImportRecipe>;
+
+	it('writes the column as a managed section and exports it back as a source column', async () => {
+		const parsed = await sourceRows();
+		const { app, files, folders } = memoryVault();
+		const options: GenerationOptions = {
+			basePath: 'Frameworks/nist-mini',
+			overwriteMode: 'replace',
+			createFolders: true,
+			sourceFileName: 'nist-mini.csv',
+		};
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const result = await generateNotes(app as any, parsed, bodyConfig, options, debug);
+		expect(result.errors).toEqual([]);
+
+		const note = [...files.entries()].find(([p]) => p.endsWith('/AC-1.md'))!;
+		const ac1 = parsed.rows.find((r) => String(r.id) === 'AC-1')!;
+		expect(note[1]).toContain(`## description\n\n${String(ac1.description)}`);
+		expect(frontmatterOf(note[1])).not.toHaveProperty('description');
+
+		const digest = frontmatterOf(note[1])._crosswalker.recipe.recipe_document_digest as string;
+		const kept = await readImportSetRecipe(vaultLibrary(files, folders), result.importSetId!, digest);
+		// The kept copy is the normalized canonical document, defaults filled in.
+		expect(kept?.target.also_emit?.body).toEqual([{
+			template: '{description|optional}', position: 'section', heading: 'description',
+			heading_depth: 2, format: 'text', omit_if_empty: true,
+		}]);
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const exported = await exportFolderAsCsv(app as any, 'Frameworks/nist-mini', { library: vaultLibrary(files, folders) });
+		expect(exported.fallbacks).toEqual({ 'no-recipe': 0, legacy: 0, missing: 0, 'digest-mismatch': 0 });
+		expect(exported.rowCount).toBe(parsed.rowCount);
+		const back = await parseCSV(exported.csv);
+		expect(back.columns).toContain('description');
+		const byId = new Map(back.rows.map((r) => [String(r.id), r]));
+		for (const row of parsed.rows) {
+			const out = byId.get(String(row.id));
+			expect(out).toBeDefined();
+			expect(String(out!.description ?? '')).toBe(String(row.description ?? ''));
+		}
+	});
+});
+
+describe('export resolver for classic notes', () => {
+	const legacyStamp = (setId: string, digest: string) => ({
+		_crosswalker: {
+			import_set: { id: setId },
+			recipe: { id: 'legacy-config', recipe_document_digest: digest },
+		},
+	});
+
+	it('resolves a legacy-id note through its set copy, by set id and digest', async () => {
+		const { files, folders } = memoryVault();
+		const library = vaultLibrary(files, folders);
+		const recipe = canonical(recipeWithId('legacy-config'));
+		const digest = recipeRunDigest(recipe)!;
+		const kept = await keepImportSetRecipe(library, 'iset-abc123', recipe, digest);
+		expect(kept.ok).toBe(true);
+
+		const resolver = new NoteRecipeResolver(library);
+		const found = await resolver.resolve(legacyStamp('iset-abc123', digest));
+		expect(found.ok).toBe(true);
+		if (found.ok) expect(recipeRunDigest(found.recipe)).toBe(digest);
+		expect(resolver.fallbacks.legacy).toBe(0);
+
+		// Identity, not proximity: another set's note with the same digest has no copy.
+		const other = await resolver.resolve(legacyStamp('iset-zzz999', digest));
+		expect(other).toEqual({ ok: false, reason: 'legacy' });
+	});
+
+	it('still reports legacy when no copy was kept', async () => {
+		const { files, folders } = memoryVault();
+		const resolver = new NoteRecipeResolver(vaultLibrary(files, folders));
+		expect(await resolver.resolve(legacyStamp('iset-abc123', `sha256-${'b'.repeat(64)}`))).toEqual({ ok: false, reason: 'legacy' });
+		expect(await resolver.resolve({ _crosswalker: { recipe: { id: 'legacy-config' } } })).toEqual({ ok: false, reason: 'legacy' });
+		expect(resolver.fallbacks.legacy).toBe(2);
+	});
+});

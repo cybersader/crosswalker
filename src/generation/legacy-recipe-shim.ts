@@ -17,7 +17,8 @@
  */
 
 import type { ImportRecipe as LegacyImportRecipe } from '../types/config';
-import type { Recipe } from '../render';
+import type { BodyProjection, Recipe } from '../render';
+import { pathTextFor } from '../render/template';
 
 /**
  * Convert a legacy v0.1.0 ImportRecipe to a Ch 22 Recipe.
@@ -30,6 +31,8 @@ import type { Recipe } from '../render';
  *     (key → `{<column>|optional}` by default; explicit omitIfEmpty:false keeps
  *     `{<column>}` strict; transforms still happen via the engine's formatValue
  *     helper since render's filter set is closed)
+ *   - mapping.body → also_emit.body section/append projections, all or
+ *     nothing (see legacyBodyToProjections)
  */
 /**
  * Pass 1.5 batch enrichment defaults for the classic (non-workbench) wizard
@@ -136,6 +139,9 @@ export function legacyConfigToRecipe(
 			: `{${entry.column}|optional}`;
 	}
 
+	// 4. Body columns → also_emit.body (see legacyBodyToProjections).
+	const body = legacyBodyToProjections(config);
+
 	// AM-1. Ontology precedence: the config's own name, else the source file
 	// stem, else the sentinel. The recipe id keeps its sentinel -- AM-1 changes
 	// what a classic import calls its ONTOLOGY, not what it calls its recipe,
@@ -152,12 +158,66 @@ export function legacyConfigToRecipe(
 		},
 		target: {
 			layout,
-			also_emit: Object.keys(managed).length > 0
-				? { frontmatter: { managed } }
+			also_emit: Object.keys(managed).length > 0 || body.length > 0
+				? {
+					...(Object.keys(managed).length > 0 ? { frontmatter: { managed } } : {}),
+					...(body.length > 0 ? { body } : {}),
+				}
 				: undefined,
 			enrichment: LEGACY_DEFAULT_ENRICHMENT,
 		},
 	};
+}
+
+/**
+ * Translate the classic `mapping.body` columns into canonical
+ * `also_emit.body` projections, so the recipe a classic import keeps says
+ * what the import wrote and the recipe-aware CSV export can read those
+ * columns back.
+ *
+ * Shape (mirrors the legacy writer in generation-engine.ts `buildNoteData`):
+ *   - a truthy `heading` → `position: 'section'` at the default depth 2
+ *     (the legacy writer emits `## <heading>`)
+ *   - no heading (or '') → `position: 'append'`
+ *   - `format` copied unless it is the default `text`
+ *   - template `{<column>|optional}`: legacy skips a missing or empty value,
+ *     which is `|optional` plus the default `omit_if_empty: true`. The column
+ *     is written bare when it can be, quoted (`['...']`) when it cannot.
+ *
+ * All or nothing. The engine turns the legacy body writer off entirely once a
+ * recipe declares any canonical body, so a mix is impossible. The canonical
+ * form is emitted only when EVERY body column can be expressed; otherwise
+ * none is, and the legacy writer keeps producing today's output (those notes
+ * export their body columns as omitted, as before). Not expressible:
+ *   - a column with a legacy `transform` (the canonical schema excludes legacy
+ *     transforms; RecipeDocument blocks them as `body-transform-not-portable`).
+ *     The legacy writer never applied body transforms, but a recipe that
+ *     silently dropped the declared intent would misdescribe the config.
+ *   - a heading-less column when any link is also written to the body: the
+ *     engine places link sections first (legacy order), so the append text no
+ *     longer leads the body and could not be cut back out on export.
+ *   - a body heading equal to a body-link section heading: export finds
+ *     sections by heading text, so the two would be confused.
+ */
+export function legacyBodyToProjections(config: LegacyImportRecipe): BodyProjection[] {
+	const entries = config.mapping?.body ?? [];
+	if (entries.length === 0) return [];
+	const bodyLinks = (config.mapping?.links ?? []).filter(
+		(link) => link.location === 'body' || link.location === 'both',
+	);
+	const linkHeadings = new Set(bodyLinks.map((link) => link.bodySection || 'Related'));
+	for (const entry of entries) {
+		if ((entry.transform?.length ?? 0) > 0) return [];
+		if (!entry.heading && bodyLinks.length > 0) return [];
+		if (entry.heading && linkHeadings.has(entry.heading)) return [];
+	}
+	return entries.map((entry): BodyProjection => {
+		const template = `{${pathTextFor(entry.column)}|optional}`;
+		const format = entry.format && entry.format !== 'text' ? { format: entry.format } : {};
+		return entry.heading
+			? { template, position: 'section', heading: entry.heading, ...format }
+			: { template, position: 'append', ...format };
+	});
 }
 
 /**

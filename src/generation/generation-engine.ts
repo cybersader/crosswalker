@@ -1272,10 +1272,12 @@ export async function generateNotes(
 			debug,
 		);
 
-		// Only the portable recipe path (recipeOverride) keeps a copy. The legacy
-		// column-mapping shim's recipe is rebuilt on every run and its notes export
-		// as properties only by design.
-		if (options.recipeOverride) await keepRunRecipe(app, recipe, importSet.id, result, debug);
+		// Every run keeps the recipe it executed, the classic column-mapping shim's
+		// included: its notes carry that recipe's digest, and the classic wizard is
+		// the default import path, so without the copy most notes export as
+		// properties only. Same rule as generateFromRecipe; this entry point has no
+		// `provenanceRecipe` override, so the stamped recipe is always the run's.
+		await keepRunRecipe(app, recipe, importSet.id, result, debug);
 
 		// Final progress update
 		if (options.onProgress) {
@@ -2057,7 +2059,15 @@ function buildNoteDataViaRender(
 	//     `# AC-2: Account management` even though the file is `AC-2- ....md`.
 	const titleText = mapping.filename?.template ? deriveTitleText(row, mapping, filenameStem) : '';
 	const managedBody = renderedBodyRegionsToMarkdown(address.body);
-	const bodyContent = [managedBody, legacy.body].filter((part) => part.trim() !== '').join('\n\n');
+	// A recipe the caller supplied puts its canonical body first. The classic
+	// shim's canonical body is a translation of `mapping.body`, which the legacy
+	// writer always placed AFTER body-located link sections, so the classic path
+	// keeps that order and the legacy join (each part ends in a newline, parts
+	// joined by one more): a classic note stays byte-identical to what the
+	// legacy body writer produced.
+	const bodyContent = options.recipeOverride
+		? [managedBody, legacy.body].filter((part) => part.trim() !== '').join('\n\n')
+		: joinClassicBody(legacy.body, managedBody);
 	//     `target.auto_heading` lets the recipe choose that heading's text or
 	//     suppress it; absent, resolveAutoHeadingText returns titleText and the
 	//     conditional below is byte-for-byte what it always was.
@@ -2174,6 +2184,18 @@ function deriveTitleText(
 		}
 	}
 	return fallbackStem;
+}
+
+/**
+ * The classic path's body: legacy link sections, then the canonical regions
+ * translated from `mapping.body`, in the legacy writer's exact join (every part
+ * `X\n`, parts separated by `\n`). Exported for tests.
+ */
+export function joinClassicBody(legacyBody: string, managedBody: string): string {
+	const hasLegacy = legacyBody.trim() !== '';
+	if (managedBody.trim() === '') return hasLegacy ? legacyBody : '';
+	if (!hasLegacy) return `${managedBody}\n`;
+	return `${legacyBody}\n${managedBody}\n`;
 }
 
 /** Convert pure render() body regions to Markdown without evaluating templates. */

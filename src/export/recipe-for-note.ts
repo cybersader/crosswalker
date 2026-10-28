@@ -11,7 +11,8 @@
  * When the library has no such recipe, or holds a later revision of it, the
  * copy the import kept under `_crosswalker/import-sets/<set id>/` is tried
  * next, keyed by the note's import set id and digest. That covers recipes that
- * were never saved and saved recipes edited after the run.
+ * were never saved, saved recipes edited after the run, and classic
+ * column-mapping imports, whose recipe id names no library recipe at all.
  *
  * When the recipe still cannot be found, the note falls back to a frontmatter-only row and the reason is counted, so
  * the export notice can say what happened and what to do.
@@ -27,7 +28,7 @@ import { readImportSetRecipe, type ImportSetRecipeFiles } from '../import/import
 export type RecipeFallbackReason =
 	/** The note carries no recipe id at all. */
 	| 'no-recipe'
-	/** The note was written by the older column-mapping import (no portable recipe). */
+	/** The note was written by the classic column-mapping import and its set kept no recipe copy (imports from before copies were kept). */
 	| 'legacy'
 	/** The recipe id is in neither the saved library nor the built-in list. */
 	| 'missing'
@@ -113,7 +114,15 @@ export class NoteRecipeResolver {
 	private async lookup(frontmatter: Record<string, unknown>): Promise<NoteRecipe> {
 		const { id, digest, setId } = recipeStamp(frontmatter);
 		if (!id) return { ok: false, reason: 'no-recipe' };
-		if (id === LEGACY_RECIPE_ID_SENTINEL) return { ok: false, reason: 'legacy' };
+		if (id === LEGACY_RECIPE_ID_SENTINEL) {
+			// The sentinel names no library recipe, but a classic import keeps the
+			// exact recipe it ran with its set, keyed by set id and digest. Only a
+			// note with no such copy (older imports) is truly legacy.
+			const snapshot = digest && setId ? await this.snapshot(setId, digest) : null;
+			return snapshot
+				? { ok: true, id, recipe: snapshot, key: `${id}\u0000${digest}` }
+				: { ok: false, reason: 'legacy' };
+		}
 		const key = `${id}\u0000${digest ?? ''}`;
 		let pending = this.cache.get(key);
 		if (!pending) {
