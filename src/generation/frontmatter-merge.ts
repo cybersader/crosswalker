@@ -46,33 +46,39 @@ export function mergeFrontmatter(
 	managedKeys: Set<string>,
 ): Record<string, unknown> {
 	const result: Record<string, unknown> = {};
+	const alwaysManaged = (k: string): boolean => k === '_crosswalker' || k === 'curie';
+	const ownsKey = (k: string): boolean => managedKeys.has(k) || alwaysManaged(k);
+	const freshValue = (k: string): unknown =>
+		LIST_UNION_KEYS.has(k) && managedKeys.has(k) && k in existing
+			? unionStringList(managed[k], existing[k])
+			: managed[k];
 
-	// 1. Preserve everything in `existing` that ISN'T in managedKeys
-	//    (third-party-plugin keys, user annotations, hand-edited fields)
+	// 1. Walk the note's EXISTING key order. A key the user (or another plugin)
+	//    owns keeps its value where it already sits. A managed key that this run
+	//    still renders takes its new value IN PLACE. A managed key this run no
+	//    longer renders is dropped (a declared-but-empty value deletes a stale one).
+	//
+	//    Failure mode prevented (2026-10-28): the merge used to emit every
+	//    preserved key first and every managed key after it, so each re-import
+	//    moved a user's own fields to the top of their properties block. The
+	//    values survived; the note the user arranged did not.
 	for (const [k, v] of Object.entries(existing)) {
-		if (!managedKeys.has(k) && k !== '_crosswalker' && k !== 'curie') {
+		if (!ownsKey(k)) {
 			result[k] = v;
+		} else if (k in managed) {
+			result[k] = freshValue(k);
 		}
 	}
 
-	// 2. Apply managed values ONLY for keys still in managedKeys.
-	//    Keys removed from managedKeys (via user_preserve patterns) keep the
-	//    existing value, even if the recipe wrote them initially. The list-union
-	//    keys (tags/aliases) merge with the existing value instead of clobbering.
-	for (const [k, v] of Object.entries(managed)) {
-		if (managedKeys.has(k)) {
-			if (LIST_UNION_KEYS.has(k) && k in existing) {
-				result[k] = unionStringList(v, existing[k]);
-			} else {
-				result[k] = v;
-			}
-		}
+	// 2. Managed keys the note does not carry yet are appended, in the order the
+	//    recipe renders them. Keys removed from managedKeys (via user_preserve
+	//    patterns) are never written by the recipe once the note exists. The
+	//    always-overwrite specials (_crosswalker provenance + curie ID) are
+	//    recipe-only; user_preserve cannot exempt them.
+	for (const k of Object.keys(managed)) {
+		if (k in existing) continue;
+		if (ownsKey(k)) result[k] = freshValue(k);
 	}
-
-	// 3. Always-overwrite specials: _crosswalker provenance + curie ID
-	//    (these are recipe-only; user_preserve cannot exempt them)
-	if ('_crosswalker' in managed) result._crosswalker = managed._crosswalker;
-	if ('curie' in managed) result.curie = managed.curie;
 
 	return result;
 }

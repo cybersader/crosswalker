@@ -193,7 +193,7 @@ describe('implied concept notes', () => {
 		const pathsBefore = [...files.keys()].sort();
 		const result = await run(app, recipe(), data(), 'replace', { id: setId });
 		expect(original.created).toContain(path);
-		// Row writes remain in result.created under the existing result contract;
+		// A rewrite of a note that already existed counts as updated, never created;
 		// no new vault files or newly created implied notes are allowed here.
 		expect([...files.keys()].sort()).toEqual(pathsBefore);
 		expect(result.created).not.toContain(path);
@@ -371,7 +371,9 @@ describe('implied concept notes', () => {
 			} } as any, { ...options, recipeOverride: recipe(true, true) });
 		const first = await invoke();
 		expect(first.errors).toEqual([]);
-		expect(first.created).toContain(path);
+		// The note existed before the run, so the takeover is an update, never a create.
+		expect(first.created).not.toContain(path);
+		expect(first.updated).toContain(path);
 		const note = fm(files.get(path)!);
 		for (const key of ['implied_level', 'implied_levels', 'implied_values']) expect(note[key]).toBeUndefined();
 		expect(note.reviewer).toBe('Invented reviewer');

@@ -354,7 +354,7 @@ describe('crosswalk edge pass and generation hook', () => {
 			debug,
 		);
 		expect(result.errors.length).toBeGreaterThan(0);
-		expect(result.crosswalkEdges).toEqual({ created: 0, upToDate: 0, sets: [] });
+		expect(result.crosswalkEdges).toEqual({ created: 0, updated: 0, upToDate: 0, sets: [] });
 		expect(result.warnings).toContainEqual({
 			row: -1,
 			message: 'Crosswalk edges were not written because 1 rows failed. Fix the rows and run the import again.',
@@ -450,8 +450,10 @@ describe('recorded producer resolution', () => {
 		}, debug);
 		expect(refreshed.errors).toEqual([]);
 		expect(refreshed.importSetId).toBe(id);
-		// Replace writes are included in created, even when the path already existed.
-		expect(refreshed.created).toHaveLength(2);
+		// Both edge notes existed before this run: a Replace rewrite counts as
+		// updated, never as created (2026-10-28).
+		expect(refreshed.created).toEqual([]);
+		expect(refreshed.updated).toHaveLength(2);
 		expect(notes(files)).toHaveLength(2);
 		for (const [, text] of notes(files)) expect(frontmatter(text)._crosswalker.import_set.parent_set).toBe('iset-abcdef');
 	});
