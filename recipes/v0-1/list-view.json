@@ -33,8 +33,8 @@
   "query": {
     "version": "1.0.0",
     "id": "controls-by-family-list",
-    "title": "800-53 controls by family",
-    "description": "Flat list of 800-53 controls. Sortable by family + control id. Default Bases-native rendering as a List view.",
+    "title": "Controls by family",
+    "description": "Flat list of the controls in one framework, sorted by family and id.",
     "shape": "list",
     "primitives": {
       "from": "nist-800-53",
@@ -49,6 +49,11 @@
       ]
     },
     "params": {
+      "framework_set": {
+        "type": "import-set",
+        "kind": "framework",
+        "description": "The framework to show. Choose one of the frameworks you imported."
+      },
       "family_filter": {
         "type": "string",
         "default": "",

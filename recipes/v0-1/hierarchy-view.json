@@ -31,8 +31,8 @@
   "query": {
     "version": "1.0.0",
     "id": "skos-hierarchy-narrower",
-    "title": "SKOS narrower hierarchy",
-    "description": "Walk skos:narrowerTransitive from a top-level concept down to leaves. Renders as collapsible indented tree (graduates to crosswalkerHierarchy custom view in v0.1.7-v0.1.8).",
+    "title": "Framework hierarchy",
+    "description": "The concepts of one framework, grouped by folder and parent, so its levels read from the top down. Shown as a table until the tree view ships.",
     "shape": "hierarchy",
     "primitives": {
       "from": "skos-taxonomy",
@@ -42,6 +42,13 @@
     },
     "view": {
       "limit": 5000
+    },
+    "params": {
+      "framework_set": {
+        "type": "import-set",
+        "kind": "framework",
+        "description": "The framework to show. Choose one of the frameworks you imported."
+      }
     },
     "output": {
       "target": "bases"
