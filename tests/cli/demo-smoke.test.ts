@@ -55,6 +55,33 @@ describe('demo:build', () => {
 		expect(coverage).toMatch(/csf-to-800-53|iset-/);
 	});
 
+	// The demo exists to show mappings joining real framework notes. A link set
+	// whose ends point at notes the vault does not have reads as empty in Obsidian.
+	// The few CSF to 800-53 rows that stay unresolved name a family, a category,
+	// or a control newer than the catalog, so they are source gaps, not bugs.
+	it('resolves mapping links to framework notes at both ends', () => {
+		const resolved = (folder: string) => {
+			let total = 0;
+			let both = 0;
+			for (const name of fs.readdirSync(path.join(out, folder)).filter((f) => f.endsWith('.md'))) {
+				const text = fs.readFileSync(path.join(out, folder, name), 'utf8');
+				const ends = ['subject_note', 'object_note'].map(
+					(key) => new RegExp(`^${key}: "\\[\\[([^|\\]]+)`, 'm').exec(text)?.[1],
+				);
+				if (ends.every((e) => e === undefined)) continue;
+				total++;
+				if (ends.every((e) => e !== undefined && fs.existsSync(path.join(out, `${e}.md`)))) both++;
+			}
+			return { total, both };
+		};
+		const nist = resolved('_crosswalker/mappings/csf-to-800-53');
+		expect(nist.total).toBeGreaterThan(700);
+		expect(nist.both / nist.total).toBeGreaterThan(0.98);
+		const mitre = resolved('_crosswalker/mappings/csf-to-mitre');
+		expect(mitre).toEqual({ total: mitre.total, both: mitre.total });
+		expect(mitre.total).toBeGreaterThan(0);
+	});
+
 	it('carries no licensed content or restricted framework names', () => {
 		for (const [p, bytes] of readTree(out)) {
 			const folders = p.split('/').slice(0, -1).join('/');

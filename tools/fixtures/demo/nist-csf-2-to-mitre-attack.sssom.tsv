@@ -1,0 +1,26 @@
+# curie_map:
+#   nist-csf-2: "https://crosswalker.dev/ontology/nist-csf-2/"
+#   mitre-attack: "https://attack.mitre.org/techniques/"
+#   skos: "http://www.w3.org/2004/02/skos/core#"
+#   semapv: "https://w3id.org/semapv/vocab/"
+# mapping_set_id: "https://example.org/crosswalks/nist-csf-2-to-mitre-attack/demo"
+# mapping_set_title: "NIST CSF 2.0 → MITRE ATT&CK Enterprise — defensive coverage mapping (synthetic test fixture; NOT authoritative)"
+# mapping_set_description: "Defensive-controls-side CSF subcategory → MITRE ATT&CK technique covered. Structurally modeled after the MITRE Mappings Explorer project (https://center-for-threat-informed-defense.github.io/mappings-explorer/); fixture data is synthetic-but-shape-correct. Demo copy of tools/fixtures/realistic/nist-csf-to-mitre-attack.sssom.tsv with the CSF prefix set to nist-csf-2, the prefix the CSF 2.0 notes carry. Identifiers are matched exactly, never aliased."
+# mapping_provider: "MITRE Mappings Explorer (structural model only)"
+# mapping_date: "2026-05-15"
+# license: "https://creativecommons.org/publicdomain/zero/1.0/"
+# subject_source: "nist-csf-2"
+# object_source: "mitre-attack"
+subject_id	predicate_id	object_id	match_type	confidence	mapping_justification	subject_label	object_label
+nist-csf-2:PR.AA-01	skos:relatedMatch	mitre-attack:T1078	broad	0.75	semapv:ManualMappingCuration	Identities and credentials for authorized users are managed	Valid Accounts
+nist-csf-2:PR.AA-02	skos:closeMatch	mitre-attack:T1078.001	close	0.85	semapv:ManualMappingCuration	Identities are proofed and bound to credentials based on the context of interactions	Default Accounts
+nist-csf-2:PR.AA-03	skos:relatedMatch	mitre-attack:T1078.003	broad	0.70	semapv:ManualMappingCuration	Users; services; and hardware are authenticated	Local Accounts
+nist-csf-2:PR.AA-05	skos:closeMatch	mitre-attack:T1078.004	close	0.80	semapv:ManualMappingCuration	Access permissions; entitlements; and authorizations are defined in a policy; managed; enforced; and reviewed	Cloud Accounts
+nist-csf-2:DE.CM-01	skos:relatedMatch	mitre-attack:T1078	broad	0.70	semapv:ManualMappingCuration	Networks and network services are monitored to find potentially adverse events	Valid Accounts
+nist-csf-2:DE.CM-03	skos:closeMatch	mitre-attack:T1098	close	0.80	semapv:ManualMappingCuration	Personnel activity and technology usage are monitored to find potentially adverse events	Account Manipulation
+nist-csf-2:DE.CM-06	skos:relatedMatch	mitre-attack:T1098.001	broad	0.75	semapv:ManualMappingCuration	External service provider activities and services are monitored to find potentially adverse events	Additional Cloud Credentials
+nist-csf-2:RS.AN-03	skos:closeMatch	mitre-attack:T1078.002	close	0.85	semapv:ManualMappingCuration	Analysis is performed to establish what has taken place during an incident and the root cause of the incident	Domain Accounts
+nist-csf-2:DE.AE-02	skos:closeMatch	mitre-attack:T1098	close	0.80	semapv:ManualMappingCuration	Potentially adverse events are analyzed to better understand associated activities	Account Manipulation
+nist-csf-2:PR.AA-01	skos:relatedMatch	mitre-attack:T1098.003	broad	0.70	semapv:ManualMappingCuration	Identities and credentials for authorized users are managed	Additional Cloud Roles
+nist-csf-2:PR.AA-05	skos:relatedMatch	mitre-attack:T1098.001	broad	0.70	semapv:ManualMappingCuration	Access permissions are defined and managed	Additional Cloud Credentials
+nist-csf-2:DE.CM-09	skos:closeMatch	mitre-attack:T1098.004	close	0.80	semapv:ManualMappingCuration	Computing hardware and software; runtime environments; and their data are monitored to find potentially adverse events	SSH Authorized Keys

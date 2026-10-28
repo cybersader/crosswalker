@@ -3,6 +3,7 @@
  *
  *   bun run cw -- import   --vault <dir> --source <file> [--recipe <id|path>]
  *                          [--set new|<set id>] [--ontology <id>] [--destination <folder>]
+ *                          [--sheet <name>] [--header-row <n>]
  *                          [--deterministic]
  *   bun run cw -- validate --vault <dir> [--folder <folder>]
  *   bun run cw -- export   --vault <dir> --folder <folder> --format csv|sssom|strm --out <file>
@@ -29,6 +30,7 @@ import {
 	type RecipeRegistryEntry,
 } from '../src/import/recipe-registry';
 import { parseRecognizedSource, runRecognizedImport } from '../src/import/run-recognized-import';
+import { listXLSXSheets } from '../src/import/parsers/xlsx-parser';
 import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import { MappingWorkbench } from '../src/import/workbench';
 import { patchRecipeDocument } from '../src/import/recipe-document';
@@ -55,7 +57,10 @@ const USAGE = [
 	'',
 	'Commands:',
 	'  import    --vault <dir> --source <file> [--recipe <id|path>] [--set new|<set id>]',
-	'            [--ontology <id>] [--destination <folder>] [--deterministic]',
+	'            [--ontology <id>] [--destination <folder>] [--sheet <name>]',
+	'            [--header-row <n>] [--deterministic]',
+	'            --sheet picks a workbook sheet or a JSON collection; --header-row is the',
+	'            spreadsheet row number (1 = first row) that holds the column names.',
 	'  validate  --vault <dir> [--folder <folder>]',
 	'  export    --vault <dir> --folder <folder> --format csv|sssom|strm --out <file>',
 	'  replay    --vault <dir> --set <set id>   (not available from the command line yet)',
@@ -327,8 +332,55 @@ function setFlag(flags: Flags): string | undefined {
 	return value;
 }
 
+/**
+ * --sheet and --header-row: which table in the source to read, and which row
+ * holds its column names. --header-row is the row number a spreadsheet shows
+ * (1 is the first row), so a banner row above the headers means --header-row 2.
+ * Without the flags: the first sheet, headers on its first row.
+ */
+export function tableFlags(flags: Flags, extension: string): { table: string; headerRow: number } {
+	const table = stringFlag(flags, 'sheet', false, 'Pass a sheet name, for example --sheet "CSF 2.0".') ?? '';
+	const rawRow = stringFlag(flags, 'header-row', false, 'Pass a row number, for example --header-row 2.');
+	let headerRow = 0;
+	if (rawRow !== undefined) {
+		if (!/^[1-9][0-9]*$/.test(rawRow)) {
+			throw new CliError(`--header-row takes a row number starting at 1, not "${rawRow}". Count rows the way the spreadsheet shows them.`);
+		}
+		headerRow = Number(rawRow) - 1;
+	}
+	const ext = extension.toLowerCase();
+	if (ext === 'csv' || ext === 'tsv') {
+		if (table !== '') throw new CliError('--sheet is for workbooks (.xlsx) and JSON files. A CSV has one table; remove --sheet.');
+		if (headerRow !== 0) throw new CliError('--header-row is for workbooks (.xlsx). Remove the banner rows from the CSV, or save it from the workbook with the headers on the first row.');
+	}
+	if (ext === 'json' && rawRow !== undefined) {
+		throw new CliError('--header-row is for workbooks (.xlsx). A JSON source has no header row; remove --header-row.');
+	}
+	return { table, headerRow };
+}
+
+/**
+ * A failed workbook import read the first sheet from its first row. Say so,
+ * name the sheets, and name the sheet the recipe was written for when it
+ * declares one. An offer for the user to act on, never applied by itself.
+ */
+async function workbookHint(file: File, entry: RecipeRegistryEntry): Promise<string> {
+	let sheets: string[] = [];
+	try {
+		sheets = await listXLSXSheets(file);
+	} catch {
+		// The parse already succeeded once; a listing failure only loses the names.
+	}
+	const named = sheets.length > 0 ? ` Sheets in this workbook: ${sheets.map((name) => `"${name}"`).join(', ')}.` : '';
+	const detect = (entry.recipe.source as { detect?: { sheet?: string; header_row?: number } } | undefined)?.detect;
+	const suggested = detect?.sheet
+		? ` This recipe was written for --sheet "${detect.sheet}"${detect.header_row !== undefined ? ` --header-row ${detect.header_row + 1}` : ''}.`
+		: '';
+	return `The import read the first sheet with column names on row 1.${named}${suggested} If the columns are elsewhere, pass --sheet <name> and --header-row <row number>.`;
+}
+
 async function commandImport(flags: Flags, io: Io): Promise<number> {
-	allowOnly(flags, ['vault', 'source', 'recipe', 'set', 'ontology', 'destination', 'deterministic'], 'import');
+	allowOnly(flags, ['vault', 'source', 'recipe', 'set', 'ontology', 'destination', 'sheet', 'header-row', 'deterministic'], 'import');
 	const app = openVault(flags);
 	const source = readSource(flags);
 	const refreshSetId = setFlag(flags);
@@ -367,7 +419,7 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 	const handle = sourceHandle(source.name);
 	const explicit = resolveRecipe(flags);
 	const sourceFile = new File([source.bytes], source.name);
-	const baseRequest = { file: handle, table: '', headerRow: 1 } as const;
+	const baseRequest = { file: handle, ...tableFlags(flags, handle.extension) };
 	let parsedData;
 	try {
 		parsedData = await parseRecognizedSource(sourceFile, { ...baseRequest, entry: explicit ?? RECIPE_REGISTRY[0] });
@@ -404,6 +456,9 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 	if (!outcome.ok) {
 		for (const error of outcome.errors) io.err(error);
 		if (outcome.errors.length === 0) io.err(`Import of ${source.name} did not finish. Run "bun run cw -- validate --vault <dir>" to see what is wrong.`);
+		if (/^xlsx?$/i.test(handle.extension) && flags.sheet === undefined) {
+			io.err(await workbookHint(sourceFile, entry));
+		}
 		return 1;
 	}
 	io.out(

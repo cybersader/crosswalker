@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Changed: command line reads workbooks; demo uses the full NIST catalogs (2026-10-28)
+
+- **Workbooks from the command line.** `cw import` takes `--sheet <name>` and `--header-row <n>` (counted from 1). A CSV refuses both flags and a JSON source refuses `--header-row`, each with a plain reason. When a workbook import fails without the right sheet, the error lists the workbook's sheets and the sheet and header row the recipe was written for (`cli/crosswalker.ts`, `tests/cli/workbook-flags.test.ts`).
+- **Fixed: header row default.** Without `--header-row`, a workbook's headers are now read from row 1. Before, the command line read them from row 2.
+- **Demo vault links resolve.** The demo now imports the full NIST CSF 2.0 workbook and the full SP 800-53 r5 catalog instead of small samples, so mapping links land on notes that exist: 729 of 740 CSF to 800-53 links and 12 of 12 CSF to ATT&CK links resolve at both ends (before: 2 and 0). The 11 that stay unresolved name an 800-53 family, a CSF category, or IA-13, which is newer than the catalog; they are gaps in the source mapping, not in the demo. `tests/cli/demo-smoke.test.ts` now asserts this.
+- **CSF to ATT&CK demo mapping.** `tools/fixtures/demo/nist-csf-2-to-mitre-attack.sssom.tsv` is a copy of the realistic fixture with the CSF identifiers carrying the `nist-csf-2` prefix the CSF 2.0 notes use. Identifiers are still matched exactly; no prefix is guessed or aliased. The shared realistic fixture is unchanged.
+
 ### Fixed: mapping confidence reaches queries and the query database (2026-10-28)
 
 - **What was wrong.** Imported mappings stored their confidence as text under `sssom_confidence`. The published note format (`spec/tier1.schema.json`) names the field `match_confidence` and types it as a number from 0 to 1, and both readers use that name: the query database projected every confidence as empty, and the shipped coverage query filtered on a `confidence` field no note carries, so it dropped every mapping.
