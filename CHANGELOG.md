@@ -14,6 +14,11 @@ The 0.1 design phase concluded 2026-05-04 and implementation began the same day.
 - **The demo builder and the CLI determinism test** no longer pass `--destination .` to work around this (`scripts/demo-build.mjs`, `tests/cli/determinism.test.ts`). The demo vault's paths are unchanged.
 - **Tests.** `tests/cli/evidence-destination.test.ts` imports the evidence links with no destination and expects five notes directly in `Evidence/Junctions`. A registry check in `tests/destination-default.test.ts` fails if any shipped recipe's file template starts with its own destination folder. Both fail with the old template.
 
+### Fixed: a source whose first column is unique prose imports with the right id column (2026-10-28)
+
+- **Identity is chosen by shape, not position.** Detection used the first near-unique column in the file as the identity column. A source that opened with a unique description column read its `parent` column as links to another framework, and the import stopped with "no framework is named". Near-unique columns are now ranked by how identifier-shaped their values are (no whitespace, then the id pattern), with file order only breaking ties. Parent, crosswalk and multi-value link detection all use that ranking (`src/import/detection.ts`).
+- **Tests.** `tests/detection-crosswalk-column.test.ts` checks the same rows with the id column first and with prose first give the same parent detection and no crosswalk offer (fails with the ranking disabled).
+
 ### Fixed: CSV export keeps the source file's column order (2026-10-28)
 
 - **Each import records the source header.** Column order is a fact about the source file, not the recipe, so every run writes it to `_crosswalker/import-sets/<set id>/source-columns.json` beside the recipe copy. The latest run wins: refreshing from a reordered file reorders the export. A failed write only logs; it never fails the import (`src/import/import-set-recipes.ts`, `src/generation/generation-engine.ts`).

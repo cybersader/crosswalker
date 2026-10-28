@@ -170,3 +170,23 @@ describe('crosswalk recognition data and atomization', () => {
 		}
 	});
 });
+
+describe('id column choice', () => {
+	const base = [
+		{ id: 'G-1', parent: '', description: 'Keep a list of assets.' },
+		{ id: 'G-2', parent: 'G-1', description: 'Name an owner for each asset.' },
+		{ id: 'G-3', parent: 'G-1', description: 'Review the list each quarter.' },
+		{ id: 'G-4', parent: '', description: 'Remove assets that are no longer used.' },
+		{ id: 'H-1', parent: '', description: 'Back up data on a schedule.' },
+		{ id: 'H-2', parent: 'H-1', description: 'Test that backups restore.' },
+	];
+
+	it('ignores column position: a unique prose column first never stands in for the id', () => {
+		const proseFirst = base.map((row) => ({ description: row.description, parent: row.parent, id: row.id }));
+		for (const rows of [base, proseFirst]) {
+			const detections = detect(rows);
+			expect(findKind(detections, 'crosswalk-column')).toBeUndefined();
+			expect(findKind(detections, 'parent-column')).toMatchObject({ column: 'parent', idColumn: 'id' });
+		}
+	});
+});
