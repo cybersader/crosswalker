@@ -48,7 +48,7 @@ const MAPPINGS = [
 const EVIDENCE_LINKS = 'tools/fixtures/demo/evidence-links.csv';
 
 /** Added last when the checkout ships it, so the set ids above never shift. */
-const F3 = { key: 'f3', label: 'MITRE Fight Fraud Framework (sample techniques)', source: 'tools/fixtures/synthetic/mitre-f3-mini.csv', recipe: 'mitre-f3-technique', destination: 'Frameworks/MITRE-F3' };
+const F3 = { key: 'f3', label: 'MITRE Fight Fraud Framework (sample techniques)', source: 'tools/fixtures/synthetic/mitre-f3-mini.csv', recipe: 'mitre-f3-technique-flat', destination: 'Frameworks/MITRE-F3' };
 
 /** Synthetic evidence documents. Names match the objects in EVIDENCE_LINKS. */
 const EVIDENCE_DOCUMENTS = {
