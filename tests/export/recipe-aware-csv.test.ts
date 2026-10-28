@@ -383,6 +383,14 @@ describe('recipeAwareRowsToCsv', () => {
 		expect(result.mixedRecipes).toBe(false);
 	});
 
+	it('lays recipe columns out in the recorded source order, keeping unlisted ones after', () => {
+		const result = recipeAwareRowsToCsv([row('a.md', 1, { id: 'A', title: 'A title' })], {
+			sourceOrder: ['id', 'steps', 'unused', 'name', 'family'],
+		});
+		expect(result.columns.slice(0, 5)).toEqual(['id', 'steps', 'name', 'family', 'summary']);
+		expect(result.csv.split('\n')[1].split(',')[0]).toBe('A');
+	});
+
 	it('gives the union of columns and flags mixed recipes', () => {
 		const other = {
 			key: 'k2',

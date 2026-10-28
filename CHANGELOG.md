@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: CSV export keeps the source file's column order (2026-10-28)
+
+- **Each import records the source header.** Column order is a fact about the source file, not the recipe, so every run writes it to `_crosswalker/import-sets/<set id>/source-columns.json` beside the recipe copy. The latest run wins: refreshing from a reordered file reorders the export. A failed write only logs; it never fails the import (`src/import/import-set-recipes.ts`, `src/generation/generation-engine.ts`).
+- **Export follows it.** Recipe columns are sorted by their position in the recorded header; columns the header does not list keep their recipe position after the listed ones. A folder spanning several sets merges their orders. Sets imported before this change fall back to recipe order (`src/export/csv-exporter.ts`).
+- **Tests.** `tests/cli/detected-round-trip.test.ts` now imports a deliberately scrambled header and checks the exported header matches it (fails with the reorder disabled), plus module tests for recording, dedupe, unchanged runs, rewrites and damaged records.
+
 ### Fixed: detected recipes keep link columns and their delimiters; CSV export rebuilds them (2026-10-28)
 
 - **Detected recipes record the list delimiter.** When an import works out its own layout, a column of linked ids now records the delimiters the source actually uses, most frequent first (`split` on the link). Before, a semicolon list came back from export joined with commas (`src/import/detection.ts`, `src/import/mapping/instantiate.ts`).

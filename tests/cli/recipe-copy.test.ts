@@ -23,9 +23,11 @@ describe('cw import keeps the recipe copy for its set', () => {
 			'--destination', DESTINATION, '--deterministic'], imported.io)).toBe(0);
 		expect(imported.err).toEqual([]);
 
-		const copies = [...readTree(vault).keys()].filter((p) => p.startsWith('_crosswalker/import-sets/'));
-		expect(copies).toHaveLength(1);
-		expect(copies[0]).toMatch(/^_crosswalker\/import-sets\/iset-[0-9a-f]+\/recipe-sha256-[0-9a-f]{64}\.json$/);
+		const kept = [...readTree(vault).keys()].filter((p) => p.startsWith('_crosswalker/import-sets/')).sort();
+		expect(kept).toHaveLength(2);
+		expect(kept[0]).toMatch(/^_crosswalker\/import-sets\/iset-[0-9a-f]+\/recipe-sha256-[0-9a-f]{64}\.json$/);
+		// The source's column order is recorded beside the recipe copy.
+		expect(kept[1]).toMatch(/^_crosswalker\/import-sets\/iset-[0-9a-f]+\/source-columns\.json$/);
 
 		const out = path.join(tempDir('recipe-copy-out'), 'export.csv');
 		const exported = captureIo();

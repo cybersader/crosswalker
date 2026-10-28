@@ -13,11 +13,11 @@
  * reshapes it, a nested path) cannot be reversed, so the column is left out and
  * the export notice names it with a plain reason.
  *
- * Header order is the recipe's column order: the order columns are first
+ * The plan lists columns in the recipe's order: the order columns are first
  * referenced across layout, the automatic heading, managed frontmatter,
- * managed link lists, and body projections. That is the order the recipe is
- * written in, not necessarily the source file's own column order, which the
- * recipe does not record.
+ * managed link lists, and body projections. The recipe does not record the
+ * source file's own column order; the exporter reorders by the order each
+ * import set recorded (see ./csv-exporter.ts).
  */
 
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';

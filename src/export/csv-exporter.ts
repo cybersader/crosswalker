@@ -15,11 +15,12 @@
  * escaping of commas, quotes, and embedded newlines is handled by the same
  * code the CSV import path (src/import/parsers/csv-parser.ts) parses with.
  *
- * Column order: the recipe's columns in the order the recipe first
- * references them (layout, automatic heading, managed frontmatter, body), then
+ * Column order: the recipe's columns in the source file's own order, which
+ * each import records with its set (src/import/import-set-recipes.ts), then
  * the fixed leading columns and any other frontmatter keys, alphabetically.
- * The recipe does not record the source file's own column order, so the
- * recipe's order is the closest faithful answer.
+ * Sets imported before that order was kept fall back to the order the recipe
+ * first references its columns (layout, automatic heading, managed
+ * frontmatter, body).
  *
  * Row order: the source row order the import recorded (`source_order`), then
  * path for notes without one.
@@ -28,8 +29,8 @@
 import Papa from 'papaparse';
 import type { App } from 'obsidian';
 import { readVaultTree, type ConceptRow, type HubRow, type SkippedNote } from './vault-reader';
-import { vaultImportSetRecipeFiles } from '../import/import-set-recipes';
-import { NoteRecipeResolver, EMPTY_RECIPE_LIBRARY, type RecipeFallbackReason } from './recipe-for-note';
+import { readImportSetSourceColumns, vaultImportSetRecipeFiles } from '../import/import-set-recipes';
+import { importSetIdOf, NoteRecipeResolver, EMPTY_RECIPE_LIBRARY, type RecipeFallbackReason } from './recipe-for-note';
 import {
 	planRecipeColumns,
 	parseManagedBody,
@@ -51,6 +52,13 @@ export interface CsvExportOptions {
 	columns?: string[];
 	/** Where saved recipes live. Default: none saved (built-in recipes still resolve). */
 	library?: RecipeLibraryFiles;
+	/**
+	 * The source file's own column order. Recipe columns follow it; a column it
+	 * does not list keeps its recipe position after the listed ones. Default:
+	 * recipe order. `exportFolderAsCsv` fills it from the order each import set
+	 * recorded.
+	 */
+	sourceOrder?: readonly string[];
 }
 
 export interface CsvExportResult {
@@ -191,6 +199,14 @@ export function recipeAwareRowsToCsv(input: RecipeAwareRow[], options: CsvExport
 	}
 	// A column one recipe gives back is not omitted, whatever another recipe says.
 	for (const c of recipeColumns) omitted.delete(c);
+	if (options.sourceOrder && options.sourceOrder.length > 0) {
+		const rank = new Map(options.sourceOrder.map((c, i) => [c, i]));
+		const position = new Map(recipeColumns.map((c, i) => [c, i]));
+		recipeColumns.sort(
+			(a, b) =>
+				(rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity) || position.get(a)! - position.get(b)!,
+		);
+	}
 
 	let columns = options.columns;
 	if (!columns) {
@@ -317,6 +333,29 @@ async function readNoteText(app: App, path: string): Promise<string | undefined>
 }
 
 /**
+ * The source column order the export's import sets recorded, merged in the
+ * order the sets first appear: the first set's order, then any column a later
+ * set adds. Undefined when no set recorded one (imports from before the order
+ * was kept), so the export falls back to recipe order.
+ */
+async function recordedSourceOrder(app: App, input: RecipeAwareRow[]): Promise<string[] | undefined> {
+	const files = vaultImportSetRecipeFiles(app);
+	if (!files) return undefined;
+	const seen = new Set<string>();
+	const order: string[] = [];
+	for (const item of input) {
+		if (!item.recipe) continue;
+		const setId = importSetIdOf(item.row.frontmatter);
+		if (!setId || seen.has(setId)) continue;
+		seen.add(setId);
+		for (const column of (await readImportSetSourceColumns(files, setId)) ?? []) {
+			if (!order.includes(column)) order.push(column);
+		}
+	}
+	return order.length > 0 ? order : undefined;
+}
+
+/**
  * Walk `rootPath` and export every concept note under it as a CSV, rebuilding
  * each note's source columns from the recipe its provenance names.
  */
@@ -342,7 +381,8 @@ export async function exportFolderAsCsv(
 			hubValues: hubValuesFor(row, tree.hubs),
 		});
 	}
-	const result = recipeAwareRowsToCsv(input, options);
+	const sourceOrder = options.sourceOrder ?? (await recordedSourceOrder(app, input));
+	const result = recipeAwareRowsToCsv(input, { ...options, sourceOrder });
 	result.fallbacks = { ...resolver.fallbacks };
 	result.skipped.push(...tree.skipped);
 	result.mappingCount = tree.crosswalkEdges.length + tree.junctionNotes.length;

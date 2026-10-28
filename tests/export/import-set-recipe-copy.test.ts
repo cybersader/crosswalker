@@ -19,8 +19,11 @@ import { recipeRunDigest } from '../../src/import/recipe-runs';
 import {
 	IMPORT_SET_RECIPES_FOLDER,
 	importSetRecipePath,
+	importSetSourceColumnsPath,
 	keepImportSetRecipe,
+	keepImportSetSourceColumns,
 	readImportSetRecipe,
+	readImportSetSourceColumns,
 	type ImportSetRecipeFiles,
 } from '../../src/import/import-set-recipes';
 import { exportFolderAsCsv } from '../../src/export/csv-exporter';
@@ -276,7 +279,7 @@ describe('each import keeps the recipe it ran', () => {
 		expect(files.has(pathB)).toBe(true);
 		expect(files.get(pathA)).toBe(bytesA);
 		expect(writes.filter((p) => p === pathA)).toHaveLength(1);
-		const copies = [...files.keys()].filter((p) => p.startsWith(`${IMPORT_SET_RECIPES_FOLDER}/${setId}/`));
+		const copies = [...files.keys()].filter((p) => p.startsWith(`${IMPORT_SET_RECIPES_FOLDER}/${setId}/recipe-`));
 		expect(copies.sort()).toEqual([pathA, pathB].sort());
 	});
 
@@ -353,6 +356,26 @@ describe('kept recipe copies at module level', () => {
 		const recipe = canonical(recipeWithId('custom-nist-mini'));
 		const res = await keepImportSetRecipe(files, 'iset-abc123', recipe, recipeRunDigest(recipe)!);
 		expect(res.ok).toBe(false);
+	});
+
+	it('records source column order once, and again only when it changes', async () => {
+		const files = memoryFiles();
+		expect(await keepImportSetSourceColumns(files, 'iset-abc123', ['b', 'a', '', 'b', 'c'])).toMatchObject({ outcome: 'written' });
+		expect(await readImportSetSourceColumns(files, 'iset-abc123')).toEqual(['b', 'a', 'c']);
+		expect(await keepImportSetSourceColumns(files, 'iset-abc123', ['b', 'a', 'c'])).toMatchObject({ outcome: 'unchanged' });
+		expect(files.writes).toBe(1);
+		expect(await keepImportSetSourceColumns(files, 'iset-abc123', ['a', 'b', 'c'])).toMatchObject({ outcome: 'written' });
+		expect(await readImportSetSourceColumns(files, 'iset-abc123')).toEqual(['a', 'b', 'c']);
+	});
+
+	it('skips a bad set id or an empty header, and reads damaged records as null', async () => {
+		const files = memoryFiles();
+		expect(await keepImportSetSourceColumns(files, '../escape', ['a'])).toEqual({ ok: true, outcome: 'skipped', reason: 'bad-key' });
+		expect(await keepImportSetSourceColumns(files, 'iset-abc123', ['', ''])).toEqual({ ok: true, outcome: 'skipped', reason: 'no-columns' });
+		expect(files.writes).toBe(0);
+		files.store.set(importSetSourceColumnsPath('iset-abc123')!, '{"kind":"source-columns","columns":["a","a"]}');
+		expect(await readImportSetSourceColumns(files, 'iset-abc123')).toBeNull();
+		expect(await readImportSetSourceColumns(files, 'iset-zzz999')).toBeNull();
 	});
 
 	it('reads back null for a damaged copy', async () => {
