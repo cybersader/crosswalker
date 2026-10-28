@@ -65,6 +65,15 @@ export function importSetIdOf(frontmatter: Record<string, unknown>): string | un
 	return recipeStamp(frontmatter).setId;
 }
 
+/**
+ * What a note's provenance says about the run that wrote it: the recipe id,
+ * the recipe document digest (absent on notes from before digests were
+ * stamped), and the import set id.
+ */
+export function recipeStampOf(frontmatter: Record<string, unknown>): { id?: string; digest?: string; setId?: string } {
+	return recipeStamp(frontmatter);
+}
+
 function recipeStamp(frontmatter: Record<string, unknown>): { id?: string; digest?: string; setId?: string } {
 	const provenance = frontmatter._crosswalker;
 	if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) return {};
