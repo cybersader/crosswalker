@@ -208,25 +208,39 @@ export function getRecipeParams(recipe: LoadedRecipe): RecipeParam[] {
 		if (!decl || typeof decl !== 'object') continue;
 		const d = decl as Record<string, unknown>;
 		const type = typeof d.type === 'string' ? d.type : 'string';
-		out.push({
+		const param: RecipeParam = {
 			name,
 			type: normalizeType(type),
 			description: typeof d.description === 'string' ? d.description : '',
 			defaultValue: d.default,
-		});
+		};
+		if (param.type === 'import-set') {
+			param.kind = d.kind === 'mapping' ? 'mapping' : 'framework';
+		}
+		out.push(param);
 	}
 	return out;
 }
 
+/**
+ * `import-set` (SchemaVer 1.19.0): the value is one imported set's minted id,
+ * chosen by the user from the sets the vault holds. `kind` says which sets it
+ * offers: frameworks (concept notes) or mapping sets (relationship notes).
+ */
+export type RecipeParamType = 'string' | 'number' | 'boolean' | 'import-set';
+
 export interface RecipeParam {
 	name: string;
-	type: 'string' | 'number' | 'boolean';
+	type: RecipeParamType;
+	/** Only for type `import-set`. */
+	kind?: 'framework' | 'mapping';
 	description: string;
 	defaultValue: unknown;
 }
 
-function normalizeType(t: string): 'string' | 'number' | 'boolean' {
+function normalizeType(t: string): RecipeParamType {
 	if (t === 'number' || t === 'integer') return 'number';
 	if (t === 'boolean') return 'boolean';
+	if (t === 'import-set') return 'import-set';
 	return 'string';
 }

@@ -41,8 +41,8 @@
   "query": {
     "version": "1.0.0",
     "id": "nist-csf-to-mitre-coverage",
-    "title": "NIST CSF -> MITRE ATT&CK coverage matrix",
-    "description": "Cross-domain pivot view: CSF subcategories (defensive) on rows, MITRE ATT&CK techniques (offensive) on cols, count of mappings in cells. Showcases bridging defensive + offensive ontology domains within one query — Crosswalker's distinguishing capability.",
+    "title": "Mapping coverage matrix by tactic",
+    "description": "Pivot of one mapping set, such as defensive controls mapped to attack techniques: source concepts on rows, target concepts on columns, the number of mappings in each cell. Optionally narrowed to one tactic.",
     "shape": "pivot",
     "primitives": {
       "from": "csf-mitre-mapping",
@@ -66,6 +66,11 @@
       }
     },
     "params": {
+      "mapping_set": {
+        "type": "import-set",
+        "kind": "mapping",
+        "description": "The mapping set to show. Choose one of the crosswalks you imported."
+      },
       "confidence_threshold": {
         "type": "number",
         "default": 0.7,

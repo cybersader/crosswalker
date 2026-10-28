@@ -4,7 +4,7 @@
  * semantics (plain substitution + section conditionals).
  */
 
-import { getRecipeTemplate, renderRecipeTemplate } from '../src/views/recipe-templates';
+import { getRecipeTemplate, interpolate, renderRecipeTemplate } from '../src/views/recipe-templates';
 
 describe('withdrawn templates stay withdrawn', () => {
 	it('offers no Bases template for the controls-without-evidence question', () => {
@@ -155,5 +155,104 @@ describe('renderRecipeTemplate — null handling', () => {
 			// No unrendered Mustache tokens
 			expect(out).not.toMatch(/\{\{[\w_]+\}\}/);
 		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Set-targeted templates (2026-10-27). Templates filter on the chosen set's
+// minted id; a saved query without the set param regenerates byte-identically.
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const legacy = require('./fixtures/recipe-templates-legacy-render.json') as {
+	cases: { recipe: string; params: Record<string, unknown>; expected: string }[];
+};
+
+describe('renderRecipeTemplate — legacy saved queries', () => {
+	it('freezes at least one case per folder-targeted template', () => {
+		const ids = new Set(legacy.cases.map((c) => c.recipe));
+		for (const id of ['nist-csf-coverage-matrix', 'nist-csf-to-mitre-coverage', 'controls-by-family-list', 'skos-hierarchy-narrower']) {
+			expect(ids.has(id)).toBe(true);
+		}
+	});
+
+	it.each(legacy.cases.map((c) => [c.recipe, JSON.stringify(c.params), c] as const))(
+		'%s with %s renders byte-identical to before',
+		(_id, _p, c) => {
+			expect(renderRecipeTemplate(c.recipe, c.params)).toBe(c.expected);
+		},
+	);
+});
+
+describe('renderRecipeTemplate — set-targeted path', () => {
+	it('filters a mapping template on the chosen set id, not a folder', () => {
+		const out = renderRecipeTemplate('nist-csf-coverage-matrix', { mapping_set: 'iset-abc', confidence_threshold: 0.7 }) ?? '';
+		expect(out).toContain(`'note._crosswalker.import_set.id == "iset-abc"'`);
+		expect(out).toContain(`'kind == "crosswalk-edge"'`);
+		expect(out).not.toContain('file.inFolder');
+		expect(out).toContain('Mapping coverage matrix');
+		expect(out).not.toContain('NIST CSF');
+	});
+
+	it('names the tactic view generically when a set is chosen', () => {
+		const out = renderRecipeTemplate('nist-csf-to-mitre-coverage', { mapping_set: 'iset-m', confidence_threshold: 0.5 }) ?? '';
+		expect(out).toContain('import_set.id == "iset-m"');
+		expect(out).toContain('Mapping coverage matrix by tactic');
+		expect(out).not.toContain('file.inFolder');
+	});
+
+	it('filters framework templates on the chosen set id', () => {
+		for (const id of ['controls-by-family-list', 'skos-hierarchy-narrower']) {
+			const out = renderRecipeTemplate(id, { framework_set: 'iset-f' }) ?? '';
+			expect(out).toContain(`'note._crosswalker.import_set.id == "iset-f"'`);
+			expect(out).not.toContain('file.inFolder');
+			expect(out).not.toMatch(/CIS|MITRE/);
+		}
+	});
+
+	it('counts crosswalk edges by kind for the density view, never by demo folder', () => {
+		const out = renderRecipeTemplate('crosswalk-density-by-framework', {}) ?? '';
+		expect(out).toContain(`'kind == "crosswalk-edge"'`);
+		expect(out).not.toContain('file.inFolder');
+	});
+});
+
+describe('renderRecipeTemplate — inverted sections', () => {
+	// Exercised through a shipped template: the hierarchy view's ^framework_set
+	// branch carries the old folder filter, the #framework_set branch the id.
+	const render = (params: Record<string, unknown>) => renderRecipeTemplate('skos-hierarchy-narrower', params) ?? '';
+
+	it.each([
+		['missing', {}],
+		['empty string', { framework_set: '' }],
+		['false', { framework_set: false }],
+		['zero', { framework_set: 0 }],
+		['empty array', { framework_set: [] }],
+	])('shows the inverted block when the value is %s', (_label, params) => {
+		const out = render(params);
+		expect(out).toContain('file.inFolder');
+		expect(out).not.toContain('import_set.id');
+	});
+
+	it('hides the inverted block when the value is truthy', () => {
+		const out = render({ framework_set: 'iset-x' });
+		expect(out).not.toContain('file.inFolder');
+		expect(out).toContain('import_set.id == "iset-x"');
+	});
+
+	it('renders sections nested inside sections', () => {
+		const t = '{{#a}}A{{^b}}-no-b{{/b}}{{#b}}-{{b}}{{/b}}{{/a}}{{^a}}none{{/a}}';
+		expect(interpolate(t, { a: 'x' })).toBe('A-no-b');
+		expect(interpolate(t, { a: 'x', b: 'y' })).toBe('A-y');
+		expect(interpolate(t, {})).toBe('none');
+		expect(interpolate(t, { b: 'y' })).toBe('none');
+	});
+
+	it('keeps side-by-side sections independent', () => {
+		const withFamily = renderRecipeTemplate('controls-by-family-list', { framework_set: 'iset-x', family_filter: 'AC' }) ?? '';
+		const withoutFamily = renderRecipeTemplate('controls-by-family-list', { framework_set: 'iset-x' }) ?? '';
+		expect(withFamily).toContain('family == "AC"');
+		expect(withFamily).toContain('import_set.id == "iset-x"');
+		expect(withoutFamily).not.toContain('family ==');
 	});
 });

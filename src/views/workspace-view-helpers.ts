@@ -40,7 +40,7 @@ export interface InstalledOntologySummary {
  * Tier 1 notes that describe a relationship or a mapping set, not a concept
  * of a framework. They carry a CURIE too, so they are excluded by kind.
  */
-const RELATIONSHIP_NOTE_KINDS = new Set(['junction-note', 'crosswalk-edge', 'mapping-set']);
+export const RELATIONSHIP_NOTE_KINDS: ReadonlySet<string> = new Set(['junction-note', 'crosswalk-edge', 'mapping-set']);
 
 type RecipeIdentity = { id: string; label: string; ontology: string };
 
