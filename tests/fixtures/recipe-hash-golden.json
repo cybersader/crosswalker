@@ -13,7 +13,7 @@
 	"recipes/import/nist-csf-2-withdrawal-lineage.json": "sha256-f4fcdf262a485d1e83e9d1eefbc9ba5133fed9d29ee5ddb8be89e95f2eede8e3",
 	"recipes/import/nist-csf-2.json": "sha256-f22ab3799e91534c214cf90df272c3feb481b9e5540a9a4ad8d6e11adfeb668e",
 	"recipes/import/scf-2026-flat.json": "sha256-61b8abf1b5121c96a4e7d7bd27f8bf42469ba04bfabad2036229258de67684bb",
-	"recipes/starter/evidence-junction-notes.json": "sha256-99368af8484a3b77d4198f472279e991e7ccfe1febbd78537a26c40138d0aa00",
+	"recipes/starter/evidence-junction-notes.json": "sha256-e2f58e928fd9b83bbad21ca657be80af72b07a6cef7ffd9dae31cf190ff5d83a",
 	"recipes/starter/iso27001-to-800-53-crosswalk.json": "sha256-cb51f5b6dff0d7d778f717ac4c71749f5f4092f1350ea27b39db039677c402dd",
 	"recipes/starter/nist-csf-to-800-53-crosswalk.json": "sha256-0bd6de54fa3a97170425b6cac00c2d19d02233904827cb286205b95187175ee9"
 }

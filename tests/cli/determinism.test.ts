@@ -12,7 +12,7 @@ const STEPS: string[][] = [
 	['--source', path.join(REPO, 'tools/fixtures/synthetic/nist-mini.csv'), '--ontology', 'nist-mini', '--destination', 'Frameworks/NIST-mini'],
 	['--source', path.join(REPO, 'tools/fixtures/realistic/nist-csf-2.0-govern-identify.csv'), '--ontology', 'nist-csf-2', '--destination', 'Frameworks/NIST-CSF-2.0'],
 	['--source', path.join(REPO, 'tools/fixtures/realistic/nist-csf-to-mitre-attack.sssom.tsv'), '--destination', '_crosswalker/mappings/csf-to-mitre'],
-	['--source', path.join(REPO, 'tools/fixtures/demo/evidence-links.csv'), '--recipe', 'evidence-junction-notes', '--destination', '.'],
+	['--source', path.join(REPO, 'tools/fixtures/demo/evidence-links.csv'), '--recipe', 'evidence-junction-notes'],
 ];
 
 async function build(label: string): Promise<{ tree: Map<string, Buffer>; out: string[] }> {

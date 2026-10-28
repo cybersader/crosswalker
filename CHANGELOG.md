@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: evidence links imported without a destination no longer land in a doubled folder (2026-10-28)
+
+- **The evidence recipe's file name is now relative to its destination.** Its default destination is `Evidence/Junctions`, and its file template also began with `Evidence/Junctions/`, so an import that kept the default wrote every link note to `Evidence/Junctions/Evidence/Junctions/`. The template is now `jn-{subject|slug}-{object|slug}.md`, like every other shipped recipe (`recipes/starter/evidence-junction-notes.json`). The recipe's hash moves as a result (documented and pinned in `tests/source-hash-stability.test.ts`). Imports already made keep replaying from their own recipe copy, so their notes do not move.
+- **The demo builder and the CLI determinism test** no longer pass `--destination .` to work around this (`scripts/demo-build.mjs`, `tests/cli/determinism.test.ts`). The demo vault's paths are unchanged.
+- **Tests.** `tests/cli/evidence-destination.test.ts` imports the evidence links with no destination and expects five notes directly in `Evidence/Junctions`. A registry check in `tests/destination-default.test.ts` fails if any shipped recipe's file template starts with its own destination folder. Both fail with the old template.
+
 ### Fixed: CSV export keeps the source file's column order (2026-10-28)
 
 - **Each import records the source header.** Column order is a fact about the source file, not the recipe, so every run writes it to `_crosswalker/import-sets/<set id>/source-columns.json` beside the recipe copy. The latest run wins: refreshing from a reordered file reorders the export. A failed write only logs; it never fails the import (`src/import/import-set-recipes.ts`, `src/generation/generation-engine.ts`).
