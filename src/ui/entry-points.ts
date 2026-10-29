@@ -29,7 +29,9 @@ export function isImportableExtension(extension: string): boolean {
  * Status bar label for the installed-framework count. Sentence case, plain
  * user-facing vocabulary, and no em dashes (per plugin UI-copy convention).
  */
-export function formatOntologyStatusLabel(count: number): string {
+export function formatOntologyStatusLabel(count: number | 'indexing'): string {
+	// Cache lag is not absence: an unknown count is never shown as zero.
+	if (count === 'indexing') return 'Crosswalker: indexing';
 	if (count === 0) return 'Crosswalker: no frameworks yet';
 	return `Crosswalker: ${count} framework${count === 1 ? '' : 's'}`;
 }

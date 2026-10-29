@@ -135,7 +135,14 @@ describe('AM-53: outputRootFile resolves the counting surfaces\' lookup for ever
 // ---------------------------------------------------------------------------
 // The status-bar refresh guard: '' must schedule, not silently stay dead.
 //
-// `main.ts`'s `pathAffectsInstalledFrameworks` is a private method on the
+// Historical note (2026-10-29): the status bar no longer gates its refresh on
+// the output folder at all. It discovers frameworks across the whole vault by
+// note identity and refreshes on metadata cache events (see
+// `src/discovery/installed-frameworks.ts` and
+// `tests/installed-frameworks.test.ts`). These cases still pin
+// `outputRootPath`, which other callers use.
+//
+// `main.ts`'s former `pathAffectsInstalledFrameworks` was a private method on the
 // plugin class, which this repo does not instantiate end to end in unit tests
 // (`Plugin`'s base constructor wires commands, ribbon icons and workspace
 // events that need a much larger harness than this defect needs to be pinned
