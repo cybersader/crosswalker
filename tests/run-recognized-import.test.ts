@@ -361,6 +361,7 @@ describe('runRecognizedImport', () => {
 			destination: recognizedDestination(ENTRY, 'Ontologies'),
 			importSetId: null,
 			created: 0,
+			updated: 0,
 			skipped: 0,
 			errors: ['Vault is still indexing. Wait a moment and run the import again.'],
 			warnings: [],

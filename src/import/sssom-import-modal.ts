@@ -666,7 +666,7 @@ export class SssomImportModal extends Modal {
 				return;
 			}
 			new Notice(
-				`${label}: ${plural(gen.created.length, 'junction note')} created or updated; ${plural((gen.upToDate?.length ?? 0), 'junction note')} already up to date under ${result.folder}`,
+				`${label}: ${plural(gen.created.length + (gen.updated?.length ?? 0), 'junction note')} created or updated; ${plural((gen.upToDate?.length ?? 0), 'junction note')} already up to date under ${result.folder}`,
 				8000,
 			);
 			this.close();
@@ -694,7 +694,7 @@ export class SssomImportModal extends Modal {
 		summary.createEl('p', {
 			text: result?.mappingForm === 'table' && gen.success
 				? tableOutcomeText(result)
-				: `Created or updated: ${plural(gen.created.length, 'junction note')}; already up to date: ${plural((gen.upToDate?.length ?? 0), 'junction note')}${folder ? ` under ${folder}` : ''}`,
+				: `Created or updated: ${plural(gen.created.length + (gen.updated?.length ?? 0), 'junction note')}; already up to date: ${plural((gen.upToDate?.length ?? 0), 'junction note')}${folder ? ` under ${folder}` : ''}`,
 		});
 		if (gen.skipped.length > 0) {
 			summary.createEl('p', { text: `Skipped: ${plural(gen.skipped.length, 'existing note')}` });

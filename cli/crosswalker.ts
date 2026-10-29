@@ -386,7 +386,7 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 			io.err(`${source.name} has no mapping rows. Check that the file has a header line and at least one mapping.`);
 			return 1;
 		}
-		io.out(`Imported ${source.name} into ${result.folder ?? result.tablePath ?? '(vault)'}: ${result.generation?.created.length ?? result.rowsWritten ?? 0} written.`
+		io.out(`Imported ${source.name} into ${result.folder ?? result.tablePath ?? '(vault)'}: ${result.generation ? result.generation.created.length + result.generation.updated.length : result.rowsWritten ?? 0} written.`
 			+ (result.generation?.importSetId ? ` Set id: ${result.generation.importSetId}.` : ''));
 		return 0;
 	}
@@ -439,7 +439,7 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 	}
 	io.out(
 		`Imported ${outcome.parsedRowCount} rows from ${source.name} into ${outcome.destination || 'the vault root'}: ` +
-		`${outcome.created} created, ${outcome.upToDate} up to date, ${outcome.skipped} skipped.` +
+		`${outcome.created} created, ${outcome.updated} updated, ${outcome.upToDate} up to date, ${outcome.skipped} skipped.` +
 		(outcome.importSetId ? ` Set id: ${outcome.importSetId}.` : ''),
 	);
 	return 0;
