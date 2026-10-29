@@ -1,0 +1,31 @@
+{
+  "$comment": "Demo-only variant of nist-800-53-r5-nested over the same catalog columns. Same layout (family implied concept folders, control folders, entry files) and the same identity (nist-800-53:<identifier>), plus one nested tag per note naming its family and control, and children lists on every parent. It lives under tools/fixtures/demo/recipes so the shipped recipe, and the digests existing sets depend on, stay unchanged.",
+  "recipe": "nist-800-53-r5-demo-nested",
+  "source": { "ontology": "nist-800-53", "levels": ["family", "control", "entry"] },
+  "target": {
+    "auto_heading": "{name}",
+    "layout": [
+      { "level": "family", "mechanism": "folder", "implied_concept": true, "template": "{identifier|prefix(-,0)}" },
+      { "level": "control", "mechanism": "folder", "template": "{identifier|prefix(\\(,0)}" },
+      { "level": "entry", "mechanism": "file", "template": "{identifier|fs-safe}.md" }
+    ],
+    "also_emit": {
+      "tags": ["nist-800-53/{identifier|prefix(-,0)|tagsafe}/{identifier|prefix(\\(,0)|tagsafe}"],
+      "frontmatter": {
+        "managed": {
+          "title": "{name}",
+          "control_id": "{identifier}",
+          "related_curies": "{related|optional|split(,)|trim(.)|reject(^\\[None\\]$)|curie-prefix(nist-800-53)}",
+          "family": "{identifier|prefix(-,0)}"
+        },
+        "user_preserve": ["reviewer", "status", "notes"]
+      },
+      "body": [
+        { "template": "{control_text|trim}", "position": "section", "heading": "Control", "heading_depth": 2, "format": "text" },
+        { "template": "{discussion|trim}", "position": "section", "heading": "Discussion", "heading_depth": 2, "format": "text" },
+        { "template": "{related|optional|split(,)|trim(.)|reject(^\\[None\\]$)}", "position": "section", "heading": "Related controls", "heading_depth": 2, "format": "list" }
+      ]
+    },
+    "enrichment": { "children_lists": true, "level_hubs": "notes" }
+  }
+}

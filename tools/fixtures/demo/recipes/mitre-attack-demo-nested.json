@@ -1,0 +1,30 @@
+{
+  "$comment": "Demo-only recipe for the ATT&CK persistence subset (columns id, title, tactic, parent, description). It is the recipe the command line builds by default for this file (one folder per parent technique, a parent link on every sub-technique, children lists and level hub notes), plus one nested tag per note naming its tactic and parent technique. Facet hub notes are left off so the tags do not add a second, duplicate node per technique.",
+  "recipe": "mitre-attack-demo-nested",
+  "source": { "ontology": "mitre-attack", "levels": ["tail", "leaf"] },
+  "target": {
+    "layout": [
+      {
+        "level": "tail",
+        "mechanism": "folder",
+        "template": "{id}",
+        "variadic": { "delimiter": ".", "drop_last": true, "max_depth": 6, "on_overflow": "truncate", "segment": "prefix" }
+      },
+      { "level": "leaf", "mechanism": "file", "template": "{id}.md" }
+    ],
+    "also_emit": {
+      "tags": ["mitre-attack/{tactic|tagsafe}/{id|split(.,0)|tagsafe}"],
+      "frontmatter": {
+        "managed": {
+          "title": "{title}",
+          "tactic": "{tactic}",
+          "description": "{description}",
+          "parent": "[[{parent}]]",
+          "parent_curie": "{parent|optional|curie-prefix(mitre-attack)}"
+        }
+      }
+    },
+    "enrichment": { "children_lists": true, "level_hubs": "notes" },
+    "linkStyle": "absolute"
+  }
+}
