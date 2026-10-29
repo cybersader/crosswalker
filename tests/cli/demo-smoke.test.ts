@@ -1,10 +1,11 @@
 /**
  * Demo smoke: `bun run demo:build` produces a vault that validates, has the
- * expected folders, and carries no licensed content.
+ * expected folders, and carries no restricted content.
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as yaml from 'js-yaml';
 import { runCli } from '../../cli/crosswalker';
 import { REPO, captureIo, installByteFile, readTree, tempDir } from './helpers';
 
@@ -104,7 +105,54 @@ describe('demo:build', () => {
 		expect(mitre.total).toBeGreaterThan(0);
 	});
 
-	it('carries no licensed content or restricted framework names', () => {
+	it('imports all real F3 techniques and tactics last, with resolved hierarchy links', () => {
+		const folder = path.join(out, 'Frameworks/MITRE-F3');
+		const notes = fs.readdirSync(folder).filter((f) => f.endsWith('.md')).map((file) => {
+			const text = fs.readFileSync(path.join(folder, file), 'utf8');
+			return yaml.load(text.split('---')[1]) as Record<string, any>;
+		});
+		const techniques = notes.filter((n) => n.technique_id);
+		const tactics = notes.filter((n) => n.tactic_id);
+		expect(techniques).toHaveLength(138);
+		expect(tactics).toHaveLength(8);
+		expect(techniques.filter((n) => n.tactic_ids.length > 1)).toHaveLength(41);
+		const byId = new Map(techniques.map((n) => [n.technique_id, n]));
+		let parents = 0;
+		let tacticLinks = 0;
+		for (const note of techniques) {
+			expect(note.curie).toBe(`mitre-f3:${note.technique_id}`);
+			expect(note._crosswalker.import_set.ontology).toBe('mitre-f3');
+			if (note.technique_id.includes('.')) {
+				parents++;
+				const parent = note.technique_id.split('.')[0];
+				expect(note.parent).toBe(`[[${parent}]]`);
+				expect(note.parent_curie).toBe(`mitre-f3:${parent}`);
+				expect(byId.get(parent)?.children).toContain(`[[${note.technique_id}]]`);
+				expect(fs.existsSync(path.join(folder, `${parent}.md`))).toBe(true);
+			} else {
+				expect(note.parent).toBeUndefined();
+				expect(note.parent_curie).toBeUndefined();
+			}
+			expect(note.tactic_notes).toEqual(note.tactic_ids.map((id: string) => `[[${id}]]`));
+			for (const id of note.tactic_ids) {
+				tacticLinks++;
+				expect(tactics.some((n) => n.tactic_id === id)).toBe(true);
+				expect(fs.existsSync(path.join(folder, `${id}.md`))).toBe(true);
+			}
+		}
+		expect(parents).toBe(55);
+		expect(tacticLinks).toBe(191);
+		for (const note of tactics) expect(note._crosswalker.import_set.ontology).toBe('mitre-f3');
+		expect(fs.readFileSync(path.join(folder, 'LICENSE.txt'), 'utf8')).toBe(
+			fs.readFileSync(path.join(REPO, 'Frameworks/LICENSES/mitre-f3-LICENSE.txt'), 'utf8'),
+		);
+		expect(result.stdout).toContain('csf=iset-a0f1e2, sp80053=iset-0f6ht0, attack=iset-xskeb8, csfTo80053=iset-7z4lxm, csfToAttack=iset-if5214, evidence=iset-g3sec8, f3=iset-xfkz1i, f3Tactics=iset-juu0p7');
+		const start = fs.readFileSync(path.join(out, 'Start here.md'), 'utf8');
+		expect(start).toContain('Frameworks/MITRE-F3/F1002.001.md');
+		expect(start).not.toContain('Fight Fraud Framework (sample');
+	});
+
+	it('carries no restricted content or restricted framework names', () => {
 		for (const [p, bytes] of readTree(out)) {
 			const folders = p.split('/').slice(0, -1).join('/');
 			expect({ p, restricted: RESTRICTED.test(folders) }).toEqual({ p, restricted: false });

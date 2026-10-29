@@ -16,7 +16,7 @@
  * "Start here" note and the graph view settings (.obsidian/graph.json, the only
  * file written under .obsidian; see tools/lib/demo-graph.ts).
  *
- * Content rule: public-domain or synthetic only. Nothing from
+ * Content rule: public-domain, openly licensed or synthetic only. Nothing from
  * test-vault/Frameworks/_licensed/, and none of the licensed frameworks or
  * their realistic subsets (CRI, ISO, SOC 2, PCI, CIS, SCF).
  *
@@ -54,8 +54,8 @@ const MAPPINGS = [
 
 const EVIDENCE_LINKS = 'tools/fixtures/demo/evidence-links.csv';
 
-/** Added last when the checkout ships it, so the set ids above never shift. */
-const F3 = { key: 'f3', label: 'MITRE Fight Fraud Framework (sample techniques)', source: 'tools/fixtures/synthetic/mitre-f3-mini.csv', recipe: 'mitre-f3-technique-flat', destination: 'Frameworks/MITRE-F3', levels: 'one note per technique' };
+/** Both F3 sheets are imported last, so the set ids above never shift. */
+const F3 = { key: 'f3', label: 'MITRE Fight Fraud Framework (F3)', source: 'Frameworks/f3-excel-v1.2.xlsx', recipe: `${DEMO_RECIPES}/mitre-f3-demo-linked.json`, destination: 'Frameworks/MITRE-F3', levels: 'the full v1.2 catalog, with one note per tactic and technique, links to tactics, and parent links on sub-techniques' };
 
 /** Synthetic evidence documents. Names match the objects in EVIDENCE_LINKS. */
 const EVIDENCE_DOCUMENTS = {
@@ -120,7 +120,7 @@ function step(out, label, args) {
 }
 
 function checkSource(source) {
-	if (RESTRICTED.test(source)) fail(`Refusing ${source}: the demo uses public-domain or synthetic content only.`);
+	if (RESTRICTED.test(source)) fail(`Refusing ${source}: the demo uses public-domain, openly licensed or synthetic content only.`);
 	if (!fs.existsSync(path.join(REPO, source))) fail(`Missing fixture ${source}. Run the build from a full checkout of the repository.`);
 }
 
@@ -160,11 +160,11 @@ function startHere(frameworks, mappings) {
 	const lines = [
 		'# Start here',
 		'',
-		'This vault was built by Crosswalker from public data. It holds the full NIST CSF 2.0 and NIST SP 800-53 Rev. 5 catalogs, a sample of MITRE techniques, the links between them, and evidence attached to controls.',
+		'This vault was built by Crosswalker from public data. It holds the full NIST CSF 2.0 and NIST SP 800-53 Rev. 5 catalogs, the full MITRE Fight Fraud Framework (F3), a sample of MITRE ATT&CK techniques, the links between them, and evidence attached to controls.',
 		'',
 		'## What is in it',
 		'',
-		...frameworks.map((f) => `- **${f.label}** in \`${f.destination}\`: ${f.levels}. Every level is a note that links to its parent and lists its children.`),
+		...frameworks.map((f) => `- **${f.label}** in \`${f.destination}\`: ${f.levels}.`),
 		...mappings.map((m) => `- **${m.label} links** in \`${m.destination}\`. One note per link between two controls.`),
 		'- **Evidence** in `Evidence`. Five sample documents and the links that say which control each one supports.',
 		'- **Saved queries** in `Queries`. Open one to see a table built from the notes above.',
@@ -175,7 +175,8 @@ function startHere(frameworks, mappings) {
 		'2. Open `Frameworks/NIST-CSF-2.0/PR/PR.AA/PR.AA-01.md` and look at its backlinks. Each one is a link note to a SP 800-53 control or a MITRE technique, and both ends open a real note. Its `parent` property opens the PR.AA category.',
 		'3. Open `Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2.md`. Its properties come straight from the NIST catalog spreadsheet, and its enhancements sit next to it in the same folder.',
 		'4. Open `Queries/Approved evidence by control.base`. Three evidence links are approved; two are still waiting for review.',
-		'5. Open an evidence link in `Evidence/Junctions` and set `status` to `approved`. The query picks it up. Importing the evidence spreadsheet again keeps your review fields.',
+		'5. Open `Frameworks/MITRE-F3/F1002.001.md`. Its `parent` opens `F1002`, and its `tactic_notes` open the real tactics from the same workbook.',
+		'6. Open an evidence link in `Evidence/Junctions` and set `status` to `approved`. The query picks it up. Importing the evidence spreadsheet again keeps your review fields.',
 		'',
 		'## Graph colors',
 		'',
@@ -185,7 +186,7 @@ function startHere(frameworks, mappings) {
 		'',
 		'## What is only partly here',
 		'',
-		'The MITRE techniques and the CSF to ATT&CK links are small synthetic samples, so read them as a shape, not as coverage. A few CSF to 800-53 links name a whole control family or CSF category rather than one control, or a control newer than the catalog here. The catalogs have no note for those ids, so those links stay unresolved.',
+		'The ATT&CK techniques and the CSF to ATT&CK links are small synthetic samples (F3 is the full public v1.2 catalog), so read them as a shape, not as coverage. A few CSF to 800-53 links name a whole control family or CSF category rather than one control, or a control newer than the catalog here. The catalogs have no note for those ids, so those links stay unresolved.',
 		'',
 		'## How it was built',
 		'',
@@ -239,13 +240,13 @@ function main() {
 	sets.evidence = step(out, 'Evidence links', ['import', '--source', EVIDENCE_LINKS, '--recipe', 'evidence-junction-notes', '--deterministic']);
 	for (const file of APPROVED_LINKS) approve(out, file);
 
-	if (fs.existsSync(path.join(REPO, F3.source))) {
-		checkSource(F3.source);
-		sets[F3.key] = step(out, F3.label, ['import', '--source', F3.source, '--recipe', F3.recipe, '--destination', F3.destination, '--deterministic']);
-		frameworks.push(F3);
-	} else {
-		process.stdout.write(`  ${F3.label}: skipped, this checkout does not ship ${F3.source}\n`);
-	}
+	checkSource(F3.source);
+	sets[F3.key] = step(out, F3.label, ['import', '--source', F3.source, '--recipe', F3.recipe, '--sheet', 'Techniques', '--destination', F3.destination, '--deterministic']);
+	sets.f3Tactics = step(out, 'F3 tactics', ['import', '--source', F3.source, '--recipe', `${DEMO_RECIPES}/mitre-f3-demo-tactics.json`, '--sheet', 'Tactics', '--destination', F3.destination, '--deterministic']);
+	frameworks.push(F3);
+
+	// The Apache licence travels with the openly licensed F3 source and output.
+	write(out, 'Frameworks/MITRE-F3/LICENSE.txt', fs.readFileSync(path.join(REPO, 'Frameworks/LICENSES/mitre-f3-LICENSE.txt'), 'utf8'));
 
 	for (const [file, text] of queries(sets)) write(out, file, text);
 	write(out, START_HERE, startHere(frameworks, MAPPINGS));

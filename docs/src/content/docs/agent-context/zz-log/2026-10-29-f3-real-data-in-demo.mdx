@@ -1,0 +1,72 @@
+---
+title: "The demo now carries the full MITRE F3 catalog and its hierarchy"
+description: "Replaces synthetic F3 demo rows with the pinned public v1.2 workbook, real tactic notes and resolved hierarchy links. Existing filters suffice for sub-technique parents; shipped recipes and the F3-to-ATT&CK identity question remain unchanged."
+tags: [log, frameworks-mitre, import, recipes, demo, identity]
+date: 2026-10-29
+sidebar:
+  label: "10-29 · Full F3 demo catalog"
+  order: -20261029.2
+---
+
+## 1. Outcome and owner intent
+
+The demo should show a real connected catalog, not make a full framework look like a handful of invented rows. The owner asked to replace the F3 sample with the complete public release and make its hierarchy navigable using existing capabilities. This follow-up closes the source-data and demo-navigation gaps in the [October 27 F3 delivery](/crosswalker/agent-context/zz-log/2026-10-27-mitre-f3-added/), without rewriting that historical record or changing the plugin's ordinary recognized import.
+
+A reader can now open `Frameworks/MITRE-F3/F1002.001.md`, follow its `parent` to `F1002`, and follow its `tactic_notes` to the publisher's tactic descriptions. For a team evaluating Crosswalker, that demonstrates [reification](/crosswalker/concepts/terminology/) (turning source records and relations into navigable vault notes) with real multi-tactic membership, not a synthetic approximation. This supports the [one-source, many-vault-shapes model](/crosswalker/concepts/hierarchy-primitives/) without adding engine special cases.
+
+| F3 demo measure | Before | After |
+|---|---:|---:|
+| Technique notes | 4 synthetic | 138 real |
+| Tactic notes | 0 | 8 real |
+| Resolved sub-technique parent links | 0 | 55 |
+| Resolved technique-to-tactic links | 0 | 191 |
+
+Counts source: the former `tools/fixtures/synthetic/mitre-f3-mini.csv`, the tracked `Frameworks/f3-excel-v1.2.xlsx` worksheets, and generated-output assertions in `tests/cli/demo-smoke.test.ts`. The workbook includes 41 multi-tactic technique rows (source: `tests/mitre-f3-demo-recipes.test.ts`); the result is a connected hierarchy, not a strict single-parent tree.
+
+## 2. Source and redistribution
+
+The unmodified workbook and Apache License 2.0 are tracked for offline demo builds, pinned to upstream commit [`281be11eed4670e763a2ed57dd2274948f54a523`](https://github.com/center-for-threat-informed-defense/fight-fraud-framework/commit/281be11eed4670e763a2ed57dd2274948f54a523), downloaded **2026-10-29**. `Frameworks/mitre-f3-source.json` records the upstream paths, file hashes and verified counts; the source-byte test checks those hashes. The license is also copied into the generated F3 folder, and the recipe preserves MITRE attribution in each note.
+
+The personal-data gate found the publisher's author metadata inside the unmodified workbook. The exact workbook path receives the same narrow published-source exception already used for the tracked NIST spreadsheets; no author name or directory-wide exemption was added. Preserving the upstream bytes keeps the pinned hash independently verifiable.
+
+Both required source shapes are in the Excel workbook, so no duplicate STIX download was needed. See the [tracked corpus files](/crosswalker/reference/framework-corpus/#tracked-f3-source-files) and [F3 source reference](/crosswalker/reference/framework-data-sources/#mitre-fight-fraud-framework-f3).
+
+## 3. Adopted: demo-only recipes, no missing filter
+
+| Choice | Reason |
+|---|---|
+| Use `mitre-f3-demo-linked.json` for `Techniques` and `mitre-f3-demo-tactics.json` for `Tactics` | Real tactic descriptions become notes; technique links point to them |
+| Add managed parent links and children lists with existing recipe features | Makes sub-techniques navigable without engine or schema changes |
+| Import both F3 sheets last | Preserves the deterministic set ids used by earlier demo sources and queries |
+| Keep the shipped F3 recipe and registry byte-for-byte unchanged | Existing saved recipe digests and recognized-import behavior remain stable |
+| Keep the synthetic mini fixture for tests | Small recognition tests remain independent of the real catalog |
+
+**No parent-id filter is missing.** The October 27 follow-up assumed a new filter was needed; the existing filter chain already expresses the condition safely:
+
+```text
+{Technique ID|regex(^([^.]+)[.]|$)|wikilink}
+{Technique ID|regex(^([^.]+)[.]|$)|curie-prefix(mitre-f3)}
+```
+
+The first regex alternative captures the id before a dot. The second matches the empty end of a top-level id. Thus `F1002.001` links to `F1002`, while `F1002` emits neither a parent nor a self-link. Tests cover both F3 `F` ids and reused ATT&CK `T` ids, then render every source row without warnings. Empty values are omitted by the existing renderer; no new template filter or grammar was added.
+
+## 4. What remains open
+
+- **F3-to-ATT&CK identity reuse is not decided.** No shared identities or inferred crosswalk edges were introduced. The [October 27 question](/crosswalker/agent-context/zz-log/2026-10-27-mitre-f3-added/#5-open-question-should-a-shared-id-mean-the-same-concept) remains open.
+- **Ordinary recognized import still reads only `Techniques`.** The companion Tactics-sheet recipe is demo-only, not a newly recognized source or a general one-click tactic-import workflow.
+- **Both imports retain `mitre-f3` as their ontology.** The second import follows the existing set-qualified [concept identity and import-set rules](/crosswalker/concepts/terminology/), rather than guessing ownership from a shared destination folder.
+- **No milestone is closed.** This is a bounded demo/data delivery; the [portability milestone](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) remains in progress. No `src/` or schema behavior changed, so unrelated living UI/schema pages were not re-verified. The affected corpus and source pages carry scoped verification markers.
+
+## 5. Verification boundary
+
+Independent deterministic builds produced byte-identical demo trees, including the graph settings. The generated vault validates; F3 output tests check every parent, reciprocal children list and tactic endpoint, as well as the earlier demo set ids. Source and recipe tests pin the release counts, attribution, existing grammar and no-self-parent rule. The existing `tests/e2e/visual-demo-graph.spec.ts` also passed against a copy of the real-data demo in Obsidian; its light and dark screenshots were inspected. Delivery detail is recorded in `CHANGELOG.md` under `[Unreleased]`.
+
+## Related
+
+- [Original F3 delivery and open identity question](/crosswalker/agent-context/zz-log/2026-10-27-mitre-f3-added/)
+- [Framework corpus: tracked F3 files](/crosswalker/reference/framework-corpus/#tracked-f3-source-files)
+- [Framework data sources: F3](/crosswalker/reference/framework-data-sources/#mitre-fight-fraud-framework-f3)
+- [Producing vaults outside Obsidian](/crosswalker/concepts/producing-vaults-outside-obsidian/)
+- [Hierarchy primitives](/crosswalker/concepts/hierarchy-primitives/)
+- [Terminology](/crosswalker/concepts/terminology/)
+- [What makes Crosswalker unique](/crosswalker/concepts/what-makes-crosswalker-unique/)

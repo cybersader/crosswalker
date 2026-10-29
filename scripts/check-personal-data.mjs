@@ -19,6 +19,7 @@ const ALLOWLIST = [
   'docs/src/content/docs/agent-context/zz-research/2026-05-04-challenge-22-target-structure-expressivity.md', // Windows MAX_PATH research intentionally uses a fictional user path.
   '.claude/agents/pre-commit-reviewer.md', // Reviewer instructions intentionally document personal-data detection patterns.
   'tests/debug-diagnostics.test.ts', // Redaction test intentionally uses a fictional home path and asserts it is scrubbed.
+  'Frameworks/f3-excel-v1.2.xlsx', // Published MITRE artifact redistributed as-is; docProps name is its published author. Bytes pinned in Frameworks/mitre-f3-source.json.
   'Frameworks/sp800-53r5-control-catalog.xlsx', // Published NIST artifact redistributed as-is; docProps names are its published authors.
   'Frameworks/Cybersecurity_Framework_v2-0_Concept_Crosswalk_800-53_final.xlsx', // Published NIST artifact redistributed as-is; docProps name is its published author.
   'node_modules/**', // Third-party dependencies are not repository-authored content.
