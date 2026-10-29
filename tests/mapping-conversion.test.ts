@@ -337,6 +337,23 @@ describe('startConversion table to notes', () => {
 		expect(noteReviews(vault)['demo-a:X-2']).toEqual({ review_status: 'in_review', reviewer: 'reviewer-2', my_notes: 'Needs a second look.' });
 	});
 
+	// Prevents: the conversion filing its transport recipe as a second copy, or rewriting the set's kept original.
+	it('leaves a kept recipe copy byte-identical and adds no new recipe copy', async () => {
+		const vault = makeVault();
+		const setId = await importTable(vault);
+		const setFolder = `_crosswalker/import-sets/${setId}`;
+		const recipeCopies = () => [...vault.written.keys()].filter((path) => path.startsWith(`${setFolder}/recipe-`) && path.endsWith('.json')).sort();
+		const kept = `${setFolder}/recipe-sha256-${'d'.repeat(64)}.json`;
+		const keptBytes = '{"recipe":"sssom-demo-a-to-demo-b","note":"synthetic kept copy"}\n';
+		vault.written.set(kept, keptBytes);
+
+		const result = await startConversion(vault.app, {}, setId, 'notes');
+		expect(result).toMatchObject({ ok: true, from: 'table', to: 'notes', phaseReached: 'done' });
+		expect(vault.notes()).toHaveLength(3);
+		expect(vault.written.get(kept)).toBe(keptBytes);
+		expect(recipeCopies()).toEqual([kept]);
+	});
+
 	it('round trip notes to table to notes leaves every review value equal', async () => {
 		const vault = makeVault();
 		const setId = await importNotes(vault);
