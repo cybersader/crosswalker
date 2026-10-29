@@ -1,0 +1,27 @@
+{
+  "publisher": "MITRE Center for Threat-Informed Defense",
+  "project": "MITRE Fight Fraud Framework (F3)",
+  "version": "1.2",
+  "upstream_repository": "https://github.com/center-for-threat-informed-defense/fight-fraud-framework",
+  "upstream_commit": "281be11eed4670e763a2ed57dd2274948f54a523",
+  "download_date": "2026-10-29",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "Frameworks/f3-excel-v1.2.xlsx",
+      "upstream_path": "public/f3-excel-v1.2.xlsx",
+      "sha256": "5aac64e85219fc846d90f7575b7b1aad7fd37a31c6953f2c9af4a4a37a7593ff"
+    },
+    {
+      "path": "Frameworks/LICENSES/mitre-f3-LICENSE.txt",
+      "upstream_path": "LICENSE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    }
+  ],
+  "verified_counts": {
+    "techniques": 138,
+    "multi_tactic_techniques": 41,
+    "sub_techniques": 55,
+    "tactics": 8
+  }
+}

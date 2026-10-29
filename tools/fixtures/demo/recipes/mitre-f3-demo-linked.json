@@ -1,0 +1,54 @@
+{
+  "$comment": "Demo-only variant of mitre-f3-technique-flat over Frameworks/f3-excel-v1.2.xlsx, Techniques sheet. Keeps the shipped recipe and its digest unchanged, and all identities under mitre-f3. The existing regex filter captures the prefix before a dot, or matches the empty end of a top-level id: no self-parent, empty link, or no-match warning. Tactic ids split into real wikilink lists pointing at the companion Tactics-sheet import. Children lists enrich the 55 sub-technique relations in v1.2. No new template filter or F3-to-ATT&CK mapping.",
+  "recipe": "mitre-f3-demo-linked",
+  "source": {
+    "ontology": "mitre-f3",
+    "levels": [
+      "technique"
+    ]
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "technique",
+        "mechanism": "file",
+        "template": "{Technique ID|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "frontmatter": {
+        "managed": {
+          "title": "{Technique|trim}",
+          "technique_id": "{Technique ID|trim}",
+          "tactic_ids": "{Tactic ID|optional|split(,)}",
+          "tactics": "{Tactic Name|optional|split(,)}",
+          "parent": "{Technique ID|regex(^([^.]+)[.]|$)|wikilink}",
+          "parent_curie": "{Technique ID|regex(^([^.]+)[.]|$)|curie-prefix(mitre-f3)}",
+          "tactic_notes": "{Tactic ID|optional|split(,)|wikilink}"
+        },
+        "user_preserve": [
+          "reviewer",
+          "status",
+          "notes"
+        ]
+      },
+      "body": [
+        {
+          "template": "{Description|trim}",
+          "position": "section",
+          "heading": "Description",
+          "heading_depth": 2,
+          "format": "text"
+        },
+        {
+          "template": "\u00a9 2026 MITRE. MITRE Fight Fraud Framework (F3), licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0. Source: https://github.com/center-for-threat-informed-defense/fight-fraud-framework",
+          "position": "append",
+          "format": "quote"
+        }
+      ]
+    },
+    "enrichment": {
+      "children_lists": true
+    }
+  }
+}

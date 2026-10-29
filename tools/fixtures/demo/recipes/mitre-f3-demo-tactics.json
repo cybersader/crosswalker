@@ -1,0 +1,46 @@
+{
+  "$comment": "Demo-only companion to mitre-f3-demo-linked. Imports all rows of the same pinned workbook Tactics sheet (header row 1), with ids as filenames and identity keys, human titles, full publisher descriptions and the same Apache attribution as techniques. These are real tactic concepts, not inferred facet hubs; technique tactic_notes links resolve here. Does not register a new recognized source or change any shipped recipe digest.",
+  "recipe": "mitre-f3-demo-tactics",
+  "source": {
+    "ontology": "mitre-f3",
+    "levels": [
+      "tactic"
+    ]
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "tactic",
+        "mechanism": "file",
+        "template": "{Tactic ID|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "frontmatter": {
+        "managed": {
+          "title": "{Tactic Name|trim}",
+          "tactic_id": "{Tactic ID|trim}"
+        },
+        "user_preserve": [
+          "reviewer",
+          "status",
+          "notes"
+        ]
+      },
+      "body": [
+        {
+          "template": "{Tactic Description|trim}",
+          "position": "section",
+          "heading": "Description",
+          "heading_depth": 2,
+          "format": "text"
+        },
+        {
+          "template": "\u00a9 2026 MITRE. MITRE Fight Fraud Framework (F3), licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0. Source: https://github.com/center-for-threat-informed-defense/fight-fraud-framework",
+          "position": "append",
+          "format": "quote"
+        }
+      ]
+    }
+  }
+}

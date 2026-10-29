@@ -8,9 +8,9 @@ tags: [frameworks, import-transforms, frameworks-nist, frameworks-mitre]
 
 Crosswalker ships recognized-source imports for the framework files below today. This page is the canonical technical reference for obtaining each source, choosing the matching [recipe](/crosswalker/concepts/terminology/#recipe), selecting the exact worksheet and header row, checking the real record count, and avoiding imports that look successful but are wrong.
 
-**Status last verified:** 2026-10-27 — the MITRE F3 binding verified against the publisher's v1.2 Excel file by a local recognize-and-render run (source: `recipes/import/mitre-f3-technique.json`); other rows unchanged since 2026-09-24, when stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
+**Status last verified:** 2026-10-29 — the MITRE F3 binding, source bytes and demo links re-checked against the tracked v1.2 workbook, pinned upstream commit `281be11eed4670e763a2ed57dd2274948f54a523`, both demo-only recipes and a validated demo build (sources: `Frameworks/mitre-f3-source.json`, `tests/mitre-f3-demo-recipes.test.ts`, `tests/cli/demo-smoke.test.ts`); other rows unchanged since 2026-09-24, when stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
 
-The bundled recipes live in the [Crosswalker plugin repository](https://github.com/cybersader/crosswalker/tree/main/recipes/import). Community recipes and contribution guidance live in [crosswalker-recipes](https://github.com/cybersader/crosswalker-recipes). Framework content is not bundled: obtain each source from its publisher and confirm that the publisher's terms fit your use.
+The bundled recipes live in the [Crosswalker plugin repository](https://github.com/cybersader/crosswalker/tree/main/recipes/import). Community recipes and contribution guidance live in [crosswalker-recipes](https://github.com/cybersader/crosswalker-recipes). Framework content is not bundled in the plugin release: obtain each source from its publisher and confirm that the publisher's terms fit your use. Selected redistributable sources, including F3, are tracked separately in the [repository corpus](/crosswalker/reference/framework-corpus/#tracked-f3-source-files) for offline demo builds.
 
 ## Silent-failure checklist
 
@@ -218,6 +218,8 @@ The recipe emits tactics, platforms, and data sources as arrays; adds parent lin
 
 **Obtain it:** the [F3 site](https://ctid.mitre.org/fightfraud) or the [F3 repository](https://github.com/center-for-threat-informed-defense/fight-fraud-framework). The repository's `public/` folder holds every published format. The repository has no release tags; its content changelog runs ahead of the data files, which are labelled v1.2.
 
+**Tracked source:** [`Frameworks/f3-excel-v1.2.xlsx`](https://github.com/cybersader/crosswalker/blob/main/Frameworks/f3-excel-v1.2.xlsx), downloaded 2026-10-29 from upstream commit [`281be11eed4670e763a2ed57dd2274948f54a523`](https://github.com/center-for-threat-informed-defense/fight-fraud-framework/commit/281be11eed4670e763a2ed57dd2274948f54a523). The [source record](https://github.com/cybersader/crosswalker/blob/main/Frameworks/mitre-f3-source.json) pins file digests and counts; the [carried Apache licence](https://github.com/cybersader/crosswalker/blob/main/Frameworks/LICENSES/mitre-f3-LICENSE.txt) permits redistribution with attribution. See the [corpus inventory](/crosswalker/reference/framework-corpus/#tracked-f3-source-files).
+
 **Bundled recipe:** `mitre-f3-technique-flat`, which produces one note per technique or sub-technique.
 
 ### Published formats
@@ -225,9 +227,9 @@ The recipe emits tactics, platforms, and data sources as arrays; adds parent lin
 | Format | File in `public/` | Shape |
 |---|---|---|
 | Excel | `f3-excel-v1.2.xlsx` | Two sheets, `Techniques` and `Tactics`. **The bundled recipe reads this one.** |
-| JSON | `f3-v1.json` | One flat list of tactic and technique records |
-| STIX 2.1 | `f3-stix.json` | A STIX bundle; needs a different recipe |
-| ATT&CK Navigator layer | `f3-navigator.json` | A visualization layer, not a catalog |
+| JSON | `f3-v1.2.json` | One flat list of tactic and technique records |
+| STIX 2.1 | `f3-stix-v1.2.json` | A STIX bundle; needs a different recipe |
+| ATT&CK Navigator layer | `f3-navigator-v1.2.json` | A visualization layer, not a catalog |
 
 ### Exact binding and result
 
@@ -235,11 +237,17 @@ The recipe emits tactics, platforms, and data sources as arrays; adds parent lin
 |---|---|
 | Sheet | `Techniques` |
 | Header row | Index 0 |
-| Rows | **138** (source: `public/f3-excel-v1.2.xlsx`, checked 2026-10-27) |
+| Rows | **138** (source: tracked `Frameworks/f3-excel-v1.2.xlsx`, checked 2026-10-29) |
 | Columns | 7: Technique ID; Technique; Description; Tactic ID; Tactic Name; Added Date; Modified Date |
 | Second sheet | `Tactics` (Tactic ID; Tactic Name; Tactic Description). It is a different shape and is not matched by the technique recipe |
 
 The recipe emits `tactic_ids` and `tactics` as lists, keeps the description in the note body, and carries MITRE's notice and the Apache licence link into every generated note.
+
+### Demo-only linked import
+
+`demo:build` imports the full workbook last with `tools/fixtures/demo/recipes/mitre-f3-demo-linked.json` (`Techniques`) and `mitre-f3-demo-tactics.json` (`Tactics`). This adds technique-to-tactic wikilinks, conditional sub-technique `parent` / `parent_curie` properties, and managed children lists on parent techniques. It produces **138 technique notes + 8 tactic notes, 55 resolved parent links and 191 resolved tactic memberships** (source: the tracked workbook and `tests/cli/demo-smoke.test.ts`). Multi-tactic membership makes this a connected hierarchy, not a strict single-parent tree.
+
+No filter is missing: the existing `regex(^([^.]+)[.]|$)` captures the id before a dot, or matches the empty end of a top-level id; `wikilink` and `curie-prefix(mitre-f3)` omit that empty result. The normal bundled recipe and registry are deliberately unchanged, so existing recipe digests stay valid. Tactic descriptions now have real notes in the demo; ordinary recognized import still reads only `Techniques`. Both imports keep `mitre-f3` as their ontology; the second set uses the existing set-qualified identity scheme. The [2026-10-29 follow-up log](/crosswalker/agent-context/zz-log/2026-10-29-f3-real-data-in-demo/) records what this closes from the original F3 delivery and what remains open.
 
 ### Identifier scheme and the ATT&CK overlap
 
@@ -250,14 +258,14 @@ The recipe emits `tactic_ids` and `tactics` as lists, keeps the description in t
 | Tactic reused from ATT&CK | ATT&CK `TA` ids | 6 |
 | Tactic new in F3 | `FA` ids (Positioning, Monetization) | 2 |
 
-(Counts source: `public/f3-v1.json` and `public/f3-excel-v1.2.xlsx`, checked 2026-10-27.)
+(Counts source: tracked `Frameworks/f3-excel-v1.2.xlsx`, `Techniques` and `Tactics` sheets, re-checked 2026-10-29.)
 
 F3 overlaps ATT&CK **by shared identifiers, not by a published crosswalk**. A reused technique id is the same string in both frameworks, and F3 publishes no mapping file stating how the two relate. Whether a reused id should resolve to the same concept as an ATT&CK import is an open question, recorded in the [2026-10-27 log](/crosswalker/agent-context/zz-log/2026-10-27-mitre-f3-added/). Today the recipe mints every F3 note under its own `mitre-f3` ontology, and recognition by id pattern claims only the `F` ids for F3.
 
 ### Gotchas
 
-- **Several tactics share one cell.** A technique can sit under more than one tactic. The Excel file writes them as one comma-separated list, in parallel in both tactic columns (`TA0001, TA0002, FA0001` beside `Initial Access, Execution, Positioning`). 41 of 138 rows do this. The recipe splits both columns into lists of the same length.
-- **No parent column.** The sheet has no sub-technique-of column, so the recipe emits no parent link. The relation is visible only in the dotted id.
+- **Several tactics share one cell.** A technique can sit under more than one tactic. The Excel file writes them as one comma-separated list, in parallel in both tactic columns (`TA0001, TA0002, FA0001` beside `Initial Access, Execution, Positioning`). 41 of 138 rows do this (source: tracked `Frameworks/f3-excel-v1.2.xlsx`, `Techniques` sheet). The recipe splits both columns into lists of the same length.
+- **No parent column.** The bundled flat recipe still emits no parent link. The demo-only variant derives it safely from the dotted id using existing filters; it never makes a top-level technique point at itself.
 - **Dates are omitted.** Added Date and Modified Date are filled on only a few rows and are not ISO values.
 - **Tactic names follow ATT&CK's newer split.** F3 names `TA0005` Stealth and uses `TA0112` Defense Impairment. Check names against the ATT&CK release you import alongside it.
 

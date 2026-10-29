@@ -120,6 +120,20 @@ Not a general framework catalog — every entry sits in the security / GRC / ris
 Most 📥 items have a free machine-readable door (MITRE on GitHub/STIX, NIST via CPRT/OSCAL, OWASP on GitHub, EU law via EUR-Lex ELI permalinks, US regulations via [federalregister.gov](https://www.federalregister.gov/) JSON/XML). The 🔴 purchase-only ones (ISO, COBIT, COSO, HITRUST, SWIFT) usually have a **proxy** — [SCF](/crosswalker/reference/registry/scf/)'s STRM mapping columns already encode the relationships, so you can crosswalk *to* them without their copyrighted text.
 </Aside>
 
+## Tracked F3 source files
+
+**Status last verified:** 2026-10-29 — the F3 files below were downloaded from the pinned upstream revision and checked against both worksheets and the demo output. Other landscape rows retain their historical acquisition status; this is not a re-verification of the whole corpus.
+
+The full public F3 v1.2 source now ships in the repository, rather than relying on a local download or the synthetic test fixture. All files are pinned to upstream commit [`281be11eed4670e763a2ed57dd2274948f54a523`](https://github.com/center-for-threat-informed-defense/fight-fraud-framework/commit/281be11eed4670e763a2ed57dd2274948f54a523), downloaded **2026-10-29**, under **Apache-2.0**.
+
+| Tracked file | Purpose and verified content |
+|---|---|
+| [`Frameworks/f3-excel-v1.2.xlsx`](https://github.com/cybersader/crosswalker/blob/main/Frameworks/f3-excel-v1.2.xlsx) | Publisher's v1.2 workbook: 138 `Techniques` rows, including 41 multi-tactic rows and 55 sub-techniques; 8 `Tactics` rows |
+| [`Frameworks/LICENSES/mitre-f3-LICENSE.txt`](https://github.com/cybersader/crosswalker/blob/main/Frameworks/LICENSES/mitre-f3-LICENSE.txt) | Unmodified upstream Apache License 2.0; also copied into the generated F3 demo folder |
+| [`Frameworks/mitre-f3-source.json`](https://github.com/cybersader/crosswalker/blob/main/Frameworks/mitre-f3-source.json) | Upstream SHA, download date, source paths, file digests and verified counts |
+
+Counts source: the tracked workbook's `Techniques` and `Tactics` sheets, pinned in `Frameworks/mitre-f3-source.json` and checked by `tests/mitre-f3-demo-recipes.test.ts`. The [data-sources reference](/crosswalker/reference/framework-data-sources/#mitre-fight-fraud-framework-f3) explains the normal import and the demo-only linked variant. The [2026-10-29 follow-up](/crosswalker/agent-context/zz-log/2026-10-29-f3-real-data-in-demo/) records the move from sample rows to the full linked catalog without changing existing recipe digests.
+
 ## Licensing & copyright — what Crosswalker can share
 
 This corpus gives broad licence tiers across the landscape. For the supported sources Crosswalker imports today, use the neighbouring [framework data sources reference](/crosswalker/reference/framework-data-sources/#licence-posture) for publisher-specific cautions, exact acquisition routes, and the distinction between obtaining a source and sharing generated notes.
