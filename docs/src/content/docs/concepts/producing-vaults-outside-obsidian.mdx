@@ -1,0 +1,111 @@
+---
+title: Producing vaults outside Obsidian
+description: Can a vault be built entirely on disk, by the command line or a script, and still work like one built with the import wizard? Yes. Valid Tier 1 notes are the contract, the plugin derives every runtime surface from those notes, and only per-vault app config has to be recreated per host. This page maps what is identical, what is derived, what is host config, and the invariant that keeps the three paths equal.
+tags: [architecture, cli, import, tier-1, tier-2, openclast, identity]
+sidebar:
+  order: 28
+  label: "Producing vaults outside Obsidian"
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A vault can be built entirely outside Obsidian and still be fully operational once the plugin opens it. No separate tool is needed beyond what already ships: the `cw` command line and the demo builder.
+
+**Status last verified:** 2026-10-29 — verified against `package.json` (`cw`, `demo:build` scripts), `cli/crosswalker.ts`, `cli/fs-app.ts`, `scripts/demo-build.mjs`, `src/tier2/projector.ts`, `src/tier2/sidecar.ts`, `src/import/import-set-recipes.ts`, `src/generation/import-set.ts`, `src/mappings/mapping-set.ts`, `src/views/reference-base-files.ts`, `src/main.ts` (status bar), `src/discovery/installed-frameworks.ts` and `src/graph/graph-color-command.ts` (both merged in PR #67).
+
+<Aside type="tip" title="The question this page answers">
+"Do we need a Crosswalker CLI to realistically go from files to upload in OpenClast, or moving files into Obsidian, to having something operational? Is it possible to do all the work outside the plugin, or if you import then things aren't going to be quite right?"
+
+**Answer:** no new tool. Build on disk with `cw`, open or upload the folder, and the plugin rebuilds everything else from the notes. Where something is not quite right after that, it is a plugin bug against the invariant below, not a reason to import through the wizard.
+</Aside>
+
+## 1. Why this works: the schema is the contract
+
+[Architectural commitment 1, schema-as-primitive](/crosswalker/concepts/etl-and-import/#the-reframe--schema-is-the-primitive-etl-is-convenience): the [Tier 1](/crosswalker/concepts/terminology/) (canonical Markdown notes with frontmatter) contract in the [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/) is load-bearing. Any producer that writes valid Tier 1 notes is first-class. The import wizard is one producer among several.
+
+| Producer | What it is | Same engine as the plugin? | Source |
+|---|---|---|---|
+| Import wizard | The plugin's in-Obsidian import modal | Yes (it is the plugin) | `src/import/import-wizard.ts` |
+| `bun run cw` | Command line with 5 commands: `import`, `validate`, `export`, `replay`, `recipes` (source: `cli/crosswalker.ts` `runCli` switch) | Yes. Runs the plugin's own `src/` code against a plain folder through a filesystem stand-in for the Obsidian `App` | `cli/crosswalker.ts`, `cli/fs-app.ts` |
+| `bun run demo:build` | Builds the multi-framework demo vault | Yes. Every Crosswalker note is written by spawning the `cw` entry point, never by calling the engine directly; the build ends with `cw validate` | `scripts/demo-build.mjs` |
+| Any external producer | A script, agent or other tool that emits valid Tier 1 | Not required; validity against `spec/tier1.schema.json` is the bar | [ETL pillar](/crosswalker/concepts/etl-and-import/) |
+
+<div class="not-content" style="margin:1.5rem 0;">
+<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:stretch;font-size:0.85rem;line-height:1.35;">
+<div style="flex:1 1 170px;border:1px solid var(--sl-color-gray-5,#c9c4b8);border-radius:10px;padding:10px 12px;background:var(--sl-color-gray-7,#faf8f3);color:var(--sl-color-white,#1f1d1a);">
+<div style="font-weight:700;margin-bottom:4px;">1. Produce</div>
+<div>Wizard in Obsidian, or <code>cw</code> / <code>demo:build</code> / a script on disk</div>
+</div>
+<div style="flex:0 0 auto;align-self:center;color:var(--sl-color-gray-3,#6b665c);">&rarr;</div>
+<div style="flex:1 1 170px;border:2px solid var(--sl-color-accent,#7a5c2e);border-radius:10px;padding:10px 12px;background:var(--sl-color-gray-7,#faf8f3);color:var(--sl-color-white,#1f1d1a);">
+<div style="font-weight:700;margin-bottom:4px;">2. Tier 1 notes</div>
+<div>Notes, frontmatter, folders, typed links, import-set stamps, recipe copies. The contract.</div>
+</div>
+<div style="flex:0 0 auto;align-self:center;color:var(--sl-color-gray-3,#6b665c);">&rarr;</div>
+<div style="flex:1 1 170px;border:1px solid var(--sl-color-gray-5,#c9c4b8);border-radius:10px;padding:10px 12px;background:var(--sl-color-gray-7,#faf8f3);color:var(--sl-color-white,#1f1d1a);">
+<div style="font-weight:700;margin-bottom:4px;">3. Host</div>
+<div>Obsidian desktop, or an OpenClast room (Obsidian in a browser tab)</div>
+</div>
+<div style="flex:0 0 auto;align-self:center;color:var(--sl-color-gray-3,#6b665c);">&rarr;</div>
+<div style="flex:1 1 170px;border:1px solid var(--sl-color-gray-5,#c9c4b8);border-radius:10px;padding:10px 12px;background:var(--sl-color-gray-7,#faf8f3);color:var(--sl-color-white,#1f1d1a);">
+<div style="font-weight:700;margin-bottom:4px;">4. Plugin derives</div>
+<div>Query database, status bar, frameworks list, reference queries, graph colors (on command)</div>
+</div>
+</div>
+</div>
+
+## 2. What is identical, what is derived, what is host config
+
+| Layer | Examples | Produced outside Obsidian? | Source |
+|---|---|---|---|
+| **Tier 1 content (identical)** | Concept notes, frontmatter, folders, typed wikilinks | Yes, `cw import` runs the same generation engine | `cli/crosswalker.ts` (`runRecognizedImport`), `cli/fs-app.ts` |
+| | Import-set ownership (the minted set id stamped in each note's `_crosswalker` provenance; the provenance is the registry, no separate file) | Yes | `src/generation/import-set.ts` header |
+| | Recipe copy per run, `_crosswalker/import-sets/<set id>/recipe-<digest>.json` | Yes, written through `vault.adapter` | `src/import/import-set-recipes.ts`, `cli/fs-app.ts` |
+| | Mapping notes (or mapping table) plus the mapping-set release record (`kind: mapping-set`) | Yes, `cw import` of a `.sssom.tsv` runs `importSssom` | `cli/crosswalker.ts`, `src/import/sssom-importer.ts`, `src/mappings/mapping-set.ts` |
+| **Derived at runtime (rebuilt by the plugin)** | [Tier 2](/crosswalker/concepts/embedded-vs-server-substrates/) query database (plain: the SQLite index behind queries), a projection of Tier 1 | Never needed. Lives in the plugin's private browser storage (OPFS), not in the vault, and the projector rebuilds it from Tier 1 on vault load | `src/tier2/projector.ts` header ("rebuilds it from canonical Tier 1"), `src/tier2/sidecar.ts`, `src/main.ts` (`autoProjectOnLayoutReady`) |
+| | Reference query files (Coverage Matrix `.base`, `_crosswalker/SKILL.md`) | Not needed. Written on first plugin run if absent, never overwritten | `src/views/reference-base-files.ts` |
+| | Status bar framework count and installed frameworks list | Not needed. Discovery by note identity across the whole vault, refreshed on metadata cache events, and shown as indexing until the cache is ready (`src/discovery/installed-frameworks.ts`, merged in PR #67) | `src/main.ts` (status bar), PR #67 |
+| **Vault/app config (not carried by every host)** | `.obsidian/graph.json` graph colors | `demo:build` writes it, and nothing else under `.obsidian`. OpenClast rooms do not carry `.obsidian` (reported in PR #67). The command "Color the graph by framework" (merged in PR #67) recreates it per vault from the frameworks present | `scripts/demo-build.mjs`, `tools/lib/demo-graph.ts`, PR #67 |
+| | Plugin settings (Obsidian's per-plugin data file) | Not written by `cw`; the CLI runs on `DEFAULT_SETTINGS`, and the plugin starts on defaults in a fresh vault | `cli/crosswalker.ts`, `src/main.ts` (`loadSettings`) |
+
+## 3. The invariant
+
+> **The plugin derives every runtime surface from note identity. Never from state only the import wizard writes, and never from paths.**
+
+| Clause | Why | Precedent |
+|---|---|---|
+| From note identity | Notes are the only thing every producer and every host share | [Identity reconciliation](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/) |
+| Not from wizard-only state | A `cw`-built or uploaded vault has no plugin data and no wizard history | This page |
+| Not from paths | Folder shape is a recipe choice and changes across producers; three bugs came from inferring meaning from vault paths | [First run and the blind spots that hid it](/crosswalker/agent-context/zz-log/2026-08-28-first-run-and-the-blind-spots-that-hid-it/) |
+| Not before indexing | An unindexed note is not an absent note; say "indexing", never zero | PR #67 status bar |
+
+**Worked example, 2026-10-29.** In a vault built by `cw` or `demo:build`, the status bar read "Crosswalker: no frameworks yet" (`src/ui/entry-points.ts`). Two causes, both violations of the invariant: discovery looked only under the output-folder setting (a path the CLI-built frameworks were not under), and it refreshed on file events that fire before Obsidian has indexed the notes. PR #67 moves discovery to note identity across the vault and refreshes on metadata cache events.
+
+The existing guard for the empty-vault case is `tests/e2e/first-run.spec.ts`, the only spec that starts from a vault with no seed notes and no plugin data. Nothing yet starts from a `cw`-built vault (see § 5).
+
+## 4. Three paths to an operational vault
+
+| Path | Steps | What the plugin does on open | Caveats |
+|---|---|---|---|
+| **A. Wizard in Obsidian** | Open a vault, run "Start here: import structured data" (source: `src/main.ts`) | Projects Tier 2, writes reference queries, counts frameworks | None specific |
+| **B. On disk, then Obsidian** | `bun run cw -- import --vault <dir> --source <file> ...` (or `bun run demo:build -- --out <dir>`), then `cw validate`, then open the folder as a vault | Same as A, from the notes | Graph colors: `demo:build` writes `.obsidian/graph.json`; for other `cw` vaults run the graph color command |
+| **C. On disk, then OpenClast** | Build as in B, then push the folder into an OpenClast room with OpenClast's own vault push tooling. OpenClast hosts real Obsidian in a browser tab, so the same plugin runs | Same as A, from the notes | Dot-folders are not uploaded, so per-vault app config (`.obsidian/graph.json`, plugin settings) does not arrive. The plugin must recreate it: graph colors by command (pending PR #67), settings from defaults |
+
+## 5. Next steps (not done)
+
+| Step | Detail |
+|---|---|
+| Guardrail: parity check from a `cw`-built vault | An E2E or unit check that starts from a vault built by `cw` with no plugin data and asserts every runtime surface (status bar count, workspace frameworks list, Tier 2 query database row counts) matches the same sources imported through the wizard |
+| Audit remaining surfaces | Any surface that reads plugin data or a folder setting to decide what exists is a candidate violation of § 3 |
+
+## Related
+
+- [ETL and import](/crosswalker/concepts/etl-and-import/) — schema as primitive, ETL as convenience
+- [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/) — the Tier 1 contract every producer targets
+- [System architecture](/crosswalker/concepts/system-architecture/) — tiers and the Tier 1 to Tier 2 projection layer
+- [Artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) — Tier 1 as canonical representation
+- [Ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) — where producing and sharing vaults sit
+- [Embedded vs server substrates](/crosswalker/concepts/embedded-vs-server-substrates/) — Tier 2 as a rebuildable projection
+- [10-27 · Command line and live demo, near term](/crosswalker/agent-context/zz-log/2026-10-27-cli-and-live-demo-near-term/)
+- [10-29 · Outside-the-plugin invariant](/crosswalker/agent-context/zz-log/2026-10-29-outside-the-plugin-invariant/)
+- [Terminology](/crosswalker/concepts/terminology/)

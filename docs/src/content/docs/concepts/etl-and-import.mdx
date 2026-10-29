@@ -448,6 +448,8 @@ Edge-level concerns (STRM predicates, SSSOM rows, junction notes, ontology diff 
 
 This means the import-side architecture (this page) is *strictly orthogonal* to the edge-side architecture. A user could import the same NIST 800-53 catalog with three completely different recipes and three completely different vault layouts; the resulting STRM/SSSOM/junction-note structure would be semantically identical.
 
+The same holds for where the vault is produced: a vault built on disk by the `cw` command line is as operational as a wizard-built one, because the plugin rebuilds its runtime surfaces from the notes; see [Producing vaults outside Obsidian](/crosswalker/concepts/producing-vaults-outside-obsidian/).
+
 ## Where this came from — broader portfolio context
 
 Crosswalker's stance on import — "schema as primitive, ETL as convenience, marketplace as community escape hatch" — emerged from a portfolio of related tools the user has built over time, all aimed at applied information science with Obsidian as the platform:
