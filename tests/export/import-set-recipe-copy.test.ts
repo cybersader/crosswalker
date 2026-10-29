@@ -11,7 +11,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder } from 'util';
 import { TFile, TFolder } from 'obsidian';
-import { generateNotes, type GenerationOptions } from '../../src/generation/generation-engine';
+import { generateFromRecipe, generateNotes, type GenerationOptions } from '../../src/generation/generation-engine';
+import type { Recipe } from '../../src/render';
 import { parseCSV, parseCSVFile } from '../../src/import/parsers/csv-parser';
 import { loadRecipeDocument } from '../../src/import/recipe-document';
 import { saveToLibrary, type RecipeLibraryFiles } from '../../src/import/recipe-library';
@@ -570,5 +571,51 @@ describe('export resolver for classic notes', () => {
 		expect(await resolver.resolve(legacyStamp('iset-abc123', `sha256-${'b'.repeat(64)}`))).toEqual({ ok: false, reason: 'legacy' });
 		expect(await resolver.resolve({ _crosswalker: { recipe: { id: 'legacy-config' } } })).toEqual({ ok: false, reason: 'legacy' });
 		expect(resolver.fallbacks.legacy).toBe(2);
+	});
+});
+
+describe('native recipe runs keep a copy only of the recipe they stamp', () => {
+	const recipeCopies = (files: Map<string, string>, setId: string) =>
+		[...files.keys()].filter((p) => p.startsWith(`${IMPORT_SET_RECIPES_FOLDER}/${setId}/recipe-`) && p.endsWith('.json'));
+
+	async function nativeRun(app: unknown, parsed: ParsedData, recipe: CrosswalkerImportRecipe, provenanceRecipe?: { id: string; hash?: string }) {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const result = await generateFromRecipe(app as any, parsed, recipe as unknown as Recipe, {
+			basePath: 'Frameworks/nist-mini',
+			importSet: 'new-set-qualified',
+			overwriteMode: 'replace',
+			createFolders: true,
+			sourceFileName: 'nist-mini.csv',
+			...(provenanceRecipe ? { provenanceRecipe } : {}),
+		}, debug);
+		expect(result.errors).toEqual([]);
+		expect(result.importSetId).toMatch(/^iset-[a-z0-9]{6}$/);
+		return result;
+	}
+
+	// Prevents: a native run into a set losing its recipe copy, so its notes export as properties only.
+	it('writes exactly one recipe copy under the set folder without provenanceRecipe', async () => {
+		const parsed = await sourceRows();
+		const recipe = canonical(recipeWithId('custom-nist-mini'));
+		const { app, files } = memoryVault();
+		const result = await nativeRun(app, parsed, recipe);
+		const copies = recipeCopies(files, result.importSetId!);
+		expect(copies).toHaveLength(1);
+		expect(copies[0]).toMatch(new RegExp(`^${IMPORT_SET_RECIPES_FOLDER}/${result.importSetId}/recipe-sha256-[a-f0-9]{64}\\.json$`));
+		expect(copies[0]).toBe(importSetRecipePath(result.importSetId!, recipeRunDigest(recipe)!));
+	});
+
+	// Prevents: the conversion job's transient transport recipe being filed as a copy beside the set's original.
+	it('writes no recipe copy when the run stamps another recipe via provenanceRecipe', async () => {
+		const parsed = await sourceRows();
+		const recipe = canonical(recipeWithId('custom-nist-mini'));
+		const { app, files } = memoryVault();
+		const result = await nativeRun(app, parsed, recipe, { id: 'original-recipe', hash: `sha256-${'c'.repeat(64)}` });
+		expect([...files.keys()].filter((p) => p.endsWith('.md')).length).toBeGreaterThan(0);
+		expect(recipeCopies(files, result.importSetId!)).toEqual([]);
+		// Observed: source-columns.json is not written either; keepRunRecipe is skipped as a whole.
+		expect(files.has(importSetSourceColumnsPath(result.importSetId!)!)).toBe(false);
+		const note = [...files.entries()].find(([p, t]) => p.endsWith('.md') && t.includes('original-recipe'));
+		expect(note).toBeDefined();
 	});
 });

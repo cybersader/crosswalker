@@ -6,7 +6,7 @@ import {
 	knownSourcesOf,
 	settleVaultIndex,
 } from '../generation/import-set';
-import { outputRootPath } from '../settings/folder-settings';
+import { evidenceJunctionFolder, outputRootPath } from '../settings/folder-settings';
 import type { CrosswalkerSettings } from '../settings/settings-data';
 import { isImportableExtension } from '../ui/entry-points';
 import {
@@ -77,11 +77,11 @@ function sourceTypeFor(path: string): WizardDraft['sourceType'] {
 export function draftFromScanRow(
 	row: ScanRow,
 	entry: RecipeRegistryEntry,
-	settings: Pick<CrosswalkerSettings, 'defaultOutputPath'>,
+	settings: Pick<CrosswalkerSettings, 'defaultOutputPath'> & Partial<Pick<CrosswalkerSettings, 'evidenceJunctionFolder'>>,
 ): WizardDraft {
 	const now = new Date().toISOString();
 	const root = outputRootPath(settings);
-	const recognized = recognizedDestination(entry, root);
+	const recognized = recognizedDestination(entry, root, evidenceJunctionFolder(settings));
 	const outputPath = recognized ?? root;
 	return {
 		schemaVersion: DRAFT_SCHEMA_VERSION,

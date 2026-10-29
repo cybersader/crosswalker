@@ -245,6 +245,57 @@ describe('mergeFrontmatter + computeManagedKeys', () => {
 	});
 });
 
+// Re-import must not rearrange a note (2026-10-28 regression: user keys moved to the top).
+describe('mergeFrontmatter: key order on re-import', () => {
+	it('keeps a user key between managed keys where it sits', () => {
+		const existing = { name: 'Old', reviewer: 'alice', family: 'AC', curie: 'x:A' };
+		const managed = { name: 'New', family: 'AC', curie: 'x:A' };
+		const result = mergeFrontmatter(existing, managed, computeManagedKeys(managed));
+		expect(Object.keys(result)).toEqual(['name', 'reviewer', 'family', 'curie']);
+		expect(result.name).toBe('New');
+	});
+
+	it('keeps user keys at the bottom when the user put them there', () => {
+		const existing = { name: 'A', _crosswalker: { v: 1 }, source_order: '1', owner: 'alice', review_note: 'ok' };
+		const managed = { name: 'A', _crosswalker: { v: 2 }, source_order: '1' };
+		const result = mergeFrontmatter(existing, managed, computeManagedKeys(managed));
+		expect(Object.keys(result)).toEqual(['name', '_crosswalker', 'source_order', 'owner', 'review_note']);
+		expect(result._crosswalker).toEqual({ v: 2 });
+	});
+
+	it('appends new managed keys after the existing ones, in recipe order', () => {
+		const existing = { owner: 'alice', name: 'A' };
+		const managed = { status: 'active', name: 'A', family: 'AC' };
+		const result = mergeFrontmatter(existing, managed, computeManagedKeys(managed));
+		expect(Object.keys(result)).toEqual(['owner', 'name', 'status', 'family']);
+	});
+
+	it('drops a declared managed key the run no longer renders without moving the rest', () => {
+		const existing = { name: 'A', parent_curie: 'x:P', owner: 'alice', family: 'AC' };
+		const managed = { name: 'A', family: 'AC' };
+		const declared = computeDeclaredManagedKeys({ managed: { parent_curie: '{parent_id|optional}' } });
+		const result = mergeFrontmatter(existing, managed, computeManagedKeys(managed, [], declared));
+		expect(Object.keys(result)).toEqual(['name', 'owner', 'family']);
+	});
+
+	it('updates tags in place with the list union', () => {
+		const existing = { owner: 'alice', tags: ['mine'], name: 'A' };
+		const managed = { name: 'A', tags: ['family/ac'] };
+		const result = mergeFrontmatter(existing, managed, computeManagedKeys(managed));
+		expect(Object.keys(result)).toEqual(['owner', 'tags', 'name']);
+		expect(result.tags).toEqual(expect.arrayContaining(['mine', 'family/ac']));
+	});
+
+	it('is a fixed point: merging the merged note again changes nothing, including order', () => {
+		const existing = { reviewer: 'bob', name: 'Old', owner: 'alice' };
+		const managed = { name: 'New', family: 'AC' };
+		const keys = computeManagedKeys(managed);
+		const once = mergeFrontmatter(existing, managed, keys);
+		const twice = mergeFrontmatter(once, managed, keys);
+		expect(JSON.stringify(twice)).toBe(JSON.stringify(once));
+	});
+});
+
 // ---------------------------------------------------------------------------
 // provenance
 // ---------------------------------------------------------------------------

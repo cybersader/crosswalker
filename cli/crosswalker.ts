@@ -7,7 +7,9 @@
  *                          [--deterministic]
  *   bun run cw -- validate --vault <dir> [--folder <folder>]
  *   bun run cw -- export   --vault <dir> --folder <folder> --format csv|sssom|strm --out <file>
- *   bun run cw -- replay   --vault <dir> --set <set id>        (not available yet)
+ *   bun run cw -- replay   --vault <dir> --set <set id> --source <file>
+ *                          [--sheet <name>] [--header-row <n>] [--digest sha256-<hex>]
+ *                          [--deterministic]
  *
  * Every command runs the plugin's own `src/` code against a plain folder through
  * `cli/fs-app.ts`, so the command line and the plugin write the same notes.
@@ -21,7 +23,7 @@ import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import * as yaml from 'js-yaml';
 import { TFile } from 'obsidian';
-import { createFsApp, vaultRelative, type FsApp } from './fs-app';
+import { createFsApp, StandInTFile, vaultRelative, type FsApp } from './fs-app';
 import { DEFAULT_SETTINGS } from '../src/settings/settings-data';
 import {
 	RECIPE_REGISTRY,
@@ -30,6 +32,8 @@ import {
 	type RecipeRegistryEntry,
 } from '../src/import/recipe-registry';
 import { parseRecognizedSource, runRecognizedImport } from '../src/import/run-recognized-import';
+import { refreshRootProblem } from '../src/import/import-wizard';
+import { discoverImportSets } from '../src/generation/import-set';
 import { listXLSXSheets } from '../src/import/parsers/xlsx-parser';
 import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import { MappingWorkbench } from '../src/import/workbench';
@@ -40,6 +44,8 @@ import { csvExportNotice } from '../src/export/csv-inverse';
 import { exportFolderAsSssomTsv } from '../src/export/sssom-exporter';
 import { exportFolderAsStrmTsv, releaseFilePathFor, strmReleaseFileContent } from '../src/export/strm-tsv-exporter';
 import { validateTier1Frontmatter } from '../src/validation/validator';
+import { recipeStampOf } from '../src/export/recipe-for-note';
+import { readImportSetRecipe } from '../src/import/import-set-recipes';
 import type { ParsedData } from '../src/types/config';
 import type { CrosswalkerImportRecipe } from '../src/types/generated/recipe';
 import { DebugLog } from '../src/utils/debug';
@@ -62,7 +68,11 @@ const USAGE = [
 	'            spreadsheet row number (1 = first row) that holds the column names.',
 	'  validate  --vault <dir> [--folder <folder>]',
 	'  export    --vault <dir> --folder <folder> --format csv|sssom|strm --out <file>',
-	'  replay    --vault <dir> --set <set id>   (not available from the command line yet)',
+	'  replay    --vault <dir> --set <set id> --source <file> [--sheet <name>]',
+	'            [--header-row <n>] [--digest sha256-<hex>] [--deterministic]',
+	'            Runs a set again with the exact recipe revision it ran. Crosswalker keeps',
+	'            no copy of the source, so --source is the file the set came from or a newer',
+	'            release of it. --digest picks a revision when the set holds more than one.',
 	'  recipes   list the built-in recipe ids',
 	'',
 	'Exit codes: 0 ok, 1 usage or runtime error, 2 validation failures.',
@@ -242,7 +252,7 @@ function readSource(flags: Flags): { abs: string; name: string; bytes: Buffer } 
 
 /** A stand-in TFile for a source that lives outside the vault: only its name is read. */
 function sourceHandle(name: string): TFile {
-	const file = new TFile(name) as TFile & { name: string; extension: string };
+	const file = new StandInTFile(name) as TFile & { name: string; extension: string };
 	file.name = name;
 	file.extension = (name.split('.').pop() ?? '').toLowerCase();
 	return file;
@@ -360,10 +370,10 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 	const app = openVault(flags);
 	const source = readSource(flags);
 	const refreshSetId = setFlag(flags);
-	const destinationFlag = folderFlag(flags, 'destination', false);
-	const ontologyFlag = stringFlag(flags, 'ontology');
 
 	if (/\.sssom\.tsv$/i.test(source.name)) {
+		const destinationFlag = folderFlag(flags, 'destination', false);
+		const ontologyFlag = stringFlag(flags, 'ontology');
 		if (flags.recipe !== undefined) {
 			throw new CliError('A mapping file (.sssom.tsv) imports without a recipe. Remove --recipe, then run the import again.');
 		}
@@ -386,14 +396,45 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 			io.err(`${source.name} has no mapping rows. Check that the file has a header line and at least one mapping.`);
 			return 1;
 		}
-		io.out(`Imported ${source.name} into ${result.folder ?? result.tablePath ?? '(vault)'}: ${result.generation?.created.length ?? result.rowsWritten ?? 0} written.`
+		io.out(`Imported ${source.name} into ${result.folder ?? result.tablePath ?? '(vault)'}: ${result.generation ? result.generation.created.length + result.generation.updated.length : result.rowsWritten ?? 0} written.`
 			+ (result.generation?.importSetId ? ` Set id: ${result.generation.importSetId}.` : ''));
 		return 0;
 	}
 
+	return runImport(flags, io, app, source, resolveRecipe(flags), refreshSetId);
+}
+
+/**
+ * The folder an existing set's notes live in, found from the notes it owns.
+ * Undefined when no note carries the set yet. Refuses when its notes are
+ * spread over several folders, as the plugin refuses: a guessed folder writes
+ * a second copy of the set.
+ */
+async function setRoot(app: FsApp, setId: string): Promise<string | undefined> {
+	const set = (await discoverImportSets(app as never)).find((candidate) => candidate.id === setId);
+	if (!set || set.noteCount === 0) return undefined;
+	const problem = refreshRootProblem(set);
+	if (problem) throw new CliError(`${problem} Or pass --destination <folder> to cw import to say where set ${setId} lives.`);
+	return set.root ?? undefined;
+}
+
+/**
+ * The import pipeline both `cw import` and `cw replay` run. `explicit` is the
+ * already-resolved recipe (null: detect the structure, as the wizard does);
+ * `refreshSetId` refreshes that set in place. Prints the summary line.
+ */
+async function runImport(
+	flags: Flags,
+	io: Io,
+	app: FsApp,
+	source: { name: string; bytes: Buffer },
+	explicit: RecipeRegistryEntry | null,
+	refreshSetId: string | undefined,
+): Promise<number> {
+	const destinationFlag = folderFlag(flags, 'destination', false);
+	const ontologyFlag = stringFlag(flags, 'ontology');
 	const debug = quietDebug(app);
 	const handle = sourceHandle(source.name);
-	const explicit = resolveRecipe(flags);
 	const sourceFile = new File([source.bytes], source.name);
 	const baseRequest = { file: handle, ...tableFlags(flags, handle.extension) };
 	let parsedData;
@@ -405,7 +446,10 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 	}
 
 	const ontology = ontologyFlag ?? explicit?.ontology ?? slugOf(source.name);
-	const destination = destinationFlag ?? (explicit ? undefined : `${DEFAULT_SETTINGS.defaultOutputPath}/${slugOf(source.name)}`);
+	// A refresh writes back to where the set's own notes already live, as the
+	// plugin's refresh does; a recipe's default folder may not be that place.
+	const refreshRoot = refreshSetId && destinationFlag === undefined ? await setRoot(app, refreshSetId) : undefined;
+	const destination = destinationFlag ?? refreshRoot ?? (explicit ? undefined : `${DEFAULT_SETTINGS.defaultOutputPath}/${slugOf(source.name)}`);
 	let entry: RecipeRegistryEntry;
 	if (explicit) {
 		entry = ontologyFlag ? { ...explicit, ontology } : explicit;
@@ -439,7 +483,7 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 	}
 	io.out(
 		`Imported ${outcome.parsedRowCount} rows from ${source.name} into ${outcome.destination || 'the vault root'}: ` +
-		`${outcome.created} created, ${outcome.upToDate} up to date, ${outcome.skipped} skipped.` +
+		`${outcome.created} created, ${outcome.updated} updated, ${outcome.upToDate} up to date, ${outcome.skipped} skipped.` +
 		(outcome.importSetId ? ` Set id: ${outcome.importSetId}.` : ''),
 	);
 	return 0;
@@ -568,11 +612,107 @@ async function commandExport(flags: Flags, io: Io): Promise<number> {
 
 // --------------------------------------------------------------------- replay
 
-function commandReplay(): number {
-	throw new CliError(
-		'Replay is not available from the command line yet: "Run again" is only reachable from the plugin today. ' +
-		'Run the same "cw import" again with --set <set id> to refresh a set from its source.',
+/**
+ * The recipe revision a set ran, found by identity: the notes whose provenance
+ * names the set say which recipe document digest wrote them, and the import
+ * kept that exact revision under `_crosswalker/import-sets/<set id>/`. Never
+ * found by folder or file name, and never re-resolved from the library by id
+ * (the library may hold a later revision than the one that ran).
+ */
+export async function keptRecipeForSet(
+	app: FsApp,
+	setId: string,
+	digestFlag: string | undefined,
+): Promise<{ recipe: CrosswalkerImportRecipe; digest: string }> {
+	const counts = new Map<string, number>();
+	let notes = 0;
+	for (const file of app.vault.getMarkdownFiles() as TFile[]) {
+		const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+		if (!frontmatter) continue;
+		const stamp = recipeStampOf(frontmatter);
+		if (stamp.setId !== setId) continue;
+		notes++;
+		// Notes from before digests were stamped name no revision; they cannot pick one.
+		if (stamp.digest) counts.set(stamp.digest, (counts.get(stamp.digest) ?? 0) + 1);
+	}
+	if (notes === 0) {
+		throw new CliError(
+			`No notes in this vault belong to set ${setId}. Check the set id: any imported note shows it under _crosswalker, import_set, id. ` +
+			'Pass that id with --set.',
+		);
+	}
+	const noKeptCopy = (digest?: string): CliError => new CliError(
+		`Set ${setId} has no kept copy of the recipe revision ${digest ? `${digest} ` : ''}it ran. ` +
+		'The set was imported before copies were kept, or the copy was removed. ' +
+		`Run "bun run cw -- import --vault <dir> --source <file> --set ${setId} --recipe <id|path>" instead.`,
 	);
+	let digest: string;
+	if (digestFlag !== undefined) {
+		if (!counts.has(digestFlag)) {
+			const known = [...counts.keys()].sort();
+			throw new CliError(
+				`No note in set ${setId} was written by recipe revision ${digestFlag}. ` +
+				(known.length > 0 ? `Revisions in this set: ${known.join(', ')}. Pass one of them with --digest.` : 'Leave out --digest.'),
+			);
+		}
+		digest = digestFlag;
+	} else if (counts.size === 0) {
+		throw noKeptCopy();
+	} else if (counts.size > 1) {
+		const listed = [...counts.entries()]
+			.sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
+			.map(([d, n]) => `${d} (${n} ${n === 1 ? 'note' : 'notes'})`)
+			.join(', ');
+		throw new CliError(
+			`Set ${setId} holds notes written by more than one recipe revision: ${listed}. ` +
+			'Pass the one to run again with --digest <revision>.',
+		);
+	} else {
+		digest = [...counts.keys()][0];
+	}
+	const recipe = await readImportSetRecipe(app.vault.adapter, setId, digest);
+	if (!recipe) throw noKeptCopy(digest);
+	return { recipe, digest };
+}
+
+/** A kept recipe the import path cannot run: the recipe a mapping file (.sssom.tsv) import builds for itself. */
+function isMappingTransportRecipe(recipe: CrosswalkerImportRecipe): boolean {
+	const leaf = recipe.target.layout[recipe.target.layout.length - 1] as { kind?: string } | undefined;
+	return /^sssom-/.test(recipe.recipe) && leaf?.kind === 'crosswalk-edge';
+}
+
+/**
+ * `cw replay`: the command line "Run again". Refresh a set from a source file
+ * with the exact recipe revision that set ran, through the same pipeline as
+ * `cw import --set <id> --recipe <that recipe>`.
+ */
+async function commandReplay(flags: Flags, io: Io): Promise<number> {
+	allowOnly(flags, ['vault', 'set', 'source', 'sheet', 'header-row', 'digest', 'deterministic'], 'replay');
+	const app = openVault(flags);
+	const setId = stringFlag(flags, 'set', true, 'Pass the set to refresh, for example --set iset-a0f1e2. Any imported note shows its set id under _crosswalker, import_set, id.');
+	if (!/^iset-[a-z0-9]{6}$/.test(setId)) {
+		throw new CliError(`--set takes an existing set id such as iset-a0f1e2, not "${setId}". Any imported note shows its set id under _crosswalker, import_set, id.`);
+	}
+	if (flags.source === undefined) {
+		throw new CliError(
+			'Missing --source. Crosswalker keeps no copy of the source file, so pass the file this set was imported from, ' +
+			'or a newer release of it, for example --source controls.csv.',
+		);
+	}
+	const digestFlag = stringFlag(flags, 'digest', false, 'Pass a recipe revision, for example --digest sha256-<hex>.');
+	if (digestFlag !== undefined && !/^sha256-[a-f0-9]{64}$/.test(digestFlag)) {
+		throw new CliError(`--digest takes a recipe revision such as sha256- followed by 64 hex characters, not "${digestFlag}". Copy it from the recipe_document_digest line of a note in the set.`);
+	}
+	const source = readSource(flags);
+	const { recipe, digest } = await keptRecipeForSet(app, setId, digestFlag);
+	if (isMappingTransportRecipe(recipe) || /\.sssom\.tsv$/i.test(source.name)) {
+		throw new CliError(
+			`Set ${setId} was imported from a mapping file (.sssom.tsv), which imports without a recipe, so there is no recipe to run again. ` +
+			`Run "bun run cw -- import --vault <dir> --source <file.sssom.tsv> --set ${setId}" instead.`,
+		);
+	}
+	io.out(`Running recipe ${recipe.recipe} (revision ${digest.slice(0, 15)}) again into set ${setId}.`);
+	return runImport(flags, io, app, source, libraryRegistryEntry(recipe), setId);
 }
 
 // ----------------------------------------------------------------------- main
@@ -598,7 +738,7 @@ export async function runCli(argv: string[], io: Io = { out: (l) => console.log(
 			case 'export':
 				return await commandExport(flags, io);
 			case 'replay':
-				return commandReplay();
+				return await commandReplay(flags, io);
 			case 'recipes':
 				for (const entry of RECIPE_REGISTRY) io.out(`${entry.id}  ${entry.label}`);
 				return 0;

@@ -43,6 +43,14 @@
 import * as fs from 'node:fs';
 import * as nodePath from 'node:path';
 import { TFile, TFolder, normalizePath } from 'obsidian';
+
+/**
+ * The CLI runs on the test stand-in for obsidian (cli/preload.ts), whose
+ * TFile/TFolder take their path; the real API types declare no-arg constructors.
+ */
+export const StandInTFile = TFile as unknown as new (path: string) => TFile;
+/** See {@link StandInTFile}. */
+export const StandInTFolder = TFolder as unknown as new (path: string) => TFolder;
 // js-yaml is what the in-memory test harnesses parse frontmatter with; Obsidian
 // itself parses full YAML, which the mock's limited `parseYaml` does not.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -144,7 +152,7 @@ export function createFsApp(rootDir: string): FsApp {
 	const root = nodePath.resolve(rootDir);
 	fs.mkdirSync(root, { recursive: true });
 	const entries = new Map<string, AnyFile>();
-	const rootFolder = new TFolder('');
+	const rootFolder = new StandInTFolder('');
 	(rootFolder as any).name = '';
 	(rootFolder as any).parent = null;
 	(rootFolder as any).isRoot = () => true;
@@ -168,7 +176,7 @@ export function createFsApp(rootDir: string): FsApp {
 	};
 
 	const makeFile = (path: string): TFile => {
-		const file = new TFile(path);
+		const file = new StandInTFile(path);
 		const name = path.split('/').pop() ?? path;
 		const dot = name.lastIndexOf('.');
 		(file as any).name = name;
@@ -180,7 +188,7 @@ export function createFsApp(rootDir: string): FsApp {
 		return file;
 	};
 	const makeFolder = (path: string): TFolder => {
-		const folder = new TFolder(path);
+		const folder = new StandInTFolder(path);
 		(folder as any).name = path.split('/').pop() ?? path;
 		(folder as any).isRoot = () => false;
 		(folder as any).vault = vault;

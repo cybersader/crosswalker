@@ -253,6 +253,31 @@ describe('vault source scan runner', () => {
 		expect(draft.xlsxHeaderRow).toBe(2);
 	});
 
+	it('a scan-created evidence link draft uses the evidence link folder setting', () => {
+		const registryEntry = entry('evidence-junction-notes');
+		const row: ScanRow = {
+			path: 'Sources/evidence.csv',
+			name: 'evidence.csv',
+			candidate: {
+				path: 'Sources/evidence.csv',
+				entryId: registryEntry.id,
+				label: registryEntry.label,
+				table: '',
+				headerRow: 0,
+				score: 100,
+				confident: true,
+			},
+			state: { kind: 'not-imported' },
+			digest: 'sha256-synthetic',
+			note: null,
+		};
+		const draft = draftFromScanRow(row, registryEntry, {
+			defaultOutputPath: 'Ontologies',
+			evidenceJunctionFolder: 'Audit/Links',
+		});
+		expect(draft.outputPath).toBe('Audit/Links');
+	});
+
 	it('builds the neutral snapshot key set the wizard hydrates without a preset or workbench mapping', () => {
 		const registryEntry = entry('nist-csf-2-cprt');
 		const row: ScanRow = {
