@@ -293,6 +293,7 @@ function refusedGeneration(message: string): GenerationResult {
 	return {
 		success: false,
 		created: [],
+		updated: [],
 		upToDate: [],
 		skipped: [],
 		errors: [{ row: -1, message }],

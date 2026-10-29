@@ -51,7 +51,7 @@ export class StackSetupModal extends Modal {
 	private indexing = false;
 	private error = '';
 	private largeSources = new Set<string>();
-	private completed: { label: string; created: number; upToDate: number; crosswalkLinks: number; crosswalkLinksUpToDate: number; setId: string | null; folder: string; warnings: string[] }[] = [];
+	private completed: { label: string; written: number; upToDate: number; crosswalkLinks: number; crosswalkLinksUpToDate: number; setId: string | null; folder: string; warnings: string[] }[] = [];
 	private discoveredSets: number | null = null;
 	private mappingSets: CompletedMapping[] = [];
 	private discoveredCounts = new Map<string, number>();
@@ -703,7 +703,7 @@ export class StackSetupModal extends Modal {
 		}
 		if (this.error) scroll.createDiv({ cls: 'crosswalker-stack-warning', text: this.error });
 		if (this.indexing) scroll.createDiv({ cls: 'crosswalker-stack-muted', text: 'Waiting for the vault to index the notes just written...' });
-		if (this.completed.length) scroll.createDiv({ text: `${plural(this.completed.reduce((sum, item) => sum + item.created, 0), 'framework note')} created or updated. ${plural(this.skipped, 'slot')} skipped. Remaining mappings will run next.` });
+		if (this.completed.length) scroll.createDiv({ text: `${plural(this.completed.reduce((sum, item) => sum + item.written, 0), 'framework note')} created or updated. ${plural(this.skipped, 'slot')} skipped. Remaining mappings will run next.` });
 		root.createDiv({ cls: 'crosswalker-stack-total', attr: { 'data-count-ms': String(Math.round(this.reviewCountMs)) },
 			text: this.counting ? 'Counting files...' : this.stackPlan ? stackPlanSummary(this.stackPlan) : 'Count pending.' });
 		const footer = root.createDiv({ cls: 'crosswalker-stack-footer' });
@@ -766,7 +766,7 @@ export class StackSetupModal extends Modal {
 			const mode = this.revisiting ? this.choices.get(slot.entry.id) : 'new';
 			if (mode === 'skip') {
 				const fact = this.storedRun?.slotSets[slot.entry.id];
-				this.completed.push({ label: slot.entry.label, created: 0, upToDate: 0, crosswalkLinks: 0, crosswalkLinksUpToDate: 0, setId: fact?.importSetId ?? null,
+				this.completed.push({ label: slot.entry.label, written: 0, upToDate: 0, crosswalkLinks: 0, crosswalkLinksUpToDate: 0, setId: fact?.importSetId ?? null,
 					folder: this.knownSets.get(fact?.importSetId ?? '')?.root ?? '', warnings: [] });
 				continue;
 			}
@@ -798,7 +798,7 @@ export class StackSetupModal extends Modal {
 					this.error = frameworkImportError(slot.entry.label, outcome.errors);
 					break;
 				}
-				this.completed.push({ label: slot.entry.label, created: outcome.created, upToDate: outcome.upToDate, crosswalkLinks: outcome.crosswalkEdges ?? 0, crosswalkLinksUpToDate: outcome.crosswalkLinksUpToDate ?? 0, setId: outcome.importSetId, folder: outcome.destination, warnings: outcome.warnings });
+				this.completed.push({ label: slot.entry.label, written: outcome.created + outcome.updated, upToDate: outcome.upToDate, crosswalkLinks: outcome.crosswalkEdges ?? 0, crosswalkLinksUpToDate: outcome.crosswalkLinksUpToDate ?? 0, setId: outcome.importSetId, folder: outcome.destination, warnings: outcome.warnings });
 				if (!await checkpointFrameworkOutcome(outcome, sourceDigest, recipeDigest, file.name,
 					(fact) => this.recordFact(slot.entry.id, fact, false)))
 					this.runWarnings.push(`${slot.entry.label} was imported, but its set could not be confirmed yet. Wait for vault indexing, then run again later to record it.`);
@@ -906,7 +906,7 @@ export class StackSetupModal extends Modal {
 
 	private renderComplete(root: HTMLElement): void {
 		root.createEl('h2', { text: 'Framework stack imported' });
-		root.createEl('p', { text: `${plural(this.completed.length, 'framework set')} and ${plural(this.mappingSets.length, 'mapping set')}. ${plural(this.completed.reduce((sum, item) => sum + item.created, 0), 'framework note')} created or updated; ${plural(this.completed.reduce((sum, item) => sum + item.upToDate, 0), 'framework note')} already up to date. ${mappingCompletionText(this.mappingSets)}${plural(this.completed.reduce((sum, item) => sum + item.crosswalkLinks, 0), 'framework crosswalk link')} created or updated; ${plural(this.completed.reduce((sum, item) => sum + item.crosswalkLinksUpToDate, 0), 'framework crosswalk link')} already up to date. ${plural(this.skipped, 'slot')} skipped. ${this.discoveredSets === null ? 'Vault index is still loading; set counts cannot be confirmed yet.' : `${plural(this.discoveredSets, 'set')} confirmed in the vault.`}` });
+		root.createEl('p', { text: `${plural(this.completed.length, 'framework set')} and ${plural(this.mappingSets.length, 'mapping set')}. ${plural(this.completed.reduce((sum, item) => sum + item.written, 0), 'framework note')} created or updated; ${plural(this.completed.reduce((sum, item) => sum + item.upToDate, 0), 'framework note')} already up to date. ${mappingCompletionText(this.mappingSets)}${plural(this.completed.reduce((sum, item) => sum + item.crosswalkLinks, 0), 'framework crosswalk link')} created or updated; ${plural(this.completed.reduce((sum, item) => sum + item.crosswalkLinksUpToDate, 0), 'framework crosswalk link')} already up to date. ${plural(this.skipped, 'slot')} skipped. ${this.discoveredSets === null ? 'Vault index is still loading; set counts cannot be confirmed yet.' : `${plural(this.discoveredSets, 'set')} confirmed in the vault.`}` });
 		if (this.stackSelection.detail === 'top-levels' && this.completed.some((item) =>
 			item.label === frameworkChoices().find((choice) => choice.ontology === 'nist-800-53')?.label ||
 			item.label === frameworkChoices().find((choice) => choice.ontology === 'cri-profile')?.label)) {

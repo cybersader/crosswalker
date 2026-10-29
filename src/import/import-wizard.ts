@@ -4740,9 +4740,10 @@ export class ImportFlow {
 			this.isGenerating = false;
 			this.progressEls = null;
 
-			this.plugin.debug.info('wizard', 'generate-complete', `Wizard generation complete (${result.created.length} created)`, {
+			this.plugin.debug.info('wizard', 'generate-complete', `Wizard generation complete (${result.created.length} created, ${result.updated.length} updated)`, {
 				success: result.success,
 				created: result.created.length,
+				updated: result.updated.length,
 				skipped: result.skipped.length,
 				errors: result.errors.length,
 				duration: result.duration
@@ -4771,7 +4772,7 @@ export class ImportFlow {
 				// that carries the detail, and the same flag gates drawing it below.
 				const needsResults = movedCount > 0 || orphanCount > 0 || !orphansChecked;
 				const counts = `${movedText} ${orphanText}${needsResults ? ' See results.' : ''}`;
-				const message = `✅ Created or updated ${plural(result.created.length, 'note')}; ${plural((result.upToDate?.length ?? 0), 'note')} already up to date` +
+				const message = `✅ Created or updated ${plural(result.created.length + result.updated.length, 'note')}; ${plural((result.upToDate?.length ?? 0), 'note')} already up to date` +
 					(result.skipped.length > 0 ? `, skipped ${result.skipped.length} existing` : '') +
 					` in ${(result.duration / 1000).toFixed(1)}s. ${counts}`;
 				new Notice(message, 5000);
@@ -4788,7 +4789,7 @@ export class ImportFlow {
 					const n = result.conflicts.length;
 					new Notice(`⚠️ ${n} ${n === 1 ? 'note was' : 'notes were'} left unchanged because Crosswalker could not safely update ${n === 1 ? 'it' : 'them'}. See the results screen.`, 10000);
 				}
-				if (result.created.length === 0 && (result.upToDate?.length ?? 0) === 0 && result.skipped.length === 0 && result.errors.length === 0) {
+				if (result.created.length === 0 && result.updated.length === 0 && (result.upToDate?.length ?? 0) === 0 && result.skipped.length === 0 && result.errors.length === 0) {
 					// eslint-disable-next-line obsidianmd/ui/sentence-case -- "Note title" and "In the vault" quote literal UI labels
 					new Notice('⚠️ Nothing was generated. Check that the Note title column actually has values (Step 2 "In the vault" preview shows the filename each row would get).', 10000);
 				}
@@ -4820,7 +4821,7 @@ export class ImportFlow {
 				// a direct-read fallback, while full projection intentionally fails
 				// closed on an incomplete cache, so give the resolve queue a bounded
 				// moment to drain before exposing the completed import.
-				if (result.created.length > 0) await this.waitForMetadataResolve();
+				if (result.created.length + result.updated.length > 0) await this.waitForMetadataResolve();
 
 				// Run again (slice 2): remember where this recipe ran, so its library
 				// card can offer Run again into the same set. Never blocks the import.
@@ -4873,12 +4874,13 @@ export class ImportFlow {
 	renderGenerationResults(result: {
 		success: boolean;
 		created: string[];
+		updated?: string[];
 		upToDate?: string[];
 		skipped: string[];
 		errors: { row: number; message: string }[];
 		conflicts?: Array<{ path: string; code: string; detail: string }>;
 		filteredOut?: number;
-		crosswalkEdges?: { created: number; upToDate?: number; sets: string[]; summary?: string[]; orphans?: Array<{ curie: string; path: string }> };
+		crosswalkEdges?: { created: number; updated?: number; upToDate?: number; sets: string[]; summary?: string[]; orphans?: Array<{ curie: string; path: string }> };
 		/** Notes the run relocated by identity. Empty unless a root actually moved. */
 		moved?: Array<{ curie: string; from: string; to: string }>;
 		/** Identities this set held that the source no longer produces. */
@@ -4893,10 +4895,10 @@ export class ImportFlow {
 
 		// Summary
 		const summary = contentEl.createEl('div', { cls: 'crosswalker-results-summary' });
-		summary.createEl('p', { text: `Created or updated: ${plural(result.created.length, 'note')}; already up to date: ${plural((result.upToDate?.length ?? 0), 'note')}` });
+		summary.createEl('p', { text: `Created or updated: ${plural(result.created.length + (result.updated?.length ?? 0), 'note')}; already up to date: ${plural((result.upToDate?.length ?? 0), 'note')}` });
 		if (result.crosswalkEdges) {
 			summary.createEl('p', {
-				text: result.crosswalkEdges.created === 0 ? `No crosswalk links written; ${plural(result.crosswalkEdges.sets.length, 'link set')} checked under _crosswalker/mappings${result.crosswalkEdges.upToDate ? `; ${plural(result.crosswalkEdges.upToDate, 'link')} already up to date` : ''}.` : `Wrote ${plural(result.crosswalkEdges.created, 'crosswalk link')} to ${plural(result.crosswalkEdges.sets.length, 'link set')} under _crosswalker/mappings.`,
+				text: result.crosswalkEdges.created + (result.crosswalkEdges.updated ?? 0) === 0 ? `No crosswalk links written; ${plural(result.crosswalkEdges.sets.length, 'link set')} checked under _crosswalker/mappings${result.crosswalkEdges.upToDate ? `; ${plural(result.crosswalkEdges.upToDate, 'link')} already up to date` : ''}.` : `Wrote ${plural(result.crosswalkEdges.created + (result.crosswalkEdges.updated ?? 0), 'crosswalk link')} to ${plural(result.crosswalkEdges.sets.length, 'link set')} under _crosswalker/mappings.`,
 			});
 			const linkOrphans = result.crosswalkEdges.orphans ?? [];
 			if (linkOrphans.length > 0) {

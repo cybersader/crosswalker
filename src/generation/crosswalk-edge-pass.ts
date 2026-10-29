@@ -51,12 +51,16 @@ export interface CrosswalkEdgePassResult {
 		/** Owned edge notes no longer represented by this run; never deleted here. */
 		orphans?: Array<{ curie: string; path: string }>;
 		folder: string;
+		/** Edge notes this run created (nothing was at the address before). */
 		created: number;
+		/** Existing edge notes whose content this run changed. */
+		updated: number;
 		upToDate: number;
 		skipped: number;
 		errors: GenerationError[];
 	}>;
 	totalCreated: number;
+	totalUpdated: number;
 	unresolved: UnresolvedEndpoint[];
 	summary: string[];
 	errors: GenerationError[];
@@ -283,7 +287,7 @@ export async function runCrosswalkEdgePass(
 	args: CrosswalkEdgePassArgs,
 	debug?: DebugLog,
 ): Promise<CrosswalkEdgePassResult> {
-	const result: CrosswalkEdgePassResult = { perEntry: [], totalCreated: 0, unresolved: [], summary: [], errors: [] };
+	const result: CrosswalkEdgePassResult = { perEntry: [], totalCreated: 0, totalUpdated: 0, unresolved: [], summary: [], errors: [] };
 	const projectionWarnings: string[] = [];
 	const recordWarnings: string[] = [];
 	const { index, unreadable } = await edgeEndpointIndex(app);
@@ -297,7 +301,7 @@ export async function runCrosswalkEdgePass(
 		const release = crosswalkReleaseDeclaration(entry);
 		if (release.conflict) {
 			const error = { row: -1, message: release.conflict };
-			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, upToDate: 0, skipped: 0, errors: [error] });
+			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, updated: 0, upToDate: 0, skipped: 0, errors: [error] });
 			result.errors.push(error);
 			continue;
 		}
@@ -312,7 +316,7 @@ export async function runCrosswalkEdgePass(
 		if (candidates.length > 1) {
 			const ids = candidates.map((set) => set.id).sort().join(', ');
 			const error = { row: -1, message: `Crosswalk links for ${entry.column} were not updated. More than one link set records this framework as its source: ${ids}. Remove the extra set in ownership review, then run the import again.` };
-			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, upToDate: 0, skipped: 0, errors: [error] });
+			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, updated: 0, upToDate: 0, skipped: 0, errors: [error] });
 			result.errors.push(error);
 			continue;
 		}
@@ -327,14 +331,14 @@ export async function runCrosswalkEdgePass(
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				const failure = { row: -1, message: `Crosswalk links for ${entry.column} were not updated. ${message}` };
-				result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, upToDate: 0, skipped: 0, errors: [failure] });
+				result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, updated: 0, upToDate: 0, skipped: 0, errors: [failure] });
 				result.errors.push(failure);
 				continue;
 			}
 			const refusal = crosswalkReleaseRefusal(entry.column, candidates[0].id, pinned, release.header);
 			if (refusal) {
 				const error = { row: -1, message: refusal };
-				result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, upToDate: 0, skipped: 0, errors: [error] });
+				result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, updated: 0, upToDate: 0, skipped: 0, errors: [error] });
 				result.errors.push(error);
 				continue;
 			}
@@ -369,6 +373,7 @@ export async function runCrosswalkEdgePass(
 				} : {}),
 				folder,
 				created: 0,
+				updated: 0,
 				upToDate: 0,
 				skipped: 0,
 				errors: [],
@@ -391,7 +396,7 @@ export async function runCrosswalkEdgePass(
 			: folder;
 		if (destination === null) {
 			const error = { row: -1, message: `Crosswalk links for ${entry.column} were not updated. Link set ${candidates[0].id} has no shared destination. Resolve its location in ownership review, then run the import again.` };
-			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, upToDate: 0, skipped: 0, errors: [error] });
+			result.perEntry.push({ column: entry.column, toOntology: entry.to_ontology, importSetId: null, folder, created: 0, updated: 0, upToDate: 0, skipped: 0, errors: [error] });
 			result.errors.push(error);
 			continue;
 		}
@@ -419,7 +424,7 @@ export async function runCrosswalkEdgePass(
 			debug,
 		);
 
-		if (candidates.length === 0 && generation.created.length > 0) mintedSSSOM = true;
+		if (candidates.length === 0 && generation.created.length + generation.updated.length > 0) mintedSSSOM = true;
 
 		// The link set's release record, once its links exist (S5). Notes form
 		// only: crosswalk columns always write one note per link.
@@ -476,7 +481,7 @@ export async function runCrosswalkEdgePass(
 			}
 		}
 
-		const importSetId = generation.created.length > 0 || generation.upToDate.length > 0 || generation.skipped.length > 0 ? generation.importSetId ?? null : null;
+		const importSetId = generation.created.length > 0 || generation.updated.length > 0 || generation.upToDate.length > 0 || generation.skipped.length > 0 ? generation.importSetId ?? null : null;
 
 		const entryResult = {
 			column: entry.column,
@@ -485,12 +490,14 @@ export async function runCrosswalkEdgePass(
 			...(generation.orphans?.length ? { orphans: generation.orphans } : {}),
 			folder: destination,
 			created: generation.created.length,
+			updated: generation.updated.length,
 			upToDate: generation.upToDate.length,
 			skipped: generation.skipped.length,
 			errors: generation.errors,
 		};
 		result.perEntry.push(entryResult);
 		result.totalCreated += generation.created.length;
+		result.totalUpdated += generation.updated.length;
 		result.errors.push(...generation.errors);
 	}
 
