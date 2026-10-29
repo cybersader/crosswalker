@@ -137,7 +137,7 @@ const TABLE_ROOT = '_crosswalker/mappings/nist-800-53-to-mitre-attack';
 const tableSet = (id: string, rowCount: number): DiscoveredImportSet => ({ ...set(id, 0), mapping_form: 'table', rowCount,
 	paths: [`${TABLE_ROOT}/nist-800-53-to-mitre-attack.mapping-table.tsv`] });
 const tableOutcome = (rows: number, extra: Record<string, number> = {}) => ({
-	generation: { success: true, created: [], upToDate: [], skipped: [], errors: [], duration: 0, orphansChecked: false },
+	generation: { success: true, created: [], updated: [], upToDate: [], skipped: [], errors: [], duration: 0, orphansChecked: false },
 	folder: TABLE_ROOT, summary: [], unresolved: [], parse: { header: {}, rows: [], warnings: [], errors: [] },
 	source: 'nist-800-53', target: 'mitre-attack', mappingForm: 'table' as const,
 	tablePath: `${TABLE_ROOT}/nist-800-53-to-mitre-attack.mapping-table.tsv`, rowsWritten: rows, ...extra,
@@ -193,7 +193,7 @@ it('routes a table-set refresh with the table form and reports reviews carried a
 it('surfaces the importer refusal when a table run is refused', async () => {
 	const dependencies: MappingRunDependencies = {
 		log: jest.fn(), listSets: async () => [], readBytes: async () => syntheticCtid(),
-		importRows: async () => ({ ...tableOutcome(0), generation: { success: false, created: [], upToDate: [], skipped: [],
+		importRows: async () => ({ ...tableOutcome(0), generation: { success: false, created: [], updated: [], upToDate: [], skipped: [],
 			errors: [{ row: -1, message: 'Import set iset-tbl003 stores its mappings as notes. Convert the set instead of refreshing it as a table.' }],
 			duration: 0, orphansChecked: false } }),
 	};
@@ -210,7 +210,7 @@ it('surfaces the non-curie endpoint refusal for a notes-form run too', async () 
 		+ 'Fix the source, or map the column to an id that follows that shape, then import again.';
 	const dependencies: MappingRunDependencies = {
 		log: jest.fn(), listSets: async () => [], readBytes: async () => syntheticCtid(),
-		importRows: async () => ({ ...tableOutcome(0), mappingForm: 'notes', generation: { success: false, created: [], upToDate: [], skipped: [],
+		importRows: async () => ({ ...tableOutcome(0), mappingForm: 'notes', generation: { success: false, created: [], updated: [], upToDate: [], skipped: [],
 			errors: [{ row: -1, message }], duration: 0, orphansChecked: false } }),
 	};
 	const mapping = MAPPING_PRESETS.find((item) => item.id === '80053-attack')!;

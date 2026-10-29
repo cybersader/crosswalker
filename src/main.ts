@@ -663,7 +663,7 @@ export default class CrosswalkerPlugin extends Plugin {
 					// what to do. `created` is a list of paths, so its LENGTH is the
 					// count -- interpolating the array printed the paths where a number
 					// belonged.
-					const createdCount = result.generation?.created?.length ?? 0;
+					const createdCount = (result.generation?.created?.length ?? 0) + (result.generation?.updated?.length ?? 0);
 					const errors = result.generation?.errors ?? [];
 					const conflicts = result.generation?.conflicts ?? [];
 					const skipReason = result.skipped ? ` (skipped: ${result.skipped})` : '';

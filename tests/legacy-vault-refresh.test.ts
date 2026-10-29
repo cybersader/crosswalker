@@ -904,6 +904,7 @@ function ambiguousIdentityErrors(result: GenerationResult): string[] {
 function reportedPaths(result: GenerationResult): string[] {
 	return [
 		...result.created,
+		...result.updated,
 		...result.skipped,
 		...(result.moved ?? []).map((m) => m.to),
 		...(result.orphans ?? []).map((o) => o.path),
@@ -2086,7 +2087,10 @@ describe('the success notice', () => {
 	it('carries the counts alongside the created and skipped totals, not instead of them', async () => {
 		const { second } = await importThenRefreshWith(parsed());
 		void second;
-		expect(noticeText()).toMatch(/^✅ Created or updated 2 notes; 4 notes already up to date in [\d.]+s\. Nothing moved\. No orphans\.$/m);
+		// An identical refresh writes nothing. This sentence once read "2 notes": the
+		// frontmatter merge reordered the two parent notes' keys, so every refresh
+		// rewrote them (2026-10-28 fix keeps the existing key order).
+		expect(noticeText()).toMatch(/^✅ Created or updated 0 notes; 6 notes already up to date in [\d.]+s\. Nothing moved\. No orphans\.$/m);
 	});
 });
 

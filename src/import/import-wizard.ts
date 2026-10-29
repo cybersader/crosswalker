@@ -44,7 +44,7 @@ import type { RecipeDocumentOrigin } from './recipe-document';
 import { buildShapeMapRecap, deriveDestinationDefault, preferredParentNote, detectWaypointPlugin, type Provenance } from './mapping/view-model';
 import { explainRecipeError } from './mapping/diagnostics';
 import { computePlan } from './mapping/plan';
-import { outputRootPath, normalizeFolderSetting } from '../settings/folder-settings';
+import { outputRootPath, normalizeFolderSetting, evidenceJunctionFolder } from '../settings/folder-settings';
 import { deriveFacetMemberships } from './mapping/facets';
 import {
 	bestRecognizedRecipe,
@@ -96,16 +96,27 @@ import { computeRecipeHash, computeSourceByteDigest } from '../generation/hash';
  * replaced rather than nested (which would read `Ontologies/Frameworks/...`).
  *
  * Crosswalk-edge and junction-note recipes are NOT ontology output: their
- * curated homes (`_crosswalker/mappings`, `Evidence/Junctions`) sit deliberately
- * outside the ontology root and are used verbatim, because re-parenting them
- * would relocate the mapping and evidence surfaces that read them.
+ * homes sit deliberately outside the ontology root and are never re-parented
+ * under it, because that would relocate the mapping and evidence surfaces that
+ * read them. A crosswalk-edge home (`_crosswalker/mappings`) is used verbatim.
+ * A junction-note home is the user's evidence link folder setting
+ * (`evidenceFolder`, already normalized by `evidenceJunctionFolder`), which
+ * defaults to the same curated `Evidence/Junctions`. That keeps bulk evidence
+ * imports and the single-link command writing to one folder. When no
+ * `evidenceFolder` is passed (the CLI has no plugin settings) the curated
+ * folder is used verbatim.
  */
 export function refreshRootProblem(set: Pick<DiscoveredImportSet, 'root'> | null | undefined): string | null {
 	if (!set || set.root) return null;
 	return 'Crosswalker cannot tell where this framework lives. Its notes are spread across more than one folder. Import it as a new set, or move its notes into one folder first.';
 }
 
-export function recognizedDestination(entry: RecipeRegistryEntry, globalDefault: string): string | null {
+export function recognizedDestination(
+	entry: RecipeRegistryEntry,
+	globalDefault: string,
+	evidenceFolder?: string,
+): string | null {
+	if (entry.routingKind === 'junction-note' && evidenceFolder !== undefined) return evidenceFolder;
 	const suggested = (entry.suggestedFolder ?? '').trim().replace(/^\/+|\/+$/g, '');
 	if (!suggested) return null;
 	if (entry.routingKind !== 'concept') return suggested;
@@ -132,8 +143,9 @@ export function resolveDestinationDefault(
 	globalDefault: string,
 	sourceFileName: string | null | undefined,
 	curated: RecipeRegistryEntry | null | undefined,
+	evidenceFolder?: string,
 ): string {
-	const curatedRoot = curated ? recognizedDestination(curated, globalDefault) : null;
+	const curatedRoot = curated ? recognizedDestination(curated, globalDefault, evidenceFolder) : null;
 	return curatedRoot ?? deriveDestinationDefault(globalDefault, sourceFileName);
 }
 
@@ -1831,7 +1843,12 @@ export class ImportFlow {
 		// (when live — spec §7m curated defaults) what the enrichment hint adds.
 		const rowCount = this.parsedData?.rowCount ?? 0;
 		const shapes = summarizeRecipeShapes(entry);
-		const dest = resolveDestinationDefault(outputRootPath(this.plugin.settings), this.sourceFile?.name ?? null, entry);
+		const dest = resolveDestinationDefault(
+			outputRootPath(this.plugin.settings),
+			this.sourceFile?.name ?? null,
+			entry,
+			evidenceJunctionFolder(this.plugin.settings),
+		);
 		const enrichment = honestEnrichment(entry);
 		if (entry.description) card.createEl('p', { cls: 'crosswalker-recognized-desc', text: entry.description });
 		const summary = card.createEl('div', { cls: 'crosswalker-recognized-summary' });
@@ -1883,7 +1900,11 @@ export class ImportFlow {
 		// LIVE recommendedEnrichment hint rides along on the seeded mapping.
 		// Records the curated ROOT, not a user choice: `destinationEdited` stays
 		// false so the breadcrumb still reads as autofilled and stays editable.
-		this.curatedDestination = recognizedDestination(entry, outputRootPath(this.plugin.settings));
+		this.curatedDestination = recognizedDestination(
+			entry,
+			outputRootPath(this.plugin.settings),
+			evidenceJunctionFolder(this.plugin.settings),
+		);
 		// Seed from the COMPLETE canonical recipe. The RecipeDocument keeps every
 		// deferred/read-only field while exposing its editable mapping to the workbench.
 		// No curated overlay is applied here: an untouched recognized recipe must retain
@@ -4719,9 +4740,10 @@ export class ImportFlow {
 			this.isGenerating = false;
 			this.progressEls = null;
 
-			this.plugin.debug.info('wizard', 'generate-complete', `Wizard generation complete (${result.created.length} created)`, {
+			this.plugin.debug.info('wizard', 'generate-complete', `Wizard generation complete (${result.created.length} created, ${result.updated.length} updated)`, {
 				success: result.success,
 				created: result.created.length,
+				updated: result.updated.length,
 				skipped: result.skipped.length,
 				errors: result.errors.length,
 				duration: result.duration
@@ -4750,7 +4772,7 @@ export class ImportFlow {
 				// that carries the detail, and the same flag gates drawing it below.
 				const needsResults = movedCount > 0 || orphanCount > 0 || !orphansChecked;
 				const counts = `${movedText} ${orphanText}${needsResults ? ' See results.' : ''}`;
-				const message = `✅ Created or updated ${plural(result.created.length, 'note')}; ${plural((result.upToDate?.length ?? 0), 'note')} already up to date` +
+				const message = `✅ Created or updated ${plural(result.created.length + result.updated.length, 'note')}; ${plural((result.upToDate?.length ?? 0), 'note')} already up to date` +
 					(result.skipped.length > 0 ? `, skipped ${result.skipped.length} existing` : '') +
 					` in ${(result.duration / 1000).toFixed(1)}s. ${counts}`;
 				new Notice(message, 5000);
@@ -4767,7 +4789,7 @@ export class ImportFlow {
 					const n = result.conflicts.length;
 					new Notice(`⚠️ ${n} ${n === 1 ? 'note was' : 'notes were'} left unchanged because Crosswalker could not safely update ${n === 1 ? 'it' : 'them'}. See the results screen.`, 10000);
 				}
-				if (result.created.length === 0 && (result.upToDate?.length ?? 0) === 0 && result.skipped.length === 0 && result.errors.length === 0) {
+				if (result.created.length === 0 && result.updated.length === 0 && (result.upToDate?.length ?? 0) === 0 && result.skipped.length === 0 && result.errors.length === 0) {
 					// eslint-disable-next-line obsidianmd/ui/sentence-case -- "Note title" and "In the vault" quote literal UI labels
 					new Notice('⚠️ Nothing was generated. Check that the Note title column actually has values (Step 2 "In the vault" preview shows the filename each row would get).', 10000);
 				}
@@ -4799,7 +4821,7 @@ export class ImportFlow {
 				// a direct-read fallback, while full projection intentionally fails
 				// closed on an incomplete cache, so give the resolve queue a bounded
 				// moment to drain before exposing the completed import.
-				if (result.created.length > 0) await this.waitForMetadataResolve();
+				if (result.created.length + result.updated.length > 0) await this.waitForMetadataResolve();
 
 				// Run again (slice 2): remember where this recipe ran, so its library
 				// card can offer Run again into the same set. Never blocks the import.
@@ -4852,12 +4874,13 @@ export class ImportFlow {
 	renderGenerationResults(result: {
 		success: boolean;
 		created: string[];
+		updated?: string[];
 		upToDate?: string[];
 		skipped: string[];
 		errors: { row: number; message: string }[];
 		conflicts?: Array<{ path: string; code: string; detail: string }>;
 		filteredOut?: number;
-		crosswalkEdges?: { created: number; upToDate?: number; sets: string[]; summary?: string[]; orphans?: Array<{ curie: string; path: string }> };
+		crosswalkEdges?: { created: number; updated?: number; upToDate?: number; sets: string[]; summary?: string[]; orphans?: Array<{ curie: string; path: string }> };
 		/** Notes the run relocated by identity. Empty unless a root actually moved. */
 		moved?: Array<{ curie: string; from: string; to: string }>;
 		/** Identities this set held that the source no longer produces. */
@@ -4872,10 +4895,10 @@ export class ImportFlow {
 
 		// Summary
 		const summary = contentEl.createEl('div', { cls: 'crosswalker-results-summary' });
-		summary.createEl('p', { text: `Created or updated: ${plural(result.created.length, 'note')}; already up to date: ${plural((result.upToDate?.length ?? 0), 'note')}` });
+		summary.createEl('p', { text: `Created or updated: ${plural(result.created.length + (result.updated?.length ?? 0), 'note')}; already up to date: ${plural((result.upToDate?.length ?? 0), 'note')}` });
 		if (result.crosswalkEdges) {
 			summary.createEl('p', {
-				text: result.crosswalkEdges.created === 0 ? `No crosswalk links written; ${plural(result.crosswalkEdges.sets.length, 'link set')} checked under _crosswalker/mappings${result.crosswalkEdges.upToDate ? `; ${plural(result.crosswalkEdges.upToDate, 'link')} already up to date` : ''}.` : `Wrote ${plural(result.crosswalkEdges.created, 'crosswalk link')} to ${plural(result.crosswalkEdges.sets.length, 'link set')} under _crosswalker/mappings.`,
+				text: result.crosswalkEdges.created + (result.crosswalkEdges.updated ?? 0) === 0 ? `No crosswalk links written; ${plural(result.crosswalkEdges.sets.length, 'link set')} checked under _crosswalker/mappings${result.crosswalkEdges.upToDate ? `; ${plural(result.crosswalkEdges.upToDate, 'link')} already up to date` : ''}.` : `Wrote ${plural(result.crosswalkEdges.created + (result.crosswalkEdges.updated ?? 0), 'crosswalk link')} to ${plural(result.crosswalkEdges.sets.length, 'link set')} under _crosswalker/mappings.`,
 			});
 			const linkOrphans = result.crosswalkEdges.orphans ?? [];
 			if (linkOrphans.length > 0) {

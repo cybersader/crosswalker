@@ -313,27 +313,46 @@ function unionListBlock(freshLines: string[], existingLines: string[]): string[]
 /**
  * The merged properties block: this window's keys as it just wrote them, plus
  * every key the note already carried that the window does not own, verbatim.
+ *
+ * Walks the note's EXISTING key order, the rule `mergeFrontmatter` in
+ * `frontmatter-merge.ts` applies on re-import: a managed key the window still
+ * writes is replaced in place, a managed key it no longer writes is dropped, a
+ * list-union key is unioned in place, and every other key keeps the note's own
+ * bytes in place. Fresh keys the note did not have are appended after, in the
+ * order the window wrote them. Exported for tests.
+ *
+ * Failure mode prevented (2026-10-28): the merge used to emit the window's
+ * blocks first and append the note's carried blocks after them, so each update
+ * through this window moved a user's own properties to the bottom of the block.
+ * The values survived; the note the user arranged did not.
  */
-function mergeFrontmatterText(freshText: string, existingText: string, managed: ReadonlySet<string>): string {
-	const carried = frontmatterBlocks(existingText).filter((block) => !managed.has(block.key));
-	const carriedByKey = new Map(carried.map((block) => [block.key, block]));
-	const unioned = new Set<string>();
+export function mergeFrontmatterText(freshText: string, existingText: string, managed: ReadonlySet<string>): string {
+	const freshBlocks = frontmatterBlocks(freshText);
+	const freshByKey = new Map(freshBlocks.map((block) => [block.key, block]));
+	const existingBlocks = frontmatterBlocks(existingText);
+	const existingKeys = new Set(existingBlocks.map((block) => block.key));
 	const out: string[] = [];
-	for (const block of frontmatterBlocks(freshText)) {
-		const existing = carriedByKey.get(block.key);
-		if (existing && LIST_UNION_KEYS.has(block.key)) {
-			const union = unionListBlock(block.lines, existing.lines);
+	for (const existing of existingBlocks) {
+		const fresh = freshByKey.get(existing.key);
+		if (managed.has(existing.key)) {
+			// The window's own key: its new value, in the note's position. A managed
+			// key the window no longer writes is dropped.
+			if (fresh) out.push(...fresh.lines);
+			continue;
+		}
+		if (fresh && LIST_UNION_KEYS.has(existing.key)) {
 			// Unparseable on either side: the note's bytes are kept untouched. A tag
 			// list nobody can read is not a tag list to rewrite.
-			if (union) { out.push(...union); unioned.add(block.key); }
+			out.push(...(unionListBlock(fresh.lines, existing.lines) ?? existing.lines));
 			continue;
 		}
 		// The note's own value wins for a key the window does not own, so a second
 		// click never re-asserts a default over a person's answer.
-		if (existing) continue;
-		out.push(...block.lines);
+		out.push(...existing.lines);
 	}
-	for (const block of carried) { if (!unioned.has(block.key)) out.push(...block.lines); }
+	for (const block of freshBlocks) {
+		if (!existingKeys.has(block.key)) out.push(...block.lines);
+	}
 	return out.join('\n');
 }
 

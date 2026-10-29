@@ -394,7 +394,7 @@ export class VaultSourceScanModal extends Modal {
 					break;
 				}
 				control.result.setText(
-					`Imported ${plural(outcome.created, 'note')}`
+					`Imported ${plural(outcome.created + outcome.updated, 'note')}`
 					+ (outcome.crosswalkEdges !== undefined ? `, ${plural(outcome.crosswalkEdges, 'crosswalk edge')}` : ''),
 				);
 				control.checkbox.checked = false;

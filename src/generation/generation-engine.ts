@@ -287,7 +287,7 @@ async function applyDeclaredCrosswalks(
 	const entries = declaredCrosswalks(recipe);
 	if (entries.length === 0) return;
 
-	result.crosswalkEdges = { created: 0, upToDate: 0, sets: [] };
+	result.crosswalkEdges = { created: 0, updated: 0, upToDate: 0, sets: [] };
 	if (!result.success || result.errors.length > 0) {
 		const failedRows = new Set(result.errors.filter((error) => error.row >= 0).map((error) => error.row)).size
 			|| result.errors.length;
@@ -313,6 +313,7 @@ async function applyDeclaredCrosswalks(
 	}, debug);
 	result.crosswalkEdges = {
 		created: pass.totalCreated,
+		updated: pass.totalUpdated,
 		upToDate: pass.perEntry.reduce((sum, entry) => sum + entry.upToDate, 0),
 		sets: pass.perEntry
 			.map((entry) => entry.importSetId)
@@ -477,6 +478,7 @@ export async function generateNotes(
 	const result: GenerationResult = {
 		success: true,
 		created: [],
+		updated: [],
 		upToDate: [],
 		skipped: [],
 		errors: [],
@@ -1077,7 +1079,7 @@ export async function generateNotes(
 					// Create or update file
 					if (existingFile instanceof TFile) {
 						const changed = await writeMergedNote(app, existingFile, noteData.frontmatter, bodyToWrite);
-						(changed ? result.created : result.upToDate).push(writePath);
+						(changed ? result.updated : result.upToDate).push(writePath);
 						debug?.info(
 							'generation',
 							changed ? 'file-replaced' : 'file-unchanged',
@@ -1296,9 +1298,10 @@ export async function generateNotes(
 
 	result.duration = Date.now() - startTime;
 
-	debug?.info('generation', 'complete', `Generation complete: ${result.created.length} created, ${result.errors.length} errors, ${result.warnings?.length ?? 0} warnings`, {
+	debug?.info('generation', 'complete', `Generation complete: ${result.created.length} created, ${result.updated.length} updated, ${result.errors.length} errors, ${result.warnings?.length ?? 0} warnings`, {
 		success: result.success,
 		created: result.created.length,
+		updated: result.updated.length,
 		skipped: result.skipped.length,
 		errors: result.errors.length,
 		warnings: result.warnings?.length ?? 0,
@@ -1885,7 +1888,7 @@ async function keepRunRecipe(
 	debug?: DebugLog,
 ): Promise<void> {
 	if (!importSetId) return;
-	if (result.created.length + result.upToDate.length + result.skipped.length === 0) return;
+	if (result.created.length + result.updated.length + result.upToDate.length + result.skipped.length === 0) return;
 	const columnFiles = vaultImportSetRecipeFiles(app);
 	if (columnFiles) {
 		const order = await keepImportSetSourceColumns(columnFiles, importSetId, sourceColumns);
@@ -3143,6 +3146,7 @@ export async function generateFromRecipe(
 	const result: GenerationResult = {
 		success: true,
 		created: [],
+		updated: [],
 		upToDate: [],
 		skipped: [],
 		errors: [],
@@ -3842,7 +3846,7 @@ export async function generateFromRecipe(
 			const content = buildNoteContent(frontmatter, body);
 			if (existingFile instanceof TFile) {
 				const changed = await writeMergedNote(app, existingFile, frontmatter, body);
-				(changed ? result.created : result.upToDate).push(writePath);
+				(changed ? result.updated : result.upToDate).push(writePath);
 			} else {
 				await app.vault.create(writePath, content);
 				result.created.push(writePath);
@@ -4012,9 +4016,10 @@ export async function generateFromRecipe(
 	if (result.errors.length > 0) result.success = false;
 	result.duration = Date.now() - startTime;
 
-	debug?.info('generation', 'recipe-complete', `generateFromRecipe: complete (${result.created.length} created, ${result.errors.length} errors, ${result.warnings?.length ?? 0} warnings, ${result.edgeCount ?? 0} edges)`, {
+	debug?.info('generation', 'recipe-complete', `generateFromRecipe: complete (${result.created.length} created, ${result.updated.length} updated, ${result.errors.length} errors, ${result.warnings?.length ?? 0} warnings, ${result.edgeCount ?? 0} edges)`, {
 		success: result.success,
 		created: result.created.length,
+		updated: result.updated.length,
 		skipped: result.skipped.length,
 		errors: result.errors.length,
 		warnings: result.warnings?.length ?? 0,
@@ -5232,6 +5237,7 @@ async function applyEnrichment(
 	const producedThisRun = new Set<string>([
 		...records.filter((r) => writeSet.has(r.path)).map((r) => normalizePath(r.path)),
 		...result.created.map((path) => normalizePath(path)),
+		...result.updated.map((path) => normalizePath(path)),
 		...result.upToDate.map((path) => normalizePath(path)),
 	]);
 	// The row writer observed the original implied CURIE before its managed merge
@@ -5297,8 +5303,11 @@ async function applyEnrichment(
 		recordsByPath.set(toPath, record);
 
 		const createdIdx = result.created.indexOf(reloc.from);
+		const updatedIdx = result.updated.indexOf(reloc.from);
 		if (createdIdx !== -1) {
 			result.created[createdIdx] = toPath;
+		} else if (updatedIdx !== -1) {
+			result.updated[updatedIdx] = toPath;
 		} else {
 			const upToDateIdx = result.upToDate.indexOf(reloc.from);
 			if (upToDateIdx !== -1) result.upToDate[upToDateIdx] = toPath;

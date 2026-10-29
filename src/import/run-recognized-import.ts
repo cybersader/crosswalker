@@ -7,7 +7,7 @@ import {
 	newSetSchemeFor,
 	settleVaultIndex,
 } from '../generation/import-set';
-import { outputRootPath } from '../settings/folder-settings';
+import { evidenceJunctionFolder, outputRootPath } from '../settings/folder-settings';
 import type { GenerationError, ImportRecipe, ParsedData } from '../types/config';
 import { recognizedDestination } from './import-wizard';
 import { MappingWorkbench } from './workbench';
@@ -36,9 +36,13 @@ export interface RecognizedImportOutcome {
 	ok: boolean;
 	destination: string;
 	importSetId: string | null;
+	/** Notes this run created; a note that existed before the run is never one. */
 	created: number;
+	/** Existing notes whose content this run changed. */
+	updated: number;
 	upToDate: number;
 	skipped: number;
+	/** Crosswalk edge notes this run wrote (created or updated). */
 	crosswalkEdges?: number;
 	crosswalkLinksUpToDate?: number;
 	errors: string[];
@@ -124,13 +128,13 @@ export function visibleGenerationWarnings(
 	}).map((warning) => `Row ${warning.row}: ${warning.message}`);
 }
 
-async function importSetIdFromCreatedNotes(
+async function importSetIdFromWrittenNotes(
 	app: App,
 	destination: string,
-	createdPaths: readonly string[],
+	writtenPaths: readonly string[],
 ): Promise<string | null> {
-	if (createdPaths.length === 0) return null;
-	const created = new Set(createdPaths);
+	if (writtenPaths.length === 0) return null;
+	const created = new Set(writtenPaths);
 	const sets = await discoverImportSets(app, destination);
 	return sets.find((set) => set.paths.some((path) => created.has(path)))?.id ?? null;
 }
@@ -141,12 +145,13 @@ export async function runRecognizedImport(
 	req: RecognizedImportRequest,
 ): Promise<RecognizedImportOutcome> {
 	const root = outputRootPath(plugin.settings);
-	const destination = req.destination ?? recognizedDestination(req.entry, root) ?? root;
+	const destination = req.destination ?? recognizedDestination(req.entry, root, evidenceJunctionFolder(plugin.settings)) ?? root;
 	const empty: RecognizedImportOutcome = {
 		ok: false,
 		destination,
 		importSetId: null,
 		created: 0,
+		updated: 0,
 		upToDate: 0,
 		skipped: 0,
 		errors: [],
@@ -212,7 +217,7 @@ export async function runRecognizedImport(
 		const errors = generationErrors(result.errors);
 		let importSetId: string | null = req.refreshSetId ?? null;
 		if (!req.refreshSetId) try {
-			importSetId = await importSetIdFromCreatedNotes(app, destination, result.created);
+			importSetId = await importSetIdFromWrittenNotes(app, destination, [...result.created, ...result.updated]);
 		} catch {
 			// Generation succeeded; cache-cold provenance lookup may remain unavailable.
 		}
@@ -221,9 +226,10 @@ export async function runRecognizedImport(
 			destination,
 			importSetId,
 			created: result.created.length,
+			updated: result.updated.length,
 			upToDate: result.upToDate.length,
 			skipped: result.skipped.length,
-			...(result.crosswalkEdges ? { crosswalkEdges: result.crosswalkEdges.created, crosswalkLinksUpToDate: result.crosswalkEdges.upToDate } : {}),
+			...(result.crosswalkEdges ? { crosswalkEdges: result.crosswalkEdges.created + result.crosswalkEdges.updated, crosswalkLinksUpToDate: result.crosswalkEdges.upToDate } : {}),
 			errors,
 			warnings: visibleGenerationWarnings(result.warnings ?? [], req.entry, parsedData.rows),
 			parsedRowCount: parsedData.rowCount,
