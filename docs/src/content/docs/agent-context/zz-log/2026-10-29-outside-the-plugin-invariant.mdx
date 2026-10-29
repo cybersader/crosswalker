@@ -1,0 +1,50 @@
+---
+title: "Vaults built outside the plugin: no extra tool, one invariant"
+description: "Decision record. The owner asked whether a separate Crosswalker CLI is needed to go from files to an operational vault in Obsidian or OpenClast, and whether work done outside the plugin comes out not quite right. Decision: no extra tool, since cw and demo:build already produce valid Tier 1; the plugin must derive every runtime surface from note identity, never from wizard-only state or paths; a parity guardrail from a cw-built vault is to be added."
+tags: [log, decision, cli, openclast, identity, tier-1]
+date: 2026-10-29
+sidebar:
+  label: "10-29 · Outside-the-plugin invariant"
+  order: -20261029.1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="tip" title="What this page is">
+A **decision record**. The full map of what is identical, derived, or host config lives on the living page [Producing vaults outside Obsidian](/crosswalker/concepts/producing-vaults-outside-obsidian/).
+</Aside>
+
+## 1. The question
+
+The owner, verbatim:
+
+> "do we need a Crosswalker CLI to realistically go from files to upload in OpenClast or moving files into Obsidian to having something operational... is it possible to do all the work outside the plugin in Obsidian, or if you import then things aren't going to be quite right?"
+
+## 2. The decision
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | **No extra tool.** `bun run cw` (`cli/crosswalker.ts`) and `bun run demo:build` (`scripts/demo-build.mjs`) already build complete vaults on disk with the plugin's own engine | [Schema-as-primitive](/crosswalker/concepts/etl-and-import/#the-reframe--schema-is-the-primitive-etl-is-convenience): valid Tier 1 is the contract; any producer is first-class |
+| 2 | **Invariant:** the plugin derives every runtime surface from note identity, never from state only the import wizard writes, and never from paths | A `cw`-built or uploaded vault has no plugin data and no wizard history; folder shape varies by recipe and producer |
+| 3 | **Per-vault app config is recreated by the plugin**, not shipped in the vault | OpenClast rooms do not carry `.obsidian`; the "Color the graph by framework" command (PR #67, open) recreates `graph.json` |
+| 4 | **Guardrail to add:** a check that starts from a `cw`-built vault with no plugin data and asserts every runtime surface matches a wizard-built vault | `tests/e2e/first-run.spec.ts` covers the empty vault only; no test starts from a `cw`-built vault |
+
+## 3. The worked example
+
+The status bar read "no frameworks yet" in `cw` and `demo:build` vaults. Discovery looked only under the output-folder setting and refreshed on file events that fire before indexing. Both break the invariant. PR #67 (open) moves discovery to note identity across the vault and refreshes on metadata cache events.
+
+## 4. Still open
+
+| Item | Status |
+|---|---|
+| PR #67 (identity discovery, graph color command) | Open; living page marks both rows pending |
+| Parity guardrail (decision 4) | Not started |
+
+## Related
+
+- [Producing vaults outside Obsidian](/crosswalker/concepts/producing-vaults-outside-obsidian/) — the living page this decision crystallizes
+- [10-27 · Command line and live demo, near term](/crosswalker/agent-context/zz-log/2026-10-27-cli-and-live-demo-near-term/)
+- [Re-import is identity reconciliation](/crosswalker/agent-context/zz-log/2026-08-21-reimport-is-identity-reconciliation/)
+- [First run and the blind spots that hid it](/crosswalker/agent-context/zz-log/2026-08-28-first-run-and-the-blind-spots-that-hid-it/)
+- [ETL and import](/crosswalker/concepts/etl-and-import/)
+- [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/)

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Docs: producing vaults outside Obsidian (2026-10-29)
+
+- New concept page **Producing vaults outside Obsidian** answers whether a separate tool is needed to go from files to an operational vault: no, `cw` and `demo:build` already write valid Tier 1 notes. It maps what is identical when built on disk, what the plugin rebuilds at runtime, and what per-vault app config each host must recreate, and states the invariant that every runtime surface derives from note identity, never from wizard-only state or paths. Decision log `zz-log/2026-10-29-outside-the-plugin-invariant`; a parity guardrail from a `cw`-built vault is recorded as a next step.
+
 ### Changed: the demo vault reads as a colored graph of framework trees (2026-10-29)
 
 - **What you see.** Open Graph view in a vault from `bun run demo:build`: each framework is its own color and reads as a tree (NIST CSF 2.0 blue, SP 800-53 r5 purple, ATT&CK red, F3 gold when present), mapping notes are orange and bridge the trees, evidence is pink, and tags are shown. Import sets, the Queries folder and `Start here` are filtered out of the graph. `Start here.md` lists the colors and its "Try this" steps point at real level notes.
