@@ -14,9 +14,8 @@
  * "actual interface, not mockup" surface (owner direction, 2026-07-11).
  */
 
-import { App, ItemView, WorkspaceLeaf, TAbstractFile, TFile, TFolder, setIcon, parseYaml } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, setIcon } from 'obsidian';
 import CrosswalkerPlugin from '../main';
-import { outputRootFile } from '../settings/folder-settings';
 import { ImportFlow, type ImportFlowHost, type PrefillBinding } from '../import/import-wizard';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { renderPresetGuide } from '../import/import-preset-guide';
@@ -24,94 +23,13 @@ import { VaultSourceScanModal } from '../import/vault-source-scan-modal';
 import { StackSetupModal } from '../import/stack/stack-modal';
 import { openImportStack, renderInstalledStacks } from '../import/stack/installed-stacks';
 import {
-	deriveInstalledOntologies,
 	findRecipeForOntologyIdentity,
-	type MinimalVaultNode,
 } from './workspace-view-helpers';
+import { discoverInstalledFrameworks } from '../discovery/installed-frameworks';
+import { settleVaultIndex } from '../generation/import-set';
+import { colorGraphByFramework } from '../graph/graph-color-command';
 
 export const VIEW_TYPE_CROSSWALKER_WORKSPACE = 'crosswalker-workspace';
-
-interface NoteIdentityFacts {
-	producerKind?: string;
-	noteKind?: string;
-	ontologyId?: string;
-	recipeId?: string;
-}
-
-function curiePrefix(value: unknown): string | undefined {
-	if (typeof value !== 'string') return undefined;
-	const colon = value.indexOf(':');
-	return colon > 0 ? value.slice(0, colon) : undefined;
-}
-
-function identityFactsFromFrontmatter(frontmatter: unknown): NoteIdentityFacts {
-	if (!frontmatter || typeof frontmatter !== 'object') return {};
-	const fm = frontmatter as {
-		curie?: unknown;
-		kind?: unknown;
-		_crosswalker?: {
-			producer?: { kind?: unknown };
-			source_ref?: { curie?: unknown };
-			recipe?: { id?: unknown };
-		};
-	};
-	const producerKind = fm._crosswalker?.producer?.kind;
-	const recipeId = fm._crosswalker?.recipe?.id;
-	return {
-		...(typeof producerKind === 'string' ? { producerKind } : {}),
-		...(typeof fm.kind === 'string' ? { noteKind: fm.kind } : {}),
-		...(curiePrefix(fm.curie) || curiePrefix(fm._crosswalker?.source_ref?.curie)
-			? { ontologyId: curiePrefix(fm.curie) ?? curiePrefix(fm._crosswalker?.source_ref?.curie) }
-			: {}),
-		...(typeof recipeId === 'string' ? { recipeId } : {}),
-	};
-}
-
-/**
- * Identity facts for one note, preferring Obsidian's metadata cache and falling
- * back to a direct frontmatter read while the cache catches up after generation.
- * Path never participates: provenance establishes that a Crosswalker producer made
- * the note, and the CURIE prefix establishes which framework owns it.
- */
-async function noteIdentityFactsOf(file: TFile, app: App): Promise<NoteIdentityFacts> {
-	const cached = identityFactsFromFrontmatter(app.metadataCache.getFileCache(file)?.frontmatter);
-	if (cached.producerKind && cached.ontologyId) return cached;
-
-	try {
-		const content = await app.vault.cachedRead(file);
-		const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
-		if (!match) return cached;
-		return identityFactsFromFrontmatter(parseYaml(match[1]));
-	} catch {
-		return cached;
-	}
-}
-
-/** Adapt a real vault tree into the pure helper's identity-bearing shape. */
-export async function toMinimalNode(file: TAbstractFile | null, app: App): Promise<MinimalVaultNode | null> {
-	if (!file) return null;
-	if (file instanceof TFolder) {
-		const children = await Promise.all(file.children.map((child) => toMinimalNode(child, app)));
-		return {
-			path: file.path,
-			name: file.name,
-			children: children.filter((n): n is MinimalVaultNode => n !== null),
-		};
-	}
-	if (file instanceof TFile) {
-		if (file.extension.toLowerCase() !== 'md') {
-			return { path: file.path, name: file.name };
-		}
-		const facts = await noteIdentityFactsOf(file, app);
-		return {
-			path: file.path,
-			name: file.name,
-			...facts,
-			linkCount: app.metadataCache.getFileCache(file)?.frontmatterLinks?.length ?? 0,
-		};
-	}
-	return { path: file.path, name: file.name };
-}
 
 export class CrosswalkerWorkspaceView extends ItemView {
 	private plugin: CrosswalkerPlugin;
@@ -211,6 +129,10 @@ export class CrosswalkerWorkspaceView extends ItemView {
 			new VaultSourceScanModal(this.app, this.plugin).open();
 		});
 
+		this.launchButton(row, 'palette', 'Color the graph by framework', false, () => {
+			void colorGraphByFramework(this.app, this.plugin);
+		});
+
 		this.launchButton(row, 'bookmark', 'Manage saved configs', false, () => {
 			new ConfigBrowserModal(this.app, this.plugin, 'browse').open();
 		});
@@ -243,22 +165,32 @@ export class CrosswalkerWorkspaceView extends ItemView {
 	}
 
 	/**
-	 * `toMinimalNode` reads frontmatter (async — see its doc comment on the
-	 * metadataCache race), so this whole section renders after that resolves.
-	 * `token` guards against a stale render finishing after a newer
+	 * Discovery may wait for the metadata cache to finish indexing, so this
+	 * section can render after the rest of the home screen. `token` guards against a stale render finishing after a newer
 	 * `renderHome()`/`startFlow()` has already taken the view over.
 	 */
 	private async renderInstalledOntologies(root: HTMLElement, token: number): Promise<void> {
 		const section = root.createDiv({ cls: 'crosswalker-workspace-installed' });
 		section.createDiv({ cls: 'crosswalker-workspace-installed-heading', text: 'Installed frameworks' });
 
-		// AM-53. Through the one accessor. Read raw, a trailing separator in the
-		// setting made this lookup answer null and this section render "Nothing
-		// imported yet" over a vault that had just imported successfully.
-		const outputRoot = outputRootFile(this.app, this.plugin.settings);
-		const node = await toMinimalNode(outputRoot, this.app);
+		// Whole-vault discovery by note identity, shared with the status bar and
+		// the graph color command. It does not depend on the output folder
+		// setting, so frameworks built outside it (command line, demo) still list.
+		// Cache lag is not absence: while notes are unindexed, say so and wait.
+		let result = discoverInstalledFrameworks(this.app);
+		if (result.state === 'indexing') {
+			const waiting = section.createDiv({
+				cls: 'crosswalker-workspace-empty-text',
+				text: 'Obsidian is still indexing your vault. Frameworks will list here when it finishes.',
+			});
+			await settleVaultIndex(this.app, 30_000);
+			if (token !== this.renderToken) return; // superseded by a newer render
+			result = discoverInstalledFrameworks(this.app);
+			if (result.state === 'indexing') return; // the message stays; reopening the view retries
+			waiting.remove();
+		}
 		if (token !== this.renderToken) return; // superseded by a newer render
-		const summaries = deriveInstalledOntologies(node);
+		const summaries = result.frameworks;
 
 		if (summaries.length === 0) {
 			const empty = section.createDiv({ cls: 'crosswalker-workspace-empty' });

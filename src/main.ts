@@ -1,7 +1,7 @@
 import { plural } from './utils/plural';
-import { Plugin, Notice, Modal, ButtonComponent, TFile, TFolder, MarkdownView, Platform, apiVersion, normalizePath, type WorkspaceLeaf } from 'obsidian';
+import { Plugin, Notice, Modal, ButtonComponent, TFile, TFolder, MarkdownView, Platform, apiVersion, type WorkspaceLeaf } from 'obsidian';
 import { CrosswalkerSettings, DEFAULT_SETTINGS } from './settings/settings-data';
-import { outputRootPath, outputRootFile, evidenceJunctionFolder, evidenceReportFolder, tier2SidecarPath } from './settings/folder-settings';
+import { outputRootPath, evidenceJunctionFolder, evidenceReportFolder, tier2SidecarPath } from './settings/folder-settings';
 import {
 	isImportableExtension,
 	formatOntologyStatusLabel,
@@ -39,10 +39,11 @@ import {
 	type CrosswalkerBasesViewOption,
 } from './views/bases-api';
 import { writeReferenceBaseFiles } from './views/reference-base-files';
-import { CrosswalkerWorkspaceView, VIEW_TYPE_CROSSWALKER_WORKSPACE, toMinimalNode } from './views/workspace-view';
+import { CrosswalkerWorkspaceView, VIEW_TYPE_CROSSWALKER_WORKSPACE } from './views/workspace-view';
+import { discoverInstalledFrameworks } from './discovery/installed-frameworks';
+import { colorGraphByFramework } from './graph/graph-color-command';
 import { MappingReviewView, VIEW_TYPE_MAPPING_REVIEW } from './views/mapping-review-view';
 import { MappingTablePickerModal } from './views/mapping-table-picker';
-import { deriveInstalledOntologies } from './views/workspace-view-helpers';
 import { DebugLog } from './utils/debug';
 import { DraftStore } from './import/draft-store';
 import { RecipePickerModal } from './views/recipe-picker-modal';
@@ -382,6 +383,15 @@ export default class CrosswalkerPlugin extends Plugin {
 			id: 'finish-mapping-conversions',
 			name: 'Finish interrupted mapping conversions',
 			callback: () => { void finishInterruptedConversions(this.app, this); },
+		});
+
+		// Graph view: each framework as its own colored tree, mapping and
+		// evidence notes in their own colors. Merges into the user's graph
+		// settings; never replaces them.
+		this.addCommand({
+			id: 'color-graph-by-framework',
+			name: 'Color the graph by framework',
+			callback: () => { void colorGraphByFramework(this.app, this); },
 		});
 
 		this.addCommand({
@@ -1249,30 +1259,26 @@ export default class CrosswalkerPlugin extends Plugin {
 		);
 
 		// Discoverability entry point 3: subtle status bar indicator showing
-		// how many frameworks are recognized from generated-note identity under
-		// the configured output path. Click opens the workspace tab.
+		// how many frameworks are recognized from note identity anywhere in the
+		// vault. Click opens the workspace tab. It starts at "indexing": before
+		// the metadata cache resolves, no count is known, and an unknown count is
+		// never shown as zero.
 		this.ontologyStatusBarEl = this.addStatusBarItem();
 		this.ontologyStatusBarEl.addClass('crosswalker-status-bar-item');
 		this.ontologyStatusBarEl.addClass('mod-clickable');
 		this.ontologyStatusBarEl.setAttr('aria-label', 'Open the Crosswalker workspace');
-		this.ontologyStatusBarEl.setText(formatOntologyStatusLabel(0));
+		this.ontologyStatusBarEl.setText(formatOntologyStatusLabel('indexing'));
 		this.ontologyStatusBarEl.addEventListener('click', () => {
 			void this.activateWorkspaceView();
 		});
-		this.registerEvent(this.app.vault.on('create', (file) => {
-			if (this.pathAffectsInstalledFrameworks(file.path)) this.scheduleOntologyStatusBarRefresh();
-		}));
-		this.registerEvent(this.app.vault.on('delete', (file) => {
-			if (this.pathAffectsInstalledFrameworks(file.path)) this.scheduleOntologyStatusBarRefresh();
-		}));
-		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
-			if (this.pathAffectsInstalledFrameworks(file.path) || this.pathAffectsInstalledFrameworks(oldPath)) {
-				this.scheduleOntologyStatusBarRefresh();
-			}
-		}));
-		this.registerEvent(this.app.vault.on('modify', (file) => {
-			if (this.pathAffectsInstalledFrameworks(file.path)) this.scheduleOntologyStatusBarRefresh();
-		}));
+		// Recompute from the metadata cache, not from vault file events: a file
+		// event fires before the note is indexed, so counting then would read the
+		// new note as absent. `resolved` fires when indexing catches up, `changed`
+		// when a note's frontmatter is (re)indexed, `deleted` when one is removed.
+		this.registerEvent(this.app.metadataCache.on('resolved', () => this.scheduleOntologyStatusBarRefresh()));
+		this.registerEvent(this.app.metadataCache.on('changed', () => this.scheduleOntologyStatusBarRefresh()));
+		this.registerEvent(this.app.metadataCache.on('deleted', () => this.scheduleOntologyStatusBarRefresh()));
+		this.registerEvent(this.app.vault.on('rename', () => this.scheduleOntologyStatusBarRefresh()));
 
 		// v0.1.6 Phase 3: register the crosswalkerPivot custom Bases view
 		// (per Settled #2 + Ch 30). Public API path; Obsidian 1.10.0+ required.
@@ -1331,20 +1337,7 @@ export default class CrosswalkerPlugin extends Plugin {
 		}
 	}
 
-	/** Whether a vault event can change discovery beneath the configured output root. */
-	private pathAffectsInstalledFrameworks(path: string): boolean {
-		// AM-53. Through the one accessor, which maps the host's `'/'` for an empty
-		// root back to `''`. Read raw through `normalizePath` alone, this guard was
-		// dead for the supported "Vault root" state: `'/'` is truthy, so the emptiness
-		// branch never fired and the test below asked whether the changed path started
-		// with `'//'`, which is never true, so no vault event refreshed the count.
-		const outputRoot = outputRootPath(this.settings);
-		if (!outputRoot) return true;
-		const candidate = normalizePath(path);
-		return candidate === outputRoot || candidate.startsWith(`${outputRoot}/`);
-	}
-
-	/** Coalesce relevant vault event bursts before reading generated-note identity. */
+	/** Coalesce metadata cache event bursts before reading note identity. */
 	private scheduleOntologyStatusBarRefresh(delayMs = 250): void {
 		if (this.ontologyStatusRefreshTimer !== null) window.clearTimeout(this.ontologyStatusRefreshTimer);
 		this.ontologyStatusRefreshTimer = window.setTimeout(() => {
@@ -1354,20 +1347,22 @@ export default class CrosswalkerPlugin extends Plugin {
 	}
 
 	/**
-	 * Repaint the status bar from the same identity-based rule as the workspace.
-	 * Flat and hierarchical layouts therefore count identically, while a folder
-	 * of ordinary hand-authored notes remains outside Crosswalker's installed set.
+	 * Repaint the status bar from the same whole-vault, identity-based discovery
+	 * as the workspace view and the graph color command. Frameworks count
+	 * wherever their notes live (the command line and the demo builder write
+	 * outside the output folder setting), while a folder of ordinary
+	 * hand-authored notes remains outside Crosswalker's installed set. While any
+	 * note is still unindexed the bar reads "indexing"; the next `resolved`
+	 * event repaints it.
 	 */
 	private async refreshOntologyStatusBar(): Promise<void> {
 		if (!this.ontologyStatusBarEl) return;
 		const token = ++this.ontologyStatusRefreshToken;
-		// AM-53. The same reading the engine writes under. A trailing separator in the
-		// setting used to make this lookup answer null and the status bar report 0
-		// ontologies over a vault that had just imported one.
-		const outputRoot = outputRootFile(this.app, this.settings);
-		const node = await toMinimalNode(outputRoot, this.app);
+		const result = discoverInstalledFrameworks(this.app);
 		if (token !== this.ontologyStatusRefreshToken || !this.ontologyStatusBarEl) return;
-		this.ontologyStatusBarEl.setText(formatOntologyStatusLabel(deriveInstalledOntologies(node).length));
+		this.ontologyStatusBarEl.setText(
+			formatOntologyStatusLabel(result.state === 'indexing' ? 'indexing' : result.frameworks.length),
+		);
 	}
 
 	/**

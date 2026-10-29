@@ -46,7 +46,13 @@ describe('formatOntologyStatusLabel', () => {
 		expect(formatOntologyStatusLabel(15)).toBe('Crosswalker: 15 frameworks');
 	});
 
+	it('reads "indexing" while the count is unknown, never zero', () => {
+		expect(formatOntologyStatusLabel('indexing')).toBe('Crosswalker: indexing');
+		expect(formatOntologyStatusLabel('indexing')).not.toContain('no frameworks');
+	});
+
 	it('never contains an em dash', () => {
+		expect(formatOntologyStatusLabel('indexing')).not.toContain('—');
 		expect(formatOntologyStatusLabel(0)).not.toContain('—');
 		expect(formatOntologyStatusLabel(3)).not.toContain('—');
 	});
