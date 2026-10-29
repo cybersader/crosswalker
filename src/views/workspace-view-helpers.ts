@@ -63,7 +63,44 @@ export function deriveInstalledOntologies(
 	registry: RecipeIdentity[] = RECIPE_REGISTRY,
 ): InstalledOntologySummary[] {
 	if (!outputRoot) return [];
+	const notes: MinimalVaultNode[] = [];
+	const visit = (node: MinimalVaultNode, isRoot = false): void => {
+		if (node.children) {
+			if (!isRoot && node.name.startsWith('_')) return;
+			for (const child of node.children) visit(child);
+			return;
+		}
+		notes.push(node);
+	};
+	visit(outputRoot, true);
+	return summarizeOntologyNotes(notes, registry);
+}
 
+/**
+ * The same derivation over a flat list of notes from anywhere in the vault.
+ * Whole-vault discovery (status bar, workspace view, graph colors) uses this so
+ * the count never depends on the output folder setting: a vault built by the
+ * command line or the demo builder puts frameworks wherever its recipe said.
+ * Notes inside any underscore-prefixed folder are skipped, matching the
+ * subtree rule above.
+ */
+export function deriveInstalledOntologiesFromNotes(
+	notes: readonly MinimalVaultNode[],
+	registry: RecipeIdentity[] = RECIPE_REGISTRY,
+): InstalledOntologySummary[] {
+	return summarizeOntologyNotes(notes.filter((n) => !inUnderscoreFolder(n.path)), registry);
+}
+
+function inUnderscoreFolder(path: string): boolean {
+	const segments = path.split('/');
+	segments.pop();
+	return segments.some((s) => s.startsWith('_'));
+}
+
+function summarizeOntologyNotes(
+	notes: readonly MinimalVaultNode[],
+	registry: RecipeIdentity[],
+): InstalledOntologySummary[] {
 	interface MutableSummary {
 		id: string;
 		noteCount: number;
@@ -72,17 +109,12 @@ export function deriveInstalledOntologies(
 	}
 	const groups = new Map<string, MutableSummary>();
 
-	const visit = (node: MinimalVaultNode, isRoot = false): void => {
-		if (node.children) {
-			if (!isRoot && node.name.startsWith('_')) return;
-			for (const child of node.children) visit(child);
-			return;
-		}
-		if (!node.name.toLowerCase().endsWith('.md')) return;
-		if (!node.producerKind?.trim()) return;
-		if (node.noteKind && RELATIONSHIP_NOTE_KINDS.has(node.noteKind)) return;
+	for (const node of notes) {
+		if (!node.name.toLowerCase().endsWith('.md')) continue;
+		if (!node.producerKind?.trim()) continue;
+		if (node.noteKind && RELATIONSHIP_NOTE_KINDS.has(node.noteKind)) continue;
 		const id = node.ontologyId?.trim();
-		if (!id) return;
+		if (!id) continue;
 
 		let group = groups.get(id);
 		if (!group) {
@@ -92,8 +124,7 @@ export function deriveInstalledOntologies(
 		group.noteCount += 1;
 		group.linkCount += node.linkCount ?? 0;
 		if (node.recipeId) group.recipeIds.add(node.recipeId);
-	};
-	visit(outputRoot, true);
+	}
 
 	return Array.from(groups.values())
 		.map((group): InstalledOntologySummary => {
@@ -109,6 +140,47 @@ export function deriveInstalledOntologies(
 			};
 		})
 		.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+/** Identity facts a note's frontmatter carries. Path never participates. */
+export interface NoteIdentityFacts {
+	producerKind?: string;
+	noteKind?: string;
+	ontologyId?: string;
+	recipeId?: string;
+}
+
+function curiePrefix(value: unknown): string | undefined {
+	if (typeof value !== 'string') return undefined;
+	const colon = value.indexOf(':');
+	return colon > 0 ? value.slice(0, colon) : undefined;
+}
+
+/**
+ * Read identity from parsed frontmatter: the producer (`_crosswalker.producer.kind`),
+ * the note kind (`kind`), the owning framework (the prefix of `curie`, else of
+ * `_crosswalker.source_ref.curie`), and the recipe (`_crosswalker.recipe.id`).
+ */
+export function identityFactsFromFrontmatter(frontmatter: unknown): NoteIdentityFacts {
+	if (!frontmatter || typeof frontmatter !== 'object') return {};
+	const fm = frontmatter as {
+		curie?: unknown;
+		kind?: unknown;
+		_crosswalker?: {
+			producer?: { kind?: unknown };
+			source_ref?: { curie?: unknown };
+			recipe?: { id?: unknown };
+		};
+	};
+	const producerKind = fm._crosswalker?.producer?.kind;
+	const recipeId = fm._crosswalker?.recipe?.id;
+	const ontologyId = curiePrefix(fm.curie) ?? curiePrefix(fm._crosswalker?.source_ref?.curie);
+	return {
+		...(typeof producerKind === 'string' ? { producerKind } : {}),
+		...(typeof fm.kind === 'string' ? { noteKind: fm.kind } : {}),
+		...(ontologyId ? { ontologyId } : {}),
+		...(typeof recipeId === 'string' ? { recipeId } : {}),
+	};
 }
 
 /** Exact recipe match from canonical identity/provenance, with no path heuristic. */

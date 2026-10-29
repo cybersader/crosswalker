@@ -31,7 +31,6 @@ jest.mock('../src/views/crosswalker-pivot-view', () => ({ buildCrosswalkerPivotV
 jest.mock('../src/views/workspace-view', () => ({
 	CrosswalkerWorkspaceView: class {},
 	VIEW_TYPE_CROSSWALKER_WORKSPACE: 'crosswalker-workspace',
-	toMinimalNode: jest.fn(),
 }));
 jest.mock('../src/views/recipe-picker-modal', () => ({ RecipePickerModal: class {} }));
 jest.mock('../src/views/mapping-review-view', () => ({
