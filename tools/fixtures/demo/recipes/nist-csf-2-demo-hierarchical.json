@@ -1,0 +1,28 @@
+{
+  "$comment": "Demo-only variant of nist-csf-2-flat over the same workbook sheet ('CSF 2.0', header row 2). Function and category become implied concept folders, so every level is a real note and every child links to its parent; every note carries a nested tag naming its function and category. It lives under tools/fixtures/demo/recipes so the shipped recipe, and the digests existing sets depend on, stay unchanged. Same identity as the shipped recipe (nist-csf-2:<subcategory id>), so mapping links resolve exactly as before.",
+  "recipe": "nist-csf-2-demo-hierarchical",
+  "source": { "ontology": "nist-csf-2", "levels": ["function", "category", "subcategory"], "where": "Subcategory != ''" },
+  "target": {
+    "layout": [
+      { "level": "function", "mechanism": "folder", "implied_concept": true, "template": "{Subcategory|split(:,0)|split(.,0)}" },
+      { "level": "category", "mechanism": "folder", "implied_concept": true, "template": "{Subcategory|split(:,0)|split(-,0)}" },
+      { "level": "subcategory", "mechanism": "file", "template": "{Subcategory|split(:,0)|fs-safe}.md" }
+    ],
+    "also_emit": {
+      "tags": ["nist-csf/{Subcategory|split(:,0)|split(.,0)|tagsafe}/{Subcategory|split(:,0)|split(-,0)|tagsafe}"],
+      "frontmatter": {
+        "managed": {
+          "subcategory_id": "{Subcategory|split(:,0)}",
+          "function": "{Subcategory|split(:,0)|split(.,0)}",
+          "category": "{Subcategory|split(:,0)|split(-,0)}"
+        },
+        "user_preserve": ["reviewer", "status", "notes"]
+      },
+      "body": [
+        { "template": "{Subcategory|trim}", "position": "section", "heading": "Outcome", "heading_depth": 2, "format": "text" },
+        { "template": "{Implementation Examples|optional|trim}", "position": "section", "heading": "Implementation examples", "heading_depth": 2, "format": "list" }
+      ]
+    },
+    "enrichment": { "children_lists": true, "level_hubs": "notes" }
+  }
+}

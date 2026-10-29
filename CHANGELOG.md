@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Changed: the demo vault reads as a colored graph of framework trees (2026-10-29)
+
+- **What you see.** Open Graph view in a vault from `bun run demo:build`: each framework is its own color and reads as a tree (NIST CSF 2.0 blue, SP 800-53 r5 purple, ATT&CK red, F3 gold when present), mapping notes are orange and bridge the trees, evidence is pink, and tags are shown. Import sets, the Queries folder and `Start here` are filtered out of the graph. `Start here.md` lists the colors and its "Try this" steps point at real level notes.
+- **Every level is a note.** The demo imports at the most granular level with demo-only recipes in `tools/fixtures/demo/recipes/` (shipped recipes are unchanged), so functions, categories, families and controls each get a note that links to its parent. Mapping links lose nothing: CSF to 800-53 resolves 738 of 740 rows at both ends (729 before), CSF to ATT&CK stays 12 of 12. The demo 800-53 recipe writes Related controls as plain text, not links, so the trees stay readable; `related_curies` in frontmatter is unchanged.
+- **Graph settings.** The build writes `.obsidian/graph.json` and nothing else under `.obsidian`. Color groups select by tag or property (`curie`, `kind`), never by folder path (`tools/lib/demo-graph.ts`). Two builds give identical bytes.
+- **Opt-in licensed framework.** `bun run demo:add-licensed -- --private-room-only --vault <dir>` is an opt-in local step that adds a licensed framework the user already holds, with its own color. It never runs inside `demo:build` and refuses without `--private-room-only`.
+- **Tests.** `tests/cli/demo-graph.test.ts` (group order, licensed group only when present, no path selectors, distinct colors, byte stability); `tests/cli/demo-smoke.test.ts` adds the `.obsidian` contents and level-note checks; `tests/e2e/visual-demo-graph.spec.ts` screenshots the graph in light and dark.
+
 ### Added: Run again from the command line (2026-10-28)
 
 - **What it does.** `bun run cw -- replay --vault <dir> --set <set id> --source <file>` runs an import set again with the exact recipe revision that set ran, the command line twin of the plugin's Run again. Crosswalker keeps no copy of the source file, so `--source` is the file the set came from or a newer release of it. Workbooks take `--sheet` and `--header-row` as `cw import` does; exit codes are the same as `import`.

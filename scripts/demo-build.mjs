@@ -12,8 +12,9 @@
  *
  * The script itself writes only the non-Crosswalker files a person would add
  * by hand: the evidence documents, the reviewer's approval on some evidence
- * links, the saved queries (rendered from the shipped query templates) and the
- * "Start here" note.
+ * links, the saved queries (rendered from the shipped query templates), the
+ * "Start here" note and the graph view settings (.obsidian/graph.json, the only
+ * file written under .obsidian; see tools/lib/demo-graph.ts).
  *
  * Content rule: public-domain or synthetic only. Nothing from
  * test-vault/Frameworks/_licensed/, and none of the licensed frameworks or
@@ -27,18 +28,23 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderRecipeTemplate } from '../src/views/recipe-templates.ts';
+import { demoGraphGroups, demoGraphJson } from '../tools/lib/demo-graph.ts';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const START_HERE = 'Start here.md';
+const DEMO_RECIPES = 'tools/fixtures/demo/recipes';
 
 /** Names that must never appear in a demo source path or a demo folder name. */
 export const RESTRICTED = /(_licensed|\bcri\b|cri-profile|iso[-_ ]?27|\biso\b|soc[-_ ]?2|\bpci\b|\bcis\b|cis-controls|\bscf\b)/i;
 
 const FRAMEWORKS = [
 	// The full public NIST catalogs, so every CSF to 800-53 link lands on two real notes.
-	{ key: 'csf', label: 'NIST CSF 2.0', source: 'Frameworks/csf2.xlsx', how: ['--recipe', 'recipes/import/nist-csf-2.json', '--sheet', 'CSF 2.0', '--header-row', '2'], destination: 'Frameworks/NIST-CSF-2.0' },
-	{ key: 'sp80053', label: 'NIST SP 800-53 Rev. 5', source: 'Frameworks/NIST_SP-800-53_rev5_catalog_load.csv', how: ['--recipe', 'recipes/import/nist-800-53-flat.json'], destination: 'Frameworks/NIST-SP-800-53-r5' },
-	{ key: 'attack', label: 'MITRE ATT&CK (Persistence techniques)', source: 'tools/fixtures/realistic/mitre-attack-persistence-subset.csv', how: ['--ontology', 'mitre-attack'], destination: 'Frameworks/MITRE-ATT&CK' },
+	// Demo-only recipes (tools/fixtures/demo/recipes) make every level a note
+	// and tag every row note by level. Identities match the shipped recipes, so
+	// mapping links resolve exactly as they do against the flat imports.
+	{ key: 'csf', label: 'NIST CSF 2.0', source: 'Frameworks/csf2.xlsx', how: ['--recipe', `${DEMO_RECIPES}/nist-csf-2-demo-hierarchical.json`, '--sheet', 'CSF 2.0', '--header-row', '2'], destination: 'Frameworks/NIST-CSF-2.0', levels: 'one folder per function and category' },
+	{ key: 'sp80053', label: 'NIST SP 800-53 Rev. 5', source: 'Frameworks/NIST_SP-800-53_rev5_catalog_load.csv', how: ['--recipe', `${DEMO_RECIPES}/nist-800-53-demo-nested.json`], destination: 'Frameworks/NIST-SP-800-53-r5', levels: 'one folder per family and control, with enhancements inside their control' },
+	{ key: 'attack', label: 'MITRE ATT&CK (Persistence techniques)', source: 'tools/fixtures/realistic/mitre-attack-persistence-subset.csv', how: ['--recipe', `${DEMO_RECIPES}/mitre-attack-demo-nested.json`], destination: 'Frameworks/MITRE-ATT&CK', levels: 'one folder per technique, with sub-techniques inside it' },
 ];
 
 const MAPPINGS = [
@@ -49,7 +55,7 @@ const MAPPINGS = [
 const EVIDENCE_LINKS = 'tools/fixtures/demo/evidence-links.csv';
 
 /** Added last when the checkout ships it, so the set ids above never shift. */
-const F3 = { key: 'f3', label: 'MITRE Fight Fraud Framework (sample techniques)', source: 'tools/fixtures/synthetic/mitre-f3-mini.csv', recipe: 'mitre-f3-technique-flat', destination: 'Frameworks/MITRE-F3' };
+const F3 = { key: 'f3', label: 'MITRE Fight Fraud Framework (sample techniques)', source: 'tools/fixtures/synthetic/mitre-f3-mini.csv', recipe: 'mitre-f3-technique-flat', destination: 'Frameworks/MITRE-F3', levels: 'one note per technique' };
 
 /** Synthetic evidence documents. Names match the objects in EVIDENCE_LINKS. */
 const EVIDENCE_DOCUMENTS = {
@@ -158,17 +164,24 @@ function startHere(frameworks, mappings) {
 		'',
 		'## What is in it',
 		'',
-		...frameworks.map((f) => `- **${f.label}** in \`${f.destination}\`. One note per control, with folders for each level.`),
+		...frameworks.map((f) => `- **${f.label}** in \`${f.destination}\`: ${f.levels}. Every level is a note that links to its parent and lists its children.`),
 		...mappings.map((m) => `- **${m.label} links** in \`${m.destination}\`. One note per link between two controls.`),
 		'- **Evidence** in `Evidence`. Five sample documents and the links that say which control each one supports.',
 		'- **Saved queries** in `Queries`. Open one to see a table built from the notes above.',
 		'',
 		'## Try this',
 		'',
-		'1. Open `Frameworks/NIST-CSF-2.0/PR.AA-01.md` and look at its backlinks. Each one is a link note to a SP 800-53 control or a MITRE technique, and both ends open a real note.',
-		'2. Open `Frameworks/NIST-SP-800-53-r5/AC-2.md`. Its properties come straight from the NIST catalog spreadsheet.',
-		'3. Open `Queries/Approved evidence by control.base`. Three evidence links are approved; two are still waiting for review.',
-		'4. Open an evidence link in `Evidence/Junctions` and set `status` to `approved`. The query picks it up. Importing the evidence spreadsheet again keeps your review fields.',
+		'1. Open the graph view. Each framework is a tree in its own color, and the link notes between them are the bridges. The colors are listed below.',
+		'2. Open `Frameworks/NIST-CSF-2.0/PR/PR.AA/PR.AA-01.md` and look at its backlinks. Each one is a link note to a SP 800-53 control or a MITRE technique, and both ends open a real note. Its `parent` property opens the PR.AA category.',
+		'3. Open `Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2.md`. Its properties come straight from the NIST catalog spreadsheet, and its enhancements sit next to it in the same folder.',
+		'4. Open `Queries/Approved evidence by control.base`. Three evidence links are approved; two are still waiting for review.',
+		'5. Open an evidence link in `Evidence/Junctions` and set `status` to `approved`. The query picks it up. Importing the evidence spreadsheet again keeps your review fields.',
+		'',
+		'## Graph colors',
+		'',
+		...demoGraphGroups(frameworks.map((f) => f.key)).map((g) => `- **${g.name}**: ${g.label}`),
+		'',
+		'Tags show as their own nodes. Each control carries one tag per level, for example `#nist-csf/pr/pr-aa`, so a tag node gathers a whole category.',
 		'',
 		'## What is only partly here',
 		'',
@@ -236,6 +249,7 @@ function main() {
 
 	for (const [file, text] of queries(sets)) write(out, file, text);
 	write(out, START_HERE, startHere(frameworks, MAPPINGS));
+	write(out, '.obsidian/graph.json', demoGraphJson(frameworks.map((f) => f.key)));
 
 	for (const folder of manifest(out).perFolder.keys()) {
 		if (RESTRICTED.test(folder)) fail(`The demo vault has a folder named "${folder}", which looks like licensed content. Remove its source from the build.`);

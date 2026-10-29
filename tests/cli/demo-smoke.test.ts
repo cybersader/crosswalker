@@ -42,6 +42,28 @@ describe('demo:build', () => {
 		expect(bases.length).toBeGreaterThanOrEqual(4);
 	});
 
+	it('writes the graph settings as the only file under .obsidian', () => {
+		expect(fs.readdirSync(path.join(out, '.obsidian'))).toEqual(['graph.json']);
+		const graph = JSON.parse(fs.readFileSync(path.join(out, '.obsidian/graph.json'), 'utf8'));
+		expect(graph).toMatchObject({ showTags: true, showArrow: true, hideUnresolved: true, showOrphans: false, showAttachments: false });
+		expect(graph.colorGroups.length).toBeGreaterThanOrEqual(5);
+	});
+
+	it('builds every framework level as a note that links to its parent', () => {
+		for (const note of [
+			'Frameworks/NIST-CSF-2.0/PR/PR.AA/PR.AA-01.md',
+			'Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2.md',
+		]) {
+			expect({ note, exists: fs.existsSync(path.join(out, note)) }).toEqual({ note, exists: true });
+		}
+		const start = fs.readFileSync(path.join(out, 'Start here.md'), 'utf8');
+		for (const [, file] of start.matchAll(/`((?:Frameworks|Queries)\/[^`]+\.(?:md|base))`/g)) {
+			expect({ file, exists: fs.existsSync(path.join(out, file)) }).toEqual({ file, exists: true });
+		}
+		const control = fs.readFileSync(path.join(out, 'Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2.md'), 'utf8');
+		expect(control).toMatch(/^parent: .*\[\[/m);
+	});
+
 	it('validates with cw validate', async () => {
 		const { io, err } = captureIo();
 		expect(await runCli(['validate', '--vault', out], io)).toBe(0);

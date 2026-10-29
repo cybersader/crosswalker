@@ -30,6 +30,7 @@
 		"e2e:clean": "node scripts/e2e-clean.mjs",
 		"cw": "bun --preload ./cli/preload.ts cli/main.ts",
 		"demo:build": "bun scripts/demo-build.mjs",
+		"demo:add-licensed": "bun scripts/demo-add-licensed.mjs",
 		"fixtures": "bun tools/generate-fixtures.ts --source tools/fixtures/synthetic/nist-mini.csv --target test-vault/Frameworks/NIST-mini --ontology nist-mini --clean --deterministic --examples tools/fixtures/examples",
 		"reset": "node scripts/reset-test-vault.mjs",
 		"check:fixtures-drift": "bun scripts/check-fixtures-drift.mjs",
