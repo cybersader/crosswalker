@@ -227,7 +227,7 @@ function startHere(frameworks, mappings) {
 		'',
 		...demoGraphGroups(frameworks.map((f) => f.key)).map((g) => `- **${g.name}**: ${g.label}`),
 		'',
-		'Tags show as their own nodes. Each control carries one tag per level, for example `#nist-csf/pr/pr-aa`, so a tag node gathers a whole category.',
+		'Tags stay in the notes, but tag nodes and native file-link arrows start hidden for a quieter overview. Arrows do not describe mapping meaning. Turn tag nodes back on in the graph controls if you want to browse categories. Focused connections and readable mapping filenames are not included yet.',
 		'',
 		'## What is only partly here',
 		'',

@@ -76,7 +76,7 @@ describe('demo:build', () => {
 	it('writes the graph settings as the only file under .obsidian', () => {
 		expect(fs.readdirSync(path.join(out, '.obsidian'))).toEqual(['graph.json']);
 		const graph = JSON.parse(fs.readFileSync(path.join(out, '.obsidian/graph.json'), 'utf8'));
-		expect(graph).toMatchObject({ showTags: true, showArrow: true, hideUnresolved: true, showOrphans: false, showAttachments: false });
+		expect(graph).toMatchObject({ showTags: false, showArrow: false, lineSizeMultiplier: 1.3, hideUnresolved: true, showOrphans: false, showAttachments: false });
 		expect(graph.colorGroups.length).toBeGreaterThanOrEqual(7);
 		expect(graph.colorGroups).toContainEqual(expect.objectContaining({ query: 'tag:#mitre-d3fend OR [curie:"mitre-d3fend:"]' }));
 	});

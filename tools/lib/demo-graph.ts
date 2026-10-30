@@ -22,6 +22,8 @@ import {
 	REFERENCED_FRAMEWORK_GROUP,
 	graphColorGroups,
 	graphOptions,
+	configureFrameworkGraph,
+	frameworkOverviewPatch,
 	type GraphColorGroup,
 } from '../../src/graph/graph-colors';
 
@@ -59,7 +61,18 @@ export function demoGraphGroups(frameworks: readonly string[]): DemoGraphGroup[]
 /** The `.obsidian/graph.json` object, with keys in a fixed order. */
 export function demoGraphConfig(frameworks: readonly string[]): Record<string, unknown> {
 	// viewState: the panel starts closed so the graph has the whole view; Start here lists the colors.
-	return graphOptions(demoGraphGroups(frameworks), GRAPH_SEARCH, { viewState: true });
+	return { ...graphOptions(demoGraphGroups(frameworks), GRAPH_SEARCH, { viewState: true }), ...frameworkOverviewPatch() };
+}
+
+/** Existing demos only gain colors. Only genuinely missing settings get fresh defaults. */
+export function augmentDemoGraph(existing: unknown, frameworks: readonly string[], ownership?: unknown) {
+	if (existing !== undefined && (!existing || typeof existing !== 'object' || Array.isArray(existing))) {
+		throw new Error('Existing graph settings must be an object. Restore or repair them before adding frameworks.');
+	}
+	const base = existing === undefined
+		? { ...graphOptions([], GRAPH_SEARCH, { viewState: true }), ...frameworkOverviewPatch() }
+		: existing as Record<string, unknown>;
+	return configureFrameworkGraph(base, demoGraphGroups(frameworks), ownership, 'colors');
 }
 
 /** The exact bytes written to `.obsidian/graph.json`. */

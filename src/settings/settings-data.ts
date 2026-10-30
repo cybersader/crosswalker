@@ -12,6 +12,10 @@ import type { RecipeRunRecord } from '../import/recipe-runs';
 import type { MappingForm } from '../generation/import-set-block';
 
 export interface CrosswalkerSettings {
+	/** Exact graph color occurrences last emitted, stored alongside existing settings. */
+	graphColorOwnership?: import('../graph/graph-colors').GraphColorOwnership;
+	/** Readable legacy field only; query text is no longer ownership proof. */
+	graphColorManagedQueries?: string[];
 	// ==========================================================================
 	// General / Output
 	// ==========================================================================

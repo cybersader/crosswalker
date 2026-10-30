@@ -88,6 +88,10 @@ describe('Visual: color the graph by framework', function () {
 			const graph = internal.getPluginById('graph');
 			if (graph && !graph.enabled) await graph.enable(false);
 		});
+		const beforeColor = await browser.executeObsidian(async ({ app }) => {
+			const p = `${app.vault.configDir}/graph.json`;
+			return await app.vault.adapter.exists(p) ? JSON.parse(await app.vault.adapter.read(p)) as Record<string, unknown> : {};
+		});
 		await browser.executeObsidian(({ app }) => {
 			// @ts-expect-error commands API is untyped
 			app.commands.executeCommandById('crosswalker:color-graph-by-framework');
@@ -98,14 +102,16 @@ describe('Visual: color the graph by framework', function () {
 		);
 		const written = await browser.executeObsidian(async ({ app }) =>
 			JSON.parse(await app.vault.adapter.read(`${app.vault.configDir}/graph.json`)) as Record<string, unknown>);
-		expect(written).toMatchObject({ showTags: true, hideUnresolved: true });
+		const { colorGroups: _beforeGroups, ...beforeDisplay } = beforeColor;
+		const { colorGroups: _afterGroups, ...afterDisplay } = written;
+		expect(afterDisplay).toEqual(beforeDisplay);
 		const groups = written.colorGroups as { query: string }[];
 		console.log(`[graph-color] color groups written: ${groups.length}`);
 		expect(groups.length).toBeGreaterThanOrEqual(3);
 		expect(groups.some((g) => g.query.includes('crosswalk'))).toBe(true);
 		const notice = await browser.execute(() => Array.from(document.querySelectorAll('.notice')).map((n) => n.textContent ?? '').join(' | '));
 		console.log(`[graph-color] notice: ${notice}`);
-		expect(notice).toContain('Graph colored');
+		expect(notice).toContain('Saved global graph defaults updated');
 
 		await browser.executeObsidian(({ app }) => {
 			// @ts-expect-error commands API is untyped

@@ -49,6 +49,7 @@ import { readImportSetRecipe } from '../src/import/import-set-recipes';
 import type { ParsedData } from '../src/types/config';
 import type { CrosswalkerImportRecipe } from '../src/types/generated/recipe';
 import { DebugLog } from '../src/utils/debug';
+import { configureGraphFromCli } from './graph';
 
 /** Pinned clock and first set id under --deterministic, as tools/generate-fixtures.ts pins them. */
 export const DETERMINISTIC_PRODUCED_AT = '2026-05-04T00:00:00.000Z';
@@ -73,6 +74,9 @@ const USAGE = [
 	'            Runs a set again with the exact recipe revision it ran. Crosswalker keeps',
 	'            no copy of the source, so --source is the file the set came from or a newer',
 	'            release of it. --digest picks a revision when the set holds more than one.',
+	'  graph configure --vault <dir> [--mode colors|overview] [--config-dir <folder>] [--apply]',
+	'            Preview saved global graph defaults as JSON. Colors only unless overview is chosen.',
+	'            Close Obsidian before --apply; open views can overwrite saved defaults.',
 	'  recipes   list the built-in recipe ids',
 	'',
 	'Exit codes: 0 ok, 1 usage or runtime error, 2 validation failures.',
@@ -88,6 +92,10 @@ type Flags = Record<string, string | true>;
 function parseFlags(argv: string[]): { command: string | undefined; flags: Flags } {
 	const args = argv[0] === '--' ? argv.slice(1) : argv;
 	const [command, ...rest] = args;
+	if (command === 'graph') {
+		if (rest[0] !== 'configure') throw new CliError('Use "cw graph configure --vault <dir> [--mode colors|overview] [--apply]". Close Obsidian before applying.');
+		rest.shift();
+	}
 	const flags: Flags = {};
 	for (let i = 0; i < rest.length; i++) {
 		const token = rest[i];
@@ -719,6 +727,17 @@ async function commandReplay(flags: Flags, io: Io): Promise<number> {
 	return runImport(flags, io, app, source, libraryRegistryEntry(recipe), setId);
 }
 
+async function commandGraph(flags: Flags, io: Io): Promise<number> {
+	allowOnly(flags, ['vault', 'config-dir', 'mode', 'apply'], 'graph configure');
+	const mode = stringFlag(flags, 'mode') ?? 'colors';
+	if (mode !== 'colors' && mode !== 'overview') throw new CliError('Invalid graph mode. Choose --mode colors or --mode overview.');
+	if (flags.apply !== undefined && flags.apply !== true) throw new CliError('--apply takes no value. Leave it out for a no-write preview.');
+	const vault = stringFlag(flags, 'vault', true, 'Pass the existing vault folder.');
+	const result = await configureGraphFromCli(vault, stringFlag(flags, 'config-dir'), mode, flags.apply === true);
+	io.out(JSON.stringify(result, null, 2));
+	return result.status === 'stale' || result.status === 'partial' ? 1 : 0;
+}
+
 // ----------------------------------------------------------------------- main
 
 /** Run one command. Returns the exit code; never calls process.exit. */
@@ -743,6 +762,8 @@ export async function runCli(argv: string[], io: Io = { out: (l) => console.log(
 				return await commandExport(flags, io);
 			case 'replay':
 				return await commandReplay(flags, io);
+			case 'graph':
+				return await commandGraph(flags, io);
 			case 'recipes':
 				for (const entry of RECIPE_REGISTRY) io.out(`${entry.id}  ${entry.label}`);
 				return 0;
