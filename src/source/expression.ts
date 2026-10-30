@@ -35,6 +35,7 @@ export const SOURCE_EXPRESSION_MAX_LENGTH = 512;
  * evaluations of `Subcategory != ''` in 40 ms on the dev machine, 2026-08-27),
  * so 100 ms is ~50,000x headroom and can never false-positive. jsonata throws
  * D1012 on exceed.
+ * This is the only clock-based guard; the bounded subset has 50,000x headroom.
  */
 export const SOURCE_EXPRESSION_TIMEOUT_MS = 100;
 
@@ -47,11 +48,12 @@ export const SOURCE_EXPRESSION_TIMEOUT_MS = 100;
 export const SOURCE_EXPRESSION_STACK_DEPTH = 100;
 
 /**
- * Cumulative wall-clock ceiling across every source-stage evaluation in one
- * run. 18,570 evaluations measured at 35 ms, so 5 s is ~140x the largest
- * secondary collection in the corpus.
+ * Cumulative evaluation-count ceiling for one source-stage run. The largest
+ * measured collection is 18,570 evaluations, so this gives ~100x headroom.
+ * Each evaluation is bounded by the subset (no lambdas, no regex, 512-character
+ * expressions); count times that per-evaluation bound is a deterministic work bound.
  */
-export const SOURCE_STAGE_BUDGET_MS = 5000;
+export const SOURCE_STAGE_MAX_EVALUATIONS = 2_000_000;
 
 /**
  * The 8 allowlisted functions (contract §6.2). Deliberately tiny: every
@@ -101,27 +103,27 @@ export function resetSourceExpressionCompileCount(): void {
 
 /**
  * Whole-stage budget (contract §6.3). One instance per generation run, shared
- * by every compiled source expression in that run, so a stage that is slow in
- * aggregate fails even when no single evaluation trips the per-eval timeout.
+ * by every compiled source expression in that run. Counts work rather than
+ * elapsed time, so machine load cannot change whether a run exhausts it.
  */
 export class SourceStageBudget {
-	private spent = 0;
+	private evaluations = 0;
 
-	constructor(private readonly limitMs: number = SOURCE_STAGE_BUDGET_MS) {}
+	constructor(private readonly limit: number = SOURCE_STAGE_MAX_EVALUATIONS) {}
 
-	get spentMs(): number {
-		return this.spent;
+	/** Attempted evaluations, including the attempt that exceeds the limit. */
+	get spent(): number {
+		return this.evaluations;
 	}
 
-	charge(ms: number, ctx: { declaration: string; expression: string; row?: number }): void {
-		this.spent += ms;
-		// `>=`, not `>`: landing exactly on the ceiling has exceeded the budget,
-		// and it lets a 0 ms budget mean "no evaluation is permitted at all",
-		// which is what makes this guard testable without a fake clock.
-		if (this.spent >= this.limitMs) {
+	charge(ctx: { declaration: string; expression: string; row?: number }): void {
+		this.evaluations += 1;
+		// Charge before engine entry: a limit of N permits exactly N evaluations,
+		// and a limit of 0 permits none. The next attempt fails without evaluating.
+		if (this.evaluations > this.limit) {
 			throw new SourceStageError(
-				`source stage exceeded its ${this.limitMs} ms evaluation budget`,
-				{ ...ctx, detail: `Spent ${Math.round(this.spent)} ms evaluating source expressions.` },
+				`source stage exceeded its ${this.limit} evaluation budget`,
+				{ ...ctx, detail: `Source expression evaluation count: ${this.evaluations}.` },
 			);
 		}
 	}
@@ -214,11 +216,9 @@ export function compileSourceExpression(
 		declaration,
 		references,
 		async evaluate(row: unknown, row1Indexed?: number): Promise<unknown> {
-			const started = Date.now();
+			budget.charge({ declaration, expression: text, row: row1Indexed });
 			try {
-				const value = await expr.evaluate(row as Record<string, unknown>);
-				budget.charge(Date.now() - started, { declaration, expression: text, row: row1Indexed });
-				return value;
+				return await expr.evaluate(row as Record<string, unknown>);
 			} catch (err) {
 				if (err instanceof SourceStageError) throw err;
 				const e = err as { code?: string; message?: string };
