@@ -58,11 +58,11 @@ The [framework crosswalk guide](/crosswalker/agent-context/framework-crosswalks/
 
 Build the public demo first, then run the separate [private add-on workflow](/crosswalker/concepts/producing-vaults-outside-obsidian/#private-demo-two-separate-steps). `demo:build` remains public and unchanged. `demo:add-licensed` reads files you already hold; it downloads nothing and distributes no licensed source content. The acknowledgement is a safety gate, not a licence grant. Keep the enriched vault local or in a private room, and confirm the publisher terms for the intended audience and use.
 
-**Private add-on last verified:** 2026-10-30 against `scripts/demo-add-licensed.mjs`, `src/import/stack/licensed-workbook-readers.ts`, the recipes below and two byte-identical runs against locally held workbooks. Counts below are aggregate observations of those releases, not bundled source data.
+**Private add-on last verified:** 2026-10-30 against `scripts/demo-add-licensed.mjs`, `src/import/stack/licensed-workbook-readers.ts`, `src/import/stack/referenced-frameworks.ts`, the recipes below and two byte-identical CRI/CIS/SCF runs against locally held workbooks. The earlier CRI/CIS-only run was also byte-identical across two fresh copies. Counts below are aggregate observations of those releases, not bundled source data.
 
 ### Acquisition and exact bindings
 
-Default paths resolve from `--sources-dir` (the checkout root by default). The manifest tries alternatives in order; missing framework or mapping files produce a one-line skip with an acquisition link. `--only cri,cis` selects framework keys but does not change manifest order. `--source` overrides a framework workbook only and requires one explicit `--only` key.
+Default paths resolve from `--sources-dir` (the checkout root by default). The manifest tries alternatives in order; missing framework or mapping files produce a one-line skip with an acquisition link. `--only cri,cis,scf` selects framework keys but does not change manifest order. `--source` overrides a framework workbook only and requires one explicit `--only` key.
 
 | Addition | Local filename under `Frameworks/` | Acquire | Binding / method |
 |---|---|---|---|
@@ -74,8 +74,20 @@ Default paths resolve from `--sources-dir` (the checkout root by default). The m
 | CRI 2.1 to ATT&CK JSON | `cri_profile-v2.1_attack-16.1-enterprise_json.json` | [CTID Mappings Explorer](https://center-for-threat-informed-defense.github.io/mappings-explorer/) | Compare semantic assertion sets with the workbook before endpoint filtering; import only assertions absent from the workbook |
 | CIS Controls 8.1 | `_licensed/CIS_Controls_Version_8.1_6_24_2024.xlsx` | [CIS Controls](https://www.cisecurity.org/controls) | `Controls V8`, CLI header row 1. Shipped `cis-controls-v8-controls.json` plus additive `cis-controls-v8-1-safeguards.json`; the latter binds `Asset Type` rather than the older recipe's `Asset Class` |
 | CIS v8 to CSF 2.0 | `_licensed/CIS_Controls_v8_Mapping_to_NIST_CSF_2_2023.xlsx` | [CIS Controls](https://www.cisecurity.org/controls) | `All CIS Controls & Safeguards`; `CIS Sub-Control` (fallback `CIS Control`) and `Subcategory` |
+| SCF 2026.1.1 | `Secure.Controls.Framework.SCF.-.2026.1.1.xlsx` | [SCF download](https://securecontrolsframework.com/scf-download/) | `SCF 2026.1`, CLI header row 1; unchanged `scf-2026-flat.json`. Newline-separated crosswalk columns use the generic referenced-framework adapter |
 
 CIS files are also searched under `_licensed/` directly beneath `--sources-dir`. Controls and safeguards share only the exact new framework set minted by this invocation. This keeps one publisher release under one identity namespace; it never guesses an existing refresh target.
+
+### Referenced frameworks: identifiers without licensed text
+
+A [referenced-framework note](/crosswalker/concepts/terminology/#referenced-framework-note) holds a target identifier from a publisher's crosswalk, not the target framework's title, description or requirements. The private SCF manifest (`scripts/lib/private-scf-manifest.mjs`) pins its selected column names, labels and ontology keys. It selects current base sources rather than every historical edition, implementation group, assessment variant or national overlay. ISO, AICPA, PCI, cloud, industrial, privacy, AI and jurisdictional sources remain distinct; identical local identifiers in different frameworks never merge.
+
+- Existing CSF, SP 800-53 and CIS notes are used where present. ATT&CK resolves only the public Persistence sample; absent techniques are counted and excluded, never replaced by identifier-only notes. This SCF release has no CRI-named column. `CR CMM 2026` is a different source, not an alias for CRI.
+- Each distinct source/target pair becomes one mapping using the existing unspecified-relation convention, `skos:relatedMatch`. No exact, broader or narrower relationship is invented. Source assertions, repeated pairs, missing source identifiers, missing endpoints and identifier-only note counts are reported by column.
+- The generic `referencedFramework()` accepts a selected column, framework label, pinned ontology key and source-id column. The same adapter accepts normalized CRI Catalog rows; a future catalog integration must retain its declared relationship semantics rather than replacing directional OLIR relations with the unspecified default.
+- Ontology keys use the fixed `referencedOntologyKey()` slug rule and are stored literally in the manifest. Non-CURIE characters in identifiers use the engine's injective identity encoding; original identifiers remain the note's `id` and title. Filenames use a separate injective token.
+- One muted **Referenced, id only** graph group selects replaceable recipe provenance, not sticky tags or user properties. SCF has its own stable group. SCF notes link directly to referenced notes; those notes link back to the SCF sources. `Start here` reports actual counts and opens the adapted **Frameworks reached by SCF control** Bases query.
+- Full-content takeover is deliberate: use the same ontology, original import set, destination and filename mapping. A synthetic real-CLI test (`tests/cli/referenced-framework-takeover.test.ts`) proves unchanged identities and mapping links, preserved user annotations, and replacement of the identifier-only explanation/provenance with full content. Matching an ontology alone does not authorize refresh or relocation. Automatic arbitrary-layout takeover remains outside this slice.
 
 ### Resolution and release limits
 
@@ -99,7 +111,92 @@ CIS files are also searched under `_licensed/` directly beneath `--sources-dir`.
 | CIS to CSF | 234 rows / 166 assertions | 166 resolved edges | 68 blank mapping endpoints |
 | CRI recipe's built-in CSF links | 433 | 433 resolved edges | None; shipped recipe unchanged |
 
-The resulting vault validated **6,626 Crosswalker notes**. All **3,614 newly added mapping edges** had both identity endpoints and both note links resolved; two fresh copies of the same public base diffed identically, including `.obsidian/graph.json`. These are local verification counts for the listed sources, not stable API promises. The add-on refuses a vault inside the repository or one containing symlinks, refuses a framework already present, updates graph colors and `Start here.md`, and validates at the end. A failed or interrupted run can leave partial output: start again from a fresh public base, not the partial vault.
+The earlier **CRI/CIS-only** vault validated **6,626 Crosswalker notes**. All **3,614 newly added mapping edges** had both identity endpoints and both note links resolved; two fresh copies of the same public base diffed identically, including `.obsidian/graph.json`. These are local verification counts for the listed sources, not stable API promises. The add-on refuses a vault inside the repository or one containing symlinks, refuses a framework already present, updates graph colors and `Start here.md`, and validates at the end. A failed or interrupted run can leave partial output: start again from a fresh public base, not the partial vault.
+
+### SCF private-run results
+
+The SCF extension imported **1,468 controls**, **8,911 identifier-only notes** across **66 selected referenced columns**, and **21,650 mapping edges** across all **70 selected columns** (source: the ordered bindings in `scripts/lib/private-scf-manifest.mjs` and the 2026-10-30 local run of `scripts/demo-add-licensed.mjs`). The complete CRI/CIS/SCF vault validated **38,725 Crosswalker notes**. These counts describe the locally held release and public Persistence sample, not every edition of these sources.
+
+All rows below have zero missing source identifiers, missing subject endpoints and blank endpoints. Missing target notes are excluded rather than manufactured for the existing full-framework namespaces. Only `APAC Australia ISM June 2024` has repeated pairs omitted before resolution. Rows with a nonzero identifier-only count are the exact selected referenced-framework list; no target titles or requirements are copied into those notes.
+
+| Selected source column | Source assertions | Resolved edges | Missing target notes | Repeated pairs omitted | Identifier-only notes |
+|---|---:|---:|---:|---:|---:|
+| NIST CSF 2.0 | 611 | 611 | 0 | 0 | 0 |
+| NIST 800-53 R5 | 1,117 | 1,115 | 2 | 0 | 0 |
+| CIS CSC 8.1 | 429 | 385 | 44 | 0 | 0 |
+| MITRE ATT&CK 16 | 5,039 | 274 | 4,765 | 0 | 0 |
+| AICPA Privacy Management Framework (PMF) | 197 | 197 | 0 | 0 | 123 |
+| AICPA TSC 2017:2022 (used for SOC 2) | 1,478 | 1,478 | 0 | 0 | 399 |
+| APEC Privacy Framework 2015 | 29 | 29 | 0 | 0 | 25 |
+| BSI Standard 200-1 | 63 | 63 | 0 | 0 | 22 |
+| COBIT 2019 | 472 | 472 | 0 | 0 | 230 |
+| COSO 2013 | 155 | 155 | 0 | 0 | 17 |
+| CSA CCM 4.1.0 | 498 | 498 | 0 | 0 | 207 |
+| CSA IoT SCF 2 | 459 | 459 | 0 | 0 | 155 |
+| CR CMM 2026 | 47 | 47 | 0 | 0 | 40 |
+| GovRAMP | 548 | 548 | 0 | 0 | 383 |
+| IEC TR 60601-4-5 2021 | 59 | 59 | 0 | 0 | 37 |
+| IEC 62443-2-1 2024 | 162 | 162 | 0 | 0 | 119 |
+| IEC 62443-3-3 2013 | 124 | 124 | 0 | 0 | 111 |
+| IEC 62443-4-1 2018 | 186 | 186 | 0 | 0 | 186 |
+| IEC 62443-4-2 2019 | 179 | 179 | 0 | 0 | 169 |
+| IMO Maritime Cyber Risk Management | 105 | 105 | 0 | 0 | 35 |
+| ISO/SAE 21434 2021 | 248 | 248 | 0 | 0 | 232 |
+| ISO 22301 2019 | 273 | 273 | 0 | 0 | 259 |
+| ISO 27001 2022 | 316 | 316 | 0 | 0 | 148 |
+| ISO 27002 2022 | 506 | 506 | 0 | 0 | 96 |
+| ISO 27017 2015 | 356 | 356 | 0 | 0 | 118 |
+| ISO 27018 2025 | 522 | 522 | 0 | 0 | 108 |
+| ISO 27701 2025 | 149 | 149 | 0 | 0 | 90 |
+| ISO 29100 2024 | 48 | 48 | 0 | 0 | 11 |
+| ISO 31000 2018 | 105 | 105 | 0 | 0 | 27 |
+| ISO 31010 2009 | 60 | 60 | 0 | 0 | 32 |
+| ISO 42001 2023 | 579 | 579 | 0 | 0 | 140 |
+| MPA Content Security Program 5.3.1 | 325 | 325 | 0 | 0 | 81 |
+| NAIC Insurance Data Security Model Law (MDL-668) | 122 | 122 | 0 | 0 | 85 |
+| NIST AI 100-1 (AI RMF) 1.0 | 309 | 309 | 0 | 0 | 91 |
+| NIST AI 600-1 | 403 | 403 | 0 | 0 | 250 |
+| NIST Privacy Framework 1.0 | 284 | 284 | 0 | 0 | 122 |
+| NIST 800-37 R2 | 72 | 72 | 0 | 0 | 47 |
+| NIST 800-39 | 27 | 27 | 0 | 0 | 16 |
+| NIST SP 800-66 R2 | 154 | 154 | 0 | 0 | 22 |
+| NIST 800-160 Vol2 R1 | 248 | 248 | 0 | 0 | 196 |
+| NIST 800-161 R1 | 479 | 479 | 0 | 0 | 308 |
+| NIST 800-171 R3 | 1,012 | 1,012 | 0 | 0 | 275 |
+| NIST 800-172 | 84 | 84 | 0 | 0 | 35 |
+| NIST 800-207 | 125 | 125 | 0 | 0 | 7 |
+| NIST 800-218 | 164 | 164 | 0 | 0 | 60 |
+| OECD Privacy Principles | 21 | 21 | 0 | 0 | 17 |
+| OWASP Top 10 2025 | 300 | 300 | 0 | 0 | 10 |
+| PCI DSS 4.0.1 | 1,218 | 1,218 | 0 | 0 | 351 |
+| SCF DPMP 2025 | 256 | 256 | 0 | 0 | 83 |
+| Shared Assessments SIG 2025 | 128 | 128 | 0 | 0 | 65 |
+| SPARTA | 94 | 94 | 0 | 0 | 53 |
+| SWIFT CSF 2025 | 232 | 232 | 0 | 0 | 32 |
+| TISAX ISA 6.0.3 | 220 | 220 | 0 | 0 | 73 |
+| UL 2900-1 2017 | 145 | 145 | 0 | 0 | 143 |
+| UL 2900-2-2 2016 | 68 | 68 | 0 | 0 | 57 |
+| UN R155 | 106 | 106 | 0 | 0 | 55 |
+| UN ECE WP.29 | 107 | 107 | 0 | 0 | 54 |
+| US CJIS Security Policy 6.0 | 507 | 507 | 0 | 0 | 319 |
+| US CISA CPG 2022 | 169 | 169 | 0 | 0 | 38 |
+| US GLBA CFR 314 2023 | 128 | 128 | 0 | 0 | 52 |
+| US HIPAA Administrative Simplification 2013 | 743 | 743 | 0 | 0 | 576 |
+| US HIPAA Security Rule / NIST SP 800-66 R2 | 225 | 225 | 0 | 0 | 87 |
+| EMEA EU AI Act | 350 | 350 | 0 | 0 | 279 |
+| EMEA EU Cyber Resiliency Act | 60 | 60 | 0 | 0 | 52 |
+| EMEA EU DORA | 442 | 442 | 0 | 0 | 241 |
+| EMEA EU GDPR | 241 | 241 | 0 | 0 | 227 |
+| EMEA EU NIS2 | 146 | 146 | 0 | 0 | 30 |
+| APAC Australia Essential 8 | 147 | 147 | 0 | 0 | 24 |
+| APAC Australia ISM June 2024 | 1,208 | 1,203 | 0 | 5 | 802 |
+| Americas Canada OSFI B-13 | 278 | 278 | 0 | 0 | 77 |
+
+Source assertion totals: **26,466** read, **5** repeated pairs omitted and **4,811** absent target endpoints excluded. No CRI mapping column was present; no SCF-to-CRI relationship was inferred.
+
+The **4,765 ATT&CK misses** represent **492 distinct identifiers**, all with the technique or sub-technique shape `T####` or `T####.###`; none has another shape. This run used only the older Persistence sample. ATT&CK resolution rises after the public ATT&CK batch merges; re-run demo:add-licensed then. The **2 SP 800-53 misses** are enhancements present in the held public OSCAL 5.2.0 catalog but absent in both parenthetical and dot form from the older demo source: a release-coverage gap, not a proven formatting mismatch. The **44 CIS misses** represent **18 distinct two-segment numeric identifiers**. None occurs in the held 8.1 or 8.1.2 release; all 171 identifiers in the held 8.1 source were imported. No deeper sub-safeguard shape or padding repair explains those misses, so their exact source/version cause remains unknown. No missing endpoint was retargeted.
+
+Both fresh enriched copies contained **39,051 files**, including hidden files, with zero byte differences. All **21,650 SCF mapping pairs** were unique; every imported edge had both identity endpoints, both note links, its direct SCF reference and the applicable identifier-only reverse link. Exact-value probes against locally held control identifiers, titles and referenced identifiers found no matches in added repository content. No source values are reproduced here.
 
 ## Licence posture
 

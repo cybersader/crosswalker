@@ -8,7 +8,7 @@
  * - the plugin command "Color the graph by framework", which merges the same
  *   groups into a user's existing graph settings (`mergeGraphOptions`).
  *
- * Every group selects notes by tag or property, never by folder path, so the
+ * Groups select notes by tag, property or recipe provenance, never by folder path, so the
  * colors keep working when a user moves or renames framework folders.
  * Obsidian colors a note with the first group that matches it, which is why
  * the mapping and evidence groups come before the framework groups.
@@ -23,7 +23,7 @@ export interface GraphColorGroup {
 	key: string;
 	/** What the color means, in plain words. */
 	label: string;
-	/** Obsidian search query. Tag or property only, never a folder path. */
+	/** Obsidian search query. Tag, property or provenance, never a folder path. */
 	query: string;
 	/** Color as #rrggbb. Mid-tone so it reads on both the light and dark theme. */
 	hex: string;
@@ -66,7 +66,13 @@ export const KNOWN_FRAMEWORK_GROUPS: readonly KnownFrameworkGroup[] = [
 	// Only present after the user adds a licensed framework they already hold.
 	{ key: 'cis', prefix: 'cis-v8', label: 'CIS Controls', query: '[curie:"cis-v8:"]', hex: '#0f9d8f', name: 'Teal' },
 	{ key: 'cri', prefix: 'cri-profile', label: 'Licensed framework added locally', query: '[curie:"cri-profile:"]', hex: '#06b6d4', name: 'Cyan' },
+	{ key: 'scf', prefix: 'scf', label: 'Secure Controls Framework', query: '[curie:"scf:"]', hex: '#a66a25', name: 'Brown' },
 ];
+
+/** Private demo only. Provenance is replaced on full import; no sticky tag. */
+export const REFERENCED_FRAMEWORK_GROUP: GraphColorGroup = {
+	key: 'referenced', label: 'Referenced, id only', query: '"cw-referenced-framework"', hex: '#7c8aa0', name: 'Muted slate',
+};
 
 /**
  * Colors for frameworks not in the known table, assigned in curie-prefix

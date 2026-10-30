@@ -9,6 +9,9 @@ import * as XLSX from 'xlsx';
 import * as yaml from 'js-yaml';
 import { FRAMEWORK_GROUPS, demoGraphGroups, demoGraphJson } from '../tools/lib/demo-graph.ts';
 import { readCtidJson, readOlirWorkbook, mappingRowsToTsv } from '../src/import/stack/mapping-readers.ts';
+import { referencedFramework, referencedFrameworkRecipe, referencedOntologyKey } from '../src/import/stack/referenced-frameworks.ts';
+import { renderRecipeTemplate } from '../src/views/recipe-templates.ts';
+import { SCF_EXISTING, SCF_REFERENCED } from './lib/private-scf-manifest.mjs';
 import { workbookTable, tabularMappings, subjectTags, resolveMappings, compareMappings } from '../src/import/stack/licensed-workbook-readers.ts';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -27,7 +30,7 @@ const CATALOG_PAIRS = [
 ];
 const LICENSED = [
 	{
-		key: 'cri', label: 'CRI Profile 2.2', sources: ['Frameworks/CRI-Profile-ver.-2.2.2026-04-27.xlsx', 'Frameworks/wp-contentuploads202604CRI-Profile-ver.-2.2.2026-04-27.xlsx'], get: CRI_DOWNLOAD,
+		key: 'cri', ontology: 'cri-profile', label: 'CRI Profile 2.2', sources: ['Frameworks/CRI-Profile-ver.-2.2.2026-04-27.xlsx', 'Frameworks/wp-contentuploads202604CRI-Profile-ver.-2.2.2026-04-27.xlsx'], get: CRI_DOWNLOAD,
 		import: { recipe: 'recipes/import/cri-profile-v2-2-nested.json', sheet: 'CRI Profile v2.2 Structure', headerRow: 3 }, destination: 'Frameworks/CRI-Profile-2.2',
 		mappings: [
 			{ key: 'cri-catalog', label: 'CRI 2.2 mappings catalog', sources: [`Frameworks/${CATALOG}`], get: CRI_DOWNLOAD, kind: 'catalog', release: '2.2' },
@@ -37,14 +40,20 @@ const LICENSED = [
 		],
 	},
 	{
-		key: 'cis', label: 'CIS Controls 8.1', sources: ['Frameworks/_licensed/CIS_Controls_Version_8.1_6_24_2024.xlsx', '_licensed/CIS_Controls_Version_8.1_6_24_2024.xlsx'], get: CIS_DOWNLOAD,
+		key: 'cis', ontology: 'cis-v8', label: 'CIS Controls 8.1', sources: ['Frameworks/_licensed/CIS_Controls_Version_8.1_6_24_2024.xlsx', '_licensed/CIS_Controls_Version_8.1_6_24_2024.xlsx'], get: CIS_DOWNLOAD,
 		import: { recipe: 'recipes/import/cis-controls-v8-controls.json', sheet: 'Controls V8', headerRow: 1 }, destination: 'Frameworks/CIS-Controls-8.1',
 		// Both tiers are needed: the publisher mappings reference safeguards too.
 		companions: [{ recipe: 'recipes/import/cis-controls-v8-1-safeguards.json', sheet: 'Controls V8', headerRow: 1 }],
 		mappings: [{ key: 'cis-csf', label: 'CIS v8 to NIST CSF 2.0', sources: ['Frameworks/_licensed/CIS_Controls_v8_Mapping_to_NIST_CSF_2_2023.xlsx', '_licensed/CIS_Controls_v8_Mapping_to_NIST_CSF_2_2023.xlsx'], get: CIS_DOWNLOAD, kind: 'cis', release: 'v8-csf2-2023', ontology: 'nist-csf-2' }],
 	},
+	{
+		key: 'scf', ontology: 'scf', label: 'Secure Controls Framework 2026.1.1',
+		sources: ['Frameworks/Secure.Controls.Framework.SCF.-.2026.1.1.xlsx'], get: 'https://securecontrolsframework.com/scf-download/',
+		import: { recipe: 'recipes/import/scf-2026-flat.json', sheet: 'SCF 2026.1', headerRow: 1 }, destination: 'Frameworks/SCF-2026.1.1',
+		mappings: [{ key: 'scf-columns', label: 'SCF crosswalk columns', kind: 'scf-columns', release: '2026.1.1' }],
+	},
 ];
-const USAGE = 'Usage: bun run demo:add-licensed -- --private-room-only --vault <dir> [--only cri,cis] [--sources-dir <dir>] [--source <workbook> (single --only required)]';
+const USAGE = 'Usage: bun run demo:add-licensed -- --private-room-only --vault <dir> [--only cri,cis,scf] [--sources-dir <dir>] [--source <workbook> (single --only required)]';
 
 function parseArgs(argv) {
 	const args = argv[0] === '--' ? argv.slice(1) : argv;
@@ -59,7 +68,7 @@ function parseArgs(argv) {
 		} else throw new Error(`Unknown option ${arg}. ${USAGE}`);
 	}
 	const selected = opts.only === undefined ? LICENSED.map((entry) => entry.key) : opts.only.split(',');
-	if (selected.some((key) => !LICENSED.some((entry) => entry.key === key))) throw new Error(`Unknown framework key. Choose cri or cis. ${USAGE}`);
+	if (selected.some((key) => !LICENSED.some((entry) => entry.key === key))) throw new Error(`Unknown framework key. Choose cri, cis or scf. ${USAGE}`);
 	if (opts.source && (opts.only === undefined || selected.length !== 1)) throw new Error(`--source requires a single --only key. ${USAGE}`);
 	return { ...opts, selected };
 }
@@ -173,6 +182,67 @@ function readMappings(mapping, file, present) {
 	return [{ ...mapping, rows: tabularMappings(rows.map((row) => ({ ...row, endpoint: row['CIS Sub-Control'] || row['CIS Control'] })), 'Subcategory', 'nist-csf-2', 'endpoint', 'cis-v8'), tableRows: rows.length }];
 }
 
+/** The generic reader also accepts CRI catalog rows after selecting their columns. */
+function scfMappings(vault, mapping, file, index, temp) {
+	const keys = SCF_REFERENCED.map((binding) => binding.ontology);
+	if (new Set(keys).size !== keys.length || SCF_REFERENCED.some((binding) => binding.ontology !== referencedOntologyKey(binding.column))) throw new Error('Referenced framework keys do not match the fixed slug rule. Correct the manifest before importing.');
+	const rows = workbookTable(XLSX.readFile(file), 'SCF 2026.1', ['SCF #', 'NIST CSF 2.0'], true);
+	const columns = new Set(Object.keys(rows[0] ?? {}));
+	const pairs = [];
+	for (const binding of [...SCF_EXISTING, ...SCF_REFERENCED]) {
+		if (!columns.has(binding.column)) {
+			process.stdout.write(`Skip SCF column ${binding.column}: absent from this workbook.\n`);
+			continue;
+		}
+		const converted = referencedFramework(rows, binding, { idColumn: 'SCF #', ontology: 'scf' });
+		const full = [...index.keys()].some((id) => id.startsWith(`${binding.ontology}:`));
+		let referencedNotes = 0;
+		// ATT&CK intentionally resolves only the existing public subset. Never
+		// hide its incomplete coverage by manufacturing missing technique notes.
+		if (!full && binding.ontology !== 'mitre-attack' && converted.notes.length) {
+			const destination = `Frameworks/Referenced by SCF/${binding.label.replace(/[<>:"/\\|?*]/g, '-')}`;
+			const source = path.join(temp, `${binding.ontology}.csv`);
+			const recipe = path.join(temp, `${binding.ontology}.recipe.json`);
+			const quote = (value) => `"${String(value).replace(/"/g, '""')}"`;
+			fs.writeFileSync(source, ['id,framework,file_id', ...converted.notes.map((note) => [note.id, note.framework, note.file_id].map(quote).join(','))].join('\n') + '\n');
+			fs.writeFileSync(recipe, JSON.stringify(referencedFrameworkRecipe(binding.ontology, 'SCF')));
+			process.stdout.write(`SCF reference import: ${binding.column}; ${converted.notes.length} identifier-only notes.\n`);
+			cw(vault, ['import', '--source', source, '--recipe', recipe, '--destination', destination, '--deterministic']);
+			const added = noteIndex(path.join(vault, destination));
+			for (const [id, note] of added) index.set(id, note);
+			referencedNotes = added.size;
+			if (referencedNotes !== converted.notes.length) throw new Error('Referenced identifier import was incomplete. Check the local binding and use a fresh demo build.');
+		}
+		pairs.push({ ...mapping, key: `scf-${binding.ontology}`, label: `SCF: ${binding.column}`, ontology: binding.ontology,
+			rows: converted.mappings, assertions: converted.assertions, duplicates: converted.duplicates, missingSubjects: converted.missingSubjects,
+			referencedNotes, referencedFramework: binding.label });
+	}
+	if (!columns.has('CRI')) process.stdout.write('Skip SCF to CRI: this workbook has no CRI crosswalk column. CR CMM is a distinct source, not a CRI alias.\n');
+	return pairs;
+}
+
+/** Direct links make backlinks useful without requiring a mapping-note hop. */
+function writeReferenceLinks(index, links) {
+	for (const [curie, values] of links) {
+		const note = index.get(curie);
+		if (!note) continue;
+		const key = note.fm._crosswalker?.recipe?.id === 'cw-referenced-framework' ? 'referenced_by' : 'crosswalk_references';
+		note.fm[key] = [...new Set([...(Array.isArray(note.fm[key]) ? note.fm[key] : []), ...values])].sort();
+		fs.writeFileSync(note.file, note.text.replace(/^---\r?\n[\s\S]*?\r?\n---/, `---\n${yaml.dump(note.fm, { lineWidth: -1, noRefs: true, sortKeys: false }).trimEnd()}\n---`));
+	}
+}
+
+/** Adapt the existing pair-density template; no new query type. */
+function writeScfQuery(vault) {
+	const base = yaml.load(renderRecipeTemplate('crosswalk-density-by-framework', {}));
+	base.filters.and.push('source_framework == "scf"');
+	base.views[0].name = 'Which frameworks does each SCF control reach';
+	base.views[0].order = ['subject_note', 'target_framework', 'object_note', 'predicate_id'];
+	base.views[0].groupBy = { property: 'subject_note', direction: 'ASC' };
+	fs.mkdirSync(path.join(vault, 'Queries'), { recursive: true });
+	fs.writeFileSync(path.join(vault, 'Queries/Frameworks reached by SCF control.base'), yaml.dump(base, { lineWidth: -1, noRefs: true }));
+}
+
 function updateStartHere(vault, keys, frameworks, mappings) {
 	const file = path.join(vault, START_HERE);
 	let text = fs.readFileSync(file, 'utf8');
@@ -182,6 +252,8 @@ function updateStartHere(vault, keys, frameworks, mappings) {
 	text = text.replace(/\n## Licensed additions[\s\S]*?(?=\n## |$)/, '');
 	text += ['\n## Licensed additions', '', '**Private room only. Do not publish or share this vault.** The licensed source terms apply to these generated notes and mappings.', '',
 		...frameworks.map((entry) => `- **${entry.label}**: ${entry.notes} framework notes in \`${entry.destination}\`${entry.tags ? `; ${entry.tags.notes} diagnostic statements with ${entry.tags.links} subject tags` : ''}.`),
+		...mappings.filter((entry) => entry.referencedNotes > 0).map((entry) => `- **${entry.referencedFramework}**: ${entry.referencedNotes} referenced, id-only notes. Only identifiers are known, not framework text.`),
+		...(frameworks.some((entry) => entry.key === 'scf') ? [`- **SCF reach**: ${mappings.filter((entry) => entry.label.startsWith('SCF:') && entry.resolved > 0).length} frameworks reached through ${mappings.filter((entry) => entry.label.startsWith('SCF:')).reduce((sum, entry) => sum + entry.resolved, 0)} resolved links. Open [[Queries/Frameworks reached by SCF control.base|Which frameworks does each SCF control reach]].`] : []),
 		...mappings.filter((entry) => entry.resolved > 0).map((entry) => `- **${entry.label}**: ${entry.resolved} resolved links in \`${entry.destination}\`.`), '',
 		'Mapping rows with missing endpoints were excluded. The public ATT&CK sample is not the full release; matching CRI 2.1 identifiers were used as written, without guessing a migration to 2.2.', '',
 	].join('\n');
@@ -200,7 +272,7 @@ function main() {
 	if (!available.length) return;
 	let index = noteIndex(vault);
 	for (const entry of available) {
-		const prefix = entry.key === 'cri' ? 'cri-profile' : 'cis-v8';
+		const prefix = entry.ontology;
 		if ([...index.keys()].some((id) => id.startsWith(`${prefix}:`)) || fs.existsSync(path.join(vault, entry.destination))) throw new Error(`${entry.label} is already present. Use a fresh demo build to add it again.`);
 	}
 	const frameworks = [];
@@ -212,7 +284,7 @@ function main() {
 		// ontologies. Select only the exact set this invocation just minted.
 		for (const companion of entry.companions ?? []) importFramework(vault, entry.source, companion, entry.destination, setId);
 		index = noteIndex(vault);
-		const prefix = entry.key === 'cri' ? 'cri-profile' : 'cis-v8';
+		const prefix = entry.ontology;
 		const notes = [...index.keys()].filter((id) => id.startsWith(`${prefix}:`)).length;
 		const tags = entry.key === 'cri' ? enrichTags(XLSX.readFile(entry.source), index) : undefined;
 		const rowsRead = Number(/Imported (\d+) rows/.exec(imported)?.[1] ?? notes);
@@ -221,13 +293,15 @@ function main() {
 	}
 	const present = new Set(index.keys());
 	const reports = [];
+	const referenceLinks = new Map();
 	let workbookAttack;
 	const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'cw-private-mappings-'));
 	try {
 		for (const framework of available) for (const mapping of framework.mappings) {
-			const file = locate(mapping, sourcesDir);
+			const file = mapping.kind === 'scf-columns' ? framework.source : locate(mapping, sourcesDir);
 			if (!file) continue;
-			for (const pair of readMappings(mapping, file, present)) {
+			for (const pair of mapping.kind === 'scf-columns' ? scfMappings(vault, mapping, file, index, temp) : readMappings(mapping, file, present)) {
+				for (const id of index.keys()) present.add(id);
 				const total = pair.rows.length;
 				let duplicate = 0;
 				if (pair.kind === 'ctid-workbook') workbookAttack = pair.rows;
@@ -238,18 +312,29 @@ function main() {
 					pair.rows = compared.unique;
 				}
 				const resolved = resolveMappings(pair.rows, present);
+				if (pair.kind === 'scf-columns') for (const row of resolved.rows) {
+					const subject = index.get(row.subject_id), object = index.get(row.object_id);
+					const link = (from, to) => {
+						const values = referenceLinks.get(from) ?? new Set();
+						values.add(`[[${path.relative(vault, to.file).split(path.sep).join('/').replace(/\.md$/, '')}]]`);
+						referenceLinks.set(from, values);
+					};
+					link(row.subject_id, object);
+					if (object.fm._crosswalker?.recipe?.id === 'cw-referenced-framework') link(row.object_id, subject);
+				}
 				const destination = `_crosswalker/mappings/private-${pair.key}`;
 				if (resolved.rows.length) {
 					const tsv = path.join(temp, `${pair.key}.sssom.tsv`);
-					fs.writeFileSync(tsv, mappingRowsToTsv(resolved.rows, framework.key === 'cri' ? 'CRI' : 'CIS', framework.key === 'cri' ? 'cri-profile' : 'cis-v8', pair.ontology, pair.key + '-' + pair.release));
+					fs.writeFileSync(tsv, mappingRowsToTsv(resolved.rows, framework.key.toUpperCase(), framework.ontology, pair.ontology, pair.key + '-' + pair.release));
 					cw(vault, ['import', '--source', tsv, '--destination', destination, '--set', 'new-set-qualified', '--deterministic']);
 				}
-				const report = { label: pair.label, rowsRead: pair.tableRows ?? total, assertions: total, blankEndpoints: (pair.tableRows ?? total) - total, resolved: resolved.rows.length, dropped: resolved.dropped, duplicate, destination };
+				const report = { label: pair.label, rowsRead: pair.tableRows ?? pair.assertions ?? total, assertions: total, blankEndpoints: pair.kind === 'scf-columns' ? 0 : (pair.tableRows ?? total) - total, resolved: resolved.rows.length, dropped: resolved.dropped, duplicate, destination, referencedNotes: pair.referencedNotes ?? 0, referencedFramework: pair.referencedFramework, duplicateAssertions: pair.duplicates ?? 0, missingSubjects: pair.missingSubjects ?? 0 };
 				reports.push(report);
-				process.stdout.write(`${pair.label}: ${report.rowsRead} rows read; ${total} assertions; ${report.resolved} resolved; dropped subject=${resolved.dropped.subject}, object=${resolved.dropped.object}, both=${resolved.dropped.both}, blank endpoint=${report.blankEndpoints}, duplicate=${duplicate}.\n`);
+				process.stdout.write(`${pair.label}: ${report.rowsRead} rows read; ${total} assertions; ${report.resolved} resolved; dropped subject=${resolved.dropped.subject}, object=${resolved.dropped.object}, both=${resolved.dropped.both}, blank endpoint=${report.blankEndpoints}, duplicate=${duplicate}; source assertions=${pair.assertions ?? total}, repeated pairs=${pair.duplicates ?? 0}, missing source ids=${pair.missingSubjects ?? 0}, id-only notes=${pair.referencedNotes ?? 0}.\n`);
 			}
 		}
 	} finally { fs.rmSync(temp, { recursive: true, force: true }); }
+	writeReferenceLinks(index, referenceLinks);
 	// Built-in CRI to CSF mappings remain owned by the unchanged shipped recipe.
 	if (frameworks.some((entry) => entry.key === 'cri')) {
 		const folder = '_crosswalker/mappings/cri-profile-to-nist-csf-2';
@@ -267,9 +352,10 @@ function main() {
 	}
 	const graph = JSON.parse(fs.readFileSync(path.join(vault, GRAPH), 'utf8'));
 	const queries = new Set((graph.colorGroups ?? []).map((group) => group.query));
-	const keys = [...FRAMEWORK_GROUPS.filter((group) => queries.has(group.query)).map((group) => group.key), ...frameworks.map((entry) => entry.key)];
+	const keys = [...FRAMEWORK_GROUPS.filter((group) => queries.has(group.query)).map((group) => group.key), ...frameworks.map((entry) => entry.key), ...(reports.some((entry) => entry.referencedNotes > 0) ? ['referenced'] : [])];
 	fs.writeFileSync(path.join(vault, GRAPH), demoGraphJson(keys));
 	updateStartHere(vault, keys, frameworks, reports);
+	if (frameworks.some((entry) => entry.key === 'scf')) writeScfQuery(vault);
 	const checked = cw(vault, ['validate']);
 	process.stdout.write(checked);
 	process.stdout.write(`Added ${frameworks.length} licensed frameworks and ${reports.filter((entry) => entry.resolved > 0).length} mapping sets. Keep this vault private.\n`);

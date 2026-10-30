@@ -644,7 +644,10 @@ export function mintImportSetId(existingIds: ReadonlySet<string> = new Set()): s
 	}
 
 	const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
-	for (let attempt = 0; attempt < 100; attempt++) {
+	// Deterministic CLI processes restart the same stream. Replaying the
+	// occupied prefix must not impose a hundred-set capacity on a vault.
+	const maxAttempts = existingIds.size + 100;
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
 		const bytes = new Uint8Array(6);
 		cryptoApi.getRandomValues(bytes);
 		let suffix = '';
@@ -652,7 +655,7 @@ export function mintImportSetId(existingIds: ReadonlySet<string> = new Set()): s
 		const id = `iset-${suffix}`;
 		if (!existingIds.has(id)) return id;
 	}
-	throw new Error('Could not mint a unique import set id after 100 attempts.');
+	throw new Error(`Could not mint a unique import set id after ${maxAttempts} attempts. Check secure random generation and try again.`);
 }
 
 /**

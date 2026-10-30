@@ -19,6 +19,7 @@ import {
 	KNOWN_FRAMEWORK_GROUPS,
 	LINK_GROUPS as SHARED_LINK_GROUPS,
 	PLUGIN_GRAPH_SEARCH,
+	REFERENCED_FRAMEWORK_GROUP,
 	graphColorGroups,
 	graphOptions,
 	type GraphColorGroup,
@@ -48,9 +49,11 @@ export const GRAPH_SEARCH = `${PLUGIN_GRAPH_SEARCH} -path:"Queries" -file:"Start
 /** The color groups for the frameworks present, in evaluation order. Unknown keys are ignored. */
 export function demoGraphGroups(frameworks: readonly string[]): DemoGraphGroup[] {
 	const present = new Set(frameworks);
-	return graphColorGroups(
+	const groups = graphColorGroups(
 		KNOWN_FRAMEWORK_GROUPS.filter((g) => present.has(g.key)).map((g) => ({ name: g.label, prefix: g.prefix })),
 	);
+	if (present.has('referenced')) groups.splice(LINK_GROUPS.length, 0, REFERENCED_FRAMEWORK_GROUP);
+	return groups;
 }
 
 /** The `.obsidian/graph.json` object, with keys in a fixed order. */
