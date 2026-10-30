@@ -14,12 +14,30 @@ installByteFile();
 const RESTRICTED = /(_licensed|\bcri\b|cri-profile|iso[-_ ]?27|\biso\b|soc[-_ ]?2|\bpci\b|\bcis\b|cis-controls|\bscf\b)/i;
 
 describe('demo:build', () => {
-	const out = path.join(tempDir('demo'), 'vault');
+	const temporary = tempDir('demo');
+	const out = path.join(temporary, 'vault');
+	const sources = path.join(temporary, 'sources');
 	let result: ReturnType<typeof spawnSync>;
 
 	beforeAll(() => {
-		result = spawnSync('bun', ['scripts/demo-build.mjs', '--out', out], { cwd: REPO, encoding: 'utf8' });
+		// The CTID release is held locally, not in git. Tests use synthetic rows,
+		// with the other existing public fixtures read from the checkout.
+		fs.mkdirSync(path.join(sources, 'Frameworks'), { recursive: true });
+		for (const name of ['csf2.xlsx', 'NIST_SP-800-53_rev5_catalog_load.csv', 'enterprise-attack-v16.1.xlsx',
+			'f3-excel-v1.2.xlsx', 'LICENSES', 'd3fend.csv', 'd3fend_to_nist80053.csv', 'att&ck_to_d3fend.csv',
+			'Cybersecurity_Framework_v2-0_Concept_Crosswalk_800-53_final.xlsx']) {
+			fs.symlinkSync(path.join(REPO, 'Frameworks', name), path.join(sources, 'Frameworks', name));
+		}
+		fs.writeFileSync(path.join(sources, 'Frameworks/nist_800_53-rev5_attack-16.1-enterprise_json.json'), JSON.stringify({
+			metadata: { attack_version: '16.1' }, mapping_objects: [
+				{ capability_id: 'AC-2', attack_object_id: 'T1078', mapping_type: 'mitigates' },
+				{ capability_id: 'AC-2', attack_object_id: 'T1078', mapping_type: 'mitigates' },
+			],
+		}));
+		result = spawnSync('bun', ['scripts/demo-build.mjs', '--out', out, '--sources-dir', sources], { cwd: REPO, encoding: 'utf8' });
 	}, 240000);
+
+	afterAll(() => fs.rmSync(temporary, { recursive: true, force: true }));
 
 	it('finishes and prints a manifest', () => {
 		expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
@@ -31,6 +49,9 @@ describe('demo:build', () => {
 		for (const folder of [
 			'Frameworks/NIST-CSF-2.0', 'Frameworks/NIST-SP-800-53-r5', 'Frameworks/MITRE-ATT&CK',
 			'_crosswalker/mappings/csf-to-800-53', '_crosswalker/mappings/csf-to-mitre',
+			'Frameworks/MITRE-D3FEND', 'Frameworks/MITRE-ATT&CK-Mitigations',
+			'_crosswalker/mappings/800-53-to-attack', '_crosswalker/mappings/800-53-to-d3fend',
+			'_crosswalker/mappings/attack-mitigations-to-d3fend',
 			'Evidence/Documents', 'Evidence/Junctions', 'Queries',
 		]) {
 			expect({ folder, exists: fs.existsSync(path.join(out, folder)) }).toEqual({ folder, exists: true });
@@ -43,11 +64,21 @@ describe('demo:build', () => {
 		expect(bases.length).toBeGreaterThanOrEqual(4);
 	});
 
+	it('refuses output inside either checkout, including a symlink alias', () => {
+		const alias = path.join(temporary, 'sources-alias');
+		fs.symlinkSync(sources, alias);
+		const rejected = spawnSync('bun', ['scripts/demo-build.mjs', '--out', path.join(alias, 'unsafe'), '--sources-dir', sources], { cwd: REPO, encoding: 'utf8' });
+		expect(rejected.status).toBe(1);
+		expect(rejected.stderr).toContain('outside the repository and the sources checkout');
+		expect(fs.existsSync(path.join(sources, 'unsafe'))).toBe(false);
+	});
+
 	it('writes the graph settings as the only file under .obsidian', () => {
 		expect(fs.readdirSync(path.join(out, '.obsidian'))).toEqual(['graph.json']);
 		const graph = JSON.parse(fs.readFileSync(path.join(out, '.obsidian/graph.json'), 'utf8'));
 		expect(graph).toMatchObject({ showTags: true, showArrow: true, hideUnresolved: true, showOrphans: false, showAttachments: false });
-		expect(graph.colorGroups.length).toBeGreaterThanOrEqual(5);
+		expect(graph.colorGroups.length).toBeGreaterThanOrEqual(7);
+		expect(graph.colorGroups).toContainEqual(expect.objectContaining({ query: 'tag:#mitre-d3fend OR [curie:"mitre-d3fend:"]' }));
 	});
 
 	it('builds every framework level as a note that links to its parent', () => {
@@ -107,9 +138,9 @@ describe('demo:build', () => {
 
 	it('imports all real F3 techniques and tactics last, with resolved hierarchy links', () => {
 		const folder = path.join(out, 'Frameworks/MITRE-F3');
-		const notes = fs.readdirSync(folder).filter((f) => f.endsWith('.md')).map((file) => {
+		const notes = fs.readdirSync(folder).filter((f) => f.endsWith('.md') && f !== 'LICENSE.md').map((file) => {
 			const text = fs.readFileSync(path.join(folder, file), 'utf8');
-			return yaml.load(text.split('---')[1]) as Record<string, any>;
+			return yaml.load(text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)![1]) as Record<string, any>;
 		});
 		const techniques = notes.filter((n) => n.technique_id);
 		const tactics = notes.filter((n) => n.tactic_id);
@@ -154,6 +185,47 @@ describe('demo:build', () => {
 		const start = fs.readFileSync(path.join(out, 'Start here.md'), 'utf8');
 		expect(start).toContain('Frameworks/MITRE-F3/F1002.001.md');
 		expect(start).not.toContain('Fight Fraud Framework (sample');
+	});
+
+	it('imports full ATT&CK with resolved parents, separate mitigations and sparse D3FEND levels', () => {
+		const read = (folder: string) => fs.readdirSync(path.join(out, folder)).filter((name) => name.endsWith('.md') && name !== 'LICENSE.md')
+			.map((name) => yaml.load(fs.readFileSync(path.join(out, folder, name), 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)![1]) as Record<string, any>);
+		const techniques = read('Frameworks/MITRE-ATT&CK');
+		expect(techniques).toHaveLength(656);
+		expect(techniques.filter((note) => note.parent)).toHaveLength(453);
+		for (const note of techniques.filter((note) => note.parent)) {
+			expect(fs.existsSync(path.join(out, 'Frameworks/MITRE-ATT&CK', `${note.technique_id.split('.')[0]}.md`))).toBe(true);
+		}
+		const mitigations = read('Frameworks/MITRE-ATT&CK-Mitigations');
+		expect(mitigations).toHaveLength(44);
+		expect(mitigations.every((note) => note.mitigation_id && !note.technique_id)).toBe(true);
+		expect(mitigations.every((note) => note.tags?.includes('mitre-attack'))).toBe(true);
+		const graph = JSON.parse(fs.readFileSync(path.join(out, '.obsidian/graph.json'), 'utf8'));
+		expect(graph.colorGroups).toContainEqual(expect.objectContaining({ query: 'tag:#mitre-attack OR [curie:"mitre-attack:"]', color: { rgb: 0xe5484d, a: 1 } }));
+		const hierarchy = fs.readFileSync(path.join(out, 'Queries/ATT&CK hierarchy.base'), 'utf8');
+		expect(hierarchy).toContain(techniques[0]._crosswalker.import_set.id);
+		expect(hierarchy).not.toContain(mitigations[0]._crosswalker.import_set.id);
+		const defensive = read('Frameworks/MITRE-D3FEND');
+		expect(defensive).toHaveLength(183);
+		expect(defensive.every((note) => note.title && note.technique_id && !note.parent)).toBe(true);
+		const edges = read('_crosswalker/mappings/800-53-to-d3fend').filter((note) => note.kind === 'crosswalk-edge');
+		expect(edges).toHaveLength(180);
+		for (const edge of edges) expect(edge.sssom_predicate).toBe('skos:relatedMatch');
+		// Tracked fidelity gap: neither extension nor comment projects to notes yet.
+		expect(edges[0]).not.toHaveProperty('source_relation');
+		expect(edges[0]).not.toHaveProperty('comment');
+		// Tracked shared-prefix identity gap. The follow-up fix flips this pin:
+		// both publisher endpoints exist, but set-qualified M ids do not link yet.
+		const mitigationEdges = read('_crosswalker/mappings/attack-mitigations-to-d3fend').filter((note) => note.kind === 'crosswalk-edge');
+		expect(mitigationEdges).toHaveLength(89);
+		for (const edge of mitigationEdges) {
+			expect(edge.subject_id).toMatch(/^mitre-attack:M\d{4}$/);
+			expect(mitigations.some((note) => note.mitigation_id === edge.subject_id.split(':')[1])).toBe(true);
+			expect(defensive.some((note) => note.curie === edge.object_id)).toBe(true);
+			expect(edge).not.toHaveProperty('subject_note');
+			expect(edge.object_note).toBeTruthy();
+		}
+		expect(fs.readFileSync(path.join(out, 'Start here.md'), 'utf8')).toContain('89 links listed; they do not connect to the mitigation notes yet.');
 	});
 
 	it('carries no restricted content or restricted framework names', () => {

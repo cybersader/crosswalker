@@ -32,9 +32,9 @@
  * shipped recipe still hash exactly as it did before src/source existed? That
  * is asserted for the entire inventory, not only recipes without shaping.
  *
- * Recipes added AFTER src/source existed (including nist-csf-2-withdrawal-lineage
- * and cis-controls-v8-1-safeguards) have no pre-change value to preserve, so each
- * new golden entry is its stripped hash as first computed. That entry is what stops it from being edited unnoticed
+ * Recipes added AFTER src/source existed (including CIS safeguards, ATT&CK
+ * mitigations and D3FEND) have no pre-change value to preserve. Each new golden
+ * entry is its stripped hash as first computed. That entry stops unnoticed edits
  * later; it is not evidence about the source-stage change itself.
  */
 
@@ -97,7 +97,7 @@ describe('A1 — the source-stage code change moved no shipped recipe hash', () 
 
 	it('covers every shipped recipe, so a new one cannot slip past unpinned', () => {
 		expect(recipes.map((r) => r.relPath).sort()).toEqual(Object.keys(GOLDEN).sort());
-		expect(recipes).toHaveLength(18);
+		expect(recipes).toHaveLength(20);
 	});
 
 	/**

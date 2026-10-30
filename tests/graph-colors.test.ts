@@ -16,6 +16,15 @@ const csf = { name: 'NIST CSF 2.0', prefix: 'nist-csf-2' };
 const attack = { name: 'MITRE ATT&CK', prefix: 'mitre-attack' };
 
 describe('graphColorGroups', () => {
+	it('keeps fixed framework and link identities, queries and colors distinct', () => {
+		const fixed = [...LINK_GROUPS, ...KNOWN_FRAMEWORK_GROUPS];
+		for (const field of ['key', 'query', 'hex', 'name'] as const) {
+			expect(new Set(fixed.map((group) => group[field])).size).toBe(fixed.length);
+		}
+		expect(KNOWN_FRAMEWORK_GROUPS.find((group) => group.key === 'cis')?.hex).toBe('#0f9d8f');
+		expect(KNOWN_FRAMEWORK_GROUPS.find((group) => group.key === 'd3fend')?.hex).toBe('#009b70');
+	});
+
 	it('puts mapping then evidence first, then known frameworks in table order', () => {
 		const groups = graphColorGroups([attack, csf]);
 		expect(groups.map((g) => g.key)).toEqual(['mapping', 'evidence', 'csf', 'attack']);

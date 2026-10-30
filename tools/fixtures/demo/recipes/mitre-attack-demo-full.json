@@ -1,0 +1,78 @@
+{
+  "$comment": "Demo variant of mitre-attack-technique-flat for the full Enterprise v16.1 techniques sheet. Keeps every shipped facet and body projection. The held sheet has no sub-technique of column: derive parent from the declared dotted ID using the existing F3 pattern and emit children lists. Flat technique files keep publisher identity and crosswalk resolution stable.",
+  "recipe": "mitre-attack-demo-full",
+  "source": {
+    "ontology": "mitre-attack",
+    "levels": [
+      "technique"
+    ]
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "technique",
+        "mechanism": "file",
+        "template": "{ID|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "frontmatter": {
+        "managed": {
+          "title": "{name|trim}",
+          "technique_id": "{ID|trim}",
+          "stix_id": "{STIX ID|optional|trim}",
+          "url": "{url|optional|trim}",
+          "domain": "{domain|optional|trim}",
+          "tactics": "{tactics|optional|split(,)}",
+          "platforms": "{platforms|optional|split(,)}",
+          "data_sources": "{data sources|optional|split(,)}",
+          "is_subtechnique": "{is sub-technique|optional|lower|trim}",
+          "parent": "{ID|regex(^([^.]+)[.]|$)|wikilink}",
+          "technique_version": "{version|optional|trim}",
+          "defenses_bypassed": "{defenses bypassed|optional|trim}",
+          "permissions_required": "{permissions required|optional|trim}",
+          "effective_permissions": "{effective permissions|optional|trim}",
+          "impact_type": "{impact type|optional|trim}",
+          "supports_remote": "{supports remote|optional|lower|trim}",
+          "parent_curie": "{ID|regex(^([^.]+)[.]|$)|curie-prefix(mitre-attack)}"
+        },
+        "user_preserve": [
+          "reviewer",
+          "status",
+          "notes"
+        ]
+      },
+      "body": [
+        {
+          "template": "{description|trim}",
+          "position": "section",
+          "heading": "Description",
+          "heading_depth": 2,
+          "format": "text"
+        },
+        {
+          "template": "{detection|optional|trim}",
+          "position": "section",
+          "heading": "Detection",
+          "heading_depth": 2,
+          "format": "text"
+        },
+        {
+          "template": "{system requirements|optional|trim}",
+          "position": "section",
+          "heading": "System requirements",
+          "heading_depth": 2,
+          "format": "text"
+        },
+        {
+          "template": "\u00a9 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation. MITRE grants a non-exclusive, royalty-free license to use ATT&CK for research, development, and commercial purposes. MITRE ATT&CK and ATT&CK are registered trademarks of The MITRE Corporation. Terms of use: https://attack.mitre.org/resources/legal-and-branding/terms-of-use/",
+          "position": "append",
+          "format": "quote"
+        }
+      ]
+    },
+    "enrichment": {
+      "children_lists": true
+    }
+  }
+}

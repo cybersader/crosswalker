@@ -8,7 +8,7 @@ tags: [frameworks, import-transforms, frameworks-nist, frameworks-mitre]
 
 Crosswalker ships recognized-source imports for the framework files below today. This page is the canonical technical reference for obtaining each source, choosing the matching [recipe](/crosswalker/concepts/terminology/#recipe), selecting the exact worksheet and header row, checking the real record count, and avoiding imports that look successful but are wrong.
 
-**Status last verified:** 2026-10-29 — the MITRE F3 binding, source bytes and demo links re-checked against the tracked v1.2 workbook, pinned upstream commit `281be11eed4670e763a2ed57dd2274948f54a523`, both demo-only recipes and a validated demo build (sources: `Frameworks/mitre-f3-source.json`, `tests/mitre-f3-demo-recipes.test.ts`, `tests/cli/demo-smoke.test.ts`); other rows unchanged since 2026-09-24, when stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
+**Status last verified:** 2026-10-30 — ATT&CK v16.1 and flat D3FEND source bindings checked against the held workbook/CSVs and demo recipes; crosswalk transformations checked against `tools/lib/demo-public-sources.ts` and `src/import/stack/mapping-readers.ts`. This is scoped verification, not a re-check of other source families. Earlier: the MITRE F3 binding, source bytes and demo links re-checked against the tracked v1.2 workbook, pinned upstream commit `281be11eed4670e763a2ed57dd2274948f54a523`, both demo-only recipes and a validated demo build (sources: `Frameworks/mitre-f3-source.json`, `tests/mitre-f3-demo-recipes.test.ts`, `tests/cli/demo-smoke.test.ts`); other rows unchanged since 2026-09-24, when stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
 
 The bundled recipes live in the [Crosswalker plugin repository](https://github.com/cybersader/crosswalker/tree/main/recipes/import). Community recipes and contribution guidance live in [crosswalker-recipes](https://github.com/cybersader/crosswalker-recipes). Framework content is not bundled in the plugin release: obtain each source from its publisher and confirm that the publisher's terms fit your use. Selected redistributable sources, including F3, are tracked separately in the [repository corpus](/crosswalker/reference/framework-corpus/#tracked-f3-source-files) for offline demo builds.
 
@@ -347,13 +347,21 @@ The tool refuses anything it does not recognise: a marker whose wording is not o
 
 Identifier pattern: `T\d{4}(\.\d{3})?`, for example `T1059` and `T1059.001`.
 
-The recipe emits tactics, platforms, and data sources as arrays; adds parent links for sub-techniques; and carries MITRE's notice into every generated note.
+The shipped recipe emits tactics, platforms, and data sources as arrays and carries MITRE's notice into every generated note. Its optional parent binding expects a `sub-technique of` column, which the held v16.1 workbook does not contain. The demo variant derives a parent only from a dotted technique ID, preserving the shipped facets and prose.
+
+### Public demo binding
+
+`Frameworks/enterprise-attack-v16.1.xlsx` supplies the full `techniques` sheet: **203 techniques + 453 sub-techniques = 656 notes** (source: that workbook's `ID` column; regression: `tests/cli/demo-smoke.test.ts`). `tools/fixtures/demo/recipes/mitre-attack-demo-full.json` supplies conditional parent links and managed children lists. The demo keeps the `attack` set key and scopes the hierarchy query to that set.
+
+The same workbook's `mitigations` sheet has **44 rows** (source: that worksheet). `recipes/import/mitre-attack-mitigation.json` imports them into a separate set under the same `mitre-attack` ontology, with unchanged `M` IDs and `mitigation_id`, not `technique_id`. Both sets use ATT&CK red in the graph; technique queries do not include mitigations. This catalog import does not invent mitigation-to-technique relationships.
+
+Get the pinned workbook through [MITRE's release spreadsheets](https://attack.mitre.org/docs/enterprise-attack-v16.1/enterprise-attack-v16.1.xlsx). The newer STIX bundle is not interchangeable with this release. CTID mappings target 16.1; other-release endpoints are never silently re-targeted.
 
 ### Gotchas
 
 - **Choose the Excel recipe for the Excel file.** A STIX bundle has a different shape and needs another recipe.
 - **Citation markers remain inline.** Text such as `(Citation: TechNet How UAC Works)` is part of the exported prose and is preserved.
-- **Mitigations are not imported.** They require a join through a separate relationships sheet, which this recipe does not perform.
+- **Mitigations are a separate import.** The technique recipe does not import them; the demo uses the mitigation recipe above. Relationship joins remain separate from catalog imports.
 - **Contributor and date fields are omitted.** Contributor delimiters are ambiguous, and source dates are not normalized ISO values.
 
 ## MITRE Fight Fraud Framework (F3)
@@ -389,7 +397,7 @@ The recipe emits `tactic_ids` and `tactics` as lists, keeps the description in t
 
 ### Demo-only linked import
 
-`demo:build` imports the full workbook last with `tools/fixtures/demo/recipes/mitre-f3-demo-linked.json` (`Techniques`) and `mitre-f3-demo-tactics.json` (`Tactics`). This adds technique-to-tactic wikilinks, conditional sub-technique `parent` / `parent_curie` properties, and managed children lists on parent techniques. It produces **138 technique notes + 8 tactic notes, 55 resolved parent links and 191 resolved tactic memberships** (source: the tracked workbook and `tests/cli/demo-smoke.test.ts`). Multi-tactic membership makes this a connected hierarchy, not a strict single-parent tree.
+`demo:build` imports the full workbook after the established demo sets with `tools/fixtures/demo/recipes/mitre-f3-demo-linked.json` (`Techniques`) and `mitre-f3-demo-tactics.json` (`Tactics`). This adds technique-to-tactic wikilinks, conditional sub-technique `parent` / `parent_curie` properties, and managed children lists on parent techniques. It produces **138 technique notes + 8 tactic notes, 55 resolved parent links and 191 resolved tactic memberships** (source: the tracked workbook and `tests/cli/demo-smoke.test.ts`). Multi-tactic membership makes this a connected hierarchy, not a strict single-parent tree.
 
 No filter is missing: the existing `regex(^([^.]+)[.]|$)` captures the id before a dot, or matches the empty end of a top-level id; `wikilink` and `curie-prefix(mitre-f3)` omit that empty result. The normal bundled recipe and registry are deliberately unchanged, so existing recipe digests stay valid. Tactic descriptions now have real notes in the demo; ordinary recognized import still reads only `Techniques`. Both imports keep `mitre-f3` as their ontology; the second set uses the existing set-qualified identity scheme. The [2026-10-29 follow-up log](/crosswalker/agent-context/zz-log/2026-10-29-f3-real-data-in-demo/) records what this closes from the original F3 delivery and what remains open.
 
@@ -493,27 +501,41 @@ Safeguard identifiers follow `\d+\.\d+`, for example `1.1`, `3.5`, and `4.10`.
 
 ## MITRE D3FEND
 
-> [!note] Verification status
-> This section was preserved from the earlier reference. D3FEND was not part of the 2026-08-27 real-import verification pass, and it is not one of the current bundled recognized-source recipes.
+**Obtain it:** [D3FEND resources](https://d3fend.mitre.org/resources/), held as `Frameworks/d3fend.csv`. The publisher's [terms of use](https://d3fend.mitre.org/about/terms-of-use/) apply.
 
-**Source**: [d3fend.csv](https://d3fend.mitre.org/resources/)
+**Explicit-file recipe:** `recipes/import/mitre-d3fend.json` (`mitre-d3fend-flat`); automatic source recognition is not added by this demo batch.
 
-### Key columns
+| Actual column | Role |
+|---|---|
+| `ID` | Stable `D3-…` technique identifier |
+| `D3FEND Tactic` | Tactic tag and property |
+| `D3FEND Technique` | Sparse technique name at the first source depth |
+| `D3FEND Technique Level 0` | Sparse technique name at the next source depth |
+| `D3FEND Technique Level 1` | Sparse technique name at the deepest held source depth |
+| `Definition` | Optional prose body |
 
-| Column | Example | Role |
-|--------|---------|------|
-| D3FEND Technique | `D3-DENCR` | Primary ID |
-| Level 0 | `Harden` | Hierarchy level 1 |
-| Level 1 | `Application Hardening` | Hierarchy level 2 |
-| (additional levels) | varies | Deeper hierarchy |
+The held file has **183 rows** (source: `Frameworks/d3fend.csv`; regression: `tests/cli/demo-smoke.test.ts`). Each row names one technique in one sparse name column. The recipe combines the nonempty name cells into the title, preserves the sparse source-depth properties, and writes a flat note per ID with a tactic tag. It does **not** forward-fill names or assert parents that the flat source does not state. D3FEND is teal in the demo graph (source: `src/graph/graph-colors.ts`).
 
-### Special transform: Hierarchical forward-fill
+## Public demo crosswalk sources
 
-D3FEND has a deeply nested ontology with merged cells across multiple levels. Requires [hierarchical forward-fill](/crosswalker/agent-context/helper-functions/#hierarchical_ffilldataframe-columns) across all Level columns.
+These files are held inputs, not plugin-bundled content. `demo:build --sources-dir <checkout>` reads them without modifying that checkout. Derived [SSSOM](/crosswalker/agent-context/framework-crosswalks/) tables are temporary; notes are written only through `cw import`.
 
-### Additional data
+| Held file in `Frameworks/` | Obtain and licence | Demo treatment |
+|---|---|---|
+| `nist_800_53-rev5_attack-16.1-enterprise_json.json` | [CTID Mappings Explorer](https://center-for-threat-informed-defense.github.io/mappings-explorer/), [Apache 2.0](https://github.com/center-for-threat-informed-defense/mappings-explorer/blob/main/LICENSE) | Existing `readCtidJson` keeps its predicate rules, skips exact duplicate publisher entries, depads NIST IDs and refuses an ATT&CK release other than 16.1. A separate mapping set and an existing generic mapping query template show the results. |
+| `Cybersecurity_Framework_v2-0_Concept_Crosswalk_800-53_final.xlsx` | [NIST CSF informative references](https://www.nist.gov/cyberframework/informative-references), U.S. government work | Existing `readOlirWorkbook`, sheet `Relationships`, header index 0. Diff endpoint pairs against the existing CSF-to-800-53 set; import separately only if pairs are added or relationship-strength values are present. Never merge the two releases. |
+| `d3fend_to_nist80053.csv` | [D3FEND NIST mappings](https://d3fend.mitre.org/mappings/nist/5/), [MITRE terms](https://d3fend.mitre.org/about/terms-of-use/) | Control-to-defensive-technique rows. Resolve names using the catalog; preserve direction of endpoints, but emit `skos:relatedMatch` for every relation word because the publisher does not define which endpoint “broader” or “narrower” describes. |
+| `att&ck_to_d3fend.csv` | [D3FEND ATT&CK mitigation mappings](https://d3fend.mitre.org/mappings/attack-mitigations/), [MITRE terms](https://d3fend.mitre.org/about/terms-of-use/) | This table names **mitigations (`M` IDs), not techniques**. Expand distinct defensive IDs from each formatted cell, use `skos:relatedMatch`, and count empty cells as no published relationship. |
 
-Full mappings file (`d3fend-full-mappings.csv`) and D3FEND-to-NIST mapping (`d3fend_to_nist80053.csv`) provide crosswalk data for linking to ATT&CK techniques and NIST controls.
+The held CSF concept workbook and the existing demo SSSOM contain the same **740 distinct endpoint pairs**, with no added or removed pairs and no strength values, so the demo skips a duplicate set (sources: that workbook, `recipes/import/crosswalks/nist-csf-2-to-nist-800-53.sssom.tsv`, `mappingPairDiff` in `tools/lib/demo-public-sources.ts`).
+
+**Tracked endpoint-linking gap:** all **89** expanded mitigation-to-D3FEND rows name endpoints present in the demo catalogs, but currently produce **0 subject links and 89 object links** (source: the real-source `demo:build` report and `tests/cli/demo-smoke.test.ts`). The separate mitigation import shares the `mitre-attack` ontology with the technique set, so its minted identities are set-qualified; the publisher's unqualified `mitre-attack:M…` identifiers do not resolve through the current exact-identity lookup. The mapping rows remain intact. Fix the general endpoint-binding capability in a later slice, not by retargeting publisher identifiers or pretending mitigations are techniques.
+
+**Tracked fidelity gap:** source relation words are passed to import in both `source_relation` and standard SSSOM `comment` (`relation=<word>`). The current notes-form importer projects neither field into generated edge notes (source: `src/import/sssom-importer.ts`, `buildSyntheticRecipe`). No direction claim or duplicate sidecar note substitutes for that missing general projection capability.
+
+**Follow-up:** `d3fend-full-mappings.csv` is wide and is not imported. It needs a reshaping decision. The CSF-to-ATT&CK fixture and evidence remain synthetic examples, not publisher coverage claims.
+
+**Attribution beside output:** when a corresponding local licence file exists in `Frameworks/LICENSES/`, the demo copies it unchanged into `LICENSE.txt` and embeds it in `LICENSE.md`. Without one, it writes only publisher name and the official terms link in `LICENSE.md` for ATT&CK (techniques and mitigations), D3FEND and CTID mappings. It never reconstructs licence text. F3 continues carrying the held Apache text in both formats.
 
 ## MITRE ENGAGE
 

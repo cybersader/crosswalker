@@ -1,0 +1,43 @@
+{
+  "$comment": "Binds the held d3fend.csv catalog: each row has ID, a tactic, exactly one nonempty technique-name cell and an optional Definition. Sparse name columns are distinct source depths, not forward-filled parent assertions. Flat files and tactic tags make all real techniques addressable without invented parents. Terms travel beside the demo output.",
+  "recipe": "mitre-d3fend-flat",
+  "source": {
+    "ontology": "mitre-d3fend",
+    "levels": [
+      "technique"
+    ]
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "technique",
+        "mechanism": "file",
+        "template": "{ID|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "tags": [
+        "mitre-d3fend/{D3FEND Tactic|tagsafe}"
+      ],
+      "frontmatter": {
+        "managed": {
+          "title": "{D3FEND Technique|optional}{D3FEND Technique Level 0|optional}{D3FEND Technique Level 1|optional}",
+          "technique_id": "{ID|trim}",
+          "tactic": "{D3FEND Tactic|trim}",
+          "technique": "{D3FEND Technique|optional|trim}",
+          "technique_level_0": "{D3FEND Technique Level 0|optional|trim}",
+          "technique_level_1": "{D3FEND Technique Level 1|optional|trim}"
+        }
+      },
+      "body": [
+        {
+          "template": "{Definition|optional|trim}",
+          "position": "section",
+          "heading": "Definition",
+          "heading_depth": 2,
+          "format": "text"
+        }
+      ]
+    }
+  }
+}
