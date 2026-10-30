@@ -27,8 +27,8 @@ Not a general framework catalog — every entry sits in the security / GRC / ris
 
 | Framework | What it is | Lic | Status | Source |
 |---|---|---|---|---|
-| MITRE ATT&CK (Enterprise/Mobile/ICS) | Adversary tactics & techniques | 🟢 | ✅ | [attack.mitre.org](https://attack.mitre.org/) |
-| MITRE D3FEND | Defensive countermeasures ontology | 🟢 | ✅ | [d3fend.mitre.org](https://d3fend.mitre.org/) |
+| MITRE ATT&CK (Enterprise/Mobile/ICS) | Adversary tactics & techniques; [public demo](/crosswalker/reference/framework-data-sources/#public-demo-binding) imports full Enterprise v16.1 plus a separate mitigation set; Mobile/ICS remain later imports | 🟢 | ✅ | [attack.mitre.org](https://attack.mitre.org/) |
+| MITRE D3FEND | Defensive countermeasures ontology; [flat catalog and two mapping tables](/crosswalker/reference/framework-data-sources/#mitre-d3fend) imported in the public demo | 🟢 | ✅ | [d3fend.mitre.org](https://d3fend.mitre.org/) |
 | MITRE Engage | Adversary engagement / **cyber deception & denial** (ex-Shield) | 🟢 | ✅ | [engage.mitre.org](https://engage.mitre.org/) |
 | MITRE Fight Fraud Framework (F3) | Fraud adversary tactics & techniques for financial services; reuses some ATT&CK ids ([details](/crosswalker/reference/framework-data-sources/#mitre-fight-fraud-framework-f3)) | 🟢 | ✅ | [ctid.mitre.org/fightfraud](https://ctid.mitre.org/fightfraud) |
 | MITRE CAPEC | Common Attack Pattern Enumeration | 🟢 | ✅ | [capec.mitre.org](https://capec.mitre.org/) |
@@ -37,7 +37,7 @@ Not a general framework catalog — every entry sits in the security / GRC / ris
 | MITRE ATLAS | Adversarial AI/ML threat matrix | 🟢 | ✅ | [atlas.mitre.org](https://atlas.mitre.org/) |
 | MITRE CAR | Cyber Analytics Repository (detections) | 🟢 | ✅ | [car.mitre.org](https://car.mitre.org/) |
 | MITRE VERIS | Incident classification taxonomy | 🟢 | ✅ | [verisframework.org](https://verisframework.org/) |
-| CTID resource packs | ATT&CK mappings + threat-informed-defense projects (Sightings, Summiting the Pyramid, M3TID, …) | 🟢 | ✅ | [ctid.mitre.org](https://ctid.mitre.org/) |
+| CTID resource packs | ATT&CK mappings + threat-informed-defense projects; [800-53 to ATT&CK 16.1](/crosswalker/reference/framework-data-sources/#public-demo-crosswalk-sources) imported in the public demo, other capability packs deferred | 🟢 | ✅ | [ctid.mitre.org](https://ctid.mitre.org/) |
 | Lockheed Cyber Kill Chain | 7-stage intrusion model | 🟡 | ✅ | [lockheedmartin.com](https://www.lockheedmartin.com/en-us/capabilities/cyber/cyber-kill-chain.html) |
 | Diamond Model | Intrusion analysis model | 🟢 | ✅ | [activeresponse.org](https://www.activeresponse.org/the-diamond-model/) |
 
@@ -119,6 +119,21 @@ Not a general framework catalog — every entry sits in the security / GRC / ris
 <Aside type="tip" title="Pulling the missing ones">
 Most 📥 items have a free machine-readable door (MITRE on GitHub/STIX, NIST via CPRT/OSCAL, OWASP on GitHub, EU law via EUR-Lex ELI permalinks, US regulations via [federalregister.gov](https://www.federalregister.gov/) JSON/XML). The 🔴 purchase-only ones (ISO, COBIT, COSO, HITRUST, SWIFT) usually have a **proxy** — [SCF](/crosswalker/reference/registry/scf/)'s STRM mapping columns already encode the relationships, so you can crosswalk *to* them without their copyrighted text.
 </Aside>
+
+## Public demo coverage
+
+**Status last verified:** 2026-10-30 — scoped to ATT&CK v16.1, D3FEND and their held public crosswalk source bindings (`scripts/demo-build.mjs`, the source files named in the [data-sources reference](/crosswalker/reference/framework-data-sources/#public-demo-crosswalk-sources), and `tests/cli/demo-smoke.test.ts`). Other landscape acquisition rows are unchanged.
+
+The demo now uses the full Enterprise v16.1 technique catalog and separate mitigation notes, alongside NIST CSF 2.0, SP 800-53 r5 and F3. D3FEND adds a flat defensive-technique catalog, NIST control mappings and ATT&CK **mitigation** mappings. CTID's 800-53-to-ATT&CK set targets 16.1. The CSF concept crosswalk is checked against the existing CSF mapping before deciding whether a separate set adds information. Source counts, download links, licences, transformation rules and the relation-field projection gap live in the [canonical source reference](/crosswalker/reference/framework-data-sources/#public-demo-crosswalk-sources).
+
+| Public crosswalk input | Demo import status |
+|---|---|
+| CTID SP 800-53 Rev. 5 to ATT&CK 16.1 | Separate publisher mapping set; exact duplicate and `non_mappable` rows counted separately |
+| CSF 2.0 concept crosswalk to SP 800-53 | Same pairs as the existing CSF-to-800-53 set; not imported separately |
+| D3FEND NIST semantic table | Separate conservative related mappings; publisher relation direction unverified |
+| ATT&CK mitigation-to-D3FEND table | Separate mapping set; empty mapping cells counted and skipped. All endpoints exist, but mitigation-note links await the [shared-prefix identity fix](/crosswalker/reference/framework-data-sources/#public-demo-crosswalk-sources) |
+
+**Release follow-up:** fetch the current 800-53 rev5 release as a new set. The demo CSV does not record a minor release and lacks IA-13; the held OSCAL archive's revision history identifies IA-13 as a 5.1.1 addition, and its current catalog is 5.2.0. Reuse that held archive where appropriate rather than guessing the CSV's version. The separate Mobile ATT&CK import planned with the STIX reader can resolve the publisher's Mobile-matrix endpoint in its Enterprise mapping. Neither gap authorizes retargeting identifiers or inventing stub concepts (sources: `Frameworks/NIST_SP-800-53_rev5_catalog_load.csv`, the held `nist.gov-SP800-53_rev5` archive metadata, and `Frameworks/mobile-attack.json`; [source-reference context](/crosswalker/reference/framework-data-sources/#public-demo-crosswalk-sources)).
 
 ## Tracked F3 source files
 
