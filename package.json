@@ -17,6 +17,8 @@
 		"check:not-content": "node scripts/check-not-content.mjs",
 		"check:personal-data": "node scripts/check-personal-data.mjs",
 		"check:links": "node scripts/check-links.mjs",
+		"check:parity": "bun scripts/check-parity.mjs",
+		"parity:write": "bun scripts/check-parity.mjs --write",
 		"version": "bun run version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint src",
 		"lint:fix": "eslint src --fix",

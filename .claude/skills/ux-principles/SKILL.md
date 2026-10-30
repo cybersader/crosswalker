@@ -24,7 +24,7 @@ A reification engine for Markdown plus frontmatter: one source becomes whatever 
 
 | # | Principle | Test for the surface you are building |
 |---|---|---|
-| 1 | **UI first, config is the escape hatch** | Can a user do this without touching JSON, a CLI, or a file? If a headless capability lands without UI, the gap is named and tracked the same session |
+| 1 | **UI first, config is the escape hatch** | Can a user do this without touching JSON, a CLI, or a file? If a headless capability lands without UI, the gap is named and tracked the same session. The reverse applies too: every UI vault action has a `cw` route or a gap. `check:parity` enforces the inventory via `tools/parity/capabilities.ts` |
 | 2 | **Feels magical: the UI answers the confused first-timer** | Walk it as a GRC user who has never seen it. Every question they would ask (what is included by default? what happens to my vault?) is answered in place: a quiet line, a live preview, sensible ordering. Not by docs |
 | 3 | **Previews in vault terms at the decision point** | Show what a choice does to the vault (folder, note, property, link, edge note) where the choice is made |
 | 4 | **Intent-level controls with strong defaults** | Is this one intent, expressed once (a Depth dial), not N row edits? Defaults already good for a user who never opens the control; fine-tuning stays available underneath |

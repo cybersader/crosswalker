@@ -141,11 +141,19 @@ These all work standalone if you prefer not to use the orchestrator:
 | `cd docs && bun run build` | Docs production build → `docs/dist` |
 | `cd docs && bun run preview` | Serve the built dist locally |
 | `cd docs && bun run test:local` | Docs Playwright E2E tests |
+| `bun run check:parity` | Check UI/CLI command and verb coverage, tracked gaps, and the generated [parity reference](/crosswalker/reference/ui-cli-parity/) |
+| `bun run parity:write` | Regenerate the parity table and counts from `tools/parity/capabilities.ts` |
 | `bun run check:mdx` | Lightweight MDX syntax pre-check (catches bare braces, unclosed tags, frontmatter YAML errors) — fast (~1–2s) |
 | **Release** | |
 | `bun run version` | Bumps version in `manifest.json` + `versions.json`; stages git changes for commit |
 
 See the [testing page](/crosswalker/development/testing/) for details on each test surface.
+
+## Pre-commit static gates
+
+Run all **7 static checks (source: `.github/workflows/static-checks.yml`)**: `bun run check:personal-data`, `bun run check:mdx`, `bun run check:frontmatter`, `bun run check:not-content`, `bun run check:log-labels`, `bun run check:links`, and `bun run check:parity`. The [knowledge operations reference](/crosswalker/development/knowledge-ops/) explains what each enforces and what still needs review.
+
+Every UI vault action needs a `cw` route or a tracked gap, and every headless action needs the same accounting in reverse. See the generated [UI/CLI parity table](/crosswalker/reference/ui-cli-parity/) before extending the command line. `cw recipes` lists built-ins, not the saved recipe library; refresh already exists through `import --set` and `replay`.
 
 ## Releasing
 

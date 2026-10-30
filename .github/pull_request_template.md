@@ -32,7 +32,8 @@ When you touched certain paths, also update related docs / state. Tick what appl
 - [ ] `bun run test` (when `src/**` or `tests/**` changed)
 - [ ] `cd docs && bun run build` (when `docs/**` changed)
 - [ ] `bun run fixtures` (when `tools/fixtures/synthetic/**` changed)
-- [ ] `bun run check:mdx` (when any new `.mdx` added)
+- [ ] All seven Static Checks gates (source: `.github/workflows/static-checks.yml`): `check:personal-data`, `check:mdx`, `check:frontmatter`, `check:not-content`, `check:log-labels`, `check:links`, `check:parity`
+- [ ] New UI or CLI outcomes recorded in `tools/parity/capabilities.ts`, with a tracked gap when a side is missing; ran `bun run parity:write`
 
 <!--
   CI handles mechanical gates (lint, MDX build, schema validation, fixture drift) separately.

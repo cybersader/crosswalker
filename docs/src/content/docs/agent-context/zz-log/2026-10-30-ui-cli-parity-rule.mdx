@@ -1,0 +1,68 @@
+---
+title: UI and command line parity becomes an enforced rule
+description: Every vault action needs a UI and a command line route, or an explicit tracked gap. A typed registry, generated reference and Static Checks gate enforce the inventory in both directions.
+tags: [log, decision, cli, parity, knowledge-ops, lifecycle]
+date: 2026-10-30
+sidebar:
+  label: "10-30 · UI and CLI parity rule"
+  order: -20261030.1
+---
+
+## The decision in thirty seconds
+
+Crosswalker must let a person, a script, an agent and CI perform the same vault actions through the same engine. **The UI remains the primary interface; `cw` is the automation and escape-hatch route.** Every action has both routes or an explicit gap with a reason and plan. This is engine parity, not copying wizard screens into a terminal.
+
+The living [UI and CLI parity reference](/crosswalker/reference/ui-cli-parity/) is generated from `tools/parity/capabilities.ts`. `bun run check:parity` stops new commands or verbs from silently bypassing the inventory. Existing gaps are visible, not falsely declared complete.
+
+## The owner's words
+
+> "do we need to develop the CLI with feature parity at some point????? Im not sure you ever made sure I understood that"
+
+After the decision card:
+
+> "yes, add the parity table and CI check and add structures into knowledge ops/KB since it should be resident in knowledge base crystallized there as well"
+
+This resolves a communication and process gap: shipping a first CLI slice did not mean its lifecycle coverage matched the plugin. The owner should not have to infer that distinction from implementation details.
+
+## What it means in practice
+
+A team refreshing a [knowledge set](/crosswalker/concepts/artifact-roles-and-authority/) can use `cw replay` with the same kept [recipe](/crosswalker/concepts/terminology/) revision as the plugin's Run again. A reviewer approving an evidence link cannot yet switch to `cw`: that missing route must remain a named gap until the same revision and attestation safeguards are exposed. A generic frontmatter edit is not equivalent approval.
+
+The real organization benefit is reproducibility: recurring imports and review workflows can eventually run through approved scripts and CI without a second engine or a fragile desktop automation script. Interactive previews and wizard steps need no terminal replicas. The action and its deterministic result do.
+
+## Why this needs a gate
+
+The [June UI parity audit](/crosswalker/agent-context/zz-log/2026-06-12-ui-parity-audit/) looked from headless capabilities toward the UI. This decision adds the reverse direction to one registry. Both are required for the [lifecycle](/crosswalker/concepts/ontology-lifecycle/) to remain UI-first and automatable.
+
+`demo:build` calling shared saved-query and graph-color code outside `cw` is the smell: the engine can perform the action, but the public automation route cannot. The remedy is to expose the shared action through `cw`, not keep extending a parallel demo-only route. The demo is still useful and deterministic; it does not prove full command line parity.
+
+## Closure order and inventory corrections
+
+| Priority | Work | Why this order |
+| --- | --- | --- |
+| 1 | Set management | Scripts need to list identities and safely delete sets. Refresh is already supported by `cw import --set` and `cw replay`; the initial decision card's blanket refresh gap was incorrect. Current UI deletion is a protected developer reset, not a complete general set-management UI |
+| 2 | Saved queries and graph colors | Lets `demo:build` become plain `cw` calls instead of separate orchestration |
+| 3 | Mapping and evidence approvals | Same review facts, revision checks and safeguards across interfaces |
+| 4 | Recipe library | Save, browse, reuse and share recipes; `cw recipes` currently lists built-ins, not saved library entries |
+
+The registry also records typed mapping-table import and table storage selection as missing command line routes. The [near-term roadmap](/crosswalker/reference/roadmap/#deterministic-avenues-command-line-and-live-demo-near-term) owns this ordered parity backlog; the living reference holds its individual gaps. No missing capability is implemented by this inventory change.
+
+## Enforcement and its limits
+
+- **Single source:** typed capabilities name lifecycle stage, outcome, real command ids or UI surface, CLI verb and relevant flags, and a reason and plan whenever a side is absent.
+- **Gate:** `scripts/check-parity.mjs` parses registration syntax in `src/` and dispatch in `cli/crosswalker.ts` without executing either. It rejects missing and stale registrations, incomplete gaps and generated-table drift. Dynamic source forms fail closed.
+- **Regeneration:** `bun run parity:write` updates the marked table and counts in the living reference; CI only checks, never repairs silently.
+- **Knowledge operations:** the [gates reference](/crosswalker/development/knowledge-ops/), contributor checklist and agent instructions make the invariant discoverable before implementation starts.
+- **Not a behavioral proof:** a green inventory gate allows tracked gaps and cannot prove equivalence, validate named UI surfaces or detect a new button that has no command registration. Review still inventories wizard and settings actions; behavior tests still prove results.
+
+This changes governance, tooling and documentation, not plugin behavior or schemas. No milestone is marked complete, and no unrelated living-page freshness markers are advanced.
+
+## Related
+
+- [UI and CLI parity reference](/crosswalker/reference/ui-cli-parity/) — current coverage, gaps and how to add an action
+- [UI parity audit, June 12](/crosswalker/agent-context/zz-log/2026-06-12-ui-parity-audit/)
+- [Command line and live demo, near term](/crosswalker/agent-context/zz-log/2026-10-27-cli-and-live-demo-near-term/)
+- [Knowledge operations gates](/crosswalker/development/knowledge-ops/)
+- [Workflow audit and agent design](/crosswalker/agent-context/zz-log/2026-05-06-workflow-audit-and-agent-design/) — mechanical gates versus judgment checks
+- [Producing vaults outside Obsidian](/crosswalker/concepts/producing-vaults-outside-obsidian/)
+- [ETL and import](/crosswalker/concepts/etl-and-import/) — schema as primitive, every valid producer first-class

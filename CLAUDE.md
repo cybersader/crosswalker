@@ -296,13 +296,13 @@ Before committing, run the matching commands:
 
 | Files changed | Command |
 |---|---|
-| Any files | **all six Static Checks gates** (see below) |
+| Any files | **all seven Static Checks gates (source: `.github/workflows/static-checks.yml`)** (see below) |
 | `src/**` | `bun run lint` + `bun run test` |
-| `docs/**` (any `.mdx`) | the six gates. A full `cd docs && bun run build` is the expensive confirmation, and CI runs it authoritatively on every push |
+| `docs/**` (any `.mdx`) | the seven gates (source: `.github/workflows/static-checks.yml`). A full `cd docs && bun run build` is the expensive confirmation, and CI runs it authoritatively on every push |
 | `tools/fixtures/synthetic/**` (CSV changes) | `bun run fixtures` |
 | `spec/**` | `bun run fixtures` (regenerate) + verify `bun run build` |
 
-**Run all six, not a subset.** The `Static Checks` CI workflow runs exactly these, and a partial local pass reads as a green light while CI still fails:
+**Run all seven, not a subset (source: `.github/workflows/static-checks.yml`).** The `Static Checks` CI workflow runs exactly these, and a partial local pass reads as a green light while CI still fails:
 
 ```
 bun run check:personal-data   # no paths, usernames, emails, secrets, AI attribution
@@ -311,9 +311,10 @@ bun run check:frontmatter     # required frontmatter fields present and well-for
 bun run check:not-content     # inline HTML/SVG diagrams carry class="not-content"
 bun run check:log-labels      # zz-log sidebar labels lead with "MM-DD · " from the filename
 bun run check:links           # every internal doc link resolves to a real page
+bun run check:parity          # command/verb inventory, tracked gaps, generated KB table
 ```
 
-They cost a few seconds combined. Running three of five is how a docs publish failed CI on 2026-08-21 for a sidebar label.
+They cost a few seconds combined. The [parity registry](docs/src/content/docs/reference/ui-cli-parity.mdx) records both UI and `cw` coverage; after changing it, run `bun run parity:write` before checking. Running three of five is how a docs publish failed CI on 2026-08-21 for a sidebar label.
 
 `check:links` was added 2026-08-28 after a sweep found 68 files linking to challenge briefs that had been archived out from under them. Astro deploys broken internal links without complaint, so every one was a silent 404 and the site built green throughout. It knows about the routes `starlight-blog` and `starlight-tags` generate; if a route-generating plugin is added or re-prefixed in `docs/astro.config.mjs`, update `GENERATED_ROUTE_PREFIXES` in `scripts/check-links.mjs` in the same change.
 

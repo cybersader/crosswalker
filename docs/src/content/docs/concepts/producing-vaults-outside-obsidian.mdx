@@ -19,6 +19,8 @@ A vault can be built entirely outside Obsidian and still be fully operational on
 **Answer:** no new tool. Build on disk with `cw`, open or upload the folder, and the plugin rebuilds everything else from the notes. Where something is not quite right after that, it is a plugin bug against the invariant below, not a reason to import through the wizard.
 </Aside>
 
+The [UI and CLI parity reference](/crosswalker/reference/ui-cli-parity/) distinguishes shared engine behavior from actions not yet exposed by `cw`. It tracks both directions with explicit reasons and plans. The CLI is not yet a full replacement for every plugin action; in particular saved-query creation, approvals and recipe-library management remain tracked gaps.
+
 ## 1. Why this works: the schema is the contract
 
 [Architectural commitment 1, schema-as-primitive](/crosswalker/concepts/etl-and-import/#the-reframe--schema-is-the-primitive-etl-is-convenience): the [Tier 1](/crosswalker/concepts/terminology/) (canonical Markdown notes with frontmatter) contract in the [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/) is load-bearing. Any producer that writes valid Tier 1 notes is first-class. The import wizard is one producer among several.
@@ -61,7 +63,7 @@ A vault can be built entirely outside Obsidian and still be fully operational on
 | **Tier 1 content (identical)** | Concept notes, frontmatter, folders, typed wikilinks | Yes, `cw import` runs the same generation engine | `cli/crosswalker.ts` (`runRecognizedImport`), `cli/fs-app.ts` |
 | | Import-set ownership (the minted set id stamped in each note's `_crosswalker` provenance; the provenance is the registry, no separate file) | Yes | `src/generation/import-set.ts` header |
 | | Recipe copy per run, `_crosswalker/import-sets/<set id>/recipe-<digest>.json` | Yes, written through `vault.adapter` | `src/import/import-set-recipes.ts`, `cli/fs-app.ts` |
-| | Mapping notes (or mapping table) plus the mapping-set release record (`kind: mapping-set`) | Yes, `cw import` of a `.sssom.tsv` runs `importSssom` | `cli/crosswalker.ts`, `src/import/sssom-importer.ts`, `src/mappings/mapping-set.ts` |
+| | Mapping notes plus the mapping-set release record (`kind: mapping-set`) | Yes, `cw import` of a `.sssom.tsv` runs `importSssom` | `cli/crosswalker.ts`, `src/import/sssom-importer.ts`, `src/mappings/mapping-set.ts` |
 | **Derived at runtime (rebuilt by the plugin)** | [Tier 2](/crosswalker/concepts/embedded-vs-server-substrates/) query database (plain: the SQLite index behind queries), a projection of Tier 1 | Never needed. Lives in the plugin's private browser storage (OPFS), not in the vault, and the projector rebuilds it from Tier 1 on vault load | `src/tier2/projector.ts` header ("rebuilds it from canonical Tier 1"), `src/tier2/sidecar.ts`, `src/main.ts` (`autoProjectOnLayoutReady`) |
 | | Reference query files (Coverage Matrix `.base`, `_crosswalker/SKILL.md`) | Not needed. Written on first plugin run if absent, never overwritten | `src/views/reference-base-files.ts` |
 | | Status bar framework count and installed frameworks list | Not needed. Discovery by note identity across the whole vault, refreshed on metadata cache events, and shown as indexing until the cache is ready (`src/discovery/installed-frameworks.ts`, merged in PR #67) | `src/main.ts` (status bar), PR #67 |

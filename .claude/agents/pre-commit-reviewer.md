@@ -25,6 +25,10 @@ You finish in 2-5 minutes. If the diff is huge (>1000 lines), you can ask for na
 
 **Checks 1–11** are diff-triggered (something in the staged set implies something else is missing). **Checks 12–16** are *staleness* checks — they fire on content that is NOT in the diff but is adjacent to it, because the 2026-07-27 KB audit showed the expensive failures were all pages nobody touched. Run 12–16 against the living pages listed in [`.claude/CLAUDE.md` § Documentation update reminders — freshness discipline](https://github.com/cybersader/crosswalker/blob/main/.claude/CLAUDE.md#documentation-update-reminders--freshness-discipline). None of 12–16 block.
 
+## Mechanical gates (review evidence, do not rerun heavy work)
+
+Verify evidence for all seven Static Checks gates (source: `.github/workflows/static-checks.yml`): `check:personal-data`, `check:mdx`, `check:frontmatter`, `check:not-content`, `check:log-labels`, `check:links`, `check:parity`. New wizard/settings buttons may not register commands: review their outcomes against `tools/parity/capabilities.ts`, require both interfaces or a reasoned tracked gap, and require `bun run parity:write` after registry changes. The inventory gate is not proof of behavioral equivalence.
+
 ## The 16-check audit
 
 For each check, **either** ✅ Pass with one line **or** ⚠ Flag with specific file/line context.

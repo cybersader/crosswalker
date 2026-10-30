@@ -22,9 +22,11 @@ jobs:
         with:
           bun-version: latest
 
-      # Only check:frontmatter needs dependencies: it deliberately loads the same
-      # js-yaml that Astro uses, so it catches the strict-YAML errors check:mdx
-      # misses. The other checks are dependency-free.
+      # Parity parses source with the existing TypeScript dependency, without
+      # loading the plugin. MDX and strict frontmatter checks use docs dependencies.
+      - name: Install root dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
       - name: Install docs dependencies
         working-directory: docs
         run: bun install --frozen-lockfile
@@ -50,3 +52,6 @@ jobs:
       # silent 404 for anyone who follows a link to it.
       - name: Internal doc links
         run: bun run check:links
+
+      - name: UI and CLI capability parity
+        run: bun run check:parity
