@@ -1,4 +1,5 @@
 {
+	"recipes/import/cis-controls-v8-1-safeguards.json": "sha256-c4b01d5448cf40ca8e2bb1adbc728ad703b401fa4fa7878d97c499460e47cbff",
 	"recipes/import/cis-controls-v8-controls.json": "sha256-b6bdc91fed6c09df042347322becf03e91cb0043e5680c0003fec5daef640f3b",
 	"recipes/import/cis-controls-v8.json": "sha256-6767c47f675f9d29e83ec410984dfaa102662cbea06672f0454b818541114c81",
 	"recipes/import/cri-profile-v2-2-nested.json": "sha256-7c40d91e0d267cf99bf7e1771495f84dc278f038e28e1bc0368b39c00106cb15",

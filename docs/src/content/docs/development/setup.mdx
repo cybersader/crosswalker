@@ -135,7 +135,7 @@ These all work standalone if you prefer not to use the orchestrator:
 | **Command line** | |
 | `bun run cw -- <command>` | Run import, validate or export against a plain folder without Obsidian. Commands: `import`, `validate`, `export`, `replay`, `recipes`; add `--deterministic` for byte-identical output. Exit codes: 0 ok, 1 usage or runtime error, 2 validation failures. `bun run cw -- --help` lists the options. For a workbook, `import` takes `--sheet <name>` and `--header-row <n>` (counted from 1, default 1); when the sheet is wrong, the error lists the workbook's sheets and the sheet the recipe was written for. `replay --vault <dir> --set <set id> --source <file>` runs a set again with the exact recipe revision it ran, read from the copy the set keeps; pass `--digest sha256-<hex>` when the set holds more than one revision |
 | `bun run demo:build -- --out <dir>` | Build the demo vault offline through `cw` only: the full NIST CSF 2.0 and SP 800-53 r5 catalogs, an ATT&CK sample, two mapping sets whose links resolve to framework notes in the vault (`tests/cli/demo-smoke.test.ts` asserts it), synthetic evidence, Bases query files and `Start here.md`. Ends with `cw validate` and fails on any invalid note; never includes restricted framework content. Also writes `.obsidian/graph.json` so Graph view colors each framework, mapping notes and evidence |
-| `bun run demo:add-licensed -- --private-room-only --vault <dir> [--source <workbook>]` | Opt-in local step that adds a licensed framework the user already holds to a built demo vault, with its graph color. Never part of `demo:build`; refuses without `--private-room-only` because the license forbids sharing adapted copies, and refuses a vault inside the repository |
+| `bun run demo:add-licensed -- --private-room-only --vault <dir> [--only cri,cis] [--sources-dir <dir>] [--source <workbook>]` | Add locally held CRI Profile 2.2 and CIS Controls 8.1, subject tags and available mappings to a fresh demo vault outside the repository. Fixed manifest order; missing sources are skipped with acquisition guidance. `--only` selects framework keys; `--sources-dir` resolves default relative source paths (default: this checkout); `--source` overrides the framework workbook only and requires one explicit `--only` key. Never part of `demo:build`; explicit private-room acknowledgement required. See [source bindings and restrictions](/crosswalker/reference/framework-data-sources/#private-room-demo-add-on) |
 | **Docs** | |
 | `cd docs && bun run dev` | Docs Astro dev server |
 | `cd docs && bun run build` | Docs production build → `docs/dist` |
@@ -146,6 +146,10 @@ These all work standalone if you prefer not to use the orchestrator:
 | `bun run check:mdx` | Lightweight MDX syntax pre-check (catches bare braces, unclosed tags, frontmatter YAML errors) — fast (~1–2s) |
 | **Release** | |
 | `bun run version` | Bumps version in `manifest.json` + `versions.json`; stages git changes for commit |
+
+**Mapping release isolation.** `bun run cw -- import --source <file.sssom.tsv> --vault <dir> --set new-set-qualified` explicitly creates a new mapping set whose assertion identities are scoped to that set. Use it to keep overlapping publisher releases separate without taking over an earlier release. It is mapping-only; framework imports reject it. The default remains `--set new`, and refresh still requires the chosen set id. This exposes the existing engine identity scheme, not a new default (sources: `cli/crosswalker.ts`, `src/generation/import-set.ts`, `tests/cli/mapping-release-isolation.test.ts`).
+
+**Private add-on options last verified:** 2026-10-30 against `scripts/demo-add-licensed.mjs`, synthetic CLI tests and two byte-identical local licensed builds. This scope does not re-verify the unrelated development workflows above.
 
 See the [testing page](/crosswalker/development/testing/) for details on each test surface.
 

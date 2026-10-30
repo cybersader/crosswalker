@@ -54,6 +54,53 @@ Choose **Top framework levels as notes** to omit NIST enhancements and CRI diagn
 
 The [framework crosswalk guide](/crosswalker/agent-context/framework-crosswalks/) describes how the plugin converts these files into linked edge notes. No CTID or CRI mapping rows ship in the bundle.
 
+## Private-room demo add-on
+
+Build the public demo first, then run the separate [private add-on workflow](/crosswalker/concepts/producing-vaults-outside-obsidian/#private-demo-two-separate-steps). `demo:build` remains public and unchanged. `demo:add-licensed` reads files you already hold; it downloads nothing and distributes no licensed source content. The acknowledgement is a safety gate, not a licence grant. Keep the enriched vault local or in a private room, and confirm the publisher terms for the intended audience and use.
+
+**Private add-on last verified:** 2026-10-30 against `scripts/demo-add-licensed.mjs`, `src/import/stack/licensed-workbook-readers.ts`, the recipes below and two byte-identical runs against locally held workbooks. Counts below are aggregate observations of those releases, not bundled source data.
+
+### Acquisition and exact bindings
+
+Default paths resolve from `--sources-dir` (the checkout root by default). The manifest tries alternatives in order; missing framework or mapping files produce a one-line skip with an acquisition link. `--only cri,cis` selects framework keys but does not change manifest order. `--source` overrides a framework workbook only and requires one explicit `--only` key.
+
+| Addition | Local filename under `Frameworks/` | Acquire | Binding / method |
+|---|---|---|---|
+| CRI Profile 2.2 | `CRI-Profile-ver.-2.2.2026-04-27.xlsx`; alternative `wp-contentuploads202604CRI-Profile-ver.-2.2.2026-04-27.xlsx` | [CRI Profile](https://cyberriskinstitute.org/the-profile/) | `CRI Profile v2.2 Structure`, CLI header row 3 (zero-based index 2), unchanged `cri-profile-v2-2-nested.json` |
+| CRI subject tags | Same workbook | [CRI Profile](https://cyberriskinstitute.org/the-profile/) | Join `Diagnostic Statements by Tag` (`CRI Profile Subject Tags`, `Profile Id`) with `Subject Tag LIst` (`CRI Profile Subject Tag`); attach sorted, slug-safe `cri/subject/` tags after recipe import |
+| CRI 2.2 mappings catalog | `wp-contentuploads202604CRI-Profile-ver.-2.2-Mappings-Catalog.2026-04-27.xlsx` | [CRI Profile](https://cyberriskinstitute.org/the-profile/) | `CIS v8.1`, `MITRE ATT&CK`, `NIST 800-53r5`, `NIST CSF v2`; headers located by required columns; absent counterpart sheets are listed and skipped |
+| CRI 2.1 to SP 800-53 | `wp-contentuploads202509CRI-Profile-v2.1-to-SP-800-53-Rev-5.1.1.Final_.2025.xlsx` | [CRI Profile](https://cyberriskinstitute.org/the-profile/) | Existing OLIR reader; NIST focal endpoint reversed to CRI subject; NIST zero padding normalized |
+| CRI 2.1 to ATT&CK workbook | `wp-contentuploads202509MITRE-ATTACK-v16.1-to-CRI-Profile-v2.1-Mapping.2025.xlsx`; alternative `cri_profile-v2.1_attack-16.1-enterprise.xlsx` | [CRI Profile](https://cyberriskinstitute.org/the-profile/) | `Mappings Explorer Download` or `Sheet1`; `capability_id`, `attack_object_id`, `mapping_type`; existing CTID conversion semantics |
+| CRI 2.1 to ATT&CK JSON | `cri_profile-v2.1_attack-16.1-enterprise_json.json` | [CTID Mappings Explorer](https://center-for-threat-informed-defense.github.io/mappings-explorer/) | Compare semantic assertion sets with the workbook before endpoint filtering; import only assertions absent from the workbook |
+| CIS Controls 8.1 | `_licensed/CIS_Controls_Version_8.1_6_24_2024.xlsx` | [CIS Controls](https://www.cisecurity.org/controls) | `Controls V8`, CLI header row 1. Shipped `cis-controls-v8-controls.json` plus additive `cis-controls-v8-1-safeguards.json`; the latter binds `Asset Type` rather than the older recipe's `Asset Class` |
+| CIS v8 to CSF 2.0 | `_licensed/CIS_Controls_v8_Mapping_to_NIST_CSF_2_2023.xlsx` | [CIS Controls](https://www.cisecurity.org/controls) | `All CIS Controls & Safeguards`; `CIS Sub-Control` (fallback `CIS Control`) and `Subcategory` |
+
+CIS files are also searched under `_licensed/` directly beneath `--sources-dir`. Controls and safeguards share only the exact new framework set minted by this invocation. This keeps one publisher release under one identity namespace; it never guesses an existing refresh target.
+
+### Resolution and release limits
+
+- Mapping adapters reuse the [stack readers](#stack-mapping-sources), write temporary SSSOM files outside the repository and import them through `cw`. Each external release explicitly uses [set-qualified mapping identities](/crosswalker/development/setup/#build-commands-raw), so overlapping assertions from independent releases coexist. Existing CLI defaults and public demo output do not change.
+- Endpoint resolution uses actual note `curie` properties across the vault, never folder names. Formatting normalization is limited to SP 800-53 zero padding / whitespace and CSF single-digit suffix padding. **No CRI version migration is inferred.** The older files' CRI endpoints all resolved as written against the imported 2.2 notes in this verification; this proves identifier presence, not semantic equivalence across releases.
+- The public ATT&CK sample is incomplete. Rows without both endpoint notes are excluded and counted by missing subject, missing object or both; blank mapping endpoints and duplicate JSON assertions are reported separately. The catalog logs each absent counterpart sheet instead of pretending to import its mappings.
+- Workbook readers preserve displayed identifiers and expand declared merged cells only. They do not generically fill missing mapping endpoints. Subject-tag enrichment is a separate cross-sheet join because the shipped row recipe cannot express that join. Tags assigned by the per-statement sheet are retained even when its tag-list lookup is stale.
+
+| Verified addition | Source rows / assertions | Imported result | Exclusions / observations |
+|---|---:|---:|---|
+| CRI framework | 472 rows | 472 notes | None |
+| CIS framework | 171 rows | 18 control + 153 safeguard notes | None |
+| CRI subject tags | 1,545 associations | 318 statements tagged, 1,545 associations retained | 40 tag-list lookup mismatches retained |
+| CRI 2.2 catalog to CIS | 457 | 457 resolved edges | None |
+| CRI 2.2 catalog to ATT&CK | 2,152 | 171 resolved edges | 1,981 absent ATT&CK endpoints |
+| CRI 2.2 catalog to SP 800-53 | 1,118 | 1,037 resolved edges | 75 absent CRI + 6 absent NIST endpoints |
+| CRI 2.2 catalog to CSF | 154 | 142 resolved edges | 12 absent CSF endpoints |
+| CRI 2.1 to SP 800-53 | 1,039 | 1,037 resolved edges | 2 absent NIST endpoints; all CRI endpoints present |
+| CRI 2.1 to ATT&CK workbook | 2,152 | 171 resolved edges | 1,981 absent ATT&CK endpoints; all CRI endpoints present |
+| CRI 2.1 to ATT&CK JSON | 2,152 | No additional edges | Identical assertion set to workbook |
+| CIS to CSF | 234 rows / 166 assertions | 166 resolved edges | 68 blank mapping endpoints |
+| CRI recipe's built-in CSF links | 433 | 433 resolved edges | None; shipped recipe unchanged |
+
+The resulting vault validated **6,626 Crosswalker notes**. All **3,614 newly added mapping edges** had both identity endpoints and both note links resolved; two fresh copies of the same public base diffed identically, including `.obsidian/graph.json`. These are local verification counts for the listed sources, not stable API promises. The add-on refuses a vault inside the repository or one containing symlinks, refuses a framework already present, updates graph colors and `Start here.md`, and validates at the end. A failed or interrupted run can leave partial output: start again from a fresh public base, not the partial vault.
+
 ## Licence posture
 
 This is a practical pointer, not legal advice and not a replacement for the publisher's terms. Importing a file for your own use, redistributing the source, and sharing generated notes are different acts. Confirm the terms for the exact version, fields, audience, and use involved.

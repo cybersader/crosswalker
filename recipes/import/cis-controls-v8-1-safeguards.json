@@ -1,0 +1,48 @@
+{
+  "$comment": "Private demo companion for the CIS Controls 8.1 workbook, Controls V8 worksheet. Uses the shipped safeguard recipe shape with Asset Type bound to asset_class. Source cells and output remain local-only under the publisher terms. No source content is included.",
+  "recipe": "cis-controls-v8-1-safeguards",
+  "source": {
+    "ontology": "cis-v8",
+    "levels": [
+      "safeguard"
+    ],
+    "where": "$trim(`CIS Safeguard`) != ''"
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "safeguard",
+        "mechanism": "file",
+        "template": "{CIS Safeguard|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "frontmatter": {
+        "managed": {
+          "title": "{Title|trim}",
+          "safeguard_id": "{CIS Safeguard}",
+          "control": "{CIS Control|trim}",
+          "asset_class": "{Asset Type|trim}",
+          "security_function": "{Security Function|trim}",
+          "ig1": "{IG1|trim}",
+          "ig2": "{IG2|trim}",
+          "ig3": "{IG3|trim}"
+        },
+        "user_preserve": [
+          "reviewer",
+          "status",
+          "notes"
+        ]
+      },
+      "body": [
+        {
+          "template": "{Description|trim}",
+          "position": "section",
+          "heading": "Safeguard",
+          "heading_depth": 2,
+          "format": "text"
+        }
+      ]
+    }
+  }
+}
