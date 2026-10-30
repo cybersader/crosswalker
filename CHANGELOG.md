@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: deterministic imports in larger vaults (2026-10-30)
+
+- Import-set minting replays occupied deterministic candidates within a bounded `existingIds.size + 100` budget instead of imposing a hundred-set ceiling; existing ids stay unchanged and exhaustion reports the real attempt count with a next action.
+
 ### Added: enforced UI and command line capability inventory (2026-10-30)
 
 - `tools/parity/capabilities.ts` records lifecycle outcomes, actual plugin command ids, `cw` verbs and explicit gaps in both directions. Refresh is already covered by `import --set` and `replay`; built-in recipe listing is kept separate from the saved recipe library. Set management, saved queries and graph colors, approvals, then the recipe library are the ordered closure backlog.
