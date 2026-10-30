@@ -428,6 +428,7 @@ export function parseCSVFileStream(
 	return {
 		columns,                  // populated lazily once first row arrives
 		rows,                     // AsyncIterable
+		reopenRows: () => parseCSVFileStream(file, options).rows as AsyncIterable<Record<string, any>>,
 		rowCount: -1,             // unknown until parse completes
 		container: { kind: 'flat' },
 	};

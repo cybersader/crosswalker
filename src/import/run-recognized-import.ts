@@ -197,7 +197,7 @@ export async function runRecognizedImport(
 		const candidates = req.refreshSetId ? null : await candidateSourceRows(parsedData, candidateRecipe);
 		const importSet = req.refreshSetId ? { id: req.refreshSetId } : await newSetSchemeFor(
 			app, slugifyForCurie(req.entry.ontology), candidateRunIdentities(candidates!.rows, candidateRecipe, {
-				basePath: destination, mapping: config.mapping, rowNumbers: candidates!.rowNumbers,
+				basePath: destination, config, streamed: !Array.isArray(parsedData.rows), rowNumbers: candidates!.rowNumbers,
 			}).claims,
 		);
 		const result = await generateNotes(

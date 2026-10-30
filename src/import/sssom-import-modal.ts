@@ -32,6 +32,9 @@ import { runImportStrm, strmToSssomDocument, type StrmReleaseFile } from './strm
 import { releaseFilePathFor } from '../export/strm-tsv-exporter';
 import {
 	discoverImportSets,
+	discoverIdentityClaims,
+	identityOverlappingSets,
+	newSetIdentitySummary,
 	newSetSchemeFor,
 	type DiscoveredImportSet,
 	type ImportSetOption,
@@ -384,6 +387,23 @@ export class SssomImportModal extends Modal {
 		);
 	}
 
+	private identityCandidatesSource: string | null = null;
+	private identityCandidatesCache = new Map<string, Set<string>>();
+	private candidateIdentities(importSet?: DiscoveredImportSet): Set<string> {
+		const source = this.parsedTsv ?? '';
+		if (this.identityCandidatesSource !== source) {
+			this.identityCandidatesSource = source;
+			this.identityCandidatesCache.clear();
+		}
+		const key = importSet ? JSON.stringify([importSet.scheme === 'set-qualified-v1' ? importSet.id : '', importSet.scheme, importSet.ontology, importSet.derivation]) : 'new';
+		let candidates = this.identityCandidatesCache.get(key);
+		if (!candidates) {
+			candidates = candidateCrosswalkCuries(parseSssomTsv(source).rows, importSet);
+			this.identityCandidatesCache.set(key, candidates);
+		}
+		return candidates;
+	}
+
 	/**
 	 * AM-11. Ownership review for the crosswalk destination, the same shape as the
 	 * wizard review: every set that lives here is listed, a new set is the default,
@@ -403,8 +423,13 @@ export class SssomImportModal extends Modal {
 	private async renderImportSetChoice(container: HTMLElement, basePath: string): Promise<boolean> {
 		this.previewRefreshSet = null;
 		let sets: DiscoveredImportSet[];
+		let identityExplanation: string;
 		try {
 			sets = await this.importSetsForDestination(basePath);
+			const allSets = await discoverImportSets(this.app);
+			const claims = await discoverIdentityClaims(this.app, allSets);
+			identityExplanation = newSetIdentitySummary(this.candidateIdentities(), claims, allSets,
+				(set) => describeImportSet(set), this.importSetChoice === 'new-set-qualified');
 		} catch (error) {
 			container.createEl('p', {
 				text: error instanceof Error ? error.message : String(error),
@@ -412,7 +437,10 @@ export class SssomImportModal extends Modal {
 			});
 			return false;
 		}
-		if (sets.length === 0) return true;
+		if (sets.length === 0) {
+			container.createEl('p', { text: identityExplanation, cls: 'setting-item-description' });
+			return true;
+		}
 
 		const refreshing = this.refreshTargetSet(sets);
 		this.previewRefreshSet = refreshing;
@@ -427,9 +455,7 @@ export class SssomImportModal extends Modal {
 					: `Refreshing ${refreshing.id} (${plural(refreshing.noteCount, 'existing note')}). This replaces that release while preserving its identities.`,
 			);
 		} else {
-			line.setText(sets.length === 1
-				? 'Importing as a new set. Existing imports stay separate. Identifiers gain a set suffix only when a mapping is already present.'
-				: `Importing as a new set. The ${sets.length} existing imports stay separate. Identifiers gain a set suffix only when a mapping is already present.`);
+			line.setText(`Importing as a new set. Existing imports stay separate. ${identityExplanation}`);
 		}
 
 		// Every set, with the facts that tell them apart. A minted id is deliberately
@@ -453,10 +479,11 @@ export class SssomImportModal extends Modal {
 				});
 			});
 
-		// The existing button, in its original role and now its only one: the
-		// one-click route into a refresh when a single set sits at this destination.
-		if (!refreshing && sets.length === 1) {
-			const set = sets[0];
+		// One overlapping set earns an offer, never a preselection. A shared
+		// destination alone says nothing about ownership.
+		const overlapping = identityOverlappingSets(sets, (set) => this.candidateIdentities(set));
+		if (!refreshing && overlapping.length === 1) {
+			const set = overlapping[0];
 			const refresh = wrap.createEl('button', { text: `Refresh ${describeImportSet(set)} instead` });
 			refresh.addEventListener('click', () => {
 				this.importSetChoice = { id: set.id, scheme: set.scheme };
@@ -537,7 +564,7 @@ export class SssomImportModal extends Modal {
 		// The undetected-pair case lands here too. It used to return a bare `new`,
 		// and there is no reason for it to answer the qualification question
 		// differently from any other route to a new set.
-		return newSetSchemeFor(this.app, SSSOM_CURIE_PREFIX, candidateCrosswalkCuries(parseSssomTsv(this.parsedTsv ?? '').rows));
+		return newSetSchemeFor(this.app, SSSOM_CURIE_PREFIX, this.candidateIdentities());
 	}
 
 	private isExistingSetChoice(choice: ImportSetOption | null = this.importSetChoice): choice is { id: string } {

@@ -4725,3 +4725,67 @@ describe.each(['replace', 'skip'] as const)(
 		});
 	},
 );
+
+
+describe('shared-prefix review follow-ups', () => {
+	it('offers an overlapping set with an unslugged ontology pin', async () => {
+		const vault = makeVault();
+		const { flow } = await askWhereItLands(vault.app, { ontology: 'MITRE ATT&CK' });
+		const internals = flow as unknown as { candidateIdentities(set?: DiscoveredImportSet): Set<string> };
+		const set = { id: 'iset-aaaaaa', scheme: 'endpoint-v1', derivation: 'declared-facts-v1',
+			ontology: 'MITRE ATT&CK', ontologyPrefixes: [], curies: new Set<string>(),
+		} as unknown as DiscoveredImportSet;
+		set.curies = internals.candidateIdentities(set);
+		expect(set.curies.size).toBeGreaterThan(0);
+		expect(inner(flow).offeredRefreshSet([set])).toBe(set);
+		expect(inner(flow).importSetChoice).toBeNull();
+	});
+
+	it('keeps a partial recognized match review usable and safely qualified', async () => {
+		const vault = await vaultWithOneSetInTheSharedRoot();
+		const data = parsed();
+		const { flow } = makeFlow(vault.app, { data });
+		flow.columnInfos = analyzeColumns(data);
+		const partialRecipe: Recipe = { ...RECIPE, target: { ...RECIPE.target,
+			layout: [{ level: 'tactic', mechanism: 'folder', template: '{missing_group}' }, ...RECIPE.target.layout.slice(1)],
+		} };
+		(flow as unknown as { recognizedMatch: unknown }).recognizedMatch = {
+			entry: { ...RECIPE_REGISTRY[0], id: 'partial-match-nested', recipe: partialRecipe }, score: 60,
+		};
+		(flow as unknown as Record<string, unknown>).renderStep = () => {};
+		await expect(inner(flow).startRecognizedRecipe(3)).resolves.toBeUndefined();
+		expect(inner(flow).selectedImportSet()).toBe('new-set-qualified');
+		const texts = captureReview(flow).texts.join(' ');
+		expect(texts).toContain('Set-suffixed: the recipe needs columns this source could not supply.');
+		expect(texts).toContain('Review the column choices before importing.');
+		expect(texts).not.toContain('Looks like');
+		expect(inner(flow).importSetChoice).toBeNull();
+	});
+
+	it('memoizes candidates across offers and repeated review renders', async () => {
+		const vault = await vaultWithOneSetInTheSharedRoot();
+		const { flow } = await askWhereItLands(vault.app);
+		const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+		const spy = jest.spyOn(engine, 'candidateRunIdentities');
+		try {
+			captureReview(flow);
+			const afterFirst = spy.mock.calls.length;
+			captureReview(flow);
+			inner(flow).selectedImportSet();
+			expect(spy.mock.calls.length).toBe(afterFirst);
+			const internals = flow as unknown as { candidateIdentities(set?: DiscoveredImportSet): Set<string> };
+			const set = inner(flow).discoveredSets![0];
+			const first = internals.candidateIdentities(set);
+			expect(internals.candidateIdentities({ ...set, id: 'iset-bbbbbb' })).toBe(first);
+		} finally { spy.mockRestore(); }
+	});
+
+	it('shows the computed overlap count and the owning set in wizard review', async () => {
+		const vault = await vaultWithOneSetInTheSharedRoot();
+		const { flow } = await askWhereItLands(vault.app);
+		const text = captureReview(flow).texts.join(' ');
+		expect(text).toMatch(/Set-suffixed: \d+ identifiers? already held by/);
+		expect(text).toContain(inner(flow).setDisplayName(inner(flow).discoveredSets![0]));
+		expect(text).not.toContain('only when');
+	});
+});

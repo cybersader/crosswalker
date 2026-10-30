@@ -7,6 +7,7 @@ import { discoverImportSets, newSetSchemeFor, newSetSchemeFrom } from '../src/ge
 import { buildIdentityIndex } from '../src/generation/identity-index';
 import { legacyConfigToRecipe } from '../src/generation/legacy-recipe-shim';
 import { buildSyntheticRecipe } from '../src/import/sssom-importer';
+import { parseCSVFileStream } from '../src/import/parsers/csv-parser';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const yaml = require('js-yaml') as { load: (s: string) => unknown };
 function makeApp() {
@@ -71,7 +72,7 @@ const row = (id: string) => ({ id, title: id });
 const sorted = (values: Iterable<string>) => [...values].sort();
 async function planned(data: ParsedData, recipeInput = recipe, extra = {}) {
 	const shaped = await candidateSourceRows(data, recipeInput);
-	return candidateRunIdentities(shaped.rows, recipeInput, { basePath: 'Next', rowNumbers: shaped.rowNumbers, ...extra });
+	return candidateRunIdentities(shaped.rows, recipeInput, { basePath: 'Next', streamed: !Array.isArray(data.rows), rowNumbers: shaped.rowNumbers, ...extra });
 }
 async function run(app: App, data: ParsedData, recipeInput = recipe, importSet: 'new' | 'new-set-qualified' = 'new', extra = {}) {
 	return generateFromRecipe(app, data, recipeInput, {
@@ -145,6 +146,11 @@ const fixtures: Array<{ name: string; rows: Record<string, unknown>[]; recipe: R
 			layout: [{ level: 'group', mechanism: 'folder', template: '{group}' }, ...recipe.target.layout],
 			also_emit: { tags: ['group/{group|tagsafe}'] },
 			enrichment: { children_lists: true, facet_notes: 'notes', level_hubs: 'notes', parent_note: 'sibling' },
+		},
+	} },
+	{ name: 'implied concept without enrichment block', rows: [{ ...row('child'), parent: 'Parent' }], recipe: {
+		...recipe, source: { ...recipe.source, levels: ['parent', 'leaf'] }, target: {
+			layout: [{ level: 'parent', mechanism: 'folder', template: '{parent}', implied_concept: { identity: '{parent}' } }, ...recipe.target.layout],
 		},
 	} },
 	{ name: 'nested path identity', rows: [{ id: 'g1', title: 'Group', controls: [{ id: 'c1', title: 'Child' }] }], recipe: {
@@ -250,4 +256,109 @@ it('mapping proposals name assertions, not endpoints, and equal engine writes', 
 	const result = await run(app, parsed(rows), edgeRecipe);
 	expect(result.errors).toEqual([]);
 	expect(sorted((await buildIdentityIndex(app)).curies())).toEqual(sorted(proposal));
+});
+
+
+it('qualifies overlap with an implied hub even without an enrichment block', async () => {
+	const { app, files } = makeApp();
+	const implied = fixtures.find((fixture) => fixture.name === 'implied concept without enrichment block')!;
+	const data = parsed(implied.rows);
+	const proposal = await planned(data, implied.recipe);
+	const hub = [...proposal.written].find((curie) => curie !== 'mitre-attack:child')!;
+	expect(hub).toBeDefined();
+	files.set('Existing hub.md', `---\ncurie: "${hub}"\n_crosswalker:\n  import_set: { id: iset-aaaaaa, scheme: endpoint-v1, ontology: mitre-attack }\n---\n`);
+	const mode = await newSetSchemeFor(app, 'mitre-attack', proposal.claims);
+	expect(mode).toBe('new-set-qualified');
+	expect((await run(app, data, implied.recipe, mode)).errors).toEqual([]);
+});
+
+it.each(['native', 'config'])('keeps a streamed folder-note refresh byte-identical after planning (%s)', async (entry) => {
+	const clock = jest.spyOn(Date.prototype, 'toISOString').mockReturnValue('2026-10-30T12:00:00.000Z');
+	try {
+	const { app, files } = makeApp();
+	const folderRecipe: Recipe = { ...recipe, source: { ...recipe.source, levels: ['group', 'leaf'] }, target: {
+		layout: [{ level: 'group', mechanism: 'folder', template: '{group}' }, ...recipe.target.layout],
+		enrichment: { children_lists: true, level_hubs: 'notes', parent_note: 'folder-note' },
+	} };
+	const config = { name: 'mitre-attack', mapping: { hierarchy: [], frontmatter: [], links: [], body: [] } };
+	const source = () => Object.freeze({ ...parsed([]), rowCount: 1,
+		rows: (async function* () { yield { ...row('child'), group: 'Parent' }; })() });
+	const execute = (data: ParsedData, importSet: unknown) => entry === 'native'
+		? generateFromRecipe(app, data, folderRecipe, { basePath: 'Next', overwriteMode: 'replace', createFolders: true, importSet } as never)
+		: generateNotes(app, data, config, { basePath: 'Next', overwriteMode: 'replace', createFolders: true, importSet, recipeOverride: folderRecipe } as never);
+	expect((await execute(source(), 'new')).errors).toEqual([]);
+	const [set] = await discoverImportSets(app);
+	expect((await execute(source(), { id: set.id })).errors).toEqual([]);
+	const baseline = new Map(files);
+	const data = source();
+	const originalRows = data.rows;
+	await planned(data, folderRecipe, { importSet: set, ...(entry === 'config' ? { config } : {}) });
+	expect(data.rows).toBe(originalRows);
+	expect(Array.isArray(data.rows)).toBe(false);
+	expect((await execute(data, { id: set.id })).errors).toEqual([]);
+	expect(files).toEqual(baseline);
+	} finally { clock.mockRestore(); }
+});
+
+it('reads a reopenable stream independently without consuming generation rows', async () => {
+	let generationReads = 0;
+	const originalRows = { async *[Symbol.asyncIterator]() { generationReads++; yield row('A'); } };
+	const data: ParsedData = { columns: ['id', 'title'], rowCount: 1, rows: originalRows,
+		reopenRows: () => (async function* () { yield row('A'); })(),
+	};
+	const { app } = makeApp();
+	await planned(data);
+	expect(generationReads).toBe(0);
+	expect(data.rows).toBe(originalRows);
+	expect((await run(app, data)).errors).toEqual([]);
+	expect(generationReads).toBe(1);
+});
+
+it('honors the set ontology pin after the recipe is renamed, including enrichment', async () => {
+	const { app } = makeApp();
+	const data = parsed([{ ...row('A'), group: 'Group' }]);
+	const enriched = fixtures.find((fixture) => fixture.name === 'hierarchy and facet hubs')!.recipe;
+	expect((await run(app, data, enriched)).errors).toEqual([]);
+	const [set] = await discoverImportSets(app);
+	const renamed: Recipe = { ...enriched, recipe: 'renamed-recipe', source: { ...enriched.source, ontology: 'different-proposal' } };
+	const proposal = await planned(data, renamed, { importSet: set });
+	expect(sorted(proposal.written)).toEqual(sorted(set.curies));
+	expect((await generateFromRecipe(app, data, renamed, { basePath: 'Next', overwriteMode: 'replace', importSet: { id: set.id } })).errors).toEqual([]);
+	expect(sorted((await buildIdentityIndex(app)).curies())).toEqual(sorted(proposal.written));
+});
+
+it('uses the config name, not the recipe id, for an override without source ontology', async () => {
+	const { app } = makeApp();
+	const override: Recipe = { ...recipe, recipe: 'renamed-display-recipe', source: { levels: ['leaf'] } };
+	const config = { name: 'Publisher catalog', mapping: { hierarchy: [], frontmatter: [], links: [], body: [] } };
+	const data = parsed([row('A')]);
+	const proposal = await planned(data, override, { config });
+	expect(sorted(proposal.written)).toEqual(['publisher-catalog:A']);
+	expect((await generateNotes(app, data, config, { basePath: 'Next', overwriteMode: 'replace', importSet: 'new', recipeOverride: override })).errors).toEqual([]);
+	expect(sorted((await buildIdentityIndex(app)).curies())).toEqual(sorted(proposal.written));
+});
+
+it('shares the engine filename-stem fallback when no mapping option was supplied', async () => {
+	const { app, files } = makeApp();
+	files.set('Next/A.md', '---\ncurie: mitre-attack:row-1\n_crosswalker:\n  import_set: { id: iset-aaaaaa, scheme: endpoint-v1, ontology: mitre-attack, derivation: filename-stem-v1, destination: Next }\n---\n');
+	const [set] = await discoverImportSets(app);
+	const config = { name: 'mitre-attack', mapping: { hierarchy: [], frontmatter: [], links: [], body: [] } };
+	const data = parsed([row('A')]);
+	const proposal = await planned(data, recipe, { config, importSet: set });
+	expect(sorted(proposal.written)).toEqual(['mitre-attack:row-1']);
+	expect((await generateNotes(app, data, config, { basePath: 'Next', overwriteMode: 'replace', importSet: { id: set.id }, recipeOverride: recipe })).errors).toEqual([]);
+	expect(sorted((await buildIdentityIndex(app)).curies())).toEqual(sorted(proposal.written));
+});
+
+
+it('reopens a real CSV parser stream for planning and leaves the original iterator intact', async () => {
+	const { app } = makeApp();
+	const data = parseCSVFileStream(new File(['id,title\nA,First\nB,Second\n'], 'synthetic.csv'));
+	const original = data.rows;
+	const proposal = await planned(data);
+	expect(data.rows).toBe(original);
+	expect(Array.isArray(data.rows)).toBe(false);
+	expect((await run(app, data)).errors).toEqual([]);
+	expect(sorted((await buildIdentityIndex(app)).curies())).toEqual(sorted(proposal.written));
+	expect(sorted(proposal.written)).toEqual(['mitre-attack:A', 'mitre-attack:B']);
 });

@@ -475,3 +475,39 @@ describe('what a crosswalk import asks the engine to do to notes it does not own
 		expect(passed.overwriteMode).toBe('replace');
 	});
 });
+
+
+describe('identity-overlap mapping review', () => {
+	it('does not offer a refresh for disjoint mappings at the same destination', async () => {
+		const vault = makeVault();
+		await importThroughTheModal(vault.app, VENDOR_TSV);
+		const disjoint = 'subject_id\tpredicate_id\tobject_id\ncsf:NEW\tskos:relatedMatch\tiso27001:NEW\n';
+		const { modal } = openModal(vault.app, disjoint);
+		const review = await captureReview(modal);
+		expect([...review.clicks.keys()].filter((label) => label.startsWith('Refresh '))).toEqual([]);
+		expect(review.texts.join(' ')).toContain('Plain identifiers: none overlap an existing set.');
+		expect(review.dropdown!.value).toBe('__new__');
+		expect(inner(modal).importSetChoice).toBeNull();
+	});
+
+	it('offers exactly one overlapping set and shows the computed count without selecting it', async () => {
+		const vault = makeVault();
+		await importThroughTheModal(vault.app, VENDOR_TSV);
+		const { modal } = openModal(vault.app, INHOUSE_TSV);
+		const review = await captureReview(modal);
+		expect([...review.clicks.keys()].filter((label) => label.startsWith('Refresh '))).toHaveLength(1);
+		expect(review.texts.join(' ')).toMatch(/Set-suffixed: 1 identifier already held by iset-/);
+		expect(review.dropdown!.value).toBe('__new__');
+		expect(inner(modal).importSetChoice).toBeNull();
+	});
+
+	it('memoizes mapping candidates until the source changes', async () => {
+		const vault = makeVault();
+		const { modal } = openModal(vault.app, VENDOR_TSV);
+		const internals = modal as unknown as { candidateIdentities(): Set<string> };
+		const first = internals.candidateIdentities();
+		expect(internals.candidateIdentities()).toBe(first);
+		inner(modal).parsedTsv = INHOUSE_TSV;
+		expect(internals.candidateIdentities()).not.toBe(first);
+	});
+});

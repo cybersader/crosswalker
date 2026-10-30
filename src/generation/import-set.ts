@@ -400,6 +400,30 @@ export async function requireVaultIndexed(app: App): Promise<void> {
 	if (await settleVaultIndex(app) > 0) throw new VaultStillIndexingError();
 }
 
+/** Shared offer rule: a destination or publisher label never implies ownership. */
+export function identityOverlappingSets(
+	sets: readonly DiscoveredImportSet[],
+	candidates: (set: DiscoveredImportSet) => ReadonlySet<string>,
+): DiscoveredImportSet[] {
+	return sets.filter((set) => [...candidates(set)].some((curie) => set.curies.has(curie)));
+}
+
+/** Describe this run's computed outcome, not the general qualification rule. */
+export function newSetIdentitySummary(
+	candidates: ReadonlySet<string>, claims: ReadonlySet<string>,
+	sets: readonly DiscoveredImportSet[], label: (set: DiscoveredImportSet) => string,
+	forceQualified = false,
+): string {
+	const overlaps = [...candidates].filter((curie) => claims.has(curie));
+	if (overlaps.length === 0) return forceQualified
+		? 'Set-suffixed: you chose to keep this release separate.'
+		: 'Plain identifiers: none overlap an existing set.';
+	const owners = sets.filter((set) => overlaps.some((curie) => set.curies.has(curie))).map(label);
+	const unowned = overlaps.some((curie) => !sets.some((set) => set.curies.has(curie)));
+	if (unowned) owners.push('existing notes');
+	return `Set-suffixed: ${overlaps.length} ${overlaps.length === 1 ? 'identifier' : 'identifiers'} already held by ${owners.join(', ')}.`;
+}
+
 /**
  * AM-18 (2026-08-31). WHICH new set to mint: the ONE implementation.
  *

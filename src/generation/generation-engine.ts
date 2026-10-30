@@ -544,9 +544,7 @@ export async function generateNotes(
 		// Crosswalk identity belongs to the note kind, not to the source label. A
 		// refresh still wins through the import set's pinned ontology below.
 		const recipeNoteKind = noteKindOf(recipe);
-		const proposedOntologyId = recipeNoteKind === 'crosswalk-edge'
-			? SSSOM_CURIE_PREFIX
-			: recipe.source?.ontology ?? (config.name ?? LEGACY_ONTOLOGY_SENTINEL);
+		const proposedOntologyId = resolveRunOntology(recipe, undefined, config.name ?? LEGACY_ONTOLOGY_SENTINEL);
 
 		// Ownership is minted or selected once per run, before any note is written.
 		// Never derive this id from recipe/source/path: all are allowed to change on
@@ -645,7 +643,7 @@ export async function generateNotes(
 		// then wrote would match none of the notes the set already owns: a second
 		// copy of the whole framework, with every original reported as an orphan.
 		// A set with no pin (legacy, or genuinely new) falls back to the proposal.
-		const ontologyId = importSet.ontology ?? proposedOntologyId;
+		const ontologyId = resolveRunOntology(recipe, importSet, proposedOntologyId);
 		// AM-13. The SET's scheme decides the identity space, not just the ontology.
 		// A set minted set-qualified writes qualified curies for its concepts and
 		// for every hub enrichment derives from this prefix, which is what lets a
@@ -692,7 +690,7 @@ export async function generateNotes(
 		// source shaping, but this run may add the wizard's sourceWhere override above.
 		let sourceStage: SourceStage;
 		try {
-			sourceStage = await prepareSourceStage(parsedData, recipe.source);
+			sourceStage = await prepareSourceStage(await identityReplayData(parsedData), recipe.source);
 		} catch (stageErr) {
 			if (!(stageErr instanceof SourceStageError)) throw stageErr;
 			result.errors.push({ row: stageErr.row ?? 0, message: stageErr.message, declaration: stageErr.declaration });
@@ -3164,9 +3162,7 @@ export async function generateFromRecipe(
 	const recipeNoteKind = noteKindOf(recipe);
 	// Crosswalk identity belongs to the note kind, not to the source label. The
 	// existing set's pin still wins below, including the frozen legacy xwalk space.
-	const proposedOntologyId = recipeNoteKind === 'crosswalk-edge'
-		? SSSOM_CURIE_PREFIX
-		: recipe.source?.ontology ?? recipe.recipe;
+	const proposedOntologyId = resolveRunOntology(recipe);
 	// Headless imports obey the same destination-discovery rules as the wizard.
 	// Callers can name a wiped/empty set explicitly or force a new mint.
 	const resolvedImportSet = await resolveImportSet(
@@ -3209,7 +3205,7 @@ export async function generateFromRecipe(
 	// prefix disagrees with the notes it owns writes a second copy of the whole
 	// import and orphans the first. An explicit `options.curiePrefix` still wins
 	// over both: that caller is naming the identity space on purpose.
-	const ontologyId = importSet.ontology ?? proposedOntologyId;
+	const ontologyId = resolveRunOntology(recipe, importSet, proposedOntologyId);
 	// Crosswalk release isolation lives in `sssomEdgeCurie`'s local part, so its
 	// prefix is the set-pinned ontology itself. Other note kinds keep the ordinary
 	// scheme-aware prefix and caller override behavior.
@@ -3262,7 +3258,7 @@ export async function generateFromRecipe(
 	// reference back untouched and never enters the jsonata module at all.
 	let sourceStage: SourceStage;
 	try {
-		sourceStage = await prepareSourceStage(parsedData, recipe.source);
+		sourceStage = await prepareSourceStage(await identityReplayData(parsedData), recipe.source);
 	} catch (stageErr) {
 		if (stageErr instanceof SourceStageError) {
 			// Preflight failure. row 0 matches the existing `Ambiguous identity`
@@ -6180,6 +6176,12 @@ function deriveRowCurie(...args: Parameters<typeof deriveRowCurieRaw>): string {
 	return runIdentityCuries({ rows: [args] }).written.values().next().value!;
 }
 
+/** The set pin wins; callers of generateNotes supply the config-name fallback. */
+export function resolveRunOntology(recipe: Recipe, importSet?: ImportSetReference, fallback = recipe.recipe): string {
+	return importSet?.ontology ?? (noteKindOf(recipe) === 'crosswalk-edge'
+		? SSSOM_CURIE_PREFIX : recipe.source?.ontology ?? fallback);
+}
+
 /** Pure plan over already-shaped source rows. Defaults to the new-set proposal;
  * refresh offers may supply a target set to compare its pinned identity scheme. */
 export function candidateRunIdentities(
@@ -6188,6 +6190,8 @@ export function candidateRunIdentities(
 	options: {
 		basePath: string;
 		mapping?: MappingConfig;
+		/** Present when planning generateNotes rather than generateFromRecipe. */
+		config?: Partial<ImportRecipe>;
 		curieLocalPart?: RecipeImportOptions['curieLocalPart'];
 		facetsForRow?: GenerationOptions['facetsForRow'];
 		streamed?: boolean;
@@ -6196,7 +6200,9 @@ export function candidateRunIdentities(
 	},
 ): { written: Set<string>; claims: Set<string> } {
 	const kind = noteKindOf(recipe);
-	const ontology = kind === 'crosswalk-edge' ? SSSOM_CURIE_PREFIX : recipe.source?.ontology ?? recipe.recipe;
+	const ontology = resolveRunOntology(recipe, options.importSet, options.config ? options.config.name ?? LEGACY_ONTOLOGY_SENTINEL : recipe.recipe);
+	const mapping = options.config ? options.config.mapping ?? { hierarchy: [], frontmatter: [], links: [], body: [] } : options.mapping;
+	const enrichmentEnabled = recipeNeedsEnrichment(recipe);
 	const set: ImportSetReference = options.importSet ?? { id: 'iset-000000', scheme: 'endpoint-v1', derivation: 'declared-facts-v1' };
 	const basePrefix = baseCuriePrefixFor(set, ontology);
 	const prefix = kind === 'crosswalk-edge' ? crosswalkEdgeCuriePrefix(set.ontology ?? ontology) : curiePrefixFor(set, ontology);
@@ -6205,14 +6211,14 @@ export function candidateRunIdentities(
 	for (let i = 0; i < rows.length; i++) {
 		const row = rows[i];
 		const rowNum = options.rowNumbers?.[i] ?? i + 1;
-		const fallback = () => options.mapping ? deriveRawFilenameStem(row, options.mapping, rowNum) : `row-${rowNum}`;
+		const fallback = () => mapping ? deriveRawFilenameStem(row, mapping, rowNum) : `row-${rowNum}`;
 		const args: Parameters<typeof deriveRowCurieRaw> = [row, prefix, basePrefix, set, recipe.source?.nest, fallback,
 			() => kind === 'crosswalk-edge' ? sssomEdgeCurie(row, set)
 				: options.curieLocalPart ? options.curieLocalPart(row, rowNum, set)
 					: derivationOf(set) === 'declared-facts-v1' ? declaredFactsLocalPart(row, fallback, basePrefix)
-						: options.mapping ? deriveFilenameStem(row, options.mapping, rowNum) : defaultCurieLocalPart(row, rowNum, derivationOf(set), basePrefix)];
+						: mapping ? deriveFilenameStem(row, mapping, rowNum) : defaultCurieLocalPart(row, rowNum, derivationOf(set), basePrefix)];
 		inputs.push(args);
-		if (!recipe.target.enrichment) continue;
+		if (!enrichmentEnabled) continue;
 		const curie = deriveRowCurie(...args);
 		const scope = kind === 'crosswalk-edge' ? {
 			...row, mapping_set_id: normalizeMappingSetId(row.mapping_set_id),
@@ -6225,22 +6231,43 @@ export function candidateRunIdentities(
 			facets: options.facetsForRow ? options.facetsForRow(row, rowNum) : facetMembershipsFromTags(address.tags),
 			layoutValues: values });
 	}
-	return runIdentityCuries({ rows: inputs, ...(recipe.target.enrichment ? { enrichment: {
-		notes, options: { ontology: prefix, config: recipe.target.enrichment,
+	return runIdentityCuries({ rows: inputs, ...(enrichmentEnabled ? { enrichment: {
+		notes, options: { ontology: prefix, config: recipe.target.enrichment ?? {},
 			rootFolder: normalizeBasePath(options.basePath), streamed: options.streamed,
 			writeSet: new Set(notes.map((note) => note.path)) },
 	} } : {}) });
 }
 
-/** Materialize once at the decision boundary so a one-shot stream is not eaten
- * by planning and then handed empty to generation. Source shaping stays shared. */
+/** A one-shot source must remain replayable WITHOUT changing its streamed shape.
+ * Keep replay state outside ParsedData: callers may hold/freeze that object, and
+ * Array.isArray(rows) controls enrichment's folder-note fallback on refresh too. */
+const identitySourceReads = new WeakMap<ParsedData, Promise<ParsedData>>();
+function identityReplayData(parsedData: ParsedData): ParsedData | Promise<ParsedData> {
+	return identitySourceReads.get(parsedData) ?? parsedData;
+}
+
+/** Read candidates independently when the parser can reopen its source. For a
+ * programmatic one-shot iterable, retain a replay snapshot but expose it as an
+ * iterable, never an eager source. The caller's data and streamed flag stay intact. */
 export async function candidateSourceRows(parsedData: ParsedData, recipe: Recipe): Promise<{ rows: Record<string, unknown>[]; rowNumbers: number[] }> {
+	let input = parsedData;
 	if (!Array.isArray(parsedData.rows)) {
-		const rows: Record<string, unknown>[] = [];
-		for await (const row of parsedData.rows) rows.push(row);
-		parsedData.rows = rows;
+		if (parsedData.reopenRows) {
+			input = { ...parsedData, rows: parsedData.reopenRows() };
+		} else {
+			let replay = identitySourceReads.get(parsedData);
+			if (!replay) {
+				replay = (async () => {
+					const snapshot: Record<string, unknown>[] = [];
+					for await (const row of parsedData.rows) snapshot.push(row);
+					return { ...parsedData, rows: { async *[Symbol.asyncIterator]() { yield* snapshot; } } };
+				})();
+				identitySourceReads.set(parsedData, replay);
+			}
+			input = await replay;
+		}
 	}
-	const stage = await prepareSourceStage(parsedData, recipe.source);
+	const stage = await prepareSourceStage(input, recipe.source);
 	const rows: Record<string, unknown>[] = [];
 	const rowNumbers: number[] = [];
 	for await (const row of stage.rows) {
@@ -6252,10 +6279,10 @@ export async function candidateSourceRows(parsedData: ParsedData, recipe: Recipe
 }
 
 /** Edge identity proposals use the injective pair identity, never endpoint ids. */
-export function candidateCrosswalkCuries(rows: readonly Record<string, unknown>[]): Set<string> {
-	const set: ImportSetReference = { id: 'iset-000000', scheme: 'endpoint-v1', derivation: 'declared-facts-v1' };
+export function candidateCrosswalkCuries(rows: readonly Record<string, unknown>[], importSet?: ImportSetReference): Set<string> {
+	const set: ImportSetReference = importSet ?? { id: 'iset-000000', scheme: 'endpoint-v1', derivation: 'declared-facts-v1' };
 	return runIdentityCuries({ rows: rows.map((row) => [
-		row, SSSOM_CURIE_PREFIX, SSSOM_CURIE_PREFIX, set, undefined,
+		row, crosswalkEdgeCuriePrefix(set.ontology ?? SSSOM_CURIE_PREFIX), crosswalkEdgeCuriePrefix(set.ontology ?? SSSOM_CURIE_PREFIX), set, undefined,
 		() => '', () => sssomEdgeCurie(row, set),
 	]) }).claims;
 }

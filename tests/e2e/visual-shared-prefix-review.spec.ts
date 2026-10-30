@@ -33,12 +33,12 @@ describe('Visual: collision-based new-set review', function () {
 			textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		}, 'subject_id\tpredicate_id\tobject_id\nvisual:A\tskos:relatedMatch\tother:B\n');
 		await browser.$('button=Use this TSV').click();
-		await browser.waitUntil(async () => (await browser.$('#crosswalker-sssom-preview').getText()).includes('only when'), {
+		await browser.waitUntil(async () => (await browser.$('#crosswalker-sssom-preview').getText()).includes('Plain identifiers: none overlap an existing set.'), {
 			timeout: 15_000,
 			timeoutMsg: 'Expected existing-set review: ' + await browser.$('#crosswalker-sssom-preview').getText(),
 		});
 		const text = await browser.$('#crosswalker-sssom-preview').getText();
-		expect(text).toContain('only when');
+		expect(text).toContain('Plain identifiers: none overlap an existing set.');
 		for (const value of ['light', 'dark'] as const) {
 			await theme(value);
 			await captureScreenshot(`shared-prefix-mapping-${value}`);
@@ -70,8 +70,8 @@ describe('Visual: collision-based new-set review', function () {
 		await browser.execute(() => [...document.querySelectorAll<HTMLButtonElement>('.crosswalker-wizard-modal button')].find((b) => b.textContent?.includes('Next'))!.click());
 		await browser.$('.crosswalker-workbench').waitForExist();
 		await browser.execute(() => [...document.querySelectorAll<HTMLButtonElement>('.crosswalker-wizard-modal button')].find((b) => b.textContent?.includes('Next'))!.click());
-		await browser.waitUntil(async () => (await browser.$('.crosswalker-wizard-modal').getText()).includes('Identifiers gain a set suffix only when'));
-		expect(await browser.$('.crosswalker-wizard-modal').getText()).toContain('Importing as a new set');
+		await browser.waitUntil(async () => (await browser.$('.crosswalker-wizard-modal').getText()).includes('Plain identifiers: none overlap an existing set.'));
+		expect(await browser.$('.crosswalker-wizard-modal').getText()).toContain('Plain identifiers: none overlap an existing set.');
 		for (const value of ['light', 'dark'] as const) {
 			await theme(value);
 			await captureScreenshot(`shared-prefix-wizard-${value}`);
