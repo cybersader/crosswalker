@@ -63,6 +63,7 @@ export const KNOWN_FRAMEWORK_GROUPS: readonly KnownFrameworkGroup[] = [
 	{ key: 'sp80053', prefix: 'nist-800-53', label: 'NIST SP 800-53 Rev. 5', query: 'tag:#nist-800-53 OR [curie:"nist-800-53:"]', hex: '#a855f7', name: 'Purple' },
 	{ key: 'attack', prefix: 'mitre-attack', label: 'MITRE ATT&CK', query: 'tag:#mitre-attack OR [curie:"mitre-attack:"]', hex: '#e5484d', name: 'Red' },
 	{ key: 'f3', prefix: 'mitre-f3', label: 'MITRE Fight Fraud Framework', query: '[curie:"mitre-f3:"]', hex: '#d9a400', name: 'Gold' },
+	{ key: 'd3fend', prefix: 'mitre-d3fend', label: 'MITRE D3FEND', query: 'tag:#mitre-d3fend OR [curie:"mitre-d3fend:"]', hex: '#0f9d8f', name: 'Teal' },
 	// Only present after the user adds a licensed framework they already hold.
 	{ key: 'cis', prefix: 'cis-v8', label: 'CIS Controls', query: '[curie:"cis-v8:"]', hex: '#0f9d8f', name: 'Teal' },
 	{ key: 'cri', prefix: 'cri-profile', label: 'Licensed framework added locally', query: '[curie:"cri-profile:"]', hex: '#06b6d4', name: 'Cyan' },

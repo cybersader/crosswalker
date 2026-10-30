@@ -1,0 +1,43 @@
+{
+  "$comment": "ATT&CK Enterprise Excel mitigations sheet. Separate import set, same publisher ontology and exact M ids. No technique or hierarchy claims. Terms travel beside the output through the demo builder.",
+  "recipe": "mitre-attack-mitigation-flat",
+  "source": {
+    "ontology": "mitre-attack",
+    "levels": [
+      "mitigation"
+    ]
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "mitigation",
+        "mechanism": "file",
+        "template": "{ID|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "tags": [
+        "mitre-attack"
+      ],
+      "frontmatter": {
+        "managed": {
+          "title": "{name|trim}",
+          "stix_id": "{STIX ID|optional|trim}",
+          "url": "{url|optional|trim}",
+          "domain": "{domain|optional|trim}",
+          "mitigation_version": "{version|optional|trim}",
+          "mitigation_id": "{ID|trim}"
+        }
+      },
+      "body": [
+        {
+          "template": "{description|trim}",
+          "position": "section",
+          "heading": "Description",
+          "heading_depth": 2,
+          "format": "text"
+        }
+      ]
+    }
+  }
+}
