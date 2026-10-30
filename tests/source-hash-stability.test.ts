@@ -25,17 +25,16 @@
  * default destination folder, moving its target hash from sha256-99368af8...
  * to sha256-e2f58e92.... All other pins remain at their baseline.
  *
- * Six shipped recipes have since adopted `source.where` to select their own
+ * Shipped recipes have since adopted `source.where` to select their own
  * rows (SchemaVer 1.9.0), so their LIVE hash legitimately differs from the
  * golden — that movement is F2 doing its job, not drift. The golden stays the
  * baseline for the question A1 actually asks: with shaping stripped, does every
  * shipped recipe still hash exactly as it did before src/source existed? That
- * is asserted for all 14, which is strictly more than asserting the live hash
- * of the eight that happen to declare nothing.
+ * is asserted for the entire inventory, not only recipes without shaping.
  *
- * A recipe added AFTER src/source existed (nist-csf-2-withdrawal-lineage) has
- * no pre-change value to preserve, so its golden entry is its stripped hash as
- * first computed. That entry is what stops it from being edited unnoticed
+ * Recipes added AFTER src/source existed (including nist-csf-2-withdrawal-lineage
+ * and cis-controls-v8-1-safeguards) have no pre-change value to preserve, so each
+ * new golden entry is its stripped hash as first computed. That entry is what stops it from being edited unnoticed
  * later; it is not evidence about the source-stage change itself.
  */
 
@@ -75,7 +74,7 @@ function shippedRecipes(): ShippedRecipe[] {
 }
 
 /**
- * The five shipped recipes that adopted `source.where` to select their own rows,
+ * The shipped recipes that adopted `source.where` to select their own rows,
  * with the exact predicate each declares.
  *
  * Pinned here on purpose. A shipped predicate decides which notes exist in a
@@ -84,6 +83,7 @@ function shippedRecipes(): ShippedRecipe[] {
  * without the matching recipe edit fails immediately.
  */
 const DECLARED_WHERE: Record<string, string> = {
+	'recipes/import/cis-controls-v8-1-safeguards.json': "$trim(`CIS Safeguard`) != ''",
 	'recipes/import/cis-controls-v8-controls.json': "$trim(`CIS Safeguard`) = ''",
 	'recipes/import/cis-controls-v8.json': "$trim(`CIS Safeguard`) != ''",
 	'recipes/import/nist-csf-2-cprt-hierarchical.json': "$not(element_type in ['sort', 'party'])",
@@ -97,11 +97,11 @@ describe('A1 — the source-stage code change moved no shipped recipe hash', () 
 
 	it('covers every shipped recipe, so a new one cannot slip past unpinned', () => {
 		expect(recipes.map((r) => r.relPath).sort()).toEqual(Object.keys(GOLDEN).sort());
-		expect(recipes).toHaveLength(17);
+		expect(recipes).toHaveLength(18);
 	});
 
 	/**
-	 * The load-bearing assertion, and it holds for all 13 regardless of what any
+	 * The load-bearing assertion holds for every shipped recipe regardless of what any
 	 * recipe declares: with source shaping stripped, every shipped recipe must
 	 * still hash to its PRE-change value. That is the property A1 exists to
 	 * protect — that widening the hashed field set introduced no drift of its own.

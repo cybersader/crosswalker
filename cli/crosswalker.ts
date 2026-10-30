@@ -61,7 +61,7 @@ const USAGE = [
 	'Usage: bun run cw -- <command> [options]',
 	'',
 	'Commands:',
-	'  import    --vault <dir> --source <file> [--recipe <id|path>] [--set new|<set id>]',
+	'  import    --vault <dir> --source <file> [--recipe <id|path>] [--set new|new-set-qualified|<set id>]',
 	'            [--ontology <id>] [--destination <folder>] [--sheet <name>]',
 	'            [--header-row <n>] [--deterministic]',
 	'            --sheet picks a workbook sheet or a JSON collection; --header-row is the',
@@ -369,7 +369,8 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 	allowOnly(flags, ['vault', 'source', 'recipe', 'set', 'ontology', 'destination', 'sheet', 'header-row', 'deterministic'], 'import');
 	const app = openVault(flags);
 	const source = readSource(flags);
-	const refreshSetId = setFlag(flags);
+	const qualifiedMappingSet = stringFlag(flags, 'set') === 'new-set-qualified';
+	const refreshSetId = qualifiedMappingSet ? undefined : setFlag(flags);
 
 	if (/\.sssom\.tsv$/i.test(source.name)) {
 		const destinationFlag = folderFlag(flags, 'destination', false);
@@ -381,7 +382,9 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 			...(destinationFlag ? { outputFolder: destinationFlag } : {}),
 			...(ontologyFlag ? { sourceOntology: ontologyFlag } : {}),
 			overwriteMode: 'replace',
-			importSet: refreshSetId ? { id: refreshSetId } : 'new',
+			// Explicit isolation for overlapping publisher releases. Preserve the
+			// existing default; never infer a refresh or change an existing set.
+			importSet: refreshSetId ? { id: refreshSetId } : qualifiedMappingSet ? 'new-set-qualified' : 'new',
 			runTier2Projection: false,
 		}, quietDebug(app));
 		const parseErrors = result.parse.errors.map((e) => (typeof e === 'string' ? e : JSON.stringify(e)));
@@ -401,6 +404,7 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 		return 0;
 	}
 
+	if (qualifiedMappingSet) throw new CliError('--set new-set-qualified is for mapping files (.sssom.tsv). Use --set new for a framework import.');
 	return runImport(flags, io, app, source, resolveRecipe(flags), refreshSetId);
 }
 

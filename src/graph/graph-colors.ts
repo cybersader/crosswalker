@@ -64,6 +64,7 @@ export const KNOWN_FRAMEWORK_GROUPS: readonly KnownFrameworkGroup[] = [
 	{ key: 'attack', prefix: 'mitre-attack', label: 'MITRE ATT&CK', query: 'tag:#mitre-attack OR [curie:"mitre-attack:"]', hex: '#e5484d', name: 'Red' },
 	{ key: 'f3', prefix: 'mitre-f3', label: 'MITRE Fight Fraud Framework', query: '[curie:"mitre-f3:"]', hex: '#d9a400', name: 'Gold' },
 	// Only present after the user adds a licensed framework they already hold.
+	{ key: 'cis', prefix: 'cis-v8', label: 'CIS Controls', query: '[curie:"cis-v8:"]', hex: '#0f9d8f', name: 'Teal' },
 	{ key: 'cri', prefix: 'cri-profile', label: 'Licensed framework added locally', query: '[curie:"cri-profile:"]', hex: '#06b6d4', name: 'Cyan' },
 ];
 

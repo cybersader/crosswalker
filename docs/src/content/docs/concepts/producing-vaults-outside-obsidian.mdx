@@ -93,6 +93,28 @@ The existing guard for the empty-vault case is `tests/e2e/first-run.spec.ts`, th
 | **B. On disk, then Obsidian** | `bun run cw -- import --vault <dir> --source <file> ...` (or `bun run demo:build -- --out <dir>`), then `cw validate`, then open the folder as a vault | Same as A, from the notes | Graph colors: `demo:build` writes `.obsidian/graph.json`; for other `cw` vaults run the graph color command |
 | **C. On disk, then OpenClast** | Build as in B, then push the folder into an OpenClast room with OpenClast's own vault push tooling. OpenClast hosts real Obsidian in a browser tab, so the same plugin runs | Same as A, from the notes | Dot-folders are not uploaded, so per-vault app config (`.obsidian/graph.json`, plugin settings) does not arrive. The plugin must recreate it: graph colors by command (pending PR #67), settings from defaults |
 
+## Private demo: two separate steps
+
+The public build remains repository-safe. A separate, explicit add-on enriches a fresh copy with locally held CRI Profile 2.2 and CIS Controls 8.1, CRI subject tags, and publisher mapping releases whose endpoints exist in that vault. It also adds the CIS graph color and rewrites the welcome note to list what was actually added. Obtain the files yourself and check their terms; the [acquisition and binding reference](/crosswalker/reference/framework-data-sources/#private-room-demo-add-on) lists every expected filename, worksheet and exclusion rule.
+
+Run these separately from the checkout:
+
+```bash
+bun run demo:build -- --out /tmp/cw-private-demo
+```
+
+```bash
+bun run demo:add-licensed -- --private-room-only --vault /tmp/cw-private-demo
+```
+
+Use `--sources-dir <source-checkout>` when licensed files are held in another checkout; relative manifest paths resolve there without copying sources into this checkout. `--only cri` or `--only cis` selects one framework; `--source <workbook>` is valid only with one explicit `--only` key and changes only that framework source, not mapping paths. Missing files are skipped with acquisition guidance. The output must be outside the repository, must contain no symlinks and must start from a fresh demo without the selected licensed frameworks. If a run fails or is interrupted, discard that output and repeat on a fresh public base.
+
+**Private-room-only means private.** The acknowledgement does not grant redistribution rights. Do not publish the enriched vault or use the public demo distribution path for it. For OpenClast, use a private room only after confirming that its audience and use fit the source terms. No upload is performed by this script.
+
+**Verification scope, 2026-10-30:** the add-on and explicit mapping-release isolation were checked through CLI tests, local authorized workbook runs, final note validation and two byte-identical output trees, including hidden graph settings (sources: `scripts/demo-add-licensed.mjs`, `tests/cli/demo-add-licensed.test.ts`, `tests/cli/mapping-release-isolation.test.ts`). The [source reference](/crosswalker/reference/framework-data-sources/#resolution-and-release-limits) records aggregate results and unresolved endpoint reasons. This does not re-verify the unrelated runtime surfaces listed above.
+
+**UI parity gap:** this ordered private-demo orchestration and its cross-sheet subject-tag join are CLI-only; no dedicated in-plugin action runs the manifest. The ordinary import UI and mapping import UI remain available for individual imports. This tooling slice does not claim that the private workflow has UI parity.
+
 ## 5. Next steps (not done)
 
 | Step | Detail |
