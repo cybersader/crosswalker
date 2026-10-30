@@ -44,7 +44,7 @@ This is safety at the time of the write, not a promise that every future refresh
 
 ## Open items
 
-- **Streaming identity planner:** retain only the claims set and minimal enrichment notes while consuming source rows, with constant auxiliary row-buffer memory rather than a full row materialization. The claims set and enrichment facts still grow with the identities being planned. Today planning materializes the shaped rows once; the wizard and recognized-import runner release that materialization before generation. Reopenable CSV sources then use the original reader, while non-reopenable programmatic sources also require a replay snapshot until generation takes ownership of it (source: `src/generation/generation-engine.ts`). This follow-up is not implemented or claimed as constant-memory planning.
+- **Streaming identity planner:** retain only the claims set and minimal enrichment notes while consuming source rows, with constant auxiliary row-buffer memory rather than a full row materialization. The claims set and enrichment facts still grow with the identities being planned. Today planning materializes the shaped rows once; the wizard and recognized-import runner release that materialization before generation. Reopenable CSV sources then use the original reader, while non-reopenable programmatic sources also require a replay snapshot until generation has read it, preserving retry after an early source-preflight failure (source: `src/generation/generation-engine.ts`). This follow-up is not implemented or claimed as constant-memory planning.
 
 ## Expected fresh-build changes
 

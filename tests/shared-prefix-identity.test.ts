@@ -414,3 +414,50 @@ describe('second-round source planning safety', () => {
 		}
 	});
 });
+
+
+describe.each(['native', 'config'] as const)('third-round source retry: %s', (entry) => {
+	const config = { name: 'mitre-attack', mapping: { hierarchy: [], frontmatter: [], links: [], body: [] } };
+	const execute = (app: App, data: ParsedData, recipeInput: Recipe, importSet: unknown = 'new') => {
+		const options = { basePath: 'Next', createFolders: true, overwriteMode: 'replace' as const, importSet: importSet as 'new' };
+		return entry === 'native' ? generateFromRecipe(app, data, recipeInput, options)
+			: generateNotes(app, data, config, { ...options, recipeOverride: recipeInput });
+	};
+
+	it('reopens a CSV after a partial failed run and imports all retry rows', async () => {
+		const { app } = makeApp();
+		const data = parseCSVFileStream(new File(['id,title\nA,First\nB,Second\n'], 'synthetic.csv'));
+		const create = app.vault.create.bind(app.vault);
+		let refused = false;
+		const write = jest.spyOn(app.vault, 'create').mockImplementation(async (...args) => {
+			if (!refused && args[0].endsWith('/Second.md')) { refused = true; throw new Error('Synthetic write failure'); }
+			return create(...args);
+		});
+		try {
+			const first = await execute(app, data, recipe);
+			expect(refused).toBe(true);
+			expect(first.errors.length).toBeGreaterThan(0);
+			const [set] = await discoverImportSets(app);
+			expect(set).toBeDefined();
+			const retry = await execute(app, data, recipe, { id: set.id });
+			expect(retry.errors).toEqual([]);
+			expect(sorted((await buildIdentityIndex(app)).curies())).toEqual(['mitre-attack:A', 'mitre-attack:B']);
+			expect(retry.created).toContain('Next/Second.md');
+		} finally { write.mockRestore(); }
+	});
+
+	it('retains a planned one-shot replay when preflight fails before reading it', async () => {
+		const { app } = makeApp();
+		const data: ParsedData = { columns: ['id', 'title'], rowCount: 2,
+			rows: (async function* () { yield row('A'); yield row('B'); })(),
+		};
+		await planned(data);
+		const invalid: Recipe = { ...recipe, source: { ...recipe.source, where: '$notPermitted(id)' } };
+		const failed = await execute(app, data, invalid);
+		expect(failed.errors.length).toBeGreaterThan(0);
+		const retry = await execute(app, data, recipe);
+		expect(retry.errors).toEqual([]);
+		expect(retry.created).toHaveLength(2);
+		await expect(execute(app, { ...data }, recipe)).rejects.toThrow('already been consumed');
+	});
+});

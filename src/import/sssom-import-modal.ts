@@ -24,7 +24,7 @@
 import { candidateCrosswalkCuries } from '../generation/generation-engine';
 import { plural } from '../utils/plural';
 
-import { App, ButtonComponent, Modal, Notice, Setting, TFile } from 'obsidian';
+import { App, ButtonComponent, Modal, Notice, Setting, TFile, type EventRef } from 'obsidian';
 import type CrosswalkerPlugin from '../main';
 import { detectOntologyPair, parseSssomTsv } from './sssom-parser';
 import { importSssom, SSSOM_CURIE_PREFIX, type SssomImportResult } from './sssom-importer';
@@ -389,7 +389,26 @@ export class SssomImportModal extends Modal {
 		);
 	}
 
-	private identityReviewCache: { key: string; allSets: DiscoveredImportSet[]; claims: Set<string> } | null = null;
+	private identityReviewCache: { basePath: string; source: string | null; allSets: DiscoveredImportSet[]; claims: Set<string> } | null = null;
+	private indexingResolvedRef: EventRef | null = null;
+
+	onClose(): void {
+		if (this.indexingResolvedRef) {
+			this.app.metadataCache.offref(this.indexingResolvedRef);
+			this.indexingResolvedRef = null;
+		}
+	}
+
+	private refreshWhenIndexed(): void {
+		if (this.indexingResolvedRef) return;
+		this.indexingResolvedRef = this.app.metadataCache.on('resolved', () => {
+			const ref = this.indexingResolvedRef;
+			if (!ref) return;
+			this.indexingResolvedRef = null;
+			this.app.metadataCache.offref(ref);
+			void this.refreshPreview();
+		});
+	}
 	private identityCandidatesSource: string | null = null;
 	private identityCandidatesCache = new Map<string, Set<string>>();
 	private candidateIdentities(importSet?: DiscoveredImportSet): Set<string> {
@@ -427,8 +446,10 @@ export class SssomImportModal extends Modal {
 		this.previewRefreshSet = null;
 		let sets: DiscoveredImportSet[];
 		let identityExplanation: string;
-		const key = JSON.stringify([basePath, this.parsedTsv]);
-		if (this.identityReviewCache?.key !== key) this.identityReviewCache = null;
+		const source = this.parsedTsv;
+		if (this.identityReviewCache?.basePath !== basePath || this.identityReviewCache.source !== source) {
+			this.identityReviewCache = null;
+		}
 		try {
 			// A cached snapshot is not permission to answer while indexing is cold.
 			await requireVaultIndexed(this.app);
@@ -436,16 +457,17 @@ export class SssomImportModal extends Modal {
 			if (!this.identityReviewCache) {
 				const allSets = await discoverImportSets(this.app);
 				const claims = await discoverIdentityClaims(this.app, allSets);
-				this.identityReviewCache = { key, allSets, claims };
+				this.identityReviewCache = { basePath, source, allSets, claims };
 			}
 			const { allSets, claims } = this.identityReviewCache;
 			identityExplanation = newSetIdentitySummary(this.candidateIdentities(), claims, allSets,
 				(set) => describeImportSet(set), this.importSetChoice === 'new-set-qualified');
 		} catch (error) {
 			this.identityReviewCache = null;
+			if (error instanceof VaultStillIndexingError) this.refreshWhenIndexed();
 			container.createEl('p', {
 				text: error instanceof VaultStillIndexingError
-					? 'Still indexing the vault. The identity outcome appears when indexing finishes.'
+					? 'Still indexing the vault. Crosswalker checks for overlapping identifiers when it finishes.'
 					: error instanceof Error ? error.message : String(error),
 				cls: 'mod-warning',
 			});
@@ -717,6 +739,9 @@ export class SssomImportModal extends Modal {
 			const msg = err instanceof Error ? err.message : String(err);
 			new Notice(this.typed ? `${label} stopped unexpectedly: ${this.say(msg)} Check the table and its release file, then import again.` : `SSSOM import error: ${msg}`);
 			this.plugin.debug?.error('sssom-import', 'unhandled-error', 'SSSOM import: unhandled error', { error: msg });
+		} finally {
+			// Partial writes change ownership too, and the results window stays open.
+			this.identityReviewCache = null;
 		}
 	}
 

@@ -6249,7 +6249,7 @@ const identitySourceReads = new WeakMap<ParsedData, Promise<ParsedData>>();
 // turn an exhausted source back into unread rows or borrow another run's replay.
 const consumedIdentityRows = new WeakSet<AsyncIterable<Record<string, unknown>>>();
 function requireIdentitySourceAvailable(parsedData: ParsedData): void {
-	if (!Array.isArray(parsedData.rows) && !identitySourceReads.has(parsedData)
+	if (!Array.isArray(parsedData.rows) && !parsedData.reopenRows && !identitySourceReads.has(parsedData)
 		&& consumedIdentityRows.has(parsedData.rows)) {
 		throw new Error('This source stream has already been consumed. Reopen the source file or provide a fresh row iterator before importing again.');
 	}
@@ -6264,11 +6264,22 @@ function identityReplayData(parsedData: ParsedData): ParsedData | Promise<Parsed
 	requireIdentitySourceAvailable(parsedData);
 	const replay = identitySourceReads.get(parsedData);
 	if (replay) {
-		// Generation owns this replay now. Do not retain its snapshot after the run.
-		identitySourceReads.delete(parsedData);
-		return replay;
+		// Preflight may fail without reading any rows. Keep replay rights until
+		// generation consumes the snapshot, not merely when it requests it.
+		return replay.then((snapshot) => ({ ...snapshot, rows: {
+			async *[Symbol.asyncIterator]() {
+				for await (const row of snapshot.rows) yield row;
+				if (identitySourceReads.get(parsedData) === replay) identitySourceReads.delete(parsedData);
+			},
+		} }));
 	}
-	if (!Array.isArray(parsedData.rows) && !parsedData.reopenRows) consumedIdentityRows.add(parsedData.rows);
+	if (!Array.isArray(parsedData.rows)) {
+		if (consumedIdentityRows.has(parsedData.rows) && parsedData.reopenRows) {
+			return { ...parsedData, rows: parsedData.reopenRows() };
+		}
+		// Mark before source preflight: it can read ahead or fail partway through.
+		consumedIdentityRows.add(parsedData.rows);
+	}
 	return parsedData;
 }
 

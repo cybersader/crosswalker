@@ -524,7 +524,7 @@ describe('second-round mapping preview safety', () => {
 		try {
 			const review = await captureReview(modal);
 			expect(review.ready).toBe(false);
-			expect(review.texts).toContain('Still indexing the vault. The identity outcome appears when indexing finishes.');
+			expect(review.texts).toContain('Still indexing the vault. Crosswalker checks for overlapping identifiers when it finishes.');
 			expect(review.texts.join(' ')).not.toMatch(/Plain identifiers|Set-suffixed/);
 			expect(discover).not.toHaveBeenCalled();
 			expect(claims).not.toHaveBeenCalled();
@@ -572,5 +572,53 @@ describe('second-round mapping preview safety', () => {
 		const retry = await captureReview(modal);
 		expect(retry.ready).toBe(true);
 		expect(retry.texts.join(' ')).toContain('Plain identifiers');
+	});
+});
+
+
+describe('third-round mapping preview lifecycle', () => {
+	it('reads fresh claims after an import keeps the window open', async () => {
+		const vault = makeVault();
+		const { modal } = openModal(vault.app, VENDOR_TSV);
+		const ownership = jest.requireActual('../src/generation/import-set') as typeof import('../src/generation/import-set');
+		const claims = jest.spyOn(ownership, 'discoverIdentityClaims');
+		try {
+			expect((await captureReview(modal)).texts.join(' ')).toContain('Plain identifiers');
+			await inner(modal).runImport();
+			expect(junctionNotes(vault.files).size).toBe(2);
+			expect(inner(modal).close).not.toHaveBeenCalled();
+			const next = await captureReview(modal);
+			expect(claims).toHaveBeenCalledTimes(2);
+			expect(next.texts.join(' ')).toContain('Set-suffixed');
+		} finally { claims.mockRestore(); }
+	});
+
+	it.each(['resolved', 'closed'] as const)('cleans up the indexing listener when %s', async (outcome) => {
+		const vault = makeVault();
+		const { modal } = openModal(vault.app, VENDOR_TSV);
+		const ownership = jest.requireActual('../src/generation/import-set') as typeof import('../src/generation/import-set');
+		const gate = jest.spyOn(ownership, 'requireVaultIndexed').mockRejectedValue(new VaultStillIndexingError());
+		const handlers = new Map<unknown, () => void>();
+		const on = jest.spyOn(vault.app.metadataCache, 'on').mockImplementation(((event: string, handler: () => void) => {
+			expect(event).toBe('resolved');
+			const ref = {};
+			handlers.set(ref, handler);
+			return ref;
+		}) as never);
+		const off = jest.spyOn(vault.app.metadataCache, 'offref').mockImplementation((ref) => { handlers.delete(ref); });
+		const refresh = jest.spyOn(inner(modal), 'refreshPreview').mockResolvedValue();
+		try {
+			await captureReview(modal);
+			await captureReview(modal);
+			expect(on).toHaveBeenCalledTimes(1);
+			if (outcome === 'closed') modal.onClose();
+			for (const handler of [...handlers.values()]) handler();
+			for (const handler of [...handlers.values()]) handler();
+			expect(refresh).toHaveBeenCalledTimes(outcome === 'resolved' ? 1 : 0);
+			expect(off).toHaveBeenCalledTimes(1);
+			expect(handlers.size).toBe(0);
+			modal.onClose();
+			expect(off).toHaveBeenCalledTimes(1);
+		} finally { gate.mockRestore(); on.mockRestore(); off.mockRestore(); refresh.mockRestore(); }
 	});
 });

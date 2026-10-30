@@ -123,8 +123,14 @@ describe('renderTemplate', () => {
 		expect(() => renderTemplate('{c|banana}', { c: 'x' })).toThrow(/Unknown filter/);
 	});
 
-	it('throws RenderError when a variable resolves to undefined', () => {
-		expect(() => renderTemplate('{missing}', {})).toThrow(RenderError);
+	it('throws a typed missing-value RenderError independently of its wording', () => {
+		expect.assertions(3);
+		try { renderTemplate('{missing}', {}); } catch (error) {
+			expect(error).toBeInstanceOf(RenderError);
+			expect((error as RenderError).code).toBe('MISSING_TEMPLATE_VALUE');
+			(error as Error).message = 'A differently worded explanation';
+			expect((error as RenderError).code).toBe('MISSING_TEMPLATE_VALUE');
+		}
 	});
 
 	it('throws RenderError when a dotted-path traverses a non-object', () => {

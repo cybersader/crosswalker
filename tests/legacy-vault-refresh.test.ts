@@ -4835,3 +4835,48 @@ describe('second-round wizard planning safety', () => {
 		},
 	);
 });
+
+
+describe('third-round streamed wizard review', () => {
+	it('does not compute a zero-row outcome after generation throws', async () => {
+		const vault = makeVault();
+		const data: ParsedData = { columns: [...COLUMNS], rowCount: ROWS.length,
+			rows: (async function* () { yield* ROWS.map((row) => ({ ...row })); })(),
+		};
+		// Configure from the parser preview first, then supply its live stream.
+		const { flow } = makeFlow(vault.app);
+		flow.parsedData = data;
+		await inner(flow).prepareStep3(true);
+		const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+		const generate = jest.spyOn(engine, 'generateNotes').mockRejectedValue(new Error('Synthetic early failure'));
+		const render = jest.spyOn(flow, 'renderStep').mockImplementation(() => {});
+		const planner = jest.spyOn(engine, 'candidateRunIdentities');
+		try {
+			await flow.generate();
+			expect(generate).toHaveBeenCalledTimes(1);
+			planner.mockClear();
+			const text = captureReview(flow).texts.join(' ');
+			expect(text).toContain('Identifiers need checking again. Review the source, then try importing again.');
+			expect(text).not.toMatch(/Plain identifiers|Set-suffixed/);
+			expect(planner).not.toHaveBeenCalled();
+		} finally { generate.mockRestore(); render.mockRestore(); planner.mockRestore(); }
+	});
+});
+
+
+it.each([
+	[new RenderError('A differently worded missing value', 'MISSING_TEMPLATE_VALUE'), true],
+	[new RenderError('Template variable "missing" resolved to undefined/null in template "{missing}".'), false],
+] as const)('classifies planner failures by RenderError code, not wording: %s', async (error, missing) => {
+	const vault = await vaultWithOneSetInTheSharedRoot();
+	const { flow } = await askWhereItLands(vault.app);
+	(flow as unknown as { identityCandidateCache: Map<string, Set<string>> }).identityCandidateCache.clear();
+	const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+	const planner = jest.spyOn(engine, 'candidateRunIdentities').mockImplementation(() => { throw error; });
+	try {
+		const text = captureReview(flow).texts.join(' ');
+		expect(text.includes('the recipe needs columns this source could not supply')).toBe(missing);
+		expect(text.includes('the recipe could not be checked for overlapping identifiers')).toBe(!missing);
+		expect(text).not.toContain(error.message);
+	} finally { planner.mockRestore(); }
+});

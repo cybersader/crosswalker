@@ -2669,6 +2669,12 @@ export class ImportFlow {
 	private candidateIdentities(importSet?: DiscoveredImportSet): Set<string> {
 		const inputs = this.identityRecipeInputs();
 		if (!inputs || !this.parsedData) return new Set();
+		if (!this.preparedIdentityRows && !isEagerRows(this.parsedData.rows)) {
+			// Generation released the review materialization. An unavailable stream
+			// is not an empty source, including when a failed run returns to review.
+			this.identityPlanningProblem = 'Identifiers need checking again. Review the source, then try importing again.';
+			return new Set();
+		}
 		const rows = this.preparedIdentityRows?.rows ?? (isEagerRows(this.parsedData.rows) ? this.parsedData.rows : []);
 		const signature = JSON.stringify([inputs, this.currentOutputPath()]);
 		if (signature !== this.identityCandidateSignature || rows !== this.identityCandidateRows) {
@@ -2692,10 +2698,9 @@ export class ImportFlow {
 			this.identityCandidateCache.set(key, claims);
 			return claims;
 		} catch (error) {
-			// Only the renderer's exact missing-value condition means columns were
-			// unavailable. Invalid filters and planner defects need their own cause.
-			const missingColumn = error instanceof RenderError
-				&& /^Template variable ".*" resolved to undefined\/null in template ".*"\.$/s.test(error.message);
+			// Only the typed missing-value condition means columns were unavailable.
+			// Invalid filters and planner defects need their own cause.
+			const missingColumn = error instanceof RenderError && error.code === 'MISSING_TEMPLATE_VALUE';
 			if (missingColumn) {
 				if (!importSet) this.identityPlanningProblem = 'Set-suffixed: the recipe needs columns this source could not supply. Review the column choices before importing.';
 			} else {
