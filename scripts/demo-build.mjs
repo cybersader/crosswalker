@@ -130,6 +130,20 @@ function write(out, relative, text) {
 	fs.writeFileSync(target, text);
 }
 
+/** Wraps an upstream licence file, unchanged, in a Markdown note. */
+function licenseMarkdown(name, shortName, license, text) {
+	return [
+		`# ${name} license`,
+		'',
+		`The ${shortName} data in this folder is published by MITRE under the ${license}. The text below is the upstream LICENSE file, unchanged.`,
+		'',
+		'```text',
+		text.replace(/\n$/, ''),
+		'```',
+		'',
+	].join('\n');
+}
+
 /** What a reviewer does by hand: record approval in the fields re-import keeps. */
 function approve(out, file) {
 	const target = path.join(out, 'Evidence/Junctions', file);
@@ -246,7 +260,11 @@ function main() {
 	frameworks.push(F3);
 
 	// The Apache licence travels with the openly licensed F3 source and output.
-	write(out, 'Frameworks/MITRE-F3/LICENSE.txt', fs.readFileSync(path.join(REPO, 'Frameworks/LICENSES/mitre-f3-LICENSE.txt'), 'utf8'));
+	// LICENSE.md carries the same text for hosts that accept only Markdown
+	// (OpenClast rooms refuse .txt); LICENSE.txt stays for desktop and git users.
+	const f3License = fs.readFileSync(path.join(REPO, 'Frameworks/LICENSES/mitre-f3-LICENSE.txt'), 'utf8');
+	write(out, 'Frameworks/MITRE-F3/LICENSE.txt', f3License);
+	write(out, 'Frameworks/MITRE-F3/LICENSE.md', licenseMarkdown('MITRE Fight Fraud Framework (F3)', 'F3', 'Apache License 2.0', f3License));
 
 	for (const [file, text] of queries(sets)) write(out, file, text);
 	write(out, START_HERE, startHere(frameworks, MAPPINGS));
