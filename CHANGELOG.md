@@ -213,6 +213,13 @@ A busy or slow machine could fail an import that succeeds elsewhere. The limit n
 - **What changed.** The check ignores letter case. When the names differ only by case, the warning names both spellings: "Frameworks/nist-mini is the same folder as Frameworks/NIST-mini on Windows and macOS, and Frameworks/NIST-mini already holds notes from the import set NIST-mini." Generate is refused with the same message. Exact matches keep the old wording, and a sibling such as `NIST-mini-2` is still treated as a different folder.
 - Tests: `tests/occupancy-case-fold.test.ts` (3 cases). Checked live in OpenClast in both themes: step 4 shows the warning, Generate is refused, and no notes are written.
 
+### Fixed: renaming a vault or workspace no longer strands the search index (2026-10-20)
+
+- **What was wrong.** The private folder that holds the stored search index was named from the app id and the vault name together. A rename moved the folder, so the next open started with an empty index. In the browser-hosted Obsidian (OpenClast) the vault name is a constant today and is planned to become the workspace display name, which changes on rename.
+- **What changed.** The folder is now named from the app id alone (`src/tier2/sidecar.ts` `poolDirectoryFor`). Desktop Obsidian sets the app id to the vault's stable id; the browser host sets one per member and workspace. The vault name is used only when a host provides no app id.
+- **What you will notice.** Existing installs rebuild the index once from your notes on the next launch, because the folder name changed. No notes or settings are affected.
+- Tests: `tests/tier2-pool-directory.test.ts`.
+
 ### Fixed: the search index now persists between launches (2026-10-03)
 
 - **What was wrong.** The search index (`.crosswalker.sqlite`, the database the query commands and reports read) was never actually stored on any host. The storage mode it uses needs a browser feature that Chromium only offers inside a background worker, and the index ran on Obsidian's main thread, so opening storage failed every time and the index quietly fell back to memory. Every launch rebuilt it from your notes. Real runs on desktop Obsidian and in a browser-hosted Obsidian both showed this. The 2026-09-13 entry below already noted that persistence "was not observed"; this is the cause.
