@@ -9,6 +9,7 @@
 
 import { App, normalizePath, parseYaml, TFile } from 'obsidian';
 import { slugifyForCurie } from './curie';
+import { buildIdentityIndex } from './identity-index';
 import { normalizeFolderSetting } from '../settings/folder-settings';
 import { IDENTITY_SENTINELS } from './legacy-recipe-shim';
 import type { KnownSource } from '../import/vault-source-scan';
@@ -211,6 +212,8 @@ export interface DiscoveredImportSet extends ImportSetReference {
 	 * prefix is a pure function of the source, so it survives a recipe rename.
 	 */
 	ontologyPrefixes: string[];
+	/** Exact identities actually held by this set, never reconstructed from its pin. */
+	curies: Set<string>;
 	/** Distinct source file/hash pairs recorded by this set, newest observation per pair. */
 	sources: Array<{
 		file: string | null;
@@ -227,6 +230,7 @@ interface ImportSetObservation {
 	recipeId: string | null;
 	recipeHash: string | null;
 	ontologyPrefix: string | null;
+	curies: Set<string>;
 	/** The ontology pinned in this note's import_set block, if any (AM-6). */
 	ontology: string | null;
 	/** The derivation pinned in this note's import_set block, if any (AM-27). */
@@ -414,29 +418,38 @@ export async function requireVaultIndexed(app: App): Promise<void> {
  * folder-emptiness copy mints an unqualified set straight into the moved set's
  * curie space. One function, so the rule cannot disagree with itself.
  *
- * The signal is a shared REAL ontology prefix. The prefix is the whole left half
- * of every curie the source produces, and discovery carries the prefixes existing
- * sets' notes actually show, so this compares stamped fact against stamped fact.
- * A sentinel prefix is not a fact about anything (it is what a nameless classic
- * import stamps) and an unbuildable source has no prefix at all; both signal
- * nothing and degrade to the plain default.
+ * A namespace may contain disjoint catalogs. Only an exact candidate CURIE
+ * already held by another set requires qualification; one overlap qualifies
+ * the whole new set. Existing sets retain their pinned schemes.
  *
- * Deliberately compares against `ontologyPrefixes` (what the notes hold) and NOT
- * against a set's pinned `ontology`: a set already minted set-qualified carries
- * the unqualified ontology as its pin while its notes carry the qualified prefix,
- * and it is the notes that decide whether a space is taken.
- *
- * @param sets  Sets discovered over the WHOLE vault. A destination-scoped list
- *              answers a different question and must not be passed here.
+ * @param claimedCuries Whole-vault AM-12 claims, including table rows and legacy notes.
  * @param ontologyPrefix  Already slugified (`slugifyForCurie`), or null when the
  *              source cannot produce one.
  */
 export function newSetSchemeFrom(
-	sets: readonly DiscoveredImportSet[],
+	claimedCuries: ReadonlySet<string>,
 	ontologyPrefix: string | null,
+	candidateCuries: ReadonlySet<string>,
 ): 'new' | 'new-set-qualified' {
 	if (ontologyPrefix === null || IDENTITY_SENTINEL_FORMS.has(ontologyPrefix)) return 'new';
-	return sets.some((set) => set.ontologyPrefixes.includes(ontologyPrefix)) ? 'new-set-qualified' : 'new';
+	for (const curie of candidateCuries) {
+		if (claimedCuries.has(curie)) return 'new-set-qualified';
+	}
+	return 'new';
+}
+
+/** The same markdown claims AM-12 checks, plus every table-form assertion.
+ * Legacy notes without an import-set stamp still own their recorded identities. */
+export async function discoverIdentityClaims(
+	app: App,
+	sets?: readonly DiscoveredImportSet[],
+): Promise<Set<string>> {
+	const index = await buildIdentityIndex(app);
+	const claims = new Set(index.curies());
+	for (const set of sets ?? await discoverImportSets(app)) {
+		if (set.mapping_form === 'table') for (const curie of set.curies) claims.add(curie);
+	}
+	return claims;
 }
 
 /**
@@ -450,6 +463,7 @@ export function newSetSchemeFrom(
 export async function newSetSchemeFor(
 	app: App,
 	ontologyPrefix: string | null,
+	candidateCuries: ReadonlySet<string>,
 ): Promise<'new' | 'new-set-qualified'> {
 	// AM-24. The precondition is the FIRST thing, not a step inside the branch
 	// that happens to read the vault. A caller cannot tell which branch it hit, so
@@ -457,7 +471,7 @@ export async function newSetSchemeFor(
 	// contract nobody can state.
 	await requireVaultIndexed(app);
 	if (ontologyPrefix === null || IDENTITY_SENTINEL_FORMS.has(ontologyPrefix)) return 'new';
-	return newSetSchemeFrom(await discoverImportSets(app, undefined), ontologyPrefix);
+	return newSetSchemeFrom(await discoverIdentityClaims(app), ontologyPrefix, candidateCuries);
 }
 
 /**
@@ -761,14 +775,17 @@ async function collectTableObservations(
 		const block = validateImportSetBlock(rawBlock, table.path, { schemeAndDerivation: 'set' });
 		// The prefix a row's edge would carry, so `ontologyPrefixes` answers for a
 		// table set the way it answers for the same rows as notes.
-		const firstCurie = tableRowsAsEdgeRecords({ ...table, rows: table.rows.slice(0, 1) })[0]?.frontmatter.curie;
+		const curies = new Set(tableRowsAsEdgeRecords(table)
+			.map((record) => readString(record.frontmatter.curie))
+			.filter((curie): curie is string => curie !== null));
 		observations.push(observationOf(
 			block,
 			provenance,
 			table.path,
-			readString(firstCurie),
+			[...curies][0] ?? null,
 			'table',
 			table.rows.length,
+			curies,
 		));
 	}
 	return observations;
@@ -787,6 +804,7 @@ function observationOf(
 	curie: string | null,
 	storage: 'note' | 'table',
 	rowCount: number,
+	curies = new Set(curie ? [curie] : []),
 ): ImportSetObservation {
 	const recipeBlock = provenanceRecord.recipe;
 	const recipeId = recipeBlock && typeof recipeBlock === 'object'
@@ -805,6 +823,7 @@ function observationOf(
 		recipeHash: recipeBlock && typeof recipeBlock === 'object'
 			? readString((recipeBlock as Record<string, unknown>).hash) : null,
 		ontologyPrefix: curiePrefix(curie),
+		curies,
 		ontology: block.ontology,
 		derivation: block.derivation,
 		mappingForm: block.mappingForm,
@@ -877,7 +896,8 @@ function buildDiscoveredSets(observations: ImportSetObservation[], markers: read
 			...(group.some((entry) => entry.parentSet) ? { parentSets: distinctSorted(group.map((entry) => entry.parentSet)) } : {}),
 			...(group.every((entry) => entry.recipeHash)
 				? { recipeHashes: distinctSorted(group.map((entry) => entry.recipeHash)) } : {}),
-			ontologyPrefixes: distinctSorted(group.map((entry) => entry.ontologyPrefix)),
+			ontologyPrefixes: distinctSorted(group.flatMap((entry) => [...entry.curies].map(curiePrefix))),
+			curies: new Set(group.flatMap((entry) => [...entry.curies])),
 			sources: sourceObservations(group),
 			...(recorded ? { destination: recorded } : {}),
 			...(pinnedOntology ? { ontology: pinnedOntology } : {}),

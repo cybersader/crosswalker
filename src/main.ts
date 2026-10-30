@@ -589,6 +589,8 @@ export default class CrosswalkerPlugin extends Plugin {
 					// AM-18. The one implementation of "which new set", imported here
 					// rather than re-decided, so this command cannot be the fourth copy.
 					const { newSetSchemeFor } = await import('./generation/import-set');
+					const { candidateCrosswalkCuries } = await import('./generation/generation-engine');
+					const { parseSssomTsv } = await import('./import/sssom-parser');
 
 					// Pick a fixture via a small AskUserQuestion-style modal
 					const picked = await new Promise<string | null>((resolve) => {
@@ -638,7 +640,7 @@ export default class CrosswalkerPlugin extends Plugin {
 						// notes, N errors"). Not damage, but exactly the routine collision
 						// AM-13 exists to eliminate. One shared rule answers it here as
 						// everywhere else.
-						importSet = await newSetSchemeFor(this.app, SSSOM_CURIE_PREFIX);
+						importSet = await newSetSchemeFor(this.app, SSSOM_CURIE_PREFIX, candidateCrosswalkCuries(parseSssomTsv(fx.tsv).rows));
 					} catch (err) {
 						new Notice(err instanceof Error ? err.message : String(err), 10000);
 						return;

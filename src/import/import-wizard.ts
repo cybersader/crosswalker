@@ -21,6 +21,8 @@ import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { VaultImportFilePicker } from '../ui/vault-file-picker';
 import { renderPresetGuide } from './import-preset-guide';
 import {
+	candidateRunIdentities,
+	candidateSourceRows,
 	generateNotes,
 	buildConfigFromWizardState,
 	deriveIdSplitTemplates,
@@ -56,7 +58,7 @@ import {
 } from './recipe-registry';
 import { libraryRecognitionEntries, listLibrary, loadForImport } from './recipe-library';
 import { RecipeLibraryModal, SaveRecipeModal, obsidianRecipeLibraryFiles } from './recipe-library-modal';
-import { discoverImportSets, newSetSchemeFrom, settleVaultIndex, type DiscoveredImportSet, type ImportSetOption } from '../generation/import-set';
+import { discoverIdentityClaims, discoverImportSets, newSetSchemeFrom, settleVaultIndex, type DiscoveredImportSet, type ImportSetOption } from '../generation/import-set';
 import { suggestWorkbookBinding, type WorkbookSuggestion } from './workbook-suggestion';
 import { refreshRecipeProblem } from './stack/stack-model';
 import {
@@ -2635,6 +2637,41 @@ export class ImportFlow {
 		return this.workbench.buildRecipe();
 	}
 
+	/** Source shaping is asynchronous; review and generation read this same proposal. */
+	private preparedIdentityRows: Awaited<ReturnType<typeof candidateSourceRows>> | null = null;
+	private identityClaims: Set<string> | null = null;
+
+	private identityRecipeInputs() {
+		if (!this.parsedData) return null;
+		try {
+			const workbenchMode = this.isWorkbenchMode() && !!this.workbench;
+			const config = workbenchMode ? this.buildWorkbenchConfig()
+				: buildConfigFromWizardState(this.columnConfigs, this.parsedData.columns, this.appliedConfig?.config?.mapping?.filename);
+			const resolved = workbenchMode ? this.effectiveWorkbenchRecipe()
+				: legacyConfigToRecipe(config as ImportRecipe, { sourceFileName: this.sourceFile?.name });
+			const where = this.presetSourceWhere ?? shorthandToSourceExpression(this.jsonWhere);
+			const recipe = where ? { ...resolved, source: { ...resolved.source, where } } : resolved;
+			return { recipe, config };
+		} catch {
+			// A draft mapping may not yet be buildable. Generation retains its own
+			// validation; ownership discovery must still populate the chooser.
+			return null;
+		}
+	}
+
+	private candidateIdentities(importSet?: DiscoveredImportSet): Set<string> {
+		const inputs = this.identityRecipeInputs();
+		if (!inputs || !this.parsedData) return new Set();
+		const rows = this.preparedIdentityRows?.rows ?? (isEagerRows(this.parsedData.rows) ? this.parsedData.rows : []);
+		return candidateRunIdentities(rows, inputs.recipe, {
+			basePath: this.currentOutputPath(), mapping: inputs.config.mapping, importSet,
+			rowNumbers: this.preparedIdentityRows?.rowNumbers,
+			...(this.isWorkbenchMode() && this.workbench ? {
+				facetsForRow: (row: Record<string, unknown>) => deriveFacetMemberships(this.workbench!.getMapping(), row),
+			} : {}),
+		}).claims;
+	}
+
 	private sourceIdentityKeys(): { recipeId: string | null; ontologyPrefix: string | null } {
 		const none = { recipeId: null, ontologyPrefix: null };
 		if (!this.parsedData) return none;
@@ -2657,8 +2694,8 @@ export class ImportFlow {
 			// Mirrors generateNotes' `ontologyId`, slugified the same way. Deliberately
 			// the UNQUALIFIED prefix: AM-13's set-qualified form depends on a set id
 			// that does not exist yet at this point, and both readers below want the
-			// bare ontology - the offer compares it against a set's pin, and the
-			// collision test asks whether that bare space is already occupied.
+			// bare ontology. The offer compares it against a set's pin; the new-set
+			// decision compares exact candidate identities against existing claims.
 			const ontologyId = recipe.source?.ontology ?? config.name ?? LEGACY_ONTOLOGY_SENTINEL;
 			return {
 				recipeId: recipeId ?? null,
@@ -2688,14 +2725,12 @@ export class ImportFlow {
 	private offeredRefreshSet(sets: readonly DiscoveredImportSet[]): DiscoveredImportSet | null {
 		const prefix = this.sourceIdentityKeys().ontologyPrefix;
 		if (prefix === null || ImportFlow.isIdentitySentinel(prefix)) return null;
-		// The pinned ontology counts as well as the stamped curie prefixes. A set
-		// minted set-qualified (AM-13) writes `<ontology>-<set id>` prefixes, so a
-		// prefix-only comparison would stop offering it the moment it became the
-		// thing AM-13 exists to create. The pin is the unqualified ontology, which
-		// is exactly what this source proposes.
-		const candidates = sets.filter((set) =>
-			set.ontologyPrefixes.includes(prefix)
-			|| (set.ontology !== undefined && slugifyForCurie(set.ontology) === prefix));
+		// Compare the identities this source would actually refresh under EACH
+		// set's pinned scheme. A shared prefix alone never earns an offer.
+		const candidates = sets.filter((set) => {
+			if (set.ontology !== prefix && !set.ontologyPrefixes.includes(prefix)) return false;
+			return [...this.candidateIdentities(set)].some((curie) => set.curies.has(curie));
+		});
 		return candidates.length === 1 ? candidates[0] : null;
 	}
 
@@ -2752,7 +2787,8 @@ export class ImportFlow {
 	 * cold-cache refusal: the user waited, so ask again.
 	 */
 	private async prepareStep3(force = false): Promise<{ ok: boolean; changed: boolean }> {
-		const signature = `${this.sourceFile?.name ?? ''}::${this.parsedData?.rowCount ?? -1}`;
+		const inputs = this.identityRecipeInputs();
+		const signature = `${this.sourceFile?.name ?? ''}::${this.parsedData?.rowCount ?? -1}::${JSON.stringify(inputs)}`;
 		if (this.step3InFlight) return { ok: this.indexingBlocked === null, changed: false };
 		if (!force && this.step3Signature === signature) {
 			return { ok: this.indexingBlocked === null, changed: false };
@@ -2804,7 +2840,10 @@ export class ImportFlow {
 			}
 			this.indexingBlocked = null;
 			try {
+				this.preparedIdentityRows = inputs && this.parsedData
+					? await candidateSourceRows(this.parsedData, inputs.recipe) : null;
 				this.discoveredSets = await discoverImportSets(app, undefined);
+				this.identityClaims = await discoverIdentityClaims(app, this.discoveredSets);
 				this.setDiscoveryError = null;
 				// The set list names the recipe that made each set. Without the
 				// saved recipes loaded, a set made by one would read "an unsaved
@@ -2920,8 +2959,8 @@ export class ImportFlow {
 			line.addClass('crosswalker-import-set-refreshing');
 		} else {
 			line.setText(sets.length === 1
-				? 'Importing as a new set. The one import already in this vault stays separate.'
-				: `Importing as a new set. The ${sets.length} imports already in this vault stay separate.`);
+				? 'Importing as a new set. Existing imports stay separate. Identifiers gain a set suffix only when they overlap an existing import.'
+				: `Importing as a new set. The ${sets.length} existing imports stay separate. Identifiers gain a set suffix only when they overlap an existing import.`);
 		}
 
 		// Every set, with the facts that tell them apart. A minted id is
@@ -3085,10 +3124,10 @@ export class ImportFlow {
 	 * the pure form of the rule is the one this calls.
 	 */
 	private newSetOption(): ImportSetOption {
-		// `?? []` matches the pre-AM-18 behaviour exactly: an unanswered discovery
-		// question collides with nothing and degrades to the plain default. The
-		// caller above already fails closed on a null snapshot.
-		return newSetSchemeFrom(this.discoveredSets ?? [], this.sourceIdentityKeys().ontologyPrefix);
+		// The caller fails closed on an unanswered discovery. Retain discovered
+		// memberships as a defensive fallback for already-prepared review state.
+		const claims = this.identityClaims ?? new Set((this.discoveredSets ?? []).flatMap((set) => [...set.curies]));
+		return newSetSchemeFrom(claims, this.sourceIdentityKeys().ontologyPrefix, this.candidateIdentities());
 	}
 
 	private validateImportSetSelection(): boolean {
@@ -4654,7 +4693,6 @@ export class ImportFlow {
 		const outputPath = this.currentOutputPath();
 		const options: GenerationOptions = {
 			basePath: outputPath,
-			importSet: this.selectedImportSet(),
 			overwriteMode: this.overwriteMode,
 			createFolders: true,
 			frameworkId: this.frameworkId || undefined,
@@ -4727,6 +4765,14 @@ export class ImportFlow {
 			// path owns provenance. Blank input supplies no override.
 			const sourceWhere = this.presetSourceWhere ?? shorthandToSourceExpression(this.jsonWhere);
 			if (sourceWhere) options.sourceWhere = sourceWhere;
+
+			// A direct generation entry must plan the same filtered/joined rows as
+			// review. Never derive ownership candidates from the unshaped source.
+			if (!this.preparedIdentityRows) {
+				const inputs = this.identityRecipeInputs();
+				if (inputs) this.preparedIdentityRows = await candidateSourceRows(this.parsedData, inputs.recipe);
+			}
+			options.importSet = this.selectedImportSet();
 
 			// Run generation
 			const result = await generateNotes(

@@ -1,6 +1,6 @@
 import { App, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../main';
-import { generateNotes } from '../generation/generation-engine';
+import { candidateRunIdentities, candidateSourceRows, generateNotes, slugifyForCurie } from '../generation/generation-engine';
 import type { Recipe } from '../render';
 import {
 	discoverImportSets,
@@ -192,7 +192,14 @@ export async function runRecognizedImport(
 		// even when nobody edited it, losing the ID needed for safe refresh.
 		const recipeOverride = req.entry.recipe as unknown as Recipe;
 		const config = buildRecognizedImportConfig(workbench);
-		const importSet = req.refreshSetId ? { id: req.refreshSetId } : await newSetSchemeFor(app, req.entry.ontology);
+		const candidateRecipe = req.sourceWhere?.trim()
+			? { ...recipeOverride, source: { ...recipeOverride.source, where: req.sourceWhere } } : recipeOverride;
+		const candidates = req.refreshSetId ? null : await candidateSourceRows(parsedData, candidateRecipe);
+		const importSet = req.refreshSetId ? { id: req.refreshSetId } : await newSetSchemeFor(
+			app, slugifyForCurie(req.entry.ontology), candidateRunIdentities(candidates!.rows, candidateRecipe, {
+				basePath: destination, mapping: config.mapping, rowNumbers: candidates!.rowNumbers,
+			}).claims,
+		);
 		const result = await generateNotes(
 			app,
 			parsedData,

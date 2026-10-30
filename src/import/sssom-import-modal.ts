@@ -21,6 +21,7 @@
  * surface raw schema editing — for that, users edit the .sssom.tsv file
  * directly, then re-import.
  */
+import { candidateCrosswalkCuries } from '../generation/generation-engine';
 import { plural } from '../utils/plural';
 
 import { App, ButtonComponent, Modal, Notice, Setting, TFile } from 'obsidian';
@@ -427,8 +428,8 @@ export class SssomImportModal extends Modal {
 			);
 		} else {
 			line.setText(sets.length === 1
-				? 'Importing as a new set with set-qualified identities. The crosswalk import already here stays separate.'
-				: `Importing as a new set with set-qualified identities. The ${sets.length} crosswalk imports already here stay separate.`);
+				? 'Importing as a new set. Existing imports stay separate. Identifiers gain a set suffix only when a mapping is already present.'
+				: `Importing as a new set. The ${sets.length} existing imports stay separate. Identifiers gain a set suffix only when a mapping is already present.`);
 		}
 
 		// Every set, with the facts that tell them apart. A minted id is deliberately
@@ -441,13 +442,13 @@ export class SssomImportModal extends Modal {
 		// choice that cannot damage anything: a new set owns no notes.
 		new Setting(wrap)
 			.setName('Import set')
-			.setDesc('A new set is the default and uses set-qualified identities. Choose an existing set only to refresh and replace the notes it already owns.')
+			.setDesc('A new set keeps source identifiers unless they overlap an existing import. Choose an existing set only to refresh the notes it already owns.')
 			.addDropdown((dropdown) => {
 				dropdown.addOption('__new__', 'Keep this release as a new set');
 				for (const set of sets) dropdown.addOption(set.id, describeImportSet(set));
 				dropdown.setValue(refreshing ? refreshing.id : '__new__').onChange((selected) => {
 					const picked = sets.find((set) => set.id === selected);
-					this.importSetChoice = picked ? { id: picked.id, scheme: picked.scheme } : 'new-set-qualified';
+					this.importSetChoice = picked ? { id: picked.id, scheme: picked.scheme } : 'new';
 					void this.refreshPreview();
 				});
 			});
@@ -536,7 +537,7 @@ export class SssomImportModal extends Modal {
 		// The undetected-pair case lands here too. It used to return a bare `new`,
 		// and there is no reason for it to answer the qualification question
 		// differently from any other route to a new set.
-		return newSetSchemeFor(this.app, SSSOM_CURIE_PREFIX);
+		return newSetSchemeFor(this.app, SSSOM_CURIE_PREFIX, candidateCrosswalkCuries(parseSssomTsv(this.parsedTsv ?? '').rows));
 	}
 
 	private isExistingSetChoice(choice: ImportSetOption | null = this.importSetChoice): choice is { id: string } {

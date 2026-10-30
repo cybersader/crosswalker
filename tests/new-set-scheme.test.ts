@@ -30,6 +30,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TFile, TFolder } from 'obsidian';
 import {
+	discoverIdentityClaims,
 	discoverImportSets,
 	newSetSchemeFor,
 	newSetSchemeFrom,
@@ -37,6 +38,7 @@ import {
 } from '../src/generation/import-set';
 import { ImportFlow } from '../src/import/import-wizard';
 import { SssomImportModal } from '../src/import/sssom-import-modal';
+import { candidateCrosswalkCuries } from '../src/generation/generation-engine';
 import { SSSOM_CURIE_PREFIX } from '../src/import/sssom-importer';
 import { MappingWorkbench } from '../src/import/workbench';
 import { analyzeColumns } from '../src/import/parsers/csv-parser';
@@ -111,7 +113,7 @@ function seedSet(
 	for (let i = 1; i <= (opts.count ?? 2); i += 1) {
 		files.set(`${opts.root}/n${i}.md`, [
 			'---',
-			`curie: "${opts.prefix}:item-${i}"`,
+			`curie: "${opts.prefix}:${i === 2 ? [...candidateCrosswalkCuries([{ subject_id: 'left:one', object_id: 'right:two' }])][0].slice(SSSOM_CURIE_PREFIX.length + 1) : `item-${i}`}"`,
 			'kind: crosswalk-edge',
 			'_crosswalker:',
 			'  import_set:',
@@ -140,37 +142,38 @@ const setWith = (prefixes: string[]): DiscoveredImportSet => ({
 	ontology: null,
 	recipeIds: [],
 	ontologyPrefixes: prefixes,
+	curies: new Set(prefixes.map((prefix) => `${prefix}:item-1`)),
 } as unknown as DiscoveredImportSet);
 
 describe('the rule: which new set would this source mint', () => {
-	it('qualifies when an existing set already writes under this prefix', () => {
-		expect(newSetSchemeFrom([setWith(['sssom'])], 'sssom')).toBe('new-set-qualified');
+	it('qualifies when an existing claim equals a candidate identity', () => {
+		expect(newSetSchemeFrom(setWith(['sssom']).curies, 'sssom', new Set(['sssom:item-1']))).toBe('new-set-qualified');
 	});
 
-	it('stays plain when nothing occupies the prefix', () => {
+	it('stays plain when no candidate identity is claimed', () => {
 		// Every pre-existing import path keeps the identities it already wrote.
-		expect(newSetSchemeFrom([setWith(['attack'])], 'sssom')).toBe('new');
-		expect(newSetSchemeFrom([], 'sssom')).toBe('new');
+		expect(newSetSchemeFrom(setWith(['attack']).curies, 'sssom', new Set(['sssom:item-1']))).toBe('new');
+		expect(newSetSchemeFrom(new Set(), 'sssom', new Set(['sssom:item-1']))).toBe('new');
 	});
 
 	it('degrades to plain for a source with no prefix to compare', () => {
-		expect(newSetSchemeFrom([setWith(['sssom'])], null)).toBe('new');
+		expect(newSetSchemeFrom(setWith(['sssom']).curies, null, new Set(['sssom:item-1']))).toBe('new');
 	});
 
 	it('never treats the placeholder identity as an occupied space', () => {
 		// The sentinel is what a nameless classic import stamps. It is not a fact
 		// about any ontology, so two unrelated sources carrying it must not be read
 		// as sharing an identity space.
-		expect(newSetSchemeFrom([setWith([LEGACY_ONTOLOGY_SENTINEL])], LEGACY_ONTOLOGY_SENTINEL)).toBe('new');
+		expect(newSetSchemeFrom(setWith([LEGACY_ONTOLOGY_SENTINEL]).curies, LEGACY_ONTOLOGY_SENTINEL, new Set())).toBe('new');
 	});
 
-	it('reads the prefixes the notes actually carry, not a set\'s pinned ontology', () => {
+	it('reads identities the notes actually carry, not a set\'s pinned ontology', () => {
 		// A set already minted set-qualified pins the UNQUALIFIED ontology while its
 		// notes carry the qualified prefix. It is the notes that decide whether a
 		// space is taken, so a fresh import of the same ontology does not collide
 		// with it and stays plain.
 		const qualified = { ...setWith(['sssom-iset-aaaaaa']), ontology: 'sssom' } as DiscoveredImportSet;
-		expect(newSetSchemeFrom([qualified], 'sssom')).toBe('new');
+		expect(newSetSchemeFrom(qualified.curies, 'sssom', new Set(['sssom:item-1']))).toBe('new');
 	});
 });
 
@@ -182,7 +185,7 @@ describe('a set that moved', () => {
 	async function answerFor(root: string): Promise<'new' | 'new-set-qualified'> {
 		const { app, files } = makeVault();
 		seedSet(files, { root, setId: 'iset-aaaaaa', prefix: SSSOM_CURIE_PREFIX });
-		return newSetSchemeFor(app, SSSOM_CURIE_PREFIX);
+		return newSetSchemeFor(app, SSSOM_CURIE_PREFIX, new Set(['sssom:item-1']));
 	}
 
 	it('occupies its identity space from wherever it sits', async () => {
@@ -198,7 +201,7 @@ describe('a set that moved', () => {
 		// The control. A rule that always qualified would pass the case above and
 		// would silently change every first import in the product.
 		const { app } = makeVault();
-		expect(await newSetSchemeFor(app, SSSOM_CURIE_PREFIX)).toBe('new');
+		expect(await newSetSchemeFor(app, SSSOM_CURIE_PREFIX, new Set(['sssom:item-1']))).toBe('new');
 	});
 });
 
@@ -219,7 +222,7 @@ function wizardAnswer(app: App, sets: DiscoveredImportSet[], ontology: string): 
 	);
 	const data: ParsedData = {
 		columns: ['id', 'name'],
-		rows: [{ id: 'A-1', name: 'One' }],
+		rows: [{ id: 'item-1', name: 'One' }],
 		rowCount: 1,
 	};
 	flow.sourceFile = { name: `${ontology}.csv` } as File;
@@ -253,11 +256,13 @@ async function modalAnswer(app: App): Promise<unknown> {
 		precomputeClosure: null,
 	} as unknown as CrosswalkerPlugin;
 	const modal = new SssomImportModal(app, plugin) as unknown as {
+		parsedTsv: string;
 		detectedSource: string | null;
 		detectedTarget: string | null;
 		importSetChoice: unknown;
 		selectedImportSet(): Promise<unknown>;
 	};
+	modal.parsedTsv = 'subject_id\tpredicate_id\tobject_id\nleft:one\tskos:relatedMatch\tright:two\n';
 	modal.detectedSource = 'csf';
 	modal.detectedTarget = 'iso27001';
 	modal.importSetChoice = null;
@@ -275,8 +280,8 @@ describe('every caller answers with that rule, and none with its own', () => {
 		if (seed) seedSet(files, { root: seed.root, setId: 'iset-aaaaaa', prefix: SSSOM_CURIE_PREFIX });
 		const sets = await discoverImportSets(app, undefined);
 		return {
-			rule: newSetSchemeFrom(sets, SSSOM_CURIE_PREFIX),
-			shared: await newSetSchemeFor(app, SSSOM_CURIE_PREFIX),
+			rule: newSetSchemeFrom(await discoverIdentityClaims(app, sets), SSSOM_CURIE_PREFIX, new Set(['sssom:item-1'])),
+			shared: await newSetSchemeFor(app, SSSOM_CURIE_PREFIX, new Set(['sssom:item-1'])),
 			wizard: wizardAnswer(app, sets, SSSOM_CURIE_PREFIX),
 			modal: await modalAnswer(app),
 		};
@@ -321,6 +326,7 @@ describe('every caller answers with that rule, and none with its own', () => {
 			detectedTarget: string | null;
 			selectedImportSet(): Promise<unknown>;
 		};
+		(modal as unknown as { parsedTsv: string }).parsedTsv = 'subject_id\tpredicate_id\tobject_id\nleft:one\tskos:relatedMatch\tright:two\n';
 		modal.detectedSource = null;
 		modal.detectedTarget = null;
 		expect(await modal.selectedImportSet()).toBe('new-set-qualified');
@@ -364,7 +370,7 @@ describe('the developer fixture command', () => {
 	const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.ts'), 'utf8');
 
 	it('asks the shared rule instead of naming a scheme itself', () => {
-		expect(source).toContain('newSetSchemeFor(this.app, SSSOM_CURIE_PREFIX)');
+		expect(source).toContain('newSetSchemeFor(this.app, SSSOM_CURIE_PREFIX, candidateCrosswalkCuries(');
 	});
 
 	it('carries no import-set literal of its own', () => {

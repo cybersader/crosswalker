@@ -774,7 +774,7 @@ async function classicImport(
  */
 async function wizardImport(
 	app: unknown,
-	opts: Parameters<typeof makeFlow>[1] & { overwriteMode?: 'skip' | 'replace'; destination?: string } = {},
+	opts: Parameters<typeof makeFlow>[1] & { overwriteMode?: 'skip' | 'replace'; destination?: string; forcePlainNew?: boolean } = {},
 ) {
 	const { flow, texts, close } = makeFlow(app, opts);
 	flow.overwriteMode = opts.overwriteMode ?? 'replace';
@@ -783,6 +783,7 @@ async function wizardImport(
 		flow.outputPath = opts.destination;
 	}
 	await inner(flow).prepareStep3(true);
+	if (opts.forcePlainNew) (flow as unknown as { newSetOption(): string }).newSetOption = () => 'new';
 	const choice = inner(flow).importSetChoice;
 	const resolved = inner(flow).selectedImportSet();
 	const destination = inner(flow).currentOutputPath();
@@ -2303,7 +2304,7 @@ describe('the refresh offer, which is a suggestion and never a decision', () => 
 		expect(captureReview(flow).texts.filter((s) => /Looks like/.test(s))).toEqual([]);
 	});
 
-	it('appears for NEITHER when two sets share the ontology, because which one is the question', async () => {
+	it('offers only the overlapping set when two sets share the ontology', async () => {
 		// The bundled-recipe shape: `xwalk` backs every crosswalk, `nist-csf-2`
 		// backs three recipes. A label several frameworks answer to cannot pick one.
 		const vault = makeVault();
@@ -2321,8 +2322,8 @@ describe('the refresh offer, which is a suggestion and never a decision', () => 
 
 		expect(sets).toHaveLength(2);
 		expect(sets.every((set) => set.ontologyPrefixes.includes(ONTOLOGY))).toBe(true);
-		expect(inner(flow).offeredRefreshSet(sets)).toBeNull();
-		expect(captureReview(flow).texts.filter((s) => /Looks like/.test(s))).toEqual([]);
+		expect(inner(flow).offeredRefreshSet(sets)?.root).toBe('Ontologies/attack-mini');
+		expect(captureReview(flow).texts.filter((s) => /Looks like/.test(s))).toHaveLength(1);
 	});
 
 	it('never appears for a placeholder ontology, on either side', async () => {
@@ -2534,10 +2535,9 @@ describe('the sources that defeated matching land as new sets with no click', ()
 		});
 
 		expect(second.choice).toBeNull();
-		// AM-13: one stem, one derived ontology, one curie space -- so the second
-		// vendor's set is minted set-qualified and the two coexist at the note
-		// level, rather than meeting as an AM-12 refusal on every hub.
-		expect(second.resolved).toBe('new-set-qualified');
+		// A shared file stem is only a namespace. These identities and facets
+		// are disjoint, so the second vendor keeps publisher identities.
+		expect(second.resolved).toBe('new');
 		expect(second.destination).toBe('Vendor B/controls');
 		expect(await discoverImportSets(vault.app, undefined)).toHaveLength(2);
 		for (const [path, text] of firstBefore) expect(vault.files.get(path)).toBe(text);
@@ -3082,7 +3082,7 @@ describe('the two entries that end in a render rather than an answer', () => {
 		const { flow } = makeFlow(vault.app, { data });
 		flow.columnInfos = analyzeColumns(data);
 		(flow as unknown as { recognizedMatch: unknown }).recognizedMatch = {
-			entry: RECIPE_REGISTRY[0],
+			entry: { ...RECIPE_REGISTRY[0], recipe: RECIPE },
 			score: 100,
 		};
 		const gate = gateDiscovery(flow);
@@ -3601,7 +3601,7 @@ describe('an identity held by a note from before import sets existed', () => {
 			const named = collisionsNaming(result, `${ONTOLOGY}:${row.technique_id}`);
 			expect(named).toHaveLength(1);
 			expect(named[0]).toContain('a note from an earlier import that carries no import set');
-			expect(named[0]).toContain('Move or delete that note');
+			expect(named[0]).toContain('Refresh into a new set');
 			// Not "import set undefined", and not the owned-set wording either: the
 			// action that resolves an unowned collision is a different action.
 			expect(named[0]).not.toContain('claimed by import set');
@@ -3913,11 +3913,10 @@ describe.each(['replace', 'skip'] as const)(
 			});
 
 			expect(second.choice).toBeNull();
-			expect(second.resolved).toBe('new-set-qualified');
+			expect(second.resolved).toBe('new');
 			expectForeignVaultUntouched(vault, before, firstSet.id);
-			const [latest] = (await discoverImportSets(vault.app, undefined)).filter((set) => set.id !== firstSet.id);
 			for (const curie of curiesUnder(vault.files, 'Vendor B/controls')) {
-				expect(curie.startsWith(`controls-${latest.id}:`)).toBe(true);
+				expect(curie.startsWith(`controls:`)).toBe(true);
 			}
 		});
 
@@ -3966,12 +3965,10 @@ describe.each(['replace', 'skip'] as const)(
 // only what the USER gets: the notice text, the results screen, and whether the
 // window closed. Nothing here touches a `GenerationResult`.
 //
-// The fixture is the one collision AM-13 cannot design away, which is also the
-// residual case a very old vault is in: notes carrying `_crosswalker`
-// provenance and NO import-set block. AM-13's signal is what the discovered
-// sets' notes hold, and an unowned note belongs to no set, so the new set mints
-// plain `endpoint-v1`, walks straight into the identities those notes already
-// hold, and AM-12 refuses every row of it.
+// The enforcement fixture deliberately forces plain endpoint identities over
+// legacy null-owner notes. Automatic qualification now protects those notes too;
+// a separate no-override case proves that path. Forcing the decision here keeps
+// AM-12's refusal and AM-4's user-visible error handling independently covered.
 // ===========================================================================
 
 describe.each(['replace', 'skip'] as const)(
@@ -3993,7 +3990,7 @@ describe.each(['replace', 'skip'] as const)(
 			notices.length = 0;
 			const second = await wizardImport(vault.app, {
 				destination: 'Ontologies/attack-mini-2024',
-				overwriteMode,
+				overwriteMode, forcePlainNew: stripOwnership,
 			});
 			return { vault, before, second };
 		}
@@ -4013,9 +4010,24 @@ describe.each(['replace', 'skip'] as const)(
 			return [...before].filter(([, text]) => frontmatterOf(text).kind === undefined);
 		}
 
+		it('automatically qualifies overlapping null-owner legacy notes without refusals', async () => {
+			const vault = makeVault();
+			await wizardImport(vault.app, { destination: 'Ontologies/attack-mini-2023' });
+			deMigrateImportSetStamp(vault.files);
+			const before = new Map(vault.files);
+			const second = await wizardImport(vault.app, {
+				destination: 'Ontologies/attack-mini-2024', overwriteMode,
+			});
+			expect(second.choice).toBeNull();
+			expect(second.resolved).toBe('new-set-qualified');
+			expect(second.texts).not.toContain('Errors');
+			for (const [path, text] of before) expect(vault.files.get(path)).toBe(text);
+			expect(second.close).toHaveBeenCalled();
+		});
+
 		it('mints the plain endpoint form, which is what makes the collision reachable', async () => {
-			// The premise, asserted rather than assumed. If AM-13 qualified here the
-			// rest of this section would be testing an empty vault against itself.
+			// The test-only forced endpoint seam bypasses automatic qualification so
+			// AM-12 enforcement still receives a real foreign-owner collision.
 			const { second } = await importOverUnownedNotes(true);
 			expect(second.choice).toBeNull();
 			expect(second.resolved).toBe('new');

@@ -88,6 +88,7 @@ import {
 	// with the derivation so the two cannot disagree.
 	isCurieOfOntology,
 	type EnrichNote,
+	type EnrichOptions,
 	type HubNote,
 	type LayoutValue,
 	type OwnedHubAtFolder,
@@ -1520,9 +1521,9 @@ function legacyCrosswalkAdoption(
 function crossSetCollisionMessage(curie: string, claim: ForeignClaim): string {
 	return claim.setId
 		? `Cross-set identity collision: ${curie} is claimed by import set ${claim.setId} at ${claim.path}. `
-			+ 'Nothing was written for it. Refresh that set instead, or rename this source so it uses its own identities.'
+			+ 'Nothing was written for it. Refresh into a new set to keep this release separate, or refresh the owning set only if you intend to replace it.'
 		: `Cross-set identity collision: ${curie} is claimed by ${claim.path}, a note from an earlier import that carries no import set. `
-			+ 'Nothing was written for it. Move or delete that note, or rename this source so it uses its own identities.';
+			+ 'Nothing was written for it. Refresh into a new set to keep the earlier notes unchanged.';
 }
 
 /**
@@ -1723,7 +1724,8 @@ function foreignHubClaim(
 	curie: string | null,
 	legacyCuries: readonly string[] | undefined,
 ): { curie: string; claim: ForeignClaim } | null {
-	for (const candidate of [...(curie ? [curie] : []), ...(legacyCuries ?? [])]) {
+	const identities = runIdentityCuries({ hubs: [{ curie, legacyCuries }] });
+	for (const candidate of identities.claims) {
 		const claim = foreignSetClaim(owned, vaultWide, candidate);
 		if (claim) return { curie: candidate, claim };
 	}
@@ -6149,8 +6151,116 @@ function nestedIdentityPinMismatch(
 	return null;
 }
 
-/** One CURIE derivation used by nested preflight and the row-writing loops. */
-function deriveRowCurie(
+/** Exact identity claims shared by planning and both engine write paths.
+ * Addresses only supply enrichment's layout facts; they never name row identities.
+ * Aliases are checked for foreign ownership but are not written as fresh notes. */
+export function runIdentityCuries(input: {
+	rows?: readonly Parameters<typeof deriveRowCurieRaw>[];
+	hubs?: readonly { curie: string | null; legacyCuries?: readonly string[] }[];
+	enrichment?: { notes: EnrichNote[]; options: EnrichOptions };
+}): { written: Set<string>; claims: Set<string> } {
+	const written = new Set((input.rows ?? []).map((args) => deriveRowCurieRaw(...args)));
+	const claims = new Set(written);
+	const derived = input.enrichment ? enrich(input.enrichment.notes, { ...input.enrichment.options, writeSet: input.enrichment.options.writeSet }) : null;
+	const hubs = [...(input.hubs ?? []), ...(derived ? [
+		...derived.hubs, ...derived.levelHubs.notes, ...derived.impliedConcepts,
+	] : [])];
+	for (const hub of hubs) {
+		if (hub.curie) {
+			written.add(hub.curie);
+			claims.add(hub.curie);
+		}
+		for (const alias of hub.legacyCuries ?? []) claims.add(alias);
+	}
+	return { written, claims };
+}
+
+/** Engine rows use precisely the planner's identity derivation, including callbacks. */
+function deriveRowCurie(...args: Parameters<typeof deriveRowCurieRaw>): string {
+	return runIdentityCuries({ rows: [args] }).written.values().next().value!;
+}
+
+/** Pure plan over already-shaped source rows. Defaults to the new-set proposal;
+ * refresh offers may supply a target set to compare its pinned identity scheme. */
+export function candidateRunIdentities(
+	rows: readonly Record<string, unknown>[],
+	recipe: Recipe,
+	options: {
+		basePath: string;
+		mapping?: MappingConfig;
+		curieLocalPart?: RecipeImportOptions['curieLocalPart'];
+		facetsForRow?: GenerationOptions['facetsForRow'];
+		streamed?: boolean;
+		rowNumbers?: readonly number[];
+		importSet?: ImportSetReference;
+	},
+): { written: Set<string>; claims: Set<string> } {
+	const kind = noteKindOf(recipe);
+	const ontology = kind === 'crosswalk-edge' ? SSSOM_CURIE_PREFIX : recipe.source?.ontology ?? recipe.recipe;
+	const set: ImportSetReference = options.importSet ?? { id: 'iset-000000', scheme: 'endpoint-v1', derivation: 'declared-facts-v1' };
+	const basePrefix = baseCuriePrefixFor(set, ontology);
+	const prefix = kind === 'crosswalk-edge' ? crosswalkEdgeCuriePrefix(set.ontology ?? ontology) : curiePrefixFor(set, ontology);
+	const inputs: Parameters<typeof deriveRowCurieRaw>[] = [];
+	const notes: EnrichNote[] = [];
+	for (let i = 0; i < rows.length; i++) {
+		const row = rows[i];
+		const rowNum = options.rowNumbers?.[i] ?? i + 1;
+		const fallback = () => options.mapping ? deriveRawFilenameStem(row, options.mapping, rowNum) : `row-${rowNum}`;
+		const args: Parameters<typeof deriveRowCurieRaw> = [row, prefix, basePrefix, set, recipe.source?.nest, fallback,
+			() => kind === 'crosswalk-edge' ? sssomEdgeCurie(row, set)
+				: options.curieLocalPart ? options.curieLocalPart(row, rowNum, set)
+					: derivationOf(set) === 'declared-facts-v1' ? declaredFactsLocalPart(row, fallback, basePrefix)
+						: options.mapping ? deriveFilenameStem(row, options.mapping, rowNum) : defaultCurieLocalPart(row, rowNum, derivationOf(set), basePrefix)];
+		inputs.push(args);
+		if (!recipe.target.enrichment) continue;
+		const curie = deriveRowCurie(...args);
+		const scope = kind === 'crosswalk-edge' ? {
+			...row, mapping_set_id: normalizeMappingSetId(row.mapping_set_id),
+			predicate_modifier: normalizePredicateModifierInput(row.predicate_modifier),
+		} : row;
+		const values: LayoutValue[] = [];
+		const address = render(recipe, { curie, scope }, undefined, values);
+		const path = normalizePath([normalizeBasePath(options.basePath), address.primary.path].filter(Boolean).join('/'));
+		notes.push({ path, curie, frontmatter: address.frontmatter,
+			facets: options.facetsForRow ? options.facetsForRow(row, rowNum) : facetMembershipsFromTags(address.tags),
+			layoutValues: values });
+	}
+	return runIdentityCuries({ rows: inputs, ...(recipe.target.enrichment ? { enrichment: {
+		notes, options: { ontology: prefix, config: recipe.target.enrichment,
+			rootFolder: normalizeBasePath(options.basePath), streamed: options.streamed,
+			writeSet: new Set(notes.map((note) => note.path)) },
+	} } : {}) });
+}
+
+/** Materialize once at the decision boundary so a one-shot stream is not eaten
+ * by planning and then handed empty to generation. Source shaping stays shared. */
+export async function candidateSourceRows(parsedData: ParsedData, recipe: Recipe): Promise<{ rows: Record<string, unknown>[]; rowNumbers: number[] }> {
+	if (!Array.isArray(parsedData.rows)) {
+		const rows: Record<string, unknown>[] = [];
+		for await (const row of parsedData.rows) rows.push(row);
+		parsedData.rows = rows;
+	}
+	const stage = await prepareSourceStage(parsedData, recipe.source);
+	const rows: Record<string, unknown>[] = [];
+	const rowNumbers: number[] = [];
+	for await (const row of stage.rows) {
+		rowNumbers.push(stage.sourceRowNumber(row, rows.length));
+		rows.push(row);
+	}
+	stage.finalize();
+	return { rows, rowNumbers };
+}
+
+/** Edge identity proposals use the injective pair identity, never endpoint ids. */
+export function candidateCrosswalkCuries(rows: readonly Record<string, unknown>[]): Set<string> {
+	const set: ImportSetReference = { id: 'iset-000000', scheme: 'endpoint-v1', derivation: 'declared-facts-v1' };
+	return runIdentityCuries({ rows: rows.map((row) => [
+		row, SSSOM_CURIE_PREFIX, SSSOM_CURIE_PREFIX, set, undefined,
+		() => '', () => sssomEdgeCurie(row, set),
+	]) }).claims;
+}
+
+function deriveRowCurieRaw(
 	row: Record<string, unknown>,
 	curiePrefix: string,
 	basePrefix: string,

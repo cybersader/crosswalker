@@ -233,7 +233,7 @@ describe('generateNotes orphan detection', () => {
 		expect(result.errors).toHaveLength(1);
 		expect(result.errors[0].message).toBe(
 			'Cross-set identity collision: attack:A is claimed by import set iset-abc123 at Frameworks/A.md. '
-			+ 'Nothing was written for it. Refresh that set instead, or rename this source so it uses its own identities.',
+			+ 'Nothing was written for it. Refresh into a new set to keep this release separate, or refresh the owning set only if you intend to replace it.',
 		);
 		expect(result.created).toEqual([]);
 		expect(result.moved ?? []).toEqual([]);

@@ -18,7 +18,8 @@ import {
 	type MappingSetIdentity,
 	type PinnedMappingSetIdentity,
 } from '../mappings/mapping-set';
-import { discoverImportSets, newSetSchemeFor, newSetSchemeFrom, requireVaultIndexed, settleVaultIndex } from './import-set';
+import { candidateCrosswalkCuries } from './generation-engine';
+import { discoverIdentityClaims, discoverImportSets, newSetSchemeFor, newSetSchemeFrom, requireVaultIndexed, settleVaultIndex } from './import-set';
 import { generateFromRecipe } from './generation-engine';
 import { edgeEndpointIndex, resolveEdgeEndpoints, summarizeUnresolvedEndpoints, type UnresolvedEndpoint } from './edge-endpoints';
 
@@ -294,6 +295,7 @@ export async function runCrosswalkEdgePass(
 	// Snapshot producer ownership once before any column writes change the vault.
 	if (args.producerSetId) await requireVaultIndexed(app);
 	const discovered = args.producerSetId ? await discoverImportSets(app) : [];
+	const claimedCuries = args.producerSetId ? await discoverIdentityClaims(app, discovered) : new Set<string>();
 	let mintedSSSOM = false;
 
 	for (const entry of args.entries) {
@@ -403,8 +405,8 @@ export async function runCrosswalkEdgePass(
 		const importSetOption = candidates.length === 1
 			? { id: candidates[0].id }
 			: args.producerSetId
-				? (mintedSSSOM ? 'new-set-qualified' : newSetSchemeFrom(discovered, SSSOM_CURIE_PREFIX))
-				: await newSetSchemeFor(app, SSSOM_CURIE_PREFIX);
+				? (mintedSSSOM ? 'new-set-qualified' : newSetSchemeFrom(claimedCuries, SSSOM_CURIE_PREFIX, candidateCrosswalkCuries(resolvedRows)))
+				: await newSetSchemeFor(app, SSSOM_CURIE_PREFIX, candidateCrosswalkCuries(resolvedRows));
 		const generation = await generateFromRecipe(
 			app,
 			parsedData,

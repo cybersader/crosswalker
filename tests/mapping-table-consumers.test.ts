@@ -17,7 +17,7 @@ import { readVaultTree } from '../src/export/vault-reader';
 import { crosswalkEdgesToSssomTsv, exportFolderAsSssomTsv } from '../src/export/sssom-exporter';
 import { crosswalkEdgesToStrmTsv, exportFolderAsStrmTsv } from '../src/export/strm-tsv-exporter';
 import { LINEAGE_NOT_REPRESENTABLE_REASON } from '../src/tier2/predicate-characteristics';
-import { discoverImportSets, resolveImportSet, ImportSetProvenanceError } from '../src/generation/import-set';
+import { discoverIdentityClaims, newSetSchemeFrom, discoverImportSets, resolveImportSet, ImportSetProvenanceError } from '../src/generation/import-set';
 import { buildProvenance } from '../src/generation/provenance';
 import { sssomEdgeCurie } from '../src/generation/crosswalk-identity';
 import { initValidator, validateTier1Frontmatter } from '../src/validation/validator';
@@ -369,6 +369,17 @@ describe('slice 2 B3: import-set discovery sees table-form sets', () => {
 			parentSets: ['iset-demo34'],
 			derivation: 'declared-facts-v1',
 		});
+	});
+
+	it('qualifies on an overlap in any table row, not just its first row', async () => {
+		const app = vaultApp({ files: { [TABLE_PATH]: tableText() } });
+		const [table] = await readMappingTables(app);
+		const curies = tableRowsAsEdgeRecords(table).map((record) => String(record.frontmatter.curie));
+		const [set] = await discoverImportSets(app);
+		expect([...set.curies].sort()).toEqual([...curies].sort());
+		const claims = await discoverIdentityClaims(app, [set]);
+		for (const curie of curies) expect(newSetSchemeFrom(claims, 'sssom', new Set([curie]))).toBe('new-set-qualified');
+		expect(newSetSchemeFrom(claims, 'sssom', new Set(['sssom:unrelated']))).toBe('new');
 	});
 
 	it('a known owner with one bad row is still discovered, counting the surviving rows', async () => {
