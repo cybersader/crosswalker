@@ -13,7 +13,7 @@ import {
 	SOURCE_EXPRESSION_MAX_LENGTH,
 	SOURCE_EXPRESSION_STACK_DEPTH,
 	SOURCE_EXPRESSION_TIMEOUT_MS,
-	SOURCE_STAGE_BUDGET_MS,
+	SOURCE_STAGE_MAX_EVALUATIONS,
 	SourceStageBudget,
 } from '../src/source';
 import { SourceStageError } from '../src/source/errors';
@@ -62,7 +62,7 @@ describe('E3 — compile options', () => {
 		expect(SOURCE_EXPRESSION_MAX_LENGTH).toBe(512);
 		expect(SOURCE_EXPRESSION_TIMEOUT_MS).toBe(100);
 		expect(SOURCE_EXPRESSION_STACK_DEPTH).toBe(100);
-		expect(SOURCE_STAGE_BUDGET_MS).toBe(5000);
+		expect(SOURCE_STAGE_MAX_EVALUATIONS).toBe(2_000_000);
 	});
 
 	it('never enables recover, which would collect errors instead of throwing', () => {
@@ -86,18 +86,92 @@ describe('E3 — compile options', () => {
 });
 
 describe('E4 — whole-stage budget', () => {
-	it('aborts with a SourceStageError once the cumulative budget is spent', async () => {
-		const budget = new SourceStageBudget(0); // every evaluation overruns
+	it('refuses the first evaluation with a zero limit, before entering the engine', async () => {
+		const budget = new SourceStageBudget(0);
 		const compiled = compileSourceExpression("Subcategory != ''", { ...WHERE, budget });
-		await expect(compiled.evaluate({ Subcategory: 'x' }, 7)).rejects.toBeInstanceOf(SourceStageError);
-		await expect(compiled.evaluate({ Subcategory: 'x' }, 7)).rejects.toThrow('evaluation budget');
+		const read = jest.fn(() => 'x');
+		const row = { get Subcategory() { return read(); } };
+		expect(budget.spent).toBe(0);
+		const evaluation = compiled.evaluate(row, 7);
+		await expect(evaluation).rejects.toBeInstanceOf(SourceStageError);
+		await expect(evaluation).rejects.toMatchObject({
+			message: expect.stringContaining('source stage exceeded its 0 evaluation budget'),
+			declaration: 'source.where',
+			expression: "Subcategory != ''",
+			row: 7,
+			detail: 'Source expression evaluation count: 1.',
+		});
+		expect(budget.spent).toBe(1);
+		expect(read).not.toHaveBeenCalled();
+	});
+
+	it.each([1, 3])('allows exactly %i evaluations, then refuses the next one', async (limit) => {
+		const budget = new SourceStageBudget(limit);
+		const compiled = compileSourceExpression("Subcategory != ''", { ...WHERE, budget });
+		for (let i = 0; i < limit; i++) {
+			await expect(compiled.evaluate({ Subcategory: 'x' }, i + 1)).resolves.toBe(true);
+			expect(budget.spent).toBe(i + 1);
+		}
+		await expect(compiled.evaluate({ Subcategory: 'x' }, limit + 1)).rejects.toThrow(
+			`source stage exceeded its ${limit} evaluation budget`,
+		);
+		expect(budget.spent).toBe(limit + 1);
+	});
+
+	it('counts evaluations cumulatively across declarations sharing one run budget', async () => {
+		const budget = new SourceStageBudget(2);
+		const where = compileSourceExpression("Subcategory != ''", { ...WHERE, budget });
+		const key = compileSourceExpression('ID', { declaration: 'source.joins.aux.on.primary', budget });
+		await expect(where.evaluate({ Subcategory: 'x' }, 1)).resolves.toBe(true);
+		await expect(key.evaluate({ ID: 'A' }, 1)).resolves.toBe('A');
+		await expect(key.evaluate({ ID: 'B' }, 2)).rejects.toMatchObject({
+			declaration: 'source.joins.aux.on.primary',
+			expression: 'ID',
+			row: 2,
+			detail: 'Source expression evaluation count: 3.',
+		});
+		expect(budget.spent).toBe(3);
 	});
 
 	it('leaves a normal run far inside the budget', async () => {
 		const budget = new SourceStageBudget();
 		const compiled = compileSourceExpression("Subcategory != ''", { ...WHERE, budget });
 		for (let i = 0; i < 2000; i++) await compiled.evaluate({ Subcategory: i % 2 ? 'x' : '' }, i + 1);
-		expect(budget.spentMs).toBeLessThan(SOURCE_STAGE_BUDGET_MS);
+		expect(budget.spent).toBe(2000);
+		expect(budget.spent).toBeLessThan(SOURCE_STAGE_MAX_EVALUATIONS);
+	});
+
+	it('gives the same run result when both clocks jump ten seconds per call', async () => {
+		// Isolate the stage budget from JSONata's separate per-evaluation clock
+		// guard. Keep the real parser/evaluator; E3 above pins and tests its timeout.
+		jest.doMock('jsonata', () => {
+			const engine = jest.requireActual<typeof import('jsonata')>('jsonata');
+			return (text: string, options?: Parameters<typeof engine>[1]) => engine(text, { ...options, timeout: 0 });
+		});
+		try {
+			let expressionModule!: typeof import('../src/source/expression');
+			jest.isolateModules(() => {
+				expressionModule = require('../src/source/expression') as typeof expressionModule;
+			});
+			const run = async () => {
+				const budget = new expressionModule.SourceStageBudget();
+				const compiled = expressionModule.compileSourceExpression("Subcategory != ''", { ...WHERE, budget });
+				const results: unknown[] = [];
+				for (const Subcategory of ['', 'x', 'y', '']) results.push(await compiled.evaluate({ Subcategory }));
+				return { results, spent: budget.spent };
+			};
+			const normal = await run();
+			expect(normal.results).toEqual([false, true, true, false]);
+			let wallTime = 0;
+			let monotonicTime = 0;
+			jest.spyOn(Date, 'now').mockImplementation(() => wallTime += 10_000);
+			jest.spyOn(performance, 'now').mockImplementation(() => monotonicTime += 10_000);
+			await expect(run()).resolves.toEqual(normal);
+			expect(normal.spent).toBe(4);
+		} finally {
+			jest.restoreAllMocks();
+			jest.dontMock('jsonata');
+		}
 	});
 });
 
