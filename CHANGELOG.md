@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Changed: the demo build writes the F3 license as Markdown too (2026-10-30)
+
+- `demo:build` now writes `Frameworks/MITRE-F3/LICENSE.md` next to `LICENSE.txt`: a heading, one sentence naming the Apache License 2.0, and the upstream text unchanged inside a `text` fence. Hosts that accept only Markdown, such as OpenClast rooms, now carry the license with an uploaded demo vault instead of needing it added by hand. The note has no links, so the graph (which hides orphans) does not show it. The demo smoke test pins the Markdown copy to the upstream file; two builds stay byte-identical.
+
 ### Changed: the demo uses the full MITRE F3 v1.2 catalog with tactic and parent links (2026-10-29)
 
 - **Real source, offline build.** Replaced the four invented F3 demo rows with the tracked `Frameworks/f3-excel-v1.2.xlsx`: 138 techniques (41 multi-tactic, 55 sub-techniques) and 8 tactic notes. Upstream commit, download date, file digests and row counts are recorded in `Frameworks/mitre-f3-source.json`; Apache 2.0 is carried in `Frameworks/LICENSES/mitre-f3-LICENSE.txt` and copied into the demo. Both sheets import last, preserving the earlier demo set ids. The synthetic fixture stays for unit tests.

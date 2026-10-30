@@ -143,9 +143,13 @@ describe('demo:build', () => {
 		expect(parents).toBe(55);
 		expect(tacticLinks).toBe(191);
 		for (const note of tactics) expect(note._crosswalker.import_set.ontology).toBe('mitre-f3');
-		expect(fs.readFileSync(path.join(folder, 'LICENSE.txt'), 'utf8')).toBe(
-			fs.readFileSync(path.join(REPO, 'Frameworks/LICENSES/mitre-f3-LICENSE.txt'), 'utf8'),
-		);
+		const license = fs.readFileSync(path.join(REPO, 'Frameworks/LICENSES/mitre-f3-LICENSE.txt'), 'utf8');
+		expect(fs.readFileSync(path.join(folder, 'LICENSE.txt'), 'utf8')).toBe(license);
+		// Markdown copy for hosts that refuse .txt: upstream text unchanged inside one fence.
+		const licenseMd = fs.readFileSync(path.join(folder, 'LICENSE.md'), 'utf8');
+		expect(licenseMd.startsWith('# MITRE Fight Fraud Framework (F3) license\n')).toBe(true);
+		expect(licenseMd).toContain(`\n\`\`\`text\n${license.replace(/\n$/, '')}\n\`\`\`\n`);
+		expect(licenseMd).not.toMatch(/^---/);
 		expect(result.stdout).toContain('csf=iset-a0f1e2, sp80053=iset-0f6ht0, attack=iset-xskeb8, csfTo80053=iset-7z4lxm, csfToAttack=iset-if5214, evidence=iset-g3sec8, f3=iset-xfkz1i, f3Tactics=iset-juu0p7');
 		const start = fs.readFileSync(path.join(out, 'Start here.md'), 'utf8');
 		expect(start).toContain('Frameworks/MITRE-F3/F1002.001.md');
