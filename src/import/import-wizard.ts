@@ -8,6 +8,7 @@ import { parseJSONFile, suggestIterators, JsonStructure } from './parsers/json-p
 import {
 	render,
 	renderTemplate,
+	RenderError,
 	summarizeRenderNotes,
 	type RenderReport,
 	type PreviewRowNotes,
@@ -23,6 +24,7 @@ import { renderPresetGuide } from './import-preset-guide';
 import {
 	candidateRunIdentities,
 	candidateSourceRows,
+	releaseIdentityPlanningSource,
 	resolveRunOntology,
 	generateNotes,
 	buildConfigFromWizardState,
@@ -2689,10 +2691,17 @@ export class ImportFlow {
 			}).claims;
 			this.identityCandidateCache.set(key, claims);
 			return claims;
-		} catch {
-			// Partial recognized matches can name columns the source does not have.
-			// Keep review usable, never offer a guessed refresh, and isolate safely.
-			if (!importSet) this.identityPlanningProblem = 'Set-suffixed: the recipe needs columns this source could not supply. Review the column choices before importing.';
+		} catch (error) {
+			// Only the renderer's exact missing-value condition means columns were
+			// unavailable. Invalid filters and planner defects need their own cause.
+			const missingColumn = error instanceof RenderError
+				&& /^Template variable ".*" resolved to undefined\/null in template ".*"\.$/s.test(error.message);
+			if (missingColumn) {
+				if (!importSet) this.identityPlanningProblem = 'Set-suffixed: the recipe needs columns this source could not supply. Review the column choices before importing.';
+			} else {
+				this.plugin.debug.error('wizard', 'identity-plan-failed', 'Could not check this import for overlapping identifiers', { error: String(error) });
+				if (!importSet) this.identityPlanningProblem = 'Set-suffixed: the recipe could not be checked for overlapping identifiers. Review the recipe and column choices, then try the import again.';
+			}
 			const empty = new Set<string>();
 			this.identityCandidateCache.set(key, empty);
 			return empty;
@@ -4810,6 +4819,11 @@ export class ImportFlow {
 				if (inputs) this.preparedIdentityRows = await candidateSourceRows(this.parsedData, inputs.recipe);
 			}
 			options.importSet = this.selectedImportSet();
+			// The scheme is settled. Neither review field may retain shaped rows
+			// while generation opens the source again and builds its own state.
+			this.preparedIdentityRows = null;
+			this.identityCandidateRows = null;
+			releaseIdentityPlanningSource(this.parsedData);
 
 			// Run generation
 			const result = await generateNotes(

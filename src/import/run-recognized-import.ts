@@ -1,6 +1,6 @@
 import { App, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../main';
-import { candidateRunIdentities, candidateSourceRows, generateNotes, slugifyForCurie } from '../generation/generation-engine';
+import { candidateRunIdentities, candidateSourceRows, releaseIdentityPlanningSource, generateNotes, slugifyForCurie } from '../generation/generation-engine';
 import type { Recipe } from '../render';
 import {
 	discoverImportSets,
@@ -194,12 +194,14 @@ export async function runRecognizedImport(
 		const config = buildRecognizedImportConfig(workbench);
 		const candidateRecipe = req.sourceWhere?.trim()
 			? { ...recipeOverride, source: { ...recipeOverride.source, where: req.sourceWhere } } : recipeOverride;
-		const candidates = req.refreshSetId ? null : await candidateSourceRows(parsedData, candidateRecipe);
+		let preparedIdentityRows = req.refreshSetId ? null : await candidateSourceRows(parsedData, candidateRecipe);
 		const importSet = req.refreshSetId ? { id: req.refreshSetId } : await newSetSchemeFor(
-			app, slugifyForCurie(req.entry.ontology), candidateRunIdentities(candidates!.rows, candidateRecipe, {
-				basePath: destination, config, streamed: !Array.isArray(parsedData.rows), rowNumbers: candidates!.rowNumbers,
+			app, slugifyForCurie(req.entry.ontology), candidateRunIdentities(preparedIdentityRows!.rows, candidateRecipe, {
+				basePath: destination, config, streamed: !Array.isArray(parsedData.rows), rowNumbers: preparedIdentityRows!.rowNumbers,
 			}).claims,
 		);
+		preparedIdentityRows = null;
+		releaseIdentityPlanningSource(parsedData);
 		const result = await generateNotes(
 			app,
 			parsedData,

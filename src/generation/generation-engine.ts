@@ -474,6 +474,7 @@ export async function generateNotes(
 ): Promise<GenerationResult> {
 	// AM-49. The boundary. Everything below reads `options`, so the normalized
 	// root is the only root this run has; there is no second spelling to diverge.
+	requireIdentitySourceAvailable(parsedData);
 	const options: GenerationOptions = { ...rawOptions, basePath: normalizeBasePath(rawOptions.basePath) };
 	const startTime = Date.now();
 	const result: GenerationResult = {
@@ -3141,6 +3142,7 @@ export async function generateFromRecipe(
 	// root is normalized once here and every consumer below reads `options`, so
 	// the string the notes are written under and the string they are compared
 	// against cannot be two different strings.
+	requireIdentitySourceAvailable(parsedData);
 	const options: RecipeImportOptions = { ...rawOptions, basePath: normalizeBasePath(rawOptions.basePath) };
 	const startTime = Date.now();
 	const result: GenerationResult = {
@@ -6187,7 +6189,7 @@ export function resolveRunOntology(recipe: Recipe, importSet?: ImportSetReferenc
 export function candidateRunIdentities(
 	rows: readonly Record<string, unknown>[],
 	recipe: Recipe,
-	options: {
+	rawOptions: {
 		basePath: string;
 		mapping?: MappingConfig;
 		/** Present when planning generateNotes rather than generateFromRecipe. */
@@ -6199,6 +6201,7 @@ export function candidateRunIdentities(
 		importSet?: ImportSetReference;
 	},
 ): { written: Set<string>; claims: Set<string> } {
+	const options = { ...rawOptions, basePath: normalizeBasePath(rawOptions.basePath) };
 	const kind = noteKindOf(recipe);
 	const ontology = resolveRunOntology(recipe, options.importSet, options.config ? options.config.name ?? LEGACY_ONTOLOGY_SENTINEL : recipe.recipe);
 	const mapping = options.config ? options.config.mapping ?? { hierarchy: [], frontmatter: [], links: [], body: [] } : options.mapping;
@@ -6226,14 +6229,14 @@ export function candidateRunIdentities(
 		} : row;
 		const values: LayoutValue[] = [];
 		const address = render(recipe, { curie, scope }, undefined, values);
-		const path = normalizePath([normalizeBasePath(options.basePath), address.primary.path].filter(Boolean).join('/'));
+		const path = options.basePath ? normalizePath(`${options.basePath}/${address.primary.path}`) : normalizePath(address.primary.path);
 		notes.push({ path, curie, frontmatter: address.frontmatter,
 			facets: options.facetsForRow ? options.facetsForRow(row, rowNum) : facetMembershipsFromTags(address.tags),
 			layoutValues: values });
 	}
 	return runIdentityCuries({ rows: inputs, ...(enrichmentEnabled ? { enrichment: {
 		notes, options: { ontology: prefix, config: recipe.target.enrichment ?? {},
-			rootFolder: normalizeBasePath(options.basePath), streamed: options.streamed,
+			rootFolder: options.basePath, streamed: options.streamed,
 			writeSet: new Set(notes.map((note) => note.path)) },
 	} } : {}) });
 }
@@ -6242,14 +6245,38 @@ export function candidateRunIdentities(
  * Keep replay state outside ParsedData: callers may hold/freeze that object, and
  * Array.isArray(rows) controls enrichment's folder-note fallback on refresh too. */
 const identitySourceReads = new WeakMap<ParsedData, Promise<ParsedData>>();
+// Track the iterable, not its ParsedData wrapper: spreading the wrapper cannot
+// turn an exhausted source back into unread rows or borrow another run's replay.
+const consumedIdentityRows = new WeakSet<AsyncIterable<Record<string, unknown>>>();
+function requireIdentitySourceAvailable(parsedData: ParsedData): void {
+	if (!Array.isArray(parsedData.rows) && !identitySourceReads.has(parsedData)
+		&& consumedIdentityRows.has(parsedData.rows)) {
+		throw new Error('This source stream has already been consumed. Reopen the source file or provide a fresh row iterator before importing again.');
+	}
+}
+
+/** Reopenable sources need no retained replay once ownership has been decided. */
+export function releaseIdentityPlanningSource(parsedData: ParsedData): void {
+	if (parsedData.reopenRows) identitySourceReads.delete(parsedData);
+}
+
 function identityReplayData(parsedData: ParsedData): ParsedData | Promise<ParsedData> {
-	return identitySourceReads.get(parsedData) ?? parsedData;
+	requireIdentitySourceAvailable(parsedData);
+	const replay = identitySourceReads.get(parsedData);
+	if (replay) {
+		// Generation owns this replay now. Do not retain its snapshot after the run.
+		identitySourceReads.delete(parsedData);
+		return replay;
+	}
+	if (!Array.isArray(parsedData.rows) && !parsedData.reopenRows) consumedIdentityRows.add(parsedData.rows);
+	return parsedData;
 }
 
 /** Read candidates independently when the parser can reopen its source. For a
  * programmatic one-shot iterable, retain a replay snapshot but expose it as an
  * iterable, never an eager source. The caller's data and streamed flag stay intact. */
 export async function candidateSourceRows(parsedData: ParsedData, recipe: Recipe): Promise<{ rows: Record<string, unknown>[]; rowNumbers: number[] }> {
+	requireIdentitySourceAvailable(parsedData);
 	let input = parsedData;
 	if (!Array.isArray(parsedData.rows)) {
 		if (parsedData.reopenRows) {
@@ -6257,6 +6284,7 @@ export async function candidateSourceRows(parsedData: ParsedData, recipe: Recipe
 		} else {
 			let replay = identitySourceReads.get(parsedData);
 			if (!replay) {
+				consumedIdentityRows.add(parsedData.rows);
 				replay = (async () => {
 					const snapshot: Record<string, unknown>[] = [];
 					for await (const row of parsedData.rows) snapshot.push(row);

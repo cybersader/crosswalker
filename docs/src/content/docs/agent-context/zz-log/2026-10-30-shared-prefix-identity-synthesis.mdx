@@ -42,6 +42,10 @@ This is safety at the time of the write, not a promise that every future refresh
 
 [Table-form mappings](/crosswalker/concepts/terminology/) participate in the planning snapshot, but their rows are not in the AM-12 write-time identity index (source: `src/generation/identity-index.ts`). A table set added after planning, while this run is writing, can therefore escape the final refusal. This pre-existing check-then-write race is not introduced or closed by this change; planning is not an atomic ownership reservation.
 
+## Open items
+
+- **Streaming identity planner:** retain only the claims set and minimal enrichment notes while consuming source rows, with constant auxiliary row-buffer memory rather than a full row materialization. The claims set and enrichment facts still grow with the identities being planned. Today planning materializes the shaped rows once; the wizard and recognized-import runner release that materialization before generation. Reopenable CSV sources then use the original reader, while non-reopenable programmatic sources also require a replay snapshot until generation takes ownership of it (source: `src/generation/generation-engine.ts`). This follow-up is not implemented or claimed as constant-memory planning.
+
 ## Expected fresh-build changes
 
 Fresh demo builds intentionally differ from older builds. Mitigation notes keep `mitre-attack:M…` instead of a set-qualified namespace, allowing mitigation-to-D3FEND subject links to bind without rewriting publisher identifiers. F3 tactics similarly keep their disjoint publisher identities. Set schemes and any content derived from those identities change together; deterministic set ownership identifiers and unrelated catalogs do not require migration.

@@ -33,6 +33,8 @@ import { releaseFilePathFor } from '../export/strm-tsv-exporter';
 import {
 	discoverImportSets,
 	discoverIdentityClaims,
+	requireVaultIndexed,
+	VaultStillIndexingError,
 	identityOverlappingSets,
 	newSetIdentitySummary,
 	newSetSchemeFor,
@@ -387,6 +389,7 @@ export class SssomImportModal extends Modal {
 		);
 	}
 
+	private identityReviewCache: { key: string; allSets: DiscoveredImportSet[]; claims: Set<string> } | null = null;
 	private identityCandidatesSource: string | null = null;
 	private identityCandidatesCache = new Map<string, Set<string>>();
 	private candidateIdentities(importSet?: DiscoveredImportSet): Set<string> {
@@ -424,15 +427,26 @@ export class SssomImportModal extends Modal {
 		this.previewRefreshSet = null;
 		let sets: DiscoveredImportSet[];
 		let identityExplanation: string;
+		const key = JSON.stringify([basePath, this.parsedTsv]);
+		if (this.identityReviewCache?.key !== key) this.identityReviewCache = null;
 		try {
+			// A cached snapshot is not permission to answer while indexing is cold.
+			await requireVaultIndexed(this.app);
 			sets = await this.importSetsForDestination(basePath);
-			const allSets = await discoverImportSets(this.app);
-			const claims = await discoverIdentityClaims(this.app, allSets);
+			if (!this.identityReviewCache) {
+				const allSets = await discoverImportSets(this.app);
+				const claims = await discoverIdentityClaims(this.app, allSets);
+				this.identityReviewCache = { key, allSets, claims };
+			}
+			const { allSets, claims } = this.identityReviewCache;
 			identityExplanation = newSetIdentitySummary(this.candidateIdentities(), claims, allSets,
 				(set) => describeImportSet(set), this.importSetChoice === 'new-set-qualified');
 		} catch (error) {
+			this.identityReviewCache = null;
 			container.createEl('p', {
-				text: error instanceof Error ? error.message : String(error),
+				text: error instanceof VaultStillIndexingError
+					? 'Still indexing the vault. The identity outcome appears when indexing finishes.'
+					: error instanceof Error ? error.message : String(error),
 				cls: 'mod-warning',
 			});
 			return false;

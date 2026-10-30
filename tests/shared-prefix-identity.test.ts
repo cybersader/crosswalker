@@ -2,7 +2,7 @@ import { TFile, TFolder } from 'obsidian';
 import type { App } from 'obsidian';
 import type { Recipe } from '../src/render';
 import type { ParsedData } from '../src/types/config';
-import { candidateCrosswalkCuries, candidateRunIdentities, candidateSourceRows, generateFromRecipe, generateNotes, runIdentityCuries } from '../src/generation/generation-engine';
+import { candidateCrosswalkCuries, candidateRunIdentities, candidateSourceRows, releaseIdentityPlanningSource, generateFromRecipe, generateNotes, runIdentityCuries } from '../src/generation/generation-engine';
 import { discoverImportSets, newSetSchemeFor, newSetSchemeFrom } from '../src/generation/import-set';
 import { buildIdentityIndex } from '../src/generation/identity-index';
 import { legacyConfigToRecipe } from '../src/generation/legacy-recipe-shim';
@@ -308,6 +308,7 @@ it('reads a reopenable stream independently without consuming generation rows', 
 	};
 	const { app } = makeApp();
 	await planned(data);
+	releaseIdentityPlanningSource(data);
 	expect(generationReads).toBe(0);
 	expect(data.rows).toBe(originalRows);
 	expect((await run(app, data)).errors).toEqual([]);
@@ -361,4 +362,55 @@ it('reopens a real CSV parser stream for planning and leaves the original iterat
 	expect((await run(app, data)).errors).toEqual([]);
 	expect(sorted((await buildIdentityIndex(app)).curies())).toEqual(sorted(proposal.written));
 	expect(sorted(proposal.written)).toEqual(['mitre-attack:A', 'mitre-attack:B']);
+});
+
+
+describe('second-round source planning safety', () => {
+	it('replays only the original one-shot wrapper and refuses exhausted spread copies', async () => {
+		const data: ParsedData = { columns: ['id', 'title'], rowCount: 2,
+			rows: (async function* () { yield row('A'); yield row('B'); })(),
+		};
+		const config = { name: 'mitre-attack', mapping: { hierarchy: [], frontmatter: [], links: [], body: [] } };
+		const proposal = await planned(data, recipe, { config });
+		releaseIdentityPlanningSource(data);
+		const { app, files } = makeApp();
+		const options = { basePath: 'Next', createFolders: true, importSet: 'new' as const, recipeOverride: recipe };
+		const consumed = /already been consumed.*Reopen the source file/s;
+		await expect(candidateSourceRows({ ...data }, recipe)).rejects.toThrow(consumed);
+		await expect(generateNotes(app, { ...data }, config, options)).rejects.toThrow(consumed);
+		expect(files.size).toBe(0);
+		const result = await generateNotes(app, data, config, options);
+		expect(result.errors).toEqual([]);
+		expect(sorted((await buildIdentityIndex(app)).curies())).toEqual(sorted(proposal.written));
+		expect(result.created).toHaveLength(2);
+		// Taking the replay also releases its retained snapshot. Another read is
+		// now an explicit refusal, not a successful import of zero rows.
+		await expect(generateNotes(app, data, config, options)).rejects.toThrow(consumed);
+		await expect(generateNotes(app, { ...data }, config, options)).rejects.toThrow(consumed);
+	});
+
+	it('refuses reuse of a one-shot source consumed directly by generation', async () => {
+		const { app } = makeApp();
+		const data: ParsedData = { columns: ['id', 'title'], rowCount: 1,
+			rows: (async function* () { yield row('A'); })(),
+		};
+		expect((await run(app, data)).errors).toEqual([]);
+		await expect(run(app, { ...data })).rejects.toThrow('already been consumed');
+	});
+
+	it.each(['', '/', ' /Next//Nested/ ', '\\Next\\Nested\\'])('shares normalized enrichment roots with both engines: %j', async (basePath) => {
+		const fixture = fixtures.find((item) => item.name === 'hierarchy and facet hubs')!;
+		const config = { name: 'mitre-attack', mapping: { hierarchy: [], frontmatter: [], links: [], body: [] } };
+		for (const entry of ['native', 'config']) {
+			const { app } = makeApp();
+			const data = parsed(fixture.rows);
+			const proposal = await planned(data, fixture.recipe, { basePath, ...(entry === 'config' ? { config } : {}) });
+			const options = { basePath, createFolders: true, importSet: 'new' as const };
+			const result = entry === 'native'
+				? await generateFromRecipe(app, data, fixture.recipe, options)
+				: await generateNotes(app, data, config, { ...options, recipeOverride: fixture.recipe });
+			expect(result.errors).toEqual([]);
+			expect(sorted((await buildIdentityIndex(app)).curies())).toEqual(sorted(proposal.written));
+		}
+	});
 });

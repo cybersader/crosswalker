@@ -428,6 +428,8 @@ export function parseCSVFileStream(
 	return {
 		columns,                  // populated lazily once first row arrives
 		rows,                     // AsyncIterable
+		// A planning clone inherits these still-empty columns. The reopened reader
+		// fills its own headers; this array fills when the live rows are consumed.
 		reopenRows: () => parseCSVFileStream(file, options).rows as AsyncIterable<Record<string, any>>,
 		rowCount: -1,             // unknown until parse completes
 		container: { kind: 'flat' },

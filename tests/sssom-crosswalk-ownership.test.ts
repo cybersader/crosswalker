@@ -33,7 +33,7 @@
 
 import { TFile, TFolder } from 'obsidian';
 import { SssomImportModal } from '../src/import/sssom-import-modal';
-import { discoverImportSets } from '../src/generation/import-set';
+import { discoverImportSets, VaultStillIndexingError } from '../src/generation/import-set';
 import type CrosswalkerPlugin from '../src/main';
 import type { App } from 'obsidian';
 import type { DebugLog } from '../src/utils/debug';
@@ -509,5 +509,68 @@ describe('identity-overlap mapping review', () => {
 		expect(internals.candidateIdentities()).toBe(first);
 		inner(modal).parsedTsv = INHOUSE_TSV;
 		expect(internals.candidateIdentities()).not.toBe(first);
+	});
+});
+
+
+describe('second-round mapping preview safety', () => {
+	it('shows indexing state instead of computing an identity outcome', async () => {
+		const vault = makeVault();
+		const { modal } = openModal(vault.app, VENDOR_TSV);
+		const ownership = jest.requireActual('../src/generation/import-set') as typeof import('../src/generation/import-set');
+		const gate = jest.spyOn(ownership, 'requireVaultIndexed').mockRejectedValueOnce(new VaultStillIndexingError());
+		const discover = jest.spyOn(ownership, 'discoverImportSets');
+		const claims = jest.spyOn(ownership, 'discoverIdentityClaims');
+		try {
+			const review = await captureReview(modal);
+			expect(review.ready).toBe(false);
+			expect(review.texts).toContain('Still indexing the vault. The identity outcome appears when indexing finishes.');
+			expect(review.texts.join(' ')).not.toMatch(/Plain identifiers|Set-suffixed/);
+			expect(discover).not.toHaveBeenCalled();
+			expect(claims).not.toHaveBeenCalled();
+		} finally { gate.mockRestore(); discover.mockRestore(); claims.mockRestore(); }
+	});
+
+	it('caches the ownership snapshot until the destination or source changes', async () => {
+		const vault = makeVault();
+		const { modal } = openModal(vault.app, VENDOR_TSV);
+		const ownership = jest.requireActual('../src/generation/import-set') as typeof import('../src/generation/import-set');
+		const discover = jest.spyOn(ownership, 'discoverImportSets');
+		const claims = jest.spyOn(ownership, 'discoverIdentityClaims');
+		const wholeVaultReads = () => discover.mock.calls.filter((args) => args[1] === undefined).length;
+		try {
+			await captureReview(modal);
+			await captureReview(modal);
+			expect(wholeVaultReads()).toBe(1);
+			expect(claims).toHaveBeenCalledTimes(1);
+			inner(modal).parsedTsv = INHOUSE_TSV;
+			await captureReview(modal);
+			expect(wholeVaultReads()).toBe(2);
+			expect(claims).toHaveBeenCalledTimes(2);
+			await captureReview(modal, 'Different destination');
+			expect(wholeVaultReads()).toBe(3);
+			expect(claims).toHaveBeenCalledTimes(3);
+			await captureReview(modal, 'Different destination');
+			expect(wholeVaultReads()).toBe(3);
+			await captureReview(modal, FOLDER);
+			expect(wholeVaultReads()).toBe(4);
+		} finally { discover.mockRestore(); claims.mockRestore(); }
+	});
+
+	it('does not show a cached outcome when indexing becomes cold', async () => {
+		const vault = makeVault();
+		const { modal } = openModal(vault.app, VENDOR_TSV);
+		await captureReview(modal);
+		const ownership = jest.requireActual('../src/generation/import-set') as typeof import('../src/generation/import-set');
+		const gate = jest.spyOn(ownership, 'requireVaultIndexed').mockRejectedValueOnce(new VaultStillIndexingError());
+		try {
+			const review = await captureReview(modal);
+			expect(review.ready).toBe(false);
+			expect(review.texts.join(' ')).toContain('Still indexing the vault.');
+			expect(review.texts.join(' ')).not.toContain('Plain identifiers');
+		} finally { gate.mockRestore(); }
+		const retry = await captureReview(modal);
+		expect(retry.ready).toBe(true);
+		expect(retry.texts.join(' ')).toContain('Plain identifiers');
 	});
 });

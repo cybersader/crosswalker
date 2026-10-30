@@ -158,7 +158,7 @@ import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import { DEFAULT_SETTINGS } from '../src/settings/settings-data';
 import type { DebugLog } from '../src/utils/debug';
 import type { GenerationOptions } from '../src/generation/generation-engine';
-import type { Recipe } from '../src/render';
+import { RenderError, type Recipe } from '../src/render';
 import type { GenerationResult, ImportRecipe, ParsedData } from '../src/types/config';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -4788,4 +4788,50 @@ describe('shared-prefix review follow-ups', () => {
 		expect(text).toContain(inner(flow).setDisplayName(inner(flow).discoveredSets![0]));
 		expect(text).not.toContain('only when');
 	});
+});
+
+
+describe('second-round wizard planning safety', () => {
+	it('releases both shaped-row references before generation starts', async () => {
+		const vault = makeVault();
+		const { flow } = makeFlow(vault.app);
+		await inner(flow).prepareStep3(true);
+		inner(flow).selectedImportSet();
+		const fields = flow as unknown as { preparedIdentityRows: unknown; identityCandidateRows: unknown };
+		expect(fields.preparedIdentityRows).not.toBeNull();
+		expect(fields.identityCandidateRows).not.toBeNull();
+		const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+		const original = engine.generateNotes;
+		const release = jest.spyOn(engine, 'releaseIdentityPlanningSource');
+		const generate = jest.spyOn(engine, 'generateNotes').mockImplementation(async (...args) => {
+			expect(fields.preparedIdentityRows).toBeNull();
+			expect(fields.identityCandidateRows).toBeNull();
+			expect(release).toHaveBeenCalledWith(flow.parsedData);
+			return original(...args);
+		});
+		try {
+			await flow.generate();
+			expect(generate).toHaveBeenCalledTimes(1);
+		} finally { generate.mockRestore(); release.mockRestore(); }
+	});
+
+	it.each([new Error('Private planner failure detail'), new RenderError('Unknown filter "not-a-filter" in template "{title|not-a-filter}".')])(
+		'logs a non-column planner error without claiming missing columns: %s', async (error) => {
+			const vault = await vaultWithOneSetInTheSharedRoot();
+			const { flow } = await askWhereItLands(vault.app);
+			(flow as unknown as { identityCandidateCache: Map<string, Set<string>> }).identityCandidateCache.clear();
+			const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+			const planner = jest.spyOn(engine, 'candidateRunIdentities').mockImplementation(() => { throw error; });
+			const log = jest.spyOn(debugStub, 'error');
+			try {
+				const text = captureReview(flow).texts.join(' ');
+				expect(text).toContain('the recipe could not be checked for overlapping identifiers');
+				expect(text).toContain('Review the recipe and column choices, then try the import again.');
+				expect(text).not.toContain('the recipe needs columns this source could not supply');
+				expect(text).not.toContain(error.message);
+				expect(log).toHaveBeenCalledWith('wizard', 'identity-plan-failed', expect.any(String), { error: String(error) });
+				expect(inner(flow).selectedImportSet()).toBe('new-set-qualified');
+			} finally { planner.mockRestore(); log.mockRestore(); }
+		},
+	);
 });
