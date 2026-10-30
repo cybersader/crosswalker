@@ -1,0 +1,44 @@
+---
+title: Knowledge operations gates
+description: Mechanical checks keep the knowledge base and implementation aligned. This reference distinguishes the Static Checks workflow from behavior tests and judgment-required review.
+tags: [development, knowledge-ops, ci, parity, documentation]
+sidebar:
+  label: Knowledge operations
+  order: 12
+---
+
+Knowledge operations (keeping project knowledge aligned with shipped behavior) combines mechanical gates with cross-document review. A checkable invariant belongs in CI; a contextual decision belongs in the contributor and agent checklists, following the [workflow audit](/crosswalker/agent-context/zz-log/2026-05-06-workflow-audit-and-agent-design/).
+
+**Status last verified:** 2026-10-30 — verified against `.github/workflows/static-checks.yml`, `package.json` and the check scripts it invokes.
+
+## Static Checks
+
+Run all **7 static checks (source: `.github/workflows/static-checks.yml`)** before committing, not just the checks for the edited page. Each runs separately and does not need an Obsidian launch or a full docs build.
+
+| Command | Contract enforced | Source |
+| --- | --- | --- |
+| `bun run check:personal-data` | No personal paths, emails, denylisted content or prohibited attribution in repository content | `scripts/check-personal-data.mjs` |
+| `bun run check:mdx` | Documentation parses as MDX | `scripts/check-mdx.mjs` |
+| `bun run check:frontmatter` | Required page metadata and strict YAML are valid | `scripts/check-frontmatter.mjs` |
+| `bun run check:not-content` | Inline HTML/SVG diagrams are isolated from prose styling | `scripts/check-not-content.mjs` |
+| `bun run check:log-labels` | Decision-log labels lead with the filename's month and day | `scripts/check-log-labels.mjs` |
+| `bun run check:links` | Internal links resolve, including generated route families | `scripts/check-links.mjs` |
+| `bun run check:parity` | Every plugin command and CLI verb is registered, missing sides have explicit gaps, and the generated [parity table](/crosswalker/reference/ui-cli-parity/) matches | `scripts/check-parity.mjs`, `tools/parity/capabilities.ts` |
+
+`bun run parity:write` regenerates the marked parity table, including its counts, after a registry change. It is a repair command, not a substitute for `check:parity` or behavior tests. Source parsing uses the existing root TypeScript dependency; frontmatter and MDX checks use docs dependencies.
+
+## What still needs review
+
+A passing parity inventory does not mean all actions have both interfaces. Tracked gaps are allowed, with reasons and plans. Source command ids and verbs are checked mechanically; named wizard/settings surfaces and their behavior still need review. Review newly added buttons even when they do not register an Obsidian command. Add their outcomes to the same registry rather than invent a second table.
+
+The same boundary applies to living-page freshness, roadmap updates, decision records, milestone completion and meaningful cross-links. Agent instructions and the pull request template cover those judgments; none can be replaced by a table drift check. This page describes the checks currently wired in Static Checks, not a claim that every proposed knowledge-operations gate has shipped.
+
+Lint, focused unit tests, fixture drift, plugin builds and docs builds remain separate verification surfaces. See [testing](/crosswalker/development/testing/) and [development setup](/crosswalker/development/setup/). On the shared development host, run heavy checks one at a time under containment; retain the existing worker limits. An exit caused by resource termination is an interrupted run, not a pass or a product failure.
+
+## Related
+
+- [UI and CLI parity](/crosswalker/reference/ui-cli-parity/)
+- [Parity decision](/crosswalker/agent-context/zz-log/2026-10-30-ui-cli-parity-rule/)
+- [Contributing](/crosswalker/development/contributing/)
+- [Development setup](/crosswalker/development/setup/)
+- [Workflow audit and agent design](/crosswalker/agent-context/zz-log/2026-05-06-workflow-audit-and-agent-design/)

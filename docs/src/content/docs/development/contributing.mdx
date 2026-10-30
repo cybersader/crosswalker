@@ -225,6 +225,10 @@ Links are critical in this knowledge base. Every page should aggressively cross-
 
 **The goal**: a reader should be able to follow any concept from any page to its definition, rationale, and related decisions without dead ends.
 
+### Knowledge operations and parity
+
+The [knowledge operations gates](/crosswalker/development/knowledge-ops/) are the canonical living list of Static Checks. The [UI/CLI parity registry](/crosswalker/reference/ui-cli-parity/) tracks both directions: every vault action needs a UI and a `cw` route or an explicit reason and plan. Inventory wizard/settings buttons as well as registered commands, regenerate with `bun run parity:write`, and run `bun run check:parity`. A green inventory is not a behavior-equivalence proof.
+
 ### The log / challenge / roadmap / decision lifecycle
 
 The docs site follows a specific lifecycle for research and architectural decisions:

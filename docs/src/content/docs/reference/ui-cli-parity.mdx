@@ -1,0 +1,111 @@
+---
+title: UI and command line parity
+description: One registry tracks every plugin command and command line verb, with explicit gaps in both directions. The gate checks inventory and keeps this table synchronized.
+tags: [reference, cli, parity, lifecycle, knowledge-ops]
+sidebar:
+  label: UI and CLI parity
+  order: 15
+---
+
+Every user action the plugin performs on a vault must also be reachable from `cw`, or have a tracked gap with a reason and a plan. The reverse applies too: a headless action needs a UI or a tracked gap. This is **engine parity (the same action and result), not UI cloning**.
+
+**Status last verified:** 2026-10-30 — verified against `src/main.ts` command registrations, `cli/crosswalker.ts` dispatch, the import wizard, settings, recipe library, mapping review and evidence editor; inventory recorded in `tools/parity/capabilities.ts`.
+
+The UI stays primary. Wizard steps, previews, pickers and navigation need no command line twin; the vault action they produce does. A script, an agent, CI and a person should be able to use the same engine for the [ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/). This makes [schema-as-primitive](/crosswalker/concepts/etl-and-import/) practical without maintaining a second implementation. The [decision record](/crosswalker/agent-context/zz-log/2026-10-30-ui-cli-parity-rule/) captures the owner's direction.
+
+## Current inventory
+
+`tools/parity/capabilities.ts` is the single source of truth. Do not edit the generated region by hand. Command ids are the local ids passed to Obsidian's `addCommand`, without the plugin prefix. Listed flags identify the route to the outcome, not the complete usage syntax; run `bun run cw -- help` for required arguments. Help is an affordance, not a separate vault capability.
+
+{/* parity:generated:start */}
+
+46 capabilities (source: tools/parity/capabilities.ts).
+Stages: import: 10; map: 6; query: 6; share: 6; maintain: 18. Gaps: CLI 37; UI 1 (source: tools/parity/capabilities.ts).
+
+| Stage | Action | UI | cw | Gap and plan |
+| --- | --- | --- | --- | --- |
+| import | Import structured source data with a recipe (import-data) | Import wizard; Command: import-structured-data | cw import --source --recipe --destination | Covered |
+| import | Install a framework stack (setup-stack) | Stack setup; Command: set-up-framework-stack | Missing | CLI: No stack orchestration verb; individual sources can be imported. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| import | Find framework sources already in the vault (find-sources) | Vault source scan; Command: find-vault-sources | Missing | CLI: CLI requires an explicit source, with no discovery scan. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| import | Import bundled developer test data (bundled-fixture) | Command: import-bundled-fixture | Missing | CLI: Developer fixture shortcut has no CLI equivalent. Plan: Not planned: developer-only shortcut; cw import takes explicit source files and recipes. |
+| import | List built-in import recipes (recipes-built-in) | Import recipes &gt; Built-in recipes | cw recipes | Covered |
+| import | Browse saved import recipes (recipes-library) | Settings &gt; Import recipes; Command: browse-import-recipes | Missing | CLI: cw recipes lists built-ins only, not the saved library. Plan: UI/CLI parity backlog priority 4: recipe library (reference/ui-cli-parity). |
+| import | Save an import setup as a portable recipe (recipe-save) | Import wizard &gt; Save as recipe | Missing | CLI: No recipe-library save verb. Plan: UI/CLI parity backlog priority 4: recipe library (reference/ui-cli-parity). |
+| import | Import a shared recipe into the library (recipe-import) | Import recipes &gt; Import recipe | Missing | CLI: cw import --recipe reads a file but does not save it to the library. Plan: UI/CLI parity backlog priority 4: recipe library (reference/ui-cli-parity). |
+| import | Browse, save, import, export or delete legacy configurations (config-library) | Settings &gt; Saved configurations; Import wizard &gt; Save configuration; Command: browse-saved-configs | Missing | CLI: CLI consumes portable recipes, not the legacy configuration library. Plan: UI/CLI parity backlog priority 4: recipe library; decide legacy configuration migration there (reference/ui-cli-parity). |
+| import | Resume an import draft (draft-resume) | Command: resume-draft-import | Missing | CLI: CLI accepts complete recipes, not wizard drafts. Plan: Not planned: drafts preserve unfinished interactive wizard state; use a recipe for headless runs. |
+| map | Import a crosswalk mapping file (import-mappings) | Mapping import; Command: import-sssom | cw import --source | Covered |
+| map | Import a typed mapping table (import-typed-mappings) | Typed mapping import; Command: import-typed-mapping-table | Missing | CLI: cw import only dispatches mapping files ending in .sssom.tsv, not typed tables and release files. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| map | Create or update an evidence link to a control (evidence-link) | Evidence link editor; Command: link-evidence-to-control | Missing | CLI: Generic import is not the evidence editor with its review safeguards. Plan: UI/CLI parity backlog priority 3: approvals and evidence actions (reference/ui-cli-parity). |
+| map | Review or approve evidence against a control revision (evidence-approve) | Evidence link editor &gt; Status | Missing | CLI: No evidence approval verb or attestation flow. Plan: UI/CLI parity backlog priority 3: approvals (reference/ui-cli-parity). |
+| map | Review and approve mapping table rows (mapping-approve) | Mapping table review &gt; Status; Command: review-mapping-table | Missing | CLI: No mapping review-status writer. Plan: UI/CLI parity backlog priority 3: approvals (reference/ui-cli-parity). |
+| map | Import a mapping set as one table instead of notes (mapping-new-table) | Mapping import &gt; Storage; Settings &gt; Default mapping storage | Missing | CLI: cw import does not expose the mapping storage choice and uses the default notes form. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| query | Create a saved query in a note (saved-query-create) | Query builder; Command: insert-query-into-note | Missing | CLI: No saved-query generation verb. Plan: UI/CLI parity backlog priority 2: saved queries and graph colors; demo:build currently writes queries outside cw (reference/ui-cli-parity). |
+| query | Color the graph by framework (graph-colors) | Workspace &gt; Color graph; Command: color-graph-by-framework | Missing | CLI: No graph-color verb. Plan: UI/CLI parity backlog priority 2: saved queries and graph colors; demo:build currently writes graph settings outside cw (reference/ui-cli-parity). |
+| query | Embed a saved query in the current note (query-embed) | Command: embed-existing-query | Missing | CLI: No query embedding writer. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| query | Browse saved queries (query-browse) | Command: browse-queries | Missing | CLI: No saved-query listing verb. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| query | Save a snapshot of the current query (query-snapshot) | Command: materialize-query | Missing | CLI: No query execution or snapshot verb. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| query | Create an evidence coverage report (evidence-report) | Command: evidence-coverage-report | Missing | CLI: No coverage report verb. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| share | Export a saved recipe for sharing (recipe-share) | Import recipes &gt; Export | Missing | CLI: No recipe-library export verb. Plan: UI/CLI parity backlog priority 4: recipe library (reference/ui-cli-parity). |
+| share | Copy the troubleshooting log to the clipboard (debug-export) | Settings &gt; Export log to clipboard; Command: export-debug-log | Missing | CLI: CLI has no clipboard log export. Plan: Not planned: cw reports to stdout and stderr, not a plugin clipboard. |
+| share | Copy redacted troubleshooting details (diagnostics-copy) | Settings &gt; Copy diagnostics; Command: copy-diagnostics | Missing | CLI: No headless diagnostics verb. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| share | Export a folder as a crosswalk mapping file (export-sssom) | Command: export-folder-as-crosswalk-mapping-file | cw export --folder --format sssom --out | Covered |
+| share | Export a folder as a typed mapping table (export-strm) | Command: export-folder-as-typed-mapping-table | cw export --folder --format strm --out | Covered |
+| share | Export a folder as CSV (export-csv) | Command: export-folder-as-csv | cw export --folder --format csv --out | Covered |
+| maintain | Refresh an existing set from an explicitly chosen source and recipe (refresh-set) | Import wizard &gt; Refresh an existing set | cw import --set --source --recipe | Covered |
+| maintain | Run a set again with its kept recipe revision (replay-set) | Import recipes &gt; Run again | cw replay --set --source --digest | Covered |
+| maintain | List installed sets and their identities (list-sets) | Workspace &gt; Installed frameworks; Import wizard &gt; Set picker | Missing | CLI: No set-list verb. Plan: UI/CLI parity backlog priority 1: set management (reference/ui-cli-parity). |
+| maintain | Delete a test import while protecting the bundled corpus (delete-set) | Developer tools &gt; Delete a test import; Command: reset-imported-notes | Missing | CLI: No set-delete verb; current UI deletion is the protected developer reset, not general set management. Plan: UI/CLI parity backlog priority 1: set management; provide safe deletion in both surfaces (reference/ui-cli-parity). |
+| maintain | Update saved queries to the current layout (query-layout-migrate) | Command: migrate-query-layout | Missing | CLI: Query layout migration is only registered in the plugin. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| maintain | Refresh saved query views (query-refresh) | Command: refresh-query-views | Missing | CLI: No view regeneration verb. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| maintain | Run a developer performance check (benchmark) | Command: benchmark-primitives | Missing | CLI: Benchmark harness is plugin-only. Plan: Not planned: this measures Obsidian primitive behavior, not headless engine output. |
+| maintain | Rename, duplicate or delete a saved recipe (recipe-edit) | Import recipes &gt; Recipe actions | Missing | CLI: No recipe-library maintenance verbs. Plan: UI/CLI parity backlog priority 4: recipe library (reference/ui-cli-parity). |
+| maintain | Record selected housekeeping changes as baseline (housekeeping-baseline) | Command: record-selected-housekeeping-baseline | Missing | CLI: No selective housekeeping acknowledgement verb. Plan: UI/CLI parity backlog priority 3: approvals; preserve reviewer facts (reference/ui-cli-parity). |
+| maintain | Convert a mapping set between notes and a table, or cancel its conversion (mapping-storage) | Stack setup &gt; Installed stacks &gt; Mapping conversion | Missing | CLI: No storage conversion or cancellation verb. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| maintain | Finish interrupted mapping conversions (mapping-conversions-resume) | Command: finish-mapping-conversions | Missing | CLI: No conversion recovery verb. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
+| maintain | Reset derived search data (sidecar-reset) | Settings &gt; Fast query index; Command: clear-tier-2-sidecar | Missing | CLI: CLI does not open the plugin search index. Plan: Not planned: the disposable index is plugin runtime state, rebuilt from notes. |
+| maintain | Open the troubleshooting log (debug-open) | Settings &gt; Log actions; Command: open-debug-log | Missing | CLI: No persistent plugin-log reader in cw. Plan: Not planned: cw reports failures to stderr; opening an editor is an interactive affordance. |
+| maintain | Clear the troubleshooting log (debug-clear) | Settings &gt; Clear log; Command: clear-debug-log | Missing | CLI: CLI has no persistent plugin log to clear. Plan: Not planned: plugin log management is runtime-specific. |
+| maintain | Clear all import drafts (drafts-clear) | Command: clear-all-drafts | Missing | CLI: No wizard draft store in cw. Plan: Not planned: draft cleanup belongs to the interactive wizard runtime. |
+| maintain | Remove expired import drafts (drafts-expire) | Command: purge-expired-drafts | Missing | CLI: No wizard draft store in cw. Plan: Not planned: draft expiry belongs to the interactive wizard runtime. |
+| maintain | Open the lifecycle workspace (workspace-open) | Command: open-crosswalker-workspace | Missing | CLI: CLI does not display an Obsidian workspace. Plan: Not planned: interactive navigation has no standalone vault action; invoke its registered outcomes instead. |
+| maintain | Validate existing managed notes against the schema (validate-vault) | Missing | cw validate --vault --folder | UI: Import preflight is not a vault-wide validation report for existing notes. Plan: CLI and live demo near-term roadmap: expose the existing validation action in the workspace (reference/roadmap). |
+
+{/* parity:generated:end */}
+
+## What the gaps mean
+
+A green gate means **every registered action is accounted for**, not that all gaps are closed or that equivalent output has been tested for every action. Outcome-level unit and end-to-end proofs remain necessary. Multiple outcomes may use one verb; for example, `cw export` covers the separate CSV and mapping formats.
+
+The code inventory corrects two assumptions in the initial decision card:
+
+- **Refresh already exists.** `cw import --set` refreshes a chosen set; `cw replay` uses its kept [recipe](/crosswalker/concepts/terminology/) revision. Set listing and deletion are still gaps. The existing UI deletion command is the protected developer test-import reset, not a general-purpose set-management screen.
+- **A built-in recipe list is not a saved library.** `cw recipes` lists built-ins only. Reading a recipe file with `cw import --recipe` does not save it into the library.
+
+Typed mapping table import and table-form selection are also tracked gaps: `cw import` dispatches `.sssom.tsv` files, not the plugin's separate typed-table importer, and exposes no storage choice. A configurable wizard default is not a new capability for each toggle: import outcomes represent recipe-controlled naming, hierarchy, properties and links. Runtime-only preferences and developer affordances are recorded as not planned where appropriate, never presented as covered.
+
+## Closure order
+
+1. **Set management:** list identities and safely delete sets. Keep existing refresh and replay paths.
+2. **Saved queries and graph colors:** expose the shared builders through `cw`. `demo:build` currently writes these outside `cw`; making the demo plain command line calls removes duplicated orchestration.
+3. **Approvals:** expose mapping and evidence review with the same safeguards, not generic property edits.
+4. **Recipe library:** save, browse, reuse and share portable recipes through both surfaces.
+
+These are the **UI/CLI parity backlog** under [Deterministic avenues: command line and live demo](/crosswalker/reference/roadmap/#deterministic-avenues-command-line-and-live-demo-near-term). The table's plans reference this order; other gaps follow it or explain why no twin is planned. No new CLI verbs ship in this change.
+
+## Adding or changing a capability
+
+1. Add the UI command or CLI action using the existing shared engine. Inventory wizard and settings vault actions too, even if they have no command id.
+2. Add or update an entry in `tools/parity/capabilities.ts`: stable kebab-case id, lifecycle stage, user outcome, actual UI commands or surface, CLI verb and relevant flags. A missing side is `null` and requires `gap.side`, a nonempty reason, and a roadmap plan or an explicit not-planned explanation.
+3. Run `bun run parity:write`. It changes only the marked region above, including counts.
+4. Run `bun run check:parity` and the relevant behavior tests. Commit the registry and generated table together.
+
+The checker parses TypeScript syntax without running the plugin. It inventories real `addCommand` calls across `src/`, and literal cases in `cli/crosswalker.ts`'s `switch (command)` (`cli/main.ts` is only the process entry). Comments, help examples and unrelated object ids do not count. Dynamic command registrations and changed dispatch shapes fail closed until the inventory logic and its synthetic tests are updated. It checks missing and stale registrations, incomplete gaps, duplicate identities and table drift. Named surfaces and flags are reviewed manually; the gate does not prove they still exist or provide behavioral equivalence.
+
+## Related
+
+- [Knowledge operations gates](/crosswalker/development/knowledge-ops/) — mechanical enforcement and review boundaries
+- [Development setup](/crosswalker/development/setup/) — commands and pre-commit gates
+- [Producing vaults outside Obsidian](/crosswalker/concepts/producing-vaults-outside-obsidian/) — what the command line produces and what the host derives
+- [UI parity audit](/crosswalker/agent-context/zz-log/2026-06-12-ui-parity-audit/) — the original headless-to-UI direction
+- [Command line and live demo, near term](/crosswalker/agent-context/zz-log/2026-10-27-cli-and-live-demo-near-term/)

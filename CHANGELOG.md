@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: enforced UI and command line capability inventory (2026-10-30)
+
+- `tools/parity/capabilities.ts` records lifecycle outcomes, actual plugin command ids, `cw` verbs and explicit gaps in both directions. Refresh is already covered by `import --set` and `replay`; built-in recipe listing is kept separate from the saved recipe library. Set management, saved queries and graph colors, approvals, then the recipe library are the ordered closure backlog.
+- `check:parity` parses registrations without executing the plugin and rejects missing or stale ids/verbs, incomplete gap records and drift in the generated KB table. `parity:write` regenerates that table and counts. Static Checks runs the new gate; synthetic unit tests cover its failure classes and extraction edge cases.
+- The living parity and knowledge-operations references, decision record, contributor and agent checklists crystallize engine parity rather than UI cloning. Tracked gaps are allowed; a passing inventory is not a behavioral-equivalence proof. No plugin action or CLI verb changes here.
+
 ### Fixed: the import source-stage limit counts work, not seconds (2026-10-30)
 
 A busy or slow machine could fail an import that succeeds elsewhere. The limit now counts evaluations instead of seconds, so the same input always gives the same result.
