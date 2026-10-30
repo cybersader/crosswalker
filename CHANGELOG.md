@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: SCF and identifier-only referenced frameworks in private demos (2026-10-30)
+
+- The separate private add-on imports locally held SCF through the unchanged shipped recipe, reuses existing notes for available crosswalk endpoints, and reports incomplete ATT&CK sample coverage. No CRI crosswalk is invented from the differently named CR CMM column.
+- A generic column/catalog adapter emits distinct identifier-only concepts and unique mapping pairs with the existing unspecified-relation semantics. The ordered manifest pins distinct ontology keys; no referenced framework prose or licensed source rows ship in code, fixtures or documentation.
+- Referenced notes share one muted provenance-selected graph group; SCF has its own stable color. Direct links/backlinks, actual counts in Start here and an adapted Bases query show which frameworks each SCF control reaches. Explicit-original-set takeover is covered by a synthetic real-CLI test preserving identities, links and user work while replacing placeholder content.
+- Acquisition, selected-source policy, exclusions, generic CRI Catalog applicability and takeover limits are documented in [Framework data sources](https://cybersader.github.io/crosswalker/reference/framework-data-sources/#referenced-frameworks-identifiers-without-licensed-text). This extends the already documented CLI-only private-orchestration gap; it adds no plugin command or `cw` verb. Unrelated living UI/schema references are unchanged because their behavior and contracts do not change.
+
 ### Fixed: deterministic imports in larger vaults (2026-10-30)
 
 - Import-set minting replays occupied deterministic candidates within a bounded `existingIds.size + 100` budget instead of imposing a hundred-set ceiling; existing ids stay unchanged and exhaustion reports the real attempt count with a next action.

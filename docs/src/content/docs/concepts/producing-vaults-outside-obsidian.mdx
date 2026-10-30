@@ -11,7 +11,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 A vault can be built entirely outside Obsidian and still be fully operational once the plugin opens it. No separate tool is needed beyond what already ships: the `cw` command line and the demo builder.
 
-**Status last verified:** 2026-10-29 — verified against `package.json` (`cw`, `demo:build` scripts), `cli/crosswalker.ts`, `cli/fs-app.ts`, `scripts/demo-build.mjs`, `src/tier2/projector.ts`, `src/tier2/sidecar.ts`, `src/import/import-set-recipes.ts`, `src/generation/import-set.ts`, `src/mappings/mapping-set.ts`, `src/views/reference-base-files.ts`, `src/main.ts` (status bar), `src/discovery/installed-frameworks.ts` and `src/graph/graph-color-command.ts` (both merged in PR #67).
+**Status last verified:** 2026-10-30 — private-demo section checked against `scripts/demo-add-licensed.mjs`, the generic referenced-framework adapter and two byte-identical private CRI/CIS/SCF runs. Other sections retain their 2026-10-29 verification against `package.json` (`cw`, `demo:build` scripts), `cli/crosswalker.ts`, `cli/fs-app.ts`, `scripts/demo-build.mjs`, `src/tier2/projector.ts`, `src/tier2/sidecar.ts`, `src/import/import-set-recipes.ts`, `src/generation/import-set.ts`, `src/mappings/mapping-set.ts`, `src/views/reference-base-files.ts`, `src/main.ts` (status bar), `src/discovery/installed-frameworks.ts` and `src/graph/graph-color-command.ts` (both merged in PR #67).
 
 <Aside type="tip" title="The question this page answers">
 "Do we need a Crosswalker CLI to realistically go from files to upload in OpenClast, or moving files into Obsidian, to having something operational? Is it possible to do all the work outside the plugin, or if you import then things aren't going to be quite right?"
@@ -95,7 +95,7 @@ The existing guard for the empty-vault case is `tests/e2e/first-run.spec.ts`, th
 
 ## Private demo: two separate steps
 
-The public build remains repository-safe. A separate, explicit add-on enriches a fresh copy with locally held CRI Profile 2.2 and CIS Controls 8.1, CRI subject tags, and publisher mapping releases whose endpoints exist in that vault. It also adds the CIS graph color and rewrites the welcome note to list what was actually added. Obtain the files yourself and check their terms; the [acquisition and binding reference](/crosswalker/reference/framework-data-sources/#private-room-demo-add-on) lists every expected filename, worksheet and exclusion rule.
+The public build remains repository-safe. A separate, explicit add-on enriches a fresh copy with locally held CRI Profile 2.2, CIS Controls 8.1 and SCF 2026.1.1, CRI subject tags, and publisher mapping releases whose endpoints exist in that vault. SCF also adds selected identifier-only referenced frameworks, direct source/target links, a framework-reach Bases query and distinct graph colors. The workflow rewrites the welcome note to list what was actually added. Obtain the files yourself and check their terms; the [acquisition and binding reference](/crosswalker/reference/framework-data-sources/#private-room-demo-add-on) lists every expected filename, worksheet and exclusion rule.
 
 Run these separately from the checkout:
 
@@ -107,7 +107,7 @@ bun run demo:build -- --out /tmp/cw-private-demo
 bun run demo:add-licensed -- --private-room-only --vault /tmp/cw-private-demo
 ```
 
-Use `--sources-dir <source-checkout>` when licensed files are held in another checkout; relative manifest paths resolve there without copying sources into this checkout. `--only cri` or `--only cis` selects one framework; `--source <workbook>` is valid only with one explicit `--only` key and changes only that framework source, not mapping paths. Missing files are skipped with acquisition guidance. The output must be outside the repository, must contain no symlinks and must start from a fresh demo without the selected licensed frameworks. If a run fails or is interrupted, discard that output and repeat on a fresh public base.
+Use `--sources-dir <source-checkout>` when licensed files are held in another checkout; relative manifest paths resolve there without copying sources into this checkout. `--only cri`, `--only cis` or `--only scf` selects one framework; `--source <workbook>` is valid only with one explicit `--only` key and changes only that framework source, not mapping paths. Missing files are skipped with acquisition guidance. The output must be outside the repository, must contain no symlinks and must start from a fresh demo without the selected licensed frameworks. If a run fails or is interrupted, discard that output and repeat on a fresh public base.
 
 **Private-room-only means private.** The acknowledgement does not grant redistribution rights. Do not publish the enriched vault or use the public demo distribution path for it. For OpenClast, use a private room only after confirming that its audience and use fit the source terms. No upload is performed by this script.
 

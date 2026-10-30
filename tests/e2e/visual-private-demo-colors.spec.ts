@@ -16,23 +16,23 @@ describe('Visual: private demo framework colors', function () {
 		const vault = path.join(root, 'vault');
 		mkdirSync(path.join(vault, '.obsidian'), { recursive: true });
 		mkdirSync(OUT, { recursive: true });
-		writeFileSync(path.join(vault, '.obsidian/graph.json'), demoGraphJson(['cis', 'cri', 'csf', 'sp80053', 'attack', 'f3']));
-		const prefixes = ['cis-v8', 'cri-profile', 'nist-csf-2', 'nist-800-53', 'mitre-attack', 'mitre-f3'];
+		writeFileSync(path.join(vault, '.obsidian/graph.json'), demoGraphJson(['cis', 'cri', 'csf', 'sp80053', 'attack', 'f3', 'scf', 'referenced']));
+		const prefixes = ['cis-v8', 'cri-profile', 'nist-csf-2', 'nist-800-53', 'mitre-attack', 'mitre-f3', 'scf', 'invented-reference'];
 		for (const [index, prefix] of prefixes.entries()) {
 			for (const suffix of ['a', 'b']) {
 				const next = suffix === 'a' ? `${index}-b` : `${(index + 1) % prefixes.length}-a`;
-				writeFileSync(path.join(vault, `${index}-${suffix}.md`), `---\ncurie: ${prefix}:synthetic-${suffix}\n---\n# Synthetic ${prefix} ${suffix}\n\n[[${next}]]\n`);
+				writeFileSync(path.join(vault, `${index}-${suffix}.md`), `---\ncurie: ${prefix}:synthetic-${suffix}\n${prefix === 'invented-reference' ? '_crosswalker:\n  recipe:\n    id: cw-referenced-framework\n' : ''}---\n# Synthetic ${prefix} ${suffix}\n\n[[${next}]]\n`);
 			}
 		}
 		await browser.reloadObsidian({ vault });
 		await browser.waitUntil(async () => browser.executeObsidian(({ app }) => {
-			const files = app.vault.getMarkdownFiles().filter((file) => /^[0-5]-[ab]\.md$/.test(file.path));
-			return files.length === 12 && files.every((f) => app.metadataCache.getFileCache(f) !== null);
+			const files = app.vault.getMarkdownFiles().filter((file) => /^[0-7]-[ab]\.md$/.test(file.path));
+			return files.length === 16 && files.every((f) => app.metadataCache.getFileCache(f) !== null);
 		}), { timeout: 60_000, interval: 500 });
 	});
 	after(() => { if (root) rmSync(root, { recursive: true, force: true }); });
 
-	it('loads CIS teal and screenshots all framework groups in both themes', async () => {
+	it('loads SCF and identifier-only groups and screenshots both themes', async () => {
 		await browser.executeObsidian(async ({ app }) => {
 			const internal = (app as unknown as { internalPlugins: { getPluginById(id: string): { enabled: boolean; enable(save: boolean): Promise<void> } | null } }).internalPlugins;
 			const graph = internal.getPluginById('graph');
@@ -43,6 +43,8 @@ describe('Visual: private demo framework colors', function () {
 		await $('.workspace-leaf-content[data-type="graph"]').waitForDisplayed({ timeout: 30_000 });
 		const groups = await browser.executeObsidian(async ({ app }) => JSON.parse(await app.vault.adapter.read(`${app.vault.configDir}/graph.json`)).colorGroups as { query: string; color: { rgb: number } }[]);
 		expect(groups.find((group) => group.query.includes('cis-v8:'))?.color.rgb).toBe(0x0f9d8f);
+		expect(groups.find((group) => group.query.includes('scf:'))?.color.rgb).toBe(0xa66a25);
+		expect(groups.find((group) => group.query === '"cw-referenced-framework"')?.color.rgb).toBe(0x7c8aa0);
 		await browser.pause(8_000);
 		for (const theme of ['light', 'dark']) {
 			await browser.executeObsidian(({ app }, requested) => {

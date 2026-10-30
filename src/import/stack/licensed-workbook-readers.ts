@@ -6,7 +6,7 @@ type Row = Record<string, string>;
 const clean = (value: unknown): string => String(value ?? '').replace(/\s+/g, ' ').trim();
 
 /** A selected publisher table. Read displayed cell values, never numeric ids. */
-export function workbookTable(workbook: XLSX.WorkBook, name: string, required: readonly string[]): Row[] {
+export function workbookTable(workbook: XLSX.WorkBook, name: string, required: readonly string[], preserveCellLines = false): Row[] {
 	const original = workbook.Sheets[name];
 	if (!original?.['!ref']) throw new Error(`Missing worksheet ${name}. Check the selected workbook release.`);
 	// Merged endpoint cells repeat a declared value, unlike genuinely blank
@@ -26,7 +26,7 @@ export function workbookTable(workbook: XLSX.WorkBook, name: string, required: r
 	const index = preview.findIndex((row) => required.every((key) => row.some((cell) => clean(cell) === key)));
 	if (index < 0) throw new Error(`Missing header columns in ${name}. Check the documented workbook binding.`);
 	return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { range: index, raw: false, defval: '', blankrows: false })
-		.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [clean(key), clean(value)])));
+		.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [clean(key), preserveCellLines ? String(value ?? '').replace(/\r\n?/g, '\n').trim() : clean(value)])));
 }
 
 /** Catalog tables put the other framework first; reuse OLIR predicate direction. */
