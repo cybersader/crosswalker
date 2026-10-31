@@ -28,7 +28,7 @@ The [UI and CLI parity reference](/crosswalker/reference/ui-cli-parity/) disting
 | Producer | What it is | Same engine as the plugin? | Source |
 |---|---|---|---|
 | Import wizard | The plugin's in-Obsidian import modal | Yes (it is the plugin) | `src/import/import-wizard.ts` |
-| `bun run cw` | Command line with 5 commands: `import`, `validate`, `export`, `replay`, `recipes` (source: `cli/crosswalker.ts` `runCli` switch) | Yes. Runs the plugin's own `src/` code against a plain folder through a filesystem stand-in for the Obsidian `App` | `cli/crosswalker.ts`, `cli/fs-app.ts` |
+| `bun run cw` | Command line with 6 commands: `import`, `validate`, `export`, `replay`, `recipes`, `graph` (source: `cli/crosswalker.ts` `runCli` switch) | Yes. Runs the plugin's own `src/` code against a plain folder through a filesystem stand-in for the Obsidian `App` | `cli/crosswalker.ts`, `cli/fs-app.ts` |
 | `bun run demo:build` | Builds the multi-framework demo vault | Yes. Every Crosswalker note is written by spawning the `cw` entry point, never by calling the engine directly; the build ends with `cw validate` | `scripts/demo-build.mjs` |
 | Any external producer | A script, agent or other tool that emits valid Tier 1 | Not required; validity against `spec/tier1.schema.json` is the bar | [ETL pillar](/crosswalker/concepts/etl-and-import/) |
 
@@ -68,7 +68,7 @@ The [UI and CLI parity reference](/crosswalker/reference/ui-cli-parity/) disting
 | | Reference query files (Coverage Matrix `.base`, `_crosswalker/SKILL.md`) | Not needed. Written on first plugin run if absent, never overwritten | `src/views/reference-base-files.ts` |
 | | Status bar framework count and installed frameworks list | Not needed. Discovery by note identity across the whole vault, refreshed on metadata cache events, and shown as indexing until the cache is ready (`src/discovery/installed-frameworks.ts`, merged in PR #67) | `src/main.ts` (status bar), PR #67 |
 | **Vault/app config (not carried by every host)** | `.obsidian/graph.json` graph colors | `demo:build` writes it, and nothing else under `.obsidian`. OpenClast rooms do not carry `.obsidian` (reported in PR #67). The command "Color the graph by framework" (merged in PR #67) recreates it per vault from the frameworks present | `scripts/demo-build.mjs`, `tools/lib/demo-graph.ts`, PR #67 |
-| | Plugin settings (Obsidian's per-plugin data file) | Not written by `cw`; the CLI runs on `DEFAULT_SETTINGS`, and the plugin starts on defaults in a fresh vault | `cli/crosswalker.ts`, `src/main.ts` (`loadSettings`) |
+| | Plugin settings (Obsidian's per-plugin data file) | Imports run on `DEFAULT_SETTINGS`. Graph configuration reuses the existing plugin data file for exact color ownership snapshots, preserving unrelated settings; a fresh plugin otherwise starts on defaults | `cli/crosswalker.ts`, `cli/graph.ts`, `src/graph/graph-configuration.ts`, `src/main.ts` (`loadSettings`) |
 
 ## 3. The invariant
 
@@ -91,7 +91,49 @@ The existing guard for the empty-vault case is `tests/e2e/first-run.spec.ts`, th
 |---|---|---|---|
 | **A. Wizard in Obsidian** | Open a vault, run "Start here: import structured data" (source: `src/main.ts`) | Projects Tier 2, writes reference queries, counts frameworks | None specific |
 | **B. On disk, then Obsidian** | `bun run cw -- import --vault <dir> --source <file> ...` (or `bun run demo:build -- --out <dir>`), then `cw validate`, then open the folder as a vault | Same as A, from the notes | Graph colors: `demo:build` writes `.obsidian/graph.json`; for other `cw` vaults run the graph color command |
-| **C. On disk, then OpenClast** | Build as in B, then push the folder into an OpenClast room with OpenClast's own vault push tooling. OpenClast hosts real Obsidian in a browser tab, so the same plugin runs | Same as A, from the notes | Dot-folders are not uploaded, so per-vault app config (`.obsidian/graph.json`, plugin settings) does not arrive. The plugin must recreate it: graph colors by command (pending PR #67), settings from defaults |
+| **C. On disk, then OpenClast** | Build as in B, then push the folder into an OpenClast room with OpenClast's own vault push tooling. OpenClast hosts real Obsidian in a browser tab, so the same plugin runs | Same as A, from the notes | Dot-folders are not uploaded, so per-vault app config (`.obsidian/graph.json`, plugin settings) does not arrive. The plugin must recreate it: graph colors or explicit overview by command, settings from defaults |
+
+## Graph display: preserve first, overview by choice
+
+**Graph behavior last verified:** 2026-10-30 against `src/graph/graph-colors.ts`, `src/graph/graph-color-command.ts`, `src/graph/graph-configuration.ts`, `cli/graph.ts` and synthetic regression tests. Other verification scopes on this page remain separately dated.
+
+**Color the graph by framework** changes only colors. Your search (including an intentionally empty search), visibility choices, forces, camera, panels and unknown options remain unchanged. Missing display settings stay missing. Custom rules keep their order and precedence, even when their query exactly matches a generated rule. Only an unchanged, exact previously emitted occurrence is replaceable; query-only legacy markers are not ownership proof. Ownership snapshots live in the existing plugin data file, not in [Tier 1 content](/crosswalker/agent-context/v0-1-schema-spec/).
+
+**Configure framework graph** opens an explicit, cancelable preview of saved global defaults. The initial overview patch has **four settings (source: `src/graph/graph-colors.ts`, `frameworkOverviewPatch`)**: tag nodes off, attachment nodes off, native file-link arrows off, line thickness 1.3. Tags remain in notes. Arrows describe native file links, not mapping predicates, equivalence or transitivity. Search, unresolved visibility, orphan visibility, forces and camera are preserved. Applying also explicitly refreshes colors; your custom colors still win.
+
+Close global graph views before applying in the plugin: open views can save their private settings over global defaults. The command blocks rather than closing or overwriting those views. With global views closed, it reloads the complete authoritative saved defaults into the native global cache, including removing stale cache-only keys. Native Graph supplies missing defaults when a new view opens. If that cache cannot reload safely, the command reports partial application and asks you to restart Obsidian before opening Graph view, not silent success. Reopen the global graph afterward. Local graphs are untouched. This is a quieter overview, not a claim that the entire network is readable. The read-only [Connections browser](#readable-connections-between-chosen-sets) is separate from native graph display; readable mapping filenames remain deferred; no note identity, recipe, mapping assertion or existing filename changes in this slice.
+
+The [UI/CLI parity reference](/crosswalker/reference/ui-cli-parity/) records both routes. The CLI uses the same policy; preview is the default:
+
+```bash
+bun run cw -- graph configure --vault ./demo --mode overview
+```
+
+Close Obsidian before adding `--apply`. Omit `--mode` for colors only; `--config-dir <vault-relative-folder>` selects another config directory. Both graph settings and existing plugin data must be readable objects before any writes. Previews expose only a supported display-change summary, never custom searches, color queries or unrelated plugin data. If color-history persistence fails after graph settings were written, the command reports partial application rather than claiming success or rolling back unrelated settings.
+
+Fresh demo generation explicitly initializes the overview with its administrative search and new-view camera defaults. Augmentation reads the actual existing graph document and merges colors only; it never replaces existing display choices with fresh defaults. Only a genuinely absent document gets initialization. These paths are tested with synthetic settings, without rebuilding licensed sources. Preservation is measured immediately before and after Crosswalker's action: native Graph can independently normalize opacity, discard unsupported keys and supply defaults when it later saves. The native regression records that boundary separately from our write, including an external disk edit that deliberately leaves the native cache stale.
+
+## Readable connections between chosen sets
+
+**Connections behavior last verified:** 2026-10-30 against `src/graph/connections-query.ts`, `src/graph/connections-modal.ts`, `cli/graph.ts` and synthetic query, CLI and native tests. Other verification scopes on this page remain separately dated.
+
+Open **Explore framework connections** from the Crosswalker workspace or command palette, then explicitly choose source and target [import sets](/crosswalker/concepts/terminology/). Both start unchosen. The same set may occupy both sides. The list shows canonical assertions (stored relationship claims), their actual subject-to-object direction and resolved note titles. Reversing selectors does not reverse assertions.
+
+**Connects concepts present in these sets.** That is a membership statement, not evidence that a publisher intended those exact releases. Recorded provider, mapping-set/version, source/version declarations, review status and source references appear separately in the provenance disclosure. Missing facts say **Not recorded**. Producer software is not publisher authorship. No universal synthetic/publisher marker is inferred and provenance is not independently verified.
+
+Search reads explicit recorded identifiers, titles, relationship IDs and provenance values, not note bodies, generated explanations, missing-value placeholders or field names. Provider and description evidence remains searchable. Release metadata is inherited only when the assertion explicitly names the same release ID and has no conflicting explicit version; storage ownership alone is not release association. Conflicting row and owner-release declarations remain separately visible, with unsupported row-specific facts absent. Duplicate-identity short links never rely on native or CLI first-match ranking: only uniquely validated links, explicit folder-qualified paths or explicit relative paths can narrow membership. An optional focal concept is qualified by its set when identities overlap. Primary UI counts describe the current search and focal selection, not excluded candidates. The disclosure labels broader query counts Before search; vault-wide coverage warnings remain separately scoped. Query totals remain stable across pagination and CLI totals/filteredTotals remain separate. Set labels use verified retained recipe titles and declared source types where recorded, with recipe IDs as a truthful fallback and minted set IDs retained for disambiguation; no type is inferred from paths or prefixes. Pages default to 40 rows and accept 1–100 (source: `src/graph/connections-query.ts`, `bounds`). NOT and exact canonical `no_relationship` are separate from positive pathways; the negative total counts their union, while their individual counts may overlap. Unknown predicate namespaces retain their actual IDs without borrowing a familiar gloss.
+
+The [canonical reader](/crosswalker/agent-context/v0-1-schema-spec/) decides the authoritative notes/table form during conversions; release metadata never reintroduces inactive rows. Unresolved candidates are anchored to a chosen endpoint, never assigned to the other set by prefix. Coverage distinguishes attributable mapping exclusions from unclassified skips. Unreadable evidence is not absence. Evidence/junction notes are explicitly not evaluated. Empty incomplete coverage says **No readable matching assertions found**, not that no connections exist. Discovery failures show unavailable/error states with safe cause-specific recovery steps and affected vault-relative file paths under Error details. The compact initial view shows a complete connection and supporting assertion action; count math, release applicability and technical coverage remain in disclosures.
+
+Endpoint actions open actual resolved files. Table assertion actions open the existing mapping review and show the row ID; a virtual table-row locator is not a Markdown anchor. This browser does not edit assertions. **Refresh records** rereads the vault and clears selections. Search and pages reuse an ephemeral snapshot; close or selection changes discard stale responses. The workflow is repeatable without resetting any data.
+
+```bash
+bun run cw -- graph connections --vault ./demo --source-set <id> --target-set <id>
+```
+
+Optional flags: `--focus-curie`, `--focus-set`, `--search`, `--limit` and `--offset` (source: `cli/crosswalker.ts`, `commandGraph`). The [UI/CLI parity reference](/crosswalker/reference/ui-cli-parity/) records the shared read-only route. There is no `--apply`, note/config write or desktop launch.
+
+**Tracked follow-up: isolated native local-graph navigation.** No production action is exposed until a separate synthetic proof establishes exact bounded membership, bridge rendering and isolation from existing leaves/global defaults. Native graph lines are file links, not semantic assertions. The readable list remains authoritative; this slice does not promise a readable full network or migrate filenames.
 
 ## Private demo: two separate steps
 

@@ -42,6 +42,8 @@ import { writeReferenceBaseFiles } from './views/reference-base-files';
 import { CrosswalkerWorkspaceView, VIEW_TYPE_CROSSWALKER_WORKSPACE } from './views/workspace-view';
 import { discoverInstalledFrameworks } from './discovery/installed-frameworks';
 import { colorGraphByFramework } from './graph/graph-color-command';
+import { GraphConfigModal } from './graph/graph-config-modal';
+import { ConnectionsModal } from './graph/connections-modal';
 import { MappingReviewView, VIEW_TYPE_MAPPING_REVIEW } from './views/mapping-review-view';
 import { MappingTablePickerModal } from './views/mapping-table-picker';
 import { DebugLog } from './utils/debug';
@@ -392,6 +394,16 @@ export default class CrosswalkerPlugin extends Plugin {
 			id: 'color-graph-by-framework',
 			name: 'Color the graph by framework',
 			callback: () => { void colorGraphByFramework(this.app, this); },
+		});
+		this.addCommand({
+			id: 'explore-framework-connections',
+			name: 'Explore framework connections',
+			callback: () => { new ConnectionsModal(this.app, this).open(); },
+		});
+		this.addCommand({
+			id: 'configure-framework-graph',
+			name: 'Configure framework graph',
+			callback: () => { new GraphConfigModal(this.app, this).open(); },
 		});
 
 		this.addCommand({

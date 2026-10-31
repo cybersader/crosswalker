@@ -76,6 +76,7 @@ const noticeText = (): string => notices.join('\n');
 function makeVault() {
 	const files = new Map<string, string>();
 	const folders = new Set<string>(['']);
+	const retained = new Map<string, string>();
 
 	const rename = jest.fn(async (file: { path: string }, newPath: string) => {
 		const content = files.get(file.path);
@@ -88,7 +89,9 @@ function makeVault() {
 
 	const app = {
 		vault: {
-			getMarkdownFiles: () => [...files.keys()].map((path) => new TFile(path)),
+			getFiles: () => [...files.keys()].map(path => new TFile(path)),
+			adapter: { exists: async (path: string) => files.has(path) || folders.has(path) || retained.has(path), read: async (path: string) => retained.get(path) ?? files.get(path)!, write: async (path: string, text: string) => { retained.set(path, text); }, mkdir: async (path: string) => { folders.add(path); } },
+			getMarkdownFiles: () => [...files.keys()].filter(path => path.endsWith('.md')).map((path) => new TFile(path)),
 			getAbstractFileByPath: (path: string) => {
 				if (files.has(path)) return new TFile(path);
 				if (folders.has(path)) return new TFolder(path);

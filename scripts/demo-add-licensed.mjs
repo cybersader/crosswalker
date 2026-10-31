@@ -7,7 +7,8 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as XLSX from 'xlsx';
 import * as yaml from 'js-yaml';
-import { FRAMEWORK_GROUPS, demoGraphGroups, demoGraphJson } from '../tools/lib/demo-graph.ts';
+import { FRAMEWORK_GROUPS, demoGraphGroups, augmentDemoGraph } from '../tools/lib/demo-graph.ts';
+import { GRAPH_COLOR_OWNERSHIP_KEY } from '../src/graph/graph-colors.ts';
 import { readCtidJson, readOlirWorkbook, mappingRowsToTsv } from '../src/import/stack/mapping-readers.ts';
 import { referencedFramework, referencedFrameworkRecipe, referencedOntologyKey } from '../src/import/stack/referenced-frameworks.ts';
 import { renderRecipeTemplate } from '../src/views/recipe-templates.ts';
@@ -248,7 +249,7 @@ function updateStartHere(vault, keys, frameworks, mappings) {
 	let text = fs.readFileSync(file, 'utf8');
 	text = text.replace('This vault was built by Crosswalker from public data.', 'This private vault combines public demo data with locally held licensed frameworks listed under Licensed additions.');
 	text = text.replace('Every framework, link and evidence note was written by the Crosswalker command line from files that ship with the project.', 'Frameworks and mappings were imported through the Crosswalker command line. Licensed sources were supplied locally; subject tags were joined from their workbook after import.');
-	text = text.replace(/(## Graph colors\n)[\s\S]*?(?=\nTags show|\n## |$)/, `$1\n${demoGraphGroups(keys).map((group) => `- **${group.name}**: ${group.label}`).join('\n')}\n`);
+	text = text.replace(/(## Graph colors\n)[\s\S]*?(?=\nTags (?:show|stay)|\n## |$)/, `$1\n${demoGraphGroups(keys).map((group) => `- **${group.name}**: ${group.label}`).join('\n')}\n`);
 	text = text.replace(/\n## Licensed additions[\s\S]*?(?=\n## |$)/, '');
 	text += ['\n## Licensed additions', '', '**Private room only. Do not publish or share this vault.** The licensed source terms apply to these generated notes and mappings.', '',
 		...frameworks.map((entry) => `- **${entry.label}**: ${entry.notes} framework notes in \`${entry.destination}\`${entry.tags ? `; ${entry.tags.notes} diagnostic statements with ${entry.tags.links} subject tags` : ''}.`),
@@ -266,6 +267,22 @@ function main() {
 	if (!opts.vault) throw new Error(`Missing --vault. ${USAGE}`);
 	const vault = canonical(path.resolve(opts.vault));
 	assertSafeVault(vault);
+	// Preflight settings before importing anything. Never replace an unreadable document.
+	const dataPath = path.join(vault, '.obsidian/plugins/crosswalker/data.json');
+	const graphPath = path.join(vault, GRAPH);
+	const readObject = (file) => {
+		if (!fs.existsSync(file)) return undefined;
+		let value;
+		try { value = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { throw new Error('Existing demo settings could not be read. Repair them before adding frameworks.'); }
+		if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Existing demo settings must be objects. Repair them before adding frameworks.');
+		return value;
+	};
+	const graph = readObject(graphPath);
+	const data = readObject(dataPath) ?? {};
+	// Also reject malformed color groups without touching existing settings.
+	augmentDemoGraph(graph, [], data[GRAPH_COLOR_OWNERSHIP_KEY]);
+	const graphBefore = fs.existsSync(graphPath) ? fs.readFileSync(graphPath, 'utf8') : null;
+	const dataBefore = fs.existsSync(dataPath) ? fs.readFileSync(dataPath, 'utf8') : null;
 	const selected = LICENSED.filter((entry) => opts.selected.includes(entry.key));
 	const sourcesDir = path.resolve(opts.sourcesDir);
 	const available = selected.map((entry) => ({ ...entry, source: locate(entry, sourcesDir, opts.source) })).filter((entry) => entry.source);
@@ -350,10 +367,21 @@ function main() {
 		reports.unshift({ label: 'CRI 2.2 built-in CSF links', resolved, destination: folder });
 		process.stdout.write(`CRI 2.2 built-in CSF links: ${total} rows; ${resolved} resolved.\n`);
 	}
-	const graph = JSON.parse(fs.readFileSync(path.join(vault, GRAPH), 'utf8'));
-	const queries = new Set((graph.colorGroups ?? []).map((group) => group.query));
+	const queries = new Set((graph?.colorGroups ?? []).map((group) => group?.query));
 	const keys = [...FRAMEWORK_GROUPS.filter((group) => queries.has(group.query)).map((group) => group.key), ...frameworks.map((entry) => entry.key), ...(reports.some((entry) => entry.referencedNotes > 0) ? ['referenced'] : [])];
-	fs.writeFileSync(path.join(vault, GRAPH), demoGraphJson(keys));
+	if ((fs.existsSync(graphPath) ? fs.readFileSync(graphPath, 'utf8') : null) !== graphBefore
+		|| (fs.existsSync(dataPath) ? fs.readFileSync(dataPath, 'utf8') : null) !== dataBefore) {
+		throw new Error('Demo settings changed during augmentation. They were left untouched; configure graph colors again after closing Obsidian.');
+	}
+	const merged = augmentDemoGraph(graph, keys, data[GRAPH_COLOR_OWNERSHIP_KEY]);
+	fs.mkdirSync(path.dirname(graphPath), { recursive: true });
+	fs.writeFileSync(graphPath, `${JSON.stringify(merged.options, null, 2)}\n`);
+	try {
+		fs.mkdirSync(path.dirname(dataPath), { recursive: true });
+		fs.writeFileSync(dataPath, `${JSON.stringify({ ...data, [GRAPH_COLOR_OWNERSHIP_KEY]: merged.ownership }, null, 2)}\n`);
+	} catch {
+		throw new Error('Demo graph defaults were updated, but color history could not be saved. Check that Crosswalker settings are writable; existing colors will be kept conservatively.');
+	}
 	updateStartHere(vault, keys, frameworks, reports);
 	if (frameworks.some((entry) => entry.key === 'scf')) writeScfQuery(vault);
 	const checked = cw(vault, ['validate']);

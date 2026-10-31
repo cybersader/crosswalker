@@ -48,7 +48,7 @@ export interface GraphFramework {
 /** Always present: the link notes and the evidence notes. */
 export const LINK_GROUPS: readonly GraphColorGroup[] = [
 	{ key: 'mapping', label: 'Mapping links between frameworks', query: 'tag:#crosswalk OR [kind:crosswalk-edge] OR [kind:mapping-set]', hex: '#f28c28', name: 'Orange' },
-	// Not green: Obsidian draws tag nodes in its own green, and tags are shown.
+	// Not green: users can show Obsidian's green tag nodes independently.
 	{ key: 'evidence', label: 'Evidence and evidence links', query: 'tag:#evidence OR [kind:junction-note] OR [kind:evidence-document]', hex: '#ec4899', name: 'Pink' },
 ];
 
@@ -191,61 +191,112 @@ export function knownGeneratedQueries(): string[] {
 	return [...LINK_GROUPS, ...KNOWN_FRAMEWORK_GROUPS].map((g) => g.query);
 }
 
+/** Ownership lives in Crosswalker's existing plugin data, never in vault content. */
+export const GRAPH_COLOR_OWNERSHIP_KEY = 'graphColorOwnership';
+
+/** An exact emitted occurrence, not a claim on every group with the same query. */
+export interface GraphColorOwnership {
+	version: 1;
+	entries: Array<{ index: number; group: GraphColorGroupOption }>;
+}
+
+export type GraphConfigurationMode = 'colors' | 'overview';
+
+/** Explicit display-only preset. Never used by the color-only merge. */
+export function frameworkOverviewPatch(): Record<string, boolean | number> {
+	return { showTags: false, showAttachments: false, showArrow: false, lineSizeMultiplier: 1.3 };
+}
+
+/** Exact JSON-value equality, including unknown fields, independent of object key order. */
+export function sameGraphValue(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+	if (Array.isArray(a) || Array.isArray(b)) {
+		return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => sameGraphValue(v, b[i]));
+	}
+	const left = a as Record<string, unknown>, right = b as Record<string, unknown>;
+	const keys = Object.keys(left);
+	return keys.length === Object.keys(right).length && keys.every((k) => Object.prototype.hasOwnProperty.call(right, k) && sameGraphValue(left[k], right[k]));
+}
+
+function ownershipEntries(value: unknown): GraphColorOwnership['entries'] {
+	if (!value || typeof value !== 'object' || (value as GraphColorOwnership).version !== 1) return [];
+	const entries = (value as GraphColorOwnership).entries;
+	if (!Array.isArray(entries)) return [];
+	return entries.filter((entry) => entry && Number.isInteger(entry.index) && entry.index >= 0
+		&& entry.group && typeof entry.group.query === 'string'
+		&& entry.group.color && typeof entry.group.color.a === 'number' && typeof entry.group.color.rgb === 'number');
+}
+
 export interface GraphMergeResult {
-	/** The merged options to apply and persist. */
 	options: Record<string, unknown>;
-	/** Queries this merge wrote; store them so the next run can replace them. */
+	/** Compatibility field only. Query strings are never used to infer ownership. */
 	managedQueries: string[];
-	/** Color groups the user wrote that were kept. */
+	ownership: GraphColorOwnership;
 	keptUserGroups: number;
-	/** Whether the noise filter was applied (only when the search was empty). */
+	/** Compatibility field. Color refresh never changes search. */
 	searchApplied: boolean;
 }
 
 /**
- * Merge generated color groups into a user's existing graph options without
- * overwriting them wholesale.
- *
- * - Color groups the user wrote are kept, in their order, ahead of the
- *   generated ones (so a user's own rule still wins where it matches).
- * - Groups this command wrote before are replaced. They are recognized by
- *   exact query string: the stored `previousManaged` list, plus every query
- *   this module can generate for the known groups and the current frameworks.
- * - `showTags` and `hideUnresolved` are turned on.
- * - The noise filter is applied only when the user's search is empty.
- * - Every other key the user has (forces, display, panel state) is left as is;
- *   missing ones are filled from the defaults.
+ * Color-only merge. Legacy query lists provide no ownership evidence. A versioned
+ * snapshot removes at most its exact indexed occurrence; edited/reordered entries
+ * conservatively become user-owned. Retained rules keep their order/precedence.
  */
 export function mergeGraphOptions(
 	existing: Record<string, unknown> | null | undefined,
 	groups: readonly GraphColorGroup[],
-	previousManaged: readonly string[] = [],
-	search: string = PLUGIN_GRAPH_SEARCH,
+	previousManaged: unknown = undefined,
+	_search: string = PLUGIN_GRAPH_SEARCH,
 ): GraphMergeResult {
-	const base = existing && typeof existing === 'object' ? existing : {};
-	const generated = groups.map(toColorGroupOption);
-	const managed = new Set<string>([...previousManaged, ...knownGeneratedQueries(), ...generated.map((g) => g.query)]);
-	const existingGroups = Array.isArray(base.colorGroups) ? (base.colorGroups as unknown[]) : [];
-	const userGroups = existingGroups.filter((g) => {
-		const q = g && typeof g === 'object' ? (g as { query?: unknown }).query : undefined;
-		return !(typeof q === 'string' && managed.has(q));
+	const base = existing ?? {};
+	if (Array.isArray(base) || typeof base !== 'object') throw new Error('Graph settings must be an object.');
+	if (base.colorGroups !== undefined && !Array.isArray(base.colorGroups)) throw new Error('Graph color groups must be a list.');
+	const existingGroups = (base.colorGroups ?? []) as unknown[];
+	const owned = new Map(ownershipEntries(previousManaged).map((entry) => [entry.index, entry.group]));
+	const userGroups = existingGroups.filter((g, index) => !owned.has(index) || !sameGraphValue(g, owned.get(index)));
+	const covered = new Set(userGroups.map((g) => g && typeof g === 'object' ? (g as { query?: unknown }).query : undefined));
+	const generated = groups.map(toColorGroupOption).filter((g) => {
+		if (covered.has(g.query)) return false;
+		covered.add(g.query);
+		return true;
 	});
-
-	const currentSearch = typeof base.search === 'string' ? base.search : '';
-	const searchApplied = currentSearch.trim() === '';
-
-	const out: Record<string, unknown> = { ...base };
-	out.colorGroups = [...userGroups, ...generated];
-	out.showTags = true;
-	out.hideUnresolved = true;
-	if (searchApplied) out.search = search;
-	for (const [k, v] of Object.entries(graphOptions([], search))) {
-		if (!(k in out)) out[k] = v;
-	}
 	return {
-		options: out,
+		options: { ...base, colorGroups: [...userGroups, ...generated] },
 		managedQueries: generated.map((g) => g.query),
+		ownership: { version: 1, entries: generated.map((group, i) => ({ index: userGroups.length + i, group: { ...group, color: { ...group.color } } })) },
 		keptUserGroups: userGroups.length,
-		searchApplied,
+		searchApplied: false,
+	};
+}
+
+/** The single policy entry used by plugin, CLI and demo augmentation. */
+export function configureFrameworkGraph(
+	existing: Record<string, unknown> | null | undefined,
+	groups: readonly GraphColorGroup[],
+	ownership: unknown,
+	mode: GraphConfigurationMode = 'colors',
+): GraphMergeResult {
+	if (mode !== 'colors' && mode !== 'overview') throw new Error('Choose colors or overview.');
+	const merge = mergeGraphOptions(existing, groups, ownership);
+	return mode === 'overview' ? { ...merge, options: { ...merge.options, ...frameworkOverviewPatch() } } : merge;
+}
+
+/** Safe public preview: no graph search, custom queries or plugin data are exposed. */
+export function graphConfigurationPreview(existing: Record<string, unknown>, merge: GraphMergeResult, mode: GraphConfigurationMode) {
+	const patch = mode === 'overview' ? frameworkOverviewPatch() : {};
+	return {
+		mode,
+		target: 'saved-global-graph-defaults',
+		generatedColorGroups: merge.ownership.entries.length,
+		keptUserGroups: merge.keptUserGroups,
+		changes: Object.entries(patch).filter(([key, value]) => !sameGraphValue(existing[key], value)).map(([key, after]) => ({
+			key,
+			before: typeof existing[key] === typeof after ? existing[key] : null,
+			after,
+		})),
+		notesChanged: false,
+		searchPreserved: true,
+		localGraphsChanged: false,
 	};
 }

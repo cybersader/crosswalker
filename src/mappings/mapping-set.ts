@@ -471,6 +471,16 @@ function setNoteStem(record: MappingSetRecord): string {
 	return local || 'Mapping set';
 }
 
+/** The existing release destination allocator, shared with mutation-free conversion planning. */
+export function mappingSetNoteDestination(folderInput: string, record: MappingSetRecord, taken: (path: string) => boolean): string {
+ const folder = normalizeFolderSetting(folderInput);
+ const stem = setNoteStem(record);
+ const pathFor = (n: number) => `${folder ? `${folder}/` : ''}${n > 1 ? `${stem} ${n}` : stem}.md`;
+ let n = 1;
+ while (taken(pathFor(n))) n += 1;
+ return pathFor(n);
+}
+
 function bodyOf(content: string): string {
 	const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(content);
 	return (match ? content.slice(match[0].length) : content).replace(/^\n+/, '');
@@ -499,11 +509,7 @@ export async function writeMappingSetNote(
 	if (folder && !app.vault.getAbstractFileByPath(folder)) {
 		try { await app.vault.createFolder(folder); } catch { /* already present on disk */ }
 	}
-	const stem = setNoteStem(input.record);
-	const pathFor = (n: number) => `${folder ? `${folder}/` : ''}${n > 1 ? `${stem} ${n}` : stem}.md`;
-	let n = 1;
-	while (app.vault.getAbstractFileByPath(pathFor(n))) n += 1;
-	const path = pathFor(n);
+	const path = mappingSetNoteDestination(folder, input.record, path => !!app.vault.getAbstractFileByPath(path));
 	await app.vault.create(path, buildNoteContent(frontmatter, ''));
 	return path;
 }

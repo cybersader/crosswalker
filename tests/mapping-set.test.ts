@@ -107,6 +107,13 @@ function makeVault() {
 				return fileOf(path);
 			},
 			modify: async (file: { path: string }, content: string) => { written.set(file.path, content); },
+			process: async (file: { path: string }, transform: (text: string) => string) => {
+				const current = written.get(file.path);
+				if (current === undefined) throw new Error('missing');
+				const content = transform(current);
+				written.set(file.path, content);
+				return content;
+			},
 			delete: async (file: { path: string }) => { written.delete(file.path); },
 			trash: async (file: { path: string }) => {
 				trashed.set(file.path, written.get(file.path)!);

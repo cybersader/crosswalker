@@ -274,6 +274,22 @@ The grammar is fully specified; only part is wired in v0.1. The line matters —
 
 So the "morph onto wikilinks" you'd expect for crosswalk navigation is the **reserved `wikilink` / `graph_edges`** part of the grammar — designed, not yet built. (It's why crosswalk-edge CURIEs don't yet click through to their concept notes.)
 
+## Mapping recipe continuity
+
+**Status last verified:** 2026-10-31 — this section checked against `src/mappings/mapping-recipe.ts`, `src/mappings/mapping-conversion-recipe.ts`, `src/mappings/mapping-conversion.ts`, the conversion preparation in `src/generation/generation-engine.ts`, the release allocator in `src/mappings/mapping-set.ts` and synthetic engine tests. Native UI conversion and refresh were verified on synthetic sets in real Obsidian on 2026-10-31.
+
+A [recipe](/crosswalker/concepts/terminology/) (the saved instructions for layout and managed content) belongs to the mapping set, not to the currently bundled defaults. New direct-table imports retain their complete normalized original. Stamped standalone refresh and supported note/table conversions select that exact original and preserve its recorded effective hash plus complete-document digest. These are distinct values: a valid older runtime hash can precede normalization, but only an exact supported producer/full-document comparison proves that exception. The complete-original preservation boundary follows [portable recipe fidelity](/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/).
+
+Conversion edits only a temporary clone to transport recorded review/user fields; it does not file that clone as a new original. The current supported transport is one mapping file per row, with layout, title, properties and managed body reproducible from the recorded table inputs. Source shaping, unavailable template inputs, enrichment and other unproven dependencies refuse conversion before a marker is written. User body prose that a table cannot carry also blocks conversion instead of disappearing.
+
+Before writing its marker, conversion prepares the complete output with the same rendering used for execution, including each mapping note and release record destination. A custom layout that gives two assertions the same normalized address refuses before creating either output. Incompatible destinations and duplicate release records also refuse rather than being overwritten or cleaned up.
+
+Resume compares existing output against that source-derived preparation, including reviews, reviewer, carried user fields, tags, body and release metadata. Unchanged files retain their bytes, and missing expected output may be completed. An edited target stops the conversion without changing its phase back to writing. Safe current-text checks protect updates, with source and target checks repeated at write and phase boundaries; this is not a whole-vault atomic transaction.
+
+During an interrupted conversion, the source selects the recipe until the verified target enters retirement; partially retired or missing source artifacts never choose a different revision. An active conversion blocks ordinary refresh. Corrupt or unreadable partial artifacts may independently block recovery, but never authorize automatic overwrite/deletion as repair. Finish or recover the existing conversion rather than starting another refresh.
+
+Missing or corrupt originals, conflicting assertion revisions and wholly unstamped history fail closed. Restore the exact original from backup or import into a new set; no recipe-repair UI or automatic migration is implied. Child producer compatibility and historical byte-preservation proofs are not completed by this slice. See [the delivery boundary in the changelog](https://github.com/cybersader/Crosswalker/blob/main/CHANGELOG.md) and the [mapping storage design](/crosswalker/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/).
+
 ## Related
 
 - [Conventional systems in the stack](/crosswalker/concepts/conventions/) — the whole pipeline end to end (this page is its front half)

@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseYaml, type App } from 'obsidian';
 
+import { seedStampedSssomSet } from './helpers/stamped-sssom-set';
 import { importSssom, sssomEdgeCurie } from '../src/import/sssom-importer';
 
 const FIXTURE_PATH = join(__dirname, '..', 'tools', 'fixtures', 'synthetic', 'nist-csf-to-iso27001.sssom.tsv');
@@ -25,8 +26,10 @@ const FIXTURE_PATH = join(__dirname, '..', 'tools', 'fixtures', 'synthetic', 'ni
 function makeMockApp(): { app: App; written: Map<string, string>; folders: Set<string> } {
 	const written = new Map<string, string>();
 	const folders = new Set<string>();
+	const retained = new Map<string, string>();
 	const app = {
 		vault: {
+			getFiles: () => [...written.keys()].map(path => ({ path })),
 			getMarkdownFiles: () => [...written.keys()]
 				.filter((path) => path.endsWith('.md'))
 				.map((path) => ({
@@ -35,7 +38,9 @@ function makeMockApp(): { app: App; written: Map<string, string>; folders: Set<s
 					extension: 'md',
 				})),
 			adapter: {
-				exists: async (p: string) => written.has(p) || folders.has(p),
+				exists: async (p: string) => written.has(p) || retained.has(p) || folders.has(p),
+				read: async (p: string) => retained.get(p) ?? written.get(p)!,
+				write: async (p: string, text: string) => { retained.set(p, text); },
 				mkdir: async (p: string) => {
 					folders.add(p);
 				},
@@ -372,6 +377,7 @@ subject_id	predicate_id	object_id	mapping_set_id	subject_label	object_label	mapp
 			runTier2Projection: false,
 			importSet: { id: 'iset-old111', scheme: 'endpoint-v1' } as const,
 		};
+		await seedStampedSssomSet(app, 'iset-old111', 'endpoint-v1');
 		const first = await importSssom(app, `${releaseHeader}\n${releaseRows.join('\n')}`, null, null, options);
 		expect(first.generation?.success).toBe(true);
 		const before = [...written.keys()].filter((path) => path.endsWith('.md') && !isReleaseRecord(written, path)).sort();
@@ -392,6 +398,7 @@ subject_id	predicate_id	object_id	mapping_set_id	subject_label	object_label	mapp
 
 	it('lets two releases coexist as separate sets without changing the first set notes', async () => {
 		const { app, written } = makeMockApp();
+		await seedStampedSssomSet(app, 'iset-old111', 'endpoint-v1');
 		const firstTsv = `${releaseHeader}\n${releaseRows.join('\n')}`;
 		const first = await importSssom(app, firstTsv, null, null, {
 			runTier2Projection: false,
@@ -404,6 +411,7 @@ subject_id	predicate_id	object_id	mapping_set_id	subject_label	object_label	mapp
 
 		expect(firstSetBefore.size).toBe(2);
 
+		await seedStampedSssomSet(app, 'iset-new222', 'set-qualified-v1');
 		const secondRows = releaseRows.map((row) => row.replace('release:one', 'release:two'));
 		const second = await importSssom(app, `${releaseHeader}\n${secondRows.join('\n')}`, null, null, {
 			runTier2Projection: false,
@@ -430,6 +438,8 @@ subject_id	predicate_id	object_id	mapping_set_id	subject_label	object_label	mapp
 			runTier2Projection: false,
 			importSet: { id: 'iset-new222', scheme: 'set-qualified-v1' } as const,
 		};
+		await seedStampedSssomSet(a.app, 'iset-new222', 'set-qualified-v1');
+		await seedStampedSssomSet(b.app, 'iset-new222', 'set-qualified-v1');
 		await importSssom(a.app, `${releaseHeader}\n${releaseRows.join('\n')}`, null, null, options);
 		await importSssom(b.app, `${releaseHeader}\n${[...releaseRows].reverse().join('\n')}`, null, null, options);
 		const paths = (written: Map<string, string>) => [...written.keys()].filter((path) => path.endsWith('.md') && !isReleaseRecord(written, path)).sort();

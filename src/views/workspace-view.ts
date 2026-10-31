@@ -28,6 +28,7 @@ import {
 import { discoverInstalledFrameworks } from '../discovery/installed-frameworks';
 import { settleVaultIndex } from '../generation/import-set';
 import { colorGraphByFramework } from '../graph/graph-color-command';
+import { ConnectionsModal } from '../graph/connections-modal';
 
 export const VIEW_TYPE_CROSSWALKER_WORKSPACE = 'crosswalker-workspace';
 
@@ -127,6 +128,10 @@ export class CrosswalkerWorkspaceView extends ItemView {
 
 		this.launchButton(row, 'search', 'Find sources in this vault', false, () => {
 			new VaultSourceScanModal(this.app, this.plugin).open();
+		});
+
+		this.launchButton(row, 'route', 'Explore framework connections', false, () => {
+			new ConnectionsModal(this.app, this.plugin).open();
 		});
 
 		this.launchButton(row, 'palette', 'Color the graph by framework', false, () => {

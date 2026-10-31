@@ -1436,7 +1436,7 @@ export function baseCuriePrefixFor(importSet: ImportSetReference, ontologyId: st
  * the ratified rule to the write path: the owned index resolves, the vault-wide
  * index only reports.
  */
-function foreignSetClaim(
+export function foreignSetClaim(
 	owned: IdentityIndex | undefined,
 	vaultWide: IdentityIndex | undefined,
 	curie: string,
@@ -1757,7 +1757,7 @@ function foreignHubClaim(
  * other. The caller must treat a `refusal` as a refused row: report it and write
  * nothing.
  */
-function resolveWriteTarget(
+export function resolveWriteTarget(
 	app: App,
 	siblingPath: string,
 	curie: string,
@@ -3071,7 +3071,7 @@ export interface RecipeImportOptions {
 	 * run writes (see `resolveImportSet`'s `overrides`). No other caller may pass
 	 * it: a pin changes only through a conversion.
 	 */
-	mappingConversion?: { to: 'notes' | 'table' };
+	mappingConversion?: { to: 'notes' | 'table'; beforeWrite?: (path?: string) => Promise<void> };
 	/**
 	 * Slice 4. The recipe identity stamped into `_crosswalker.recipe` in place of
 	 * the running recipe's. The conversion job renders through a transport
@@ -3118,6 +3118,33 @@ export interface RecipeImportOptions {
 	 * `deriveFacetMemberships(mapping, row)` for faithful display names.
 	 */
 	facetsForRow?: (row: Record<string, unknown>, rowNum: number) => FacetMembership[];
+}
+
+/** Mutation-free preparation shared ONLY by mapping conversion preflight and execution. */
+export function prepareMappingConversionNote(
+ recipe: Recipe, curie: string, sourceScope: Record<string, unknown>, scope: Record<string, unknown>,
+ options: RecipeImportOptions, importSet: ImportSetReference, sourceByteDigest?: string,
+) {
+ const renderScope = { ...scope, _crosswalker_curie_local_part: curie.slice(curie.indexOf(':') + 1) };
+ const report: RenderReport = { notes: [] };
+ const layoutValues: LayoutValue[] = [];
+ const address = render(recipe, { curie, scope: renderScope }, report, layoutValues);
+ const base = normalizeBasePath(options.basePath);
+ const fullPath = base ? normalizePath(`${base}/${address.primary.path}`) : normalizePath(address.primary.path);
+ const frontmatter: Record<string, any> = { ...address.frontmatter };
+ if (address.tags.length) frontmatter.tags = normalizeTagList(address.tags);
+ if (address.aliases.length) frontmatter.aliases = normalizeAliasList(address.aliases);
+ const identityScope = identityScopeForNoteKind(address.frontmatter.kind, sourceScope, scope);
+ const record = { curie, scope: identityScope };
+ frontmatter._crosswalker = buildProvenance({
+  sourceFile: options.sourceFileName, sourceVersion: options.sourceVersion ?? recipe.source?.version,
+  sourceHash: sourceByteDigest, recipeId: options.provenanceRecipe?.id ?? recipe.recipe,
+  recipeHash: options.provenanceRecipe?.hash ?? computeRecipeHash(recipe.target, recipe.source),
+  recipeDocumentDigest: stampedRecipeDocumentDigest(recipe, options), importSet,
+  conceptCid: computeConceptCid(record), reviewCid: computeReviewCid(record), reviewGroups: computeReviewGroupCids(record, recipe), layoutValues,
+ }, PLUGIN_VERSION);
+ const managedBody = buildDefaultBody(frontmatter, address, recipe, renderScope, report);
+ return { address, fullPath, frontmatter, managedBody, renderScope, report, layoutValues };
 }
 
 /**
@@ -3235,6 +3262,7 @@ export async function generateFromRecipe(
 	const identityIndex = await buildIdentityIndex(app);
 	const ambiguousCuries = new Set(identityIndex.collisions.map((collision) => collision.curie));
 	for (const collision of identityIndex.collisions) {
+		if (options.mappingConversion) continue; // Conversion refuses only identities its prepared rows actually use.
 		result.errors.push({
 			row: 0,
 			message: `Ambiguous identity ${collision.curie} claimed by: ${collision.paths.join(', ')}`,
@@ -3322,6 +3350,7 @@ export async function generateFromRecipe(
 		rowsForGeneration = nestedRows;
 	}
 
+	if (options.mappingConversion?.beforeWrite) await options.mappingConversion.beforeWrite();
 	if (createFolders && options.basePath) {
 		await ensureFolderExists(app, options.basePath);
 	}
@@ -3502,7 +3531,10 @@ export async function generateFromRecipe(
 			const localPart = curie.slice(curie.indexOf(':') + 1);
 			// The index deliberately does not return an arbitrary winner for a
 			// collision. Refuse this row instead of making the duplicate permanent.
-			if (ambiguousCuries.has(curie) || ambiguousCuries.has(mintedCurie)) return;
+			if (ambiguousCuries.has(curie) || ambiguousCuries.has(mintedCurie)) {
+				if (options.mappingConversion) result.errors.push({ row: rowNum, message: `Ambiguous conversion identity ${curie}. Resolve its duplicate notes before finishing the conversion.` });
+				return;
+			}
 
 			// AM-12. A write never crosses a set boundary. Same rule as generateNotes,
 			// refused at the same point: the vault-wide index only DETECTS, and a curie
@@ -3538,8 +3570,14 @@ export async function generateFromRecipe(
 			// one thing through the wizard and another through a recipe.
 			const layoutValues: LayoutValue[] = [];
 			let address;
+			let conversionPrepared: ReturnType<typeof prepareMappingConversionNote> | undefined;
 			try {
-				address = render(recipe, { curie, scope: renderScope }, renderReport, layoutValues);
+				if (options.mappingConversion) {
+					conversionPrepared = prepareMappingConversionNote(recipe, curie, sourceScope, scope, options, importSet, parsedData.sourceByteDigest);
+					address = conversionPrepared.address;
+					layoutValues.push(...conversionPrepared.layoutValues);
+					renderReport.notes.push(...conversionPrepared.report.notes);
+				} else address = render(recipe, { curie, scope: renderScope }, renderReport, layoutValues);
 			} catch (err) {
 				if (err instanceof RenderError) {
 					result.errors.push({ row: rowNum, message: `render() failed: ${err.message}` });
@@ -3556,9 +3594,9 @@ export async function generateFromRecipe(
 
 			// 3. Build full path
 			const recipePath = address.primary.path;
-			const fullPath = options.basePath
+			const fullPath = conversionPrepared?.fullPath ?? (options.basePath
 				? normalizePath(`${options.basePath}/${recipePath}`)
-				: normalizePath(recipePath);
+				: normalizePath(recipePath));
 
 			if (!fullPath || fullPath === '.md') {
 				result.errors.push({
@@ -3625,7 +3663,7 @@ export async function generateFromRecipe(
 			emittedPaths.add(fullPath);
 
 			// 5. Compose frontmatter
-			const frontmatter: Record<string, any> = { ...address.frontmatter };
+			const frontmatter: Record<string, any> = { ...(conversionPrepared?.frontmatter ?? address.frontmatter) };
 			if (address.tags.length > 0) {
 				const tags = normalizeTagList(address.tags);
 				if (tags.length > 0) frontmatter.tags = tags;
@@ -3661,7 +3699,7 @@ export async function generateFromRecipe(
 					unbaselinedJunctions += 1;
 				}
 			}
-			frontmatter._crosswalker = buildProvenance(
+			frontmatter._crosswalker = conversionPrepared?.frontmatter._crosswalker ?? buildProvenance(
 				{
 					sourceFile: options.sourceFileName,
 					sourceVersion: options.sourceVersion ?? recipe.source?.version,
@@ -3723,6 +3761,7 @@ export async function generateFromRecipe(
 			//    see resolveWriteTarget's docstring (re-import identity, design §4).
 			const existingFile = target.existingFile;
 			const writePath = target.writePath;
+			if (options.mappingConversion?.beforeWrite) await options.mappingConversion.beforeWrite(writePath);
 
 			// A move is part of replacement, never part of skip mode. Use Obsidian's
 			// rename API so links to the canonical note follow its new address.
@@ -3784,7 +3823,7 @@ export async function generateFromRecipe(
 			const headingReport: RenderReport = { notes: [] };
 			let managedBody: string;
 			try {
-				managedBody = buildDefaultBody(frontmatter, address, recipe, renderScope, headingReport);
+				managedBody = conversionPrepared?.managedBody ?? buildDefaultBody(frontmatter, address, recipe, renderScope, headingReport);
 			} catch (bodyErr) {
 				if (bodyErr instanceof RenderError) {
 					result.errors.push({ row: rowNum, message: `target.auto_heading failed: ${bodyErr.message}` });
@@ -3843,6 +3882,7 @@ export async function generateFromRecipe(
 			}
 
 			// 10. Write
+			if (options.mappingConversion?.beforeWrite) await options.mappingConversion.beforeWrite(writePath);
 			const content = buildNoteContent(frontmatter, body);
 			if (existingFile instanceof TFile) {
 				const changed = await writeMergedNote(app, existingFile, frontmatter, body);

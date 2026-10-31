@@ -51,6 +51,8 @@ import { readImportSetRecipe } from '../src/import/import-set-recipes';
 import type { ParsedData } from '../src/types/config';
 import type { CrosswalkerImportRecipe } from '../src/types/generated/recipe';
 import { DebugLog } from '../src/utils/debug';
+import { configureGraphFromCli, connectionsFromCli } from './graph';
+import { ConnectionsError } from '../src/graph/connections-query';
 
 /** Pinned clock and first set id under --deterministic, as tools/generate-fixtures.ts pins them. */
 export const DETERMINISTIC_PRODUCED_AT = '2026-05-04T00:00:00.000Z';
@@ -75,6 +77,12 @@ const USAGE = [
 	'            Runs a set again with the exact recipe revision it ran. Crosswalker keeps',
 	'            no copy of the source, so --source is the file the set came from or a newer',
 	'            release of it. --digest picks a revision when the set holds more than one.',
+	'  graph configure --vault <dir> [--mode colors|overview] [--config-dir <folder>] [--apply]',
+	'            Preview saved global graph defaults as JSON. Colors only unless overview is chosen.',
+	'            Close Obsidian before --apply; open views can overwrite saved defaults.',
+	'  graph connections --vault <dir> --source-set <id> --target-set <id>',
+	'            [--focus-curie <id>] [--focus-set <id>] [--search <text>] [--limit <1..100>] [--offset <n>]',
+	'            Read recorded connections as JSON. No note or graph settings writes.',
 	'  recipes   list the built-in recipe ids',
 	'',
 	'Exit codes: 0 ok, 1 usage or runtime error, 2 validation failures.',
@@ -87,9 +95,14 @@ interface Io {
 
 type Flags = Record<string, string | true>;
 
-function parseFlags(argv: string[]): { command: string | undefined; flags: Flags } {
+function parseFlags(argv: string[]): { command: string | undefined; flags: Flags; graphAction?: string } {
 	const args = argv[0] === '--' ? argv.slice(1) : argv;
 	const [command, ...rest] = args;
+	let graphAction: string | undefined;
+	if (command === 'graph') {
+		if (!['configure', 'connections'].includes(rest[0])) throw new CliError('Choose "cw graph configure" or "cw graph connections". Run help for their required options.');
+		graphAction = rest.shift();
+	}
 	const flags: Flags = {};
 	for (let i = 0; i < rest.length; i++) {
 		const token = rest[i];
@@ -110,7 +123,7 @@ function parseFlags(argv: string[]): { command: string | undefined; flags: Flags
 			i++;
 		}
 	}
-	return { command, flags };
+	return { command, flags, graphAction };
 }
 
 function stringFlag(flags: Flags, name: string, required: true, hint: string): string;
@@ -722,13 +735,39 @@ async function commandReplay(flags: Flags, io: Io): Promise<number> {
 	return runImport(flags, io, app, source, libraryRegistryEntry(recipe), setId);
 }
 
+async function commandGraph(flags: Flags, io: Io, action?: string): Promise<number> {
+	if (action === 'connections') {
+		allowOnly(flags, ['vault', 'source-set', 'target-set', 'focus-curie', 'focus-set', 'search', 'limit', 'offset'], 'graph connections');
+		const numeric = (name: string, fallback: number): number => {
+			const raw = stringFlag(flags, name);
+			if (raw !== undefined && !/^\d+$/.test(raw)) throw new CliError(`--${name} needs a whole nonnegative integer. Use --limit 40 and --offset 0 for the first page.`);
+			return raw === undefined ? fallback : Number(raw);
+		};
+		const result = await connectionsFromCli(stringFlag(flags, 'vault', true, 'Pass an existing vault folder.'), {
+			sourceSet: stringFlag(flags, 'source-set', true, 'Choose its minted import-set id.'),
+			targetSet: stringFlag(flags, 'target-set', true, 'Choose its minted import-set id.'),
+			focusCurie: stringFlag(flags, 'focus-curie'), focusSet: stringFlag(flags, 'focus-set'), search: stringFlag(flags, 'search'),
+			limit: numeric('limit', 40), offset: numeric('offset', 0),
+		});
+		io.out(JSON.stringify(result, null, 2)); return 0;
+	}
+	allowOnly(flags, ['vault', 'config-dir', 'mode', 'apply'], 'graph configure');
+	const mode = stringFlag(flags, 'mode') ?? 'colors';
+	if (mode !== 'colors' && mode !== 'overview') throw new CliError('Invalid graph mode. Choose --mode colors or --mode overview.');
+	if (flags.apply !== undefined && flags.apply !== true) throw new CliError('--apply takes no value. Leave it out for a no-write preview.');
+	const vault = stringFlag(flags, 'vault', true, 'Pass the existing vault folder.');
+	const result = await configureGraphFromCli(vault, stringFlag(flags, 'config-dir'), mode, flags.apply === true);
+	io.out(JSON.stringify(result, null, 2));
+	return result.status === 'stale' || result.status === 'partial' ? 1 : 0;
+}
+
 // ----------------------------------------------------------------------- main
 
 /** Run one command. Returns the exit code; never calls process.exit. */
 export async function runCli(argv: string[], io: Io = { out: (l) => console.log(l), err: (l) => console.error(l) }): Promise<number> {
 	let restore: (() => void) | null = null;
 	try {
-		const { command, flags } = parseFlags(argv);
+		const { command, flags, graphAction } = parseFlags(argv);
 		if (!command || command === 'help' || command === '--help' || flags.help) {
 			io.out(USAGE);
 			return command ? 0 : 1;
@@ -746,6 +785,8 @@ export async function runCli(argv: string[], io: Io = { out: (l) => console.log(
 				return await commandExport(flags, io);
 			case 'replay':
 				return await commandReplay(flags, io);
+			case 'graph':
+				return await commandGraph(flags, io, graphAction);
 			case 'recipes':
 				for (const entry of RECIPE_REGISTRY) io.out(`${entry.id}  ${entry.label}`);
 				return 0;
@@ -754,7 +795,10 @@ export async function runCli(argv: string[], io: Io = { out: (l) => console.log(
 		}
 	} catch (error) {
 		if (error instanceof CliError) io.err(error.message);
-		else {
+		else if (error instanceof ConnectionsError) {
+			io.err(error.message);
+			if (error.details) io.err(JSON.stringify({ errorDetails: error.details }));
+		} else {
 			const cause = error instanceof Error ? error.message : String(error);
 			io.err(`Crosswalker stopped: ${cause}. Check the inputs named in the command, then run it again.`);
 		}

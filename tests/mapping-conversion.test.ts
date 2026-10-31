@@ -41,6 +41,7 @@ const ROWS = [
 ];
 
 interface Faults {
+ beforeProcess?: (path: string) => void;
 	/** Throw from `vault.modify`/`create` when this returns true for (path, content). */
 	failWrite?: (path: string, content: string) => boolean;
 	/** Throw from `vault.trash` when this returns true for the path. */
@@ -51,7 +52,7 @@ interface Faults {
 
 /**
  * Every written path except the recipe copy each import keeps under
- * `_crosswalker/import-sets/`, which the conversion never reads or retires.
+ * `_crosswalker/import-sets/`, whose originals conversion verifies but never retires.
  */
 function writtenExceptRecipeCopies(vault: { written: Map<string, unknown> }): string[] {
 	return [...vault.written.keys()].filter((path) => !path.startsWith('_crosswalker/import-sets/'));
@@ -63,7 +64,7 @@ function makeVault() {
 	const folders = new Set<string>();
 	const trashed = new Map<string, string>();
 	const faults: Faults = {};
-	const fileOf = (path: string) => Object.assign(new TFile(path), { stat: { mtime: 0 }, extension: path.split('.').pop() });
+	const fileOf = (path: string) => Object.assign(new TFile(path), { stat: { mtime: 0, size: Buffer.byteLength(written.get(path) ?? '', 'utf8') }, extension: path.split('.').pop() });
 	const frontmatterOf = (path: string) => {
 		const match = (written.get(path) ?? '').match(/^---\n([\s\S]*?)\n---/);
 		return match ? parseYaml(match[1]) : undefined;
@@ -106,6 +107,12 @@ function makeVault() {
 				if (written.has(path)) throw new Error('File already exists.');
 				written.set(path, content);
 				return fileOf(path);
+			},
+			process: async (file: { path: string }, transform: (text: string) => string) => {
+				faults.beforeProcess?.(file.path);
+				const current = written.get(file.path); if (current === undefined) throw new Error('missing');
+				const content = transform(current); if (faults.failWrite?.(file.path, content)) throw new Error('write interrupted');
+				written.set(file.path, content); return content;
 			},
 			modify: async (file: { path: string }, content: string) => {
 				if (faults.failWrite?.(file.path, content)) throw new Error('write interrupted');
@@ -296,11 +303,13 @@ describe('startConversion notes to table', () => {
 		db.close();
 	});
 
-	it('falls back to an in-place write when the folder refuses a rename', async () => {
+	it('creates a new table without using a replacement rename', async () => {
 		const vault = makeVault();
 		const setId = await importNotes(vault);
 		vault.faults.renameThrows = true;
+		const rename = jest.spyOn(vault.app.vault.adapter, 'rename');
 		const result = await startConversion(vault.app, {}, setId, 'table');
+		expect(rename).not.toHaveBeenCalled();
 		expect(result.ok).toBe(true);
 		expect(writtenExceptRecipeCopies(vault)).toEqual([TABLE]);
 	});
@@ -310,6 +319,8 @@ describe('startConversion table to notes', () => {
 	it('regenerates the notes through the engine, keeps every review, trashes the table, and records notes by absence', async () => {
 		const vault = makeVault();
 		const setId = await importTable(vault);
+		const originalRecipe = parseMappingTable(vault.written.get(TABLE)!).header.crosswalker_provenance!.recipe;
+		const originalCopies = new Map([...vault.written].filter(([path]) => path.includes('/recipe-')));
 		reviewTable(vault, TABLE, 'demo-a:X-2', { review_status: 'in_review', reviewer: 'reviewer-2', notes: { my_notes: 'Needs a second look.' } });
 
 		const result = await startConversion(vault.app, {}, setId, 'notes');
@@ -317,14 +328,17 @@ describe('startConversion table to notes', () => {
 		expect(vault.trashed.has(TABLE)).toBe(true);
 		expect(vault.written.has(TABLE)).toBe(false);
 		expect(vault.notes()).toHaveLength(3);
-		expect([...vault.written.keys()].filter((path) => !path.endsWith('.md'))).toEqual([]);
+		expect(writtenExceptRecipeCopies(vault).filter((path) => !path.endsWith('.md'))).toEqual([]);
 
 		const reviewed = vault.notes().map((path) => vault.frontmatterOf(path) as Record<string, any>).find((fm) => fm.subject_id === 'demo-a:X-2')!;
 		expect(reviewed).toMatchObject({ review_status: 'in_review', reviewer: 'reviewer-2', my_notes: 'Needs a second look.', kind: 'crosswalk-edge' });
 		expect(reviewed._crosswalker.import_set).toMatchObject({ id: setId, scheme: 'set-qualified-v1' });
 		expect(reviewed._crosswalker.import_set.mapping_form).toBeUndefined();
 		// The set's own import recipe is recorded, so a later refresh is not refused as "recipe changed".
-		expect(reviewed._crosswalker.recipe).toEqual({ id: 'sssom-demo-a-to-demo-b', hash: sssomRecipeDigest('demo-a', 'demo-b') });
+		expect(reviewed._crosswalker.recipe).toEqual(originalRecipe);
+		expect(new Map([...vault.written].filter(([path]) => path.includes('/recipe-')))).toEqual(originalCopies);
+		const { readImportSetRecipe, vaultImportSetRecipeFiles } = await import('../src/import/import-set-recipes');
+		expect(await readImportSetRecipe(vaultImportSetRecipeFiles(vault.app)!, setId, String((originalRecipe as Record<string, unknown>).recipe_document_digest))).not.toBeNull();
 
 		const [set] = await discoverImportSets(vault.app);
 		expect(set).toMatchObject({ id: setId, mapping_form: 'notes', noteCount: 4 });
@@ -335,6 +349,8 @@ describe('startConversion table to notes', () => {
 		expect(refreshed.generation?.errors).toEqual([]);
 		expect(vault.notes()).toHaveLength(3);
 		expect(noteReviews(vault)['demo-a:X-2']).toEqual({ review_status: 'in_review', reviewer: 'reviewer-2', my_notes: 'Needs a second look.' });
+		for (const path of vault.notes()) expect(vault.frontmatterOf(path)._crosswalker.recipe).toEqual(originalRecipe);
+		expect(new Map([...vault.written].filter(([path]) => path.includes('/recipe-')))).toEqual(originalCopies);
 	});
 
 	// Prevents: the conversion filing its transport recipe as a second copy, or rewriting the set's kept original.
@@ -346,12 +362,13 @@ describe('startConversion table to notes', () => {
 		const kept = `${setFolder}/recipe-sha256-${'d'.repeat(64)}.json`;
 		const keptBytes = '{"recipe":"sssom-demo-a-to-demo-b","note":"synthetic kept copy"}\n';
 		vault.written.set(kept, keptBytes);
+		const beforeCopies = new Map(recipeCopies().map(path => [path, vault.written.get(path)]));
 
 		const result = await startConversion(vault.app, {}, setId, 'notes');
 		expect(result).toMatchObject({ ok: true, from: 'table', to: 'notes', phaseReached: 'done' });
 		expect(vault.notes()).toHaveLength(3);
 		expect(vault.written.get(kept)).toBe(keptBytes);
-		expect(recipeCopies()).toEqual([kept]);
+		expect(new Map(recipeCopies().map(path => [path, vault.written.get(path)]))).toEqual(beforeCopies);
 	});
 
 	it('round trip notes to table to notes leaves every review value equal', async () => {
@@ -368,6 +385,133 @@ describe('startConversion table to notes', () => {
 		expect(noteReviews(vault)).toEqual(before);
 		const deprecated = vault.notes().map((path) => vault.frontmatterOf(path) as Record<string, unknown>).find((fm) => fm.subject_id === 'demo-a:X-3')!;
 		expect(deprecated.reviewer_notes).toBe('Superseded upstream.');
+	});
+});
+
+describe('stamped original continuity and recovery', () => {
+	it.each(['source-shaping', 'body-input', 'managed-input', 'enrichment'] as const)('rejects unsupported %s before creating a marker', async dependency => {
+		const vault = makeVault(); const setId = await importTable(vault);
+		const { normalizeRecipe, serializeCanonicalRecipe } = await import('../src/import/recipe-document');
+		const { computeRecipeDocumentDigest, computeRecipeHash } = await import('../src/generation/hash');
+		const { buildSyntheticRecipe } = await import('../src/import/sssom-importer');
+		const { importSetRecipePath } = await import('../src/import/import-set-recipes');
+		const original = normalizeRecipe(buildSyntheticRecipe('demo-a', 'demo-b'));
+		if (dependency === 'source-shaping') original.source.where = 'true';
+		if (dependency === 'body-input') original.target.also_emit!.body![0].template = '{unavailable_column|optional}';
+		if (dependency === 'managed-input') original.target.also_emit!.frontmatter!.managed!.title = '{unavailable_column|optional}';
+		if (dependency === 'enrichment') original.target.enrichment = { parent_links: true };
+		const digest = computeRecipeDocumentDigest(original);
+		vault.written.set(importSetRecipePath(setId, digest)!, serializeCanonicalRecipe(original));
+		const parsed = parseMappingTable(vault.written.get(TABLE)!);
+		parsed.header.crosswalker_provenance!.recipe = { id: original.recipe, hash: computeRecipeHash(original.target, original.source), recipe_document_digest: digest };
+		vault.written.set(TABLE, serializeMappingTable(parsed.header, parsed.rows));
+		const before = new Map(vault.written);
+		const result = await startConversion(vault.app, {}, setId, 'notes');
+		expect(result.ok).toBe(false); expect(result.phaseReached).toBe('not-started'); expect(result.reason).toMatch(/original mapping recipe cannot be converted/);
+		expect(vault.written).toEqual(before); expect(vault.trashed.size).toBe(0); expect(markerOn(vault, setId)).toBeUndefined();
+	});
+	it.each(['notes', 'table'] as const)('does not retire corrupt non-authoritative %s source artifacts', async from => {
+		const vault = makeVault(); const setId = from === 'notes' ? await importNotes(vault) : await importTable(vault);
+		const to = from === 'notes' ? 'table' : 'notes';
+		await startConversion(vault.app, {}, setId, to, progress => { if (progress.phase === 'retiring') throw new Error('Synthetic stop'); });
+		if (from === 'notes') {
+			const path = vault.notes()[0]; vault.written.set(path, vault.written.get(path)!.replace(/hash: sha256-[a-f0-9]{64}/, 'hash: corrupt'));
+		} else {
+			const parsed = parseMappingTable(vault.written.get(TABLE)!); vault.written.set(TABLE, serializeMappingTable(parsed.header, [...parsed.rows, parsed.rows[0]]));
+		}
+		const before = new Map(vault.written);
+		const resumed = await resumeConversion(vault.app, {}, markerOn(vault, setId)!);
+		expect(resumed.ok).toBe(false); expect(resumed.phaseReached).toBe('retiring'); expect(vault.written).toEqual(before); expect(vault.trashed.size).toBe(0);
+	});
+	it.each(['notes', 'table'] as const)('blocks a changed %s conversion marker without mutation', async from => {
+		const vault = makeVault(); const setId = from === 'notes' ? await importNotes(vault) : await importTable(vault);
+		const to = from === 'notes' ? 'table' : 'notes';
+		await startConversion(vault.app, {}, setId, to, progress => { if (progress.phase === 'writing') throw new Error('Synthetic stop'); });
+		const marker = markerOn(vault, setId)!;
+		const changed = { ...marker, target_path: 'different-destination', source_count: 999 };
+		vault.written.set(marker.path, JSON.stringify(changed));
+		const before = new Map(vault.written);
+		expect((await resumeConversion(vault.app, {}, marker)).ok).toBe(false); expect(vault.written).toEqual(before); expect(vault.trashed.size).toBe(0);
+	});
+	it('checks an orphan assertion revision before standalone refresh writes', async () => {
+		const vault = makeVault(); const setId = await importNotes(vault);
+		const orphan = vault.notes().find(path => vault.frontmatterOf(path).subject_id === 'demo-a:X-3')!;
+		vault.written.set(orphan, vault.written.get(orphan)!.replace(/hash: sha256-[a-f0-9]{64}/, 'hash: corrupt'));
+		const before = new Map(vault.written);
+		const result = await importSssom(vault.app, sssom(ROWS.slice(0, 2)), null, null, { importSet: { id: setId }, outputFolder: FOLDER, runTier2Projection: false });
+		expect(result.generation?.success).toBe(false); expect(result.generation?.errors[0].message).toMatch(/corrupt/); expect(vault.written).toEqual(before);
+	});
+	it.each((['notes', 'table'] as const).flatMap(from => (['writing', 'verifying', 'retiring'] as const).map(phase => ({ from, phase }))))('resumes $from source in $phase with exact original lineage', async ({ from, phase }) => {
+		const vault = makeVault();
+		const setId = from === 'notes' ? await importNotes(vault) : await importTable(vault);
+		const stamp = from === 'notes' ? vault.frontmatterOf(vault.notes()[0])._crosswalker.recipe : parseMappingTable(vault.written.get(TABLE)!).header.crosswalker_provenance!.recipe;
+		const copies = new Map([...vault.written].filter(([path]) => path.includes('/recipe-')));
+		const to = from === 'notes' ? 'table' : 'notes';
+		let interrupted = false;
+		const first = await startConversion(vault.app, {}, setId, to, progress => {
+			if (!interrupted && progress.phase === phase) { interrupted = true; throw new Error('Synthetic phase boundary interruption'); }
+		});
+		expect(first.ok).toBe(false); expect(first.phaseReached).toBe(phase);
+		const beforeRefresh = new Map(vault.written);
+		const refresh = await importSssom(vault.app, sssom(ROWS), null, null, { importSet: { id: setId }, mappingForm: phase === 'retiring' ? to : from, outputFolder: FOLDER, runTier2Projection: false });
+		expect(refresh.generation?.success).toBe(false); expect(vault.written).toEqual(beforeRefresh);
+		if (phase === 'retiring') {
+			// A prior retirement may have removed some or all source artifacts.
+			if (from === 'table') vault.written.delete(TABLE);
+			else vault.written.delete(vault.notes()[0]);
+		}
+		const resumed = await resumeConversion(vault.app, {}, markerOn(vault, setId)!);
+		expect(resumed.reason).toBeUndefined(); expect(resumed.ok).toBe(true);
+		if (to === 'table') expect(parseMappingTable(vault.written.get(TABLE)!).header.crosswalker_provenance!.recipe).toEqual(stamp);
+		else for (const path of vault.notes()) expect(vault.frontmatterOf(path)._crosswalker.recipe).toEqual(stamp);
+		expect(new Map([...vault.written].filter(([path]) => path.includes('/recipe-')))).toEqual(copies);
+	});
+	it.each(['missing-original', 'unstamped', 'corrupt-target'] as const)('refuses %s without repair writes', async issue => {
+		const vault = makeVault(); const setId = await importTable(vault);
+		if (issue === 'corrupt-target') {
+			await startConversion(vault.app, {}, setId, 'notes', progress => { if (progress.phase === 'verifying') throw new Error('Synthetic stop'); });
+			const path = vault.notes()[0];
+			vault.written.set(path, vault.written.get(path)!.replace(/recipe_document_digest: .+/, 'recipe_document_digest: corrupt'));
+		} else if (issue === 'missing-original') {
+			for (const path of [...vault.written.keys()]) if (path.includes('/recipe-')) vault.written.delete(path);
+		} else {
+			const parsed = parseMappingTable(vault.written.get(TABLE)!);
+			delete (parsed.header.crosswalker_provenance!.recipe as Record<string, unknown>).recipe_document_digest;
+			vault.written.set(TABLE, serializeMappingTable(parsed.header, parsed.rows));
+		}
+		const before = new Map(vault.written);
+		const result = issue === 'corrupt-target' ? await resumeConversion(vault.app, {}, markerOn(vault, setId)!) : await startConversion(vault.app, {}, setId, 'notes');
+		expect(result.ok).toBe(false); expect(vault.written).toEqual(before); expect(vault.trashed.size).toBe(0);
+	});
+	it('renders a custom retained title, file layout and body, and preserves the original through both forms and refresh', async () => {
+		const vault = makeVault(); const setId = await importTable(vault);
+		const { normalizeRecipe, serializeCanonicalRecipe } = await import('../src/import/recipe-document');
+		const { computeRecipeDocumentDigest, computeRecipeHash } = await import('../src/generation/hash');
+		const { buildSyntheticRecipe } = await import('../src/import/sssom-importer');
+		const { importSetRecipePath } = await import('../src/import/import-set-recipes');
+		const original = normalizeRecipe(buildSyntheticRecipe('demo-a', 'demo-b'));
+		original.target.layout[0].template = 'evidence-{_crosswalker_curie_local_part|slug}.md';
+		original.target.also_emit!.frontmatter!.managed!.title = 'Evidence for {subject_id}';
+		original.target.also_emit!.body![0].template = '{subject_label} / {object_label}';
+		original.target.auto_heading = false;
+		const digest = computeRecipeDocumentDigest(original);
+		const stamp = { id: original.recipe, hash: computeRecipeHash(original.target, original.source), recipe_document_digest: digest };
+		const kept = importSetRecipePath(setId, digest)!;
+		vault.written.set(kept, serializeCanonicalRecipe(original));
+		const parsed = parseMappingTable(vault.written.get(TABLE)!); parsed.header.crosswalker_provenance!.recipe = stamp;
+		vault.written.set(TABLE, serializeMappingTable(parsed.header, parsed.rows));
+		const copies = new Map([...vault.written].filter(([path]) => path.includes('/recipe-')));
+		expect((await startConversion(vault.app, {}, setId, 'notes')).reason).toBeUndefined();
+		const paths = vault.notes(); expect(paths.every(path => path.split('/').pop()!.startsWith('evidence-'))).toBe(true);
+		for (const path of paths) { expect(vault.frontmatterOf(path).title).toMatch(/^Evidence for /); expect(vault.written.get(path)).toContain(' / '); }
+		const refreshed = await importSssom(vault.app, sssom(ROWS), null, null, { importSet: { id: setId }, outputFolder: FOLDER, runTier2Projection: false });
+		expect(refreshed.generation?.errors).toEqual([]); expect(vault.notes()).toEqual(paths);
+		expect((await startConversion(vault.app, {}, setId, 'table')).reason).toBeUndefined();
+		expect(parseMappingTable(vault.written.get(TABLE)!).header.crosswalker_provenance!.recipe).toEqual(stamp);
+		expect((await startConversion(vault.app, {}, setId, 'notes')).reason).toBeUndefined();
+		expect(vault.notes()).toEqual(paths);
+		for (const path of vault.notes()) expect(vault.frontmatterOf(path)._crosswalker.recipe).toEqual(stamp);
+		expect(new Map([...vault.written].filter(([path]) => path.includes('/recipe-')))).toEqual(copies);
 	});
 });
 
@@ -465,7 +609,7 @@ describe('interruption and resume', () => {
 });
 
 describe('parity check', () => {
-	it('notes to table: a table changed before verification stops at writing with the source untouched', async () => {
+	it('notes to table: a table changed before verification stays in verifying with the source untouched', async () => {
 		const vault = makeVault();
 		const setId = await importNotes(vault);
 		const notes = new Map(vault.notes().map((path) => [path, vault.written.get(path)]));
@@ -477,18 +621,20 @@ describe('parity check', () => {
 			}
 		});
 		expect(result.ok).toBe(false);
-		expect(result.phaseReached).toBe('writing');
-		expect(result.reason).toBe(`Converting import set ${setId} to a table stopped because the written table does not match the notes: mapping demo-a:X-2 -> demo-b:Y-2 has a different review_status in the table. Nothing was moved to the trash. Finish the conversion to write them again, or cancel it.`);
-		expect(markerOn(vault, setId)?.phase).toBe('writing');
+		expect(result.phaseReached).toBe('verifying');
+		expect(result.reason).toContain('existing target table assertion differs from the source-prepared output');
+		expect(markerOn(vault, setId)?.phase).toBe('verifying');
 		for (const [path, content] of notes) expect(vault.written.get(path)).toBe(content);
 		expect(vault.trashed.size).toBe(0);
 
-		// Finishing rewrites the table from the notes and completes.
-		expect((await resumeConversion(vault.app, {}, markerOn(vault, setId)!)).ok).toBe(true);
-		expect(parseMappingTable(vault.written.get(TABLE)!).rows.find((row) => row.subject_id === 'demo-a:X-2')!.review_status).toBeUndefined();
+		// Resume never authorizes replacing the edited target.
+		const beforeResume = new Map(vault.written);
+		expect((await resumeConversion(vault.app, {}, markerOn(vault, setId)!)).ok).toBe(false);
+		expect(vault.written).toEqual(beforeResume);
+		expect(parseMappingTable(vault.written.get(TABLE)!).rows.find((row) => row.subject_id === 'demo-a:X-2')!.review_status).toBe('approved');
 	});
 
-	it('table to notes: a note changed before verification stops at writing with the table untouched', async () => {
+	it('table to notes: a note changed before verification stays in verifying with the table untouched', async () => {
 		const vault = makeVault();
 		const setId = await importTable(vault);
 		const tableBefore = vault.written.get(TABLE);
@@ -500,10 +646,13 @@ describe('parity check', () => {
 			}
 		});
 		expect(result.ok).toBe(false);
-		expect(result.phaseReached).toBe('writing');
-		expect(result.reason).toMatch(new RegExp(`^Converting import set ${setId} to notes stopped because the written notes do not match the table: mapping demo-a:X-1 -> demo-b:Y-1 has a different reviewer in the notes\\. Nothing was moved to the trash\\.`));
+		expect(result.phaseReached).toBe('verifying');
+		expect(result.reason).toContain('differs from the source-prepared output');
+		const beforeResume = new Map(vault.written);
+		expect((await resumeConversion(vault.app, {}, markerOn(vault, setId)!)).ok).toBe(false);
+		expect(vault.written).toEqual(beforeResume);
 		expect(vault.written.get(TABLE)).toBe(tableBefore);
-		expect(markerOn(vault, setId)?.phase).toBe('writing');
+		expect(markerOn(vault, setId)?.phase).toBe('verifying');
 	});
 });
 
@@ -723,8 +872,11 @@ describe('review findings 2026-09-30', () => {
 			}
 		});
 		expect(result.ok).toBe(false);
-		expect(result.phaseReached).toBe('writing');
-		expect(result.reason).toContain('mapping demo-a:X-1 -> demo-b:Y-1 has different other fields in the notes');
+		expect(result.phaseReached).toBe('verifying');
+		expect(result.reason).toContain('differs from the source-prepared output');
+		const beforeResume = new Map(vault.written);
+		expect((await resumeConversion(vault.app, {}, markerOn(vault, setId)!)).ok).toBe(false);
+		expect(vault.written).toEqual(beforeResume);
 		expect(vault.written.get(TABLE)).toBe(tableBefore);
 		expect(vault.trashed.size).toBe(0);
 	});
@@ -753,4 +905,277 @@ describe('review findings 2026-09-30', () => {
 		expect(result.ok).toBe(false);
 		expect(result.reason).toBe(`Converting import set ${setId} to notes stopped while writing notes: The disk is full. Nothing was moved to the trash. Fix the cause, then finish the conversion, or cancel it.`);
 	});
+});
+
+
+describe('conversion target preservation and complete preparation', () => {
+ async function interrupted(vault: Vault, from: 'notes' | 'table', phase: 'writing' | 'verifying') {
+  const id = from === 'notes' ? await importNotes(vault) : await importTable(vault);
+  let failed = false;
+  vault.faults.failWrite = (path, content) => {
+   const next = phase === 'writing' ? 'verifying' : 'retiring';
+   if (!failed && path.endsWith('.converting.json') && content.includes(`"phase": "${next}"`)) { failed = true; return true; }
+   return false;
+  };
+  const result = await startConversion(vault.app, {}, id, from === 'notes' ? 'table' : 'notes');
+  expect(result.ok).toBe(false); expect(result.phaseReached).toBe(phase); expect(failed).toBe(true);
+  vault.faults.failWrite = undefined;
+  return id;
+ }
+ const cases = (['notes', 'table'] as const).flatMap(from => (['writing', 'verifying'] as const).flatMap(phase => (['review_status', 'reviewer', 'extra', 'release', 'body', 'tags'] as const).map(edit => ({ from, phase, edit }))));
+ function editTarget(vault: Vault, from: 'notes' | 'table', edit: typeof cases[number]['edit']) {
+  if (from === 'notes') {
+   const parsed = parseMappingTable(vault.written.get(TABLE)!);
+   if (edit === 'release') parsed.header.mapping_set = { ...parsed.header.mapping_set, license: 'Late license' };
+   else if (edit === 'tags') parsed.header.tags = [...parsed.header.tags ?? [], 'late-tag'];
+   else if (edit === 'body') parsed.rows[0].subject_label = 'Late managed body input';
+   else if (edit === 'extra') parsed.rows[0].extra = { ...parsed.rows[0].extra, late_field: 'late value' };
+   else parsed.rows[0][edit] = edit === 'review_status' ? 'approved' : 'late-reviewer';
+   vault.written.set(TABLE, serializeMappingTable(parsed.header, parsed.rows));
+  } else {
+   const path = edit === 'release' ? [...vault.written.keys()].find(path => path.endsWith('.md') && vault.frontmatterOf(path)?.kind === 'mapping-set')! : vault.notes()[0];
+   const old = vault.written.get(path)!;
+   if (edit === 'body') vault.written.set(path, old + '\nLate user body\n');
+   else if (edit === 'tags') vault.written.set(path, old.replace(/^tags:\n/m, 'tags:\n  - late-tag\n'));
+   else vault.written.set(path, old.replace(/^---\n/, `---\n${edit === 'release' ? 'license' : edit === 'extra' ? 'late_field' : edit}: ${edit === 'review_status' ? 'approved' : edit === 'reviewer' ? 'late-reviewer' : 'late value'}\n`));
+  }
+ }
+ it.each(cases)('preserves changed $from target $edit in $phase without any mutation', async ({ from, phase, edit }) => {
+  const vault = makeVault(); const id = await interrupted(vault, from, phase);
+  editTarget(vault, from, edit);
+  const before = new Map(vault.written); const folders = new Set(vault.folders);
+  const result = await resumeConversion(vault.app, {}, markerOn(vault, id)!);
+  expect(result.ok).toBe(false); expect(result.phaseReached).toBe(phase);
+  expect(vault.written).toEqual(before); expect(vault.folders).toEqual(folders); expect(vault.trashed.size).toBe(0);
+ });
+ it.each((['notes', 'table'] as const).flatMap(from => (['writing', 'verifying'] as const).map(phase => ({ from, phase }))))('resumes exact $from outputs in $phase without replacing their bytes', async ({ from, phase }) => {
+  const vault = makeVault(); const id = await interrupted(vault, from, phase);
+  const targets = new Map([...vault.written].filter(([path]) => from === 'notes' ? path === TABLE : path.endsWith('.md')));
+  expect((await resumeConversion(vault.app, {}, markerOn(vault, id)!)).ok).toBe(true);
+  for (const [path, text] of targets) expect(vault.written.get(path)).toBe(text);
+ });
+ it.each(['notes', 'table'] as const)('protects a late %s target edit at the write boundary', async from => {
+  const vault = makeVault(); const id = await interrupted(vault, from, 'writing');
+  let expected: Map<string, string> | undefined;
+  const result = await resumeConversion(vault.app, {}, markerOn(vault, id)!, progress => {
+   if (progress.phase === 'writing' && !expected) { editTarget(vault, from, 'reviewer'); expected = new Map(vault.written); }
+  });
+  expect(expected).toBeDefined(); expect(result.ok).toBe(false); expect(vault.written).toEqual(expected); expect(vault.trashed.size).toBe(0);
+ });
+ it('uses actual custom recipe preparation to reject all colliding addresses before any mutation', async () => {
+  const vault = makeVault();
+  const { generateFromRecipe } = await import('../src/generation/generation-engine');
+  const { buildSyntheticRecipe } = await import('../src/import/sssom-importer');
+  const { normalizeRecipe } = await import('../src/import/recipe-document');
+  const { edgeBodyOf } = await import('../src/generation/edge-endpoints');
+  const { assignMappingRowIds } = await import('../src/mappings/mapping-table');
+  const recipe = normalizeRecipe(buildSyntheticRecipe('demo-a', 'demo-b'));
+  recipe.target.layout[0].template = '{subject_id|slug}.md';
+  const row = { subject_id: 'demo-a:X-1', object_id: 'demo-b:Y-1', predicate_id: 'is_equivalent_to', subject_label: 'Demo one', object_label: 'Target one', sssom_predicate: 'skos:exactMatch', mapping_justification: 'semapv:ManualMappingCuration', confidence: '0.9', mapping_provider: 'Demo provider', mapping_set_id: 'https://example.test/demo-map', subject_note: '', object_note: '', edge_body: edgeBodyOf('demo-a:X-1', 'is_equivalent_to', 'demo-b:Y-1', '', '') };
+  const gen = await generateFromRecipe(vault.app, { columns: Object.keys(row), rows: [row], rowCount: 1 }, recipe as never, { basePath: FOLDER, importSet: 'new', overwriteMode: 'replace', createFolders: true });
+  expect(gen.errors).toEqual([]); expect(gen.success).toBe(true); const id = gen.importSetId!;
+  const originalNotes = vault.notes();
+  expect((await startConversion(vault.app, {}, id, 'table')).ok).toBe(true);
+  expect((await startConversion(vault.app, {}, id, 'notes')).ok).toBe(true); expect(vault.notes()).toEqual(originalNotes);
+  expect((await startConversion(vault.app, {}, id, 'table')).ok).toBe(true);
+  const parsed = parseMappingTable(vault.written.get(TABLE)!);
+  parsed.rows = assignMappingRowIds([...parsed.rows, { ...parsed.rows[0], object_id: 'demo-b:Y-99', object_label: 'Another object' }], parsed.header.mapping_set_id);
+  vault.written.set(TABLE, serializeMappingTable(parsed.header, parsed.rows));
+  const before = new Map(vault.written); const beforeTrash = new Map(vault.trashed); const folders = new Set(vault.folders);
+  const result = await startConversion(vault.app, {}, id, 'notes');
+  expect(result.ok).toBe(false); expect(result.phaseReached).toBe('not-started'); expect(result.reason).toMatch(/collision/i);
+  expect(vault.written).toEqual(before); expect(vault.folders).toEqual(folders); expect(vault.trashed).toEqual(beforeTrash); expect(markerOn(vault, id)).toBeUndefined();
+ });
+ it.each((['notes', 'table'] as const).flatMap(from => (['writing', 'verifying'] as const).map(phase => ({ from, phase }))))('fills only missing unchanged $from targets in $phase', async ({ from, phase }) => {
+  const vault = makeVault(); const id = await interrupted(vault, from, phase);
+  if (from === 'notes') {
+   const parsed = parseMappingTable(vault.written.get(TABLE)!); vault.written.set(TABLE, serializeMappingTable(parsed.header, parsed.rows.slice(1)));
+  } else vault.written.delete(vault.notes()[0]);
+  const existing = new Map([...vault.written].filter(([path]) => from === 'table' && path.endsWith('.md')));
+  expect((await resumeConversion(vault.app, {}, markerOn(vault, id)!)).ok).toBe(true);
+  for (const [path, text] of existing) expect(vault.written.get(path)).toBe(text);
+ });
+ it('refuses duplicate release targets rather than trashing them', async () => {
+  const vault = makeVault(); const id = await interrupted(vault, 'table', 'writing');
+  const release = [...vault.written.keys()].find(path => path.endsWith('.md') && vault.frontmatterOf(path)?.kind === 'mapping-set')!;
+  vault.written.set(`${FOLDER}/duplicate-release.md`, vault.written.get(release)!);
+  const before = new Map(vault.written);
+  expect((await resumeConversion(vault.app, {}, markerOn(vault, id)!)).ok).toBe(false); expect(vault.written).toEqual(before); expect(vault.trashed.size).toBe(0);
+ });
+ it('allocates around an independent release destination and resumes on the same owned path', async () => {
+  const vault = makeVault(); const id = await importTable(vault);
+  const userPath = `${FOLDER}/demo-map.md`; const releasePath = `${FOLDER}/demo-map 2.md`;
+  vault.written.set(userPath, 'Independent user note');
+  vault.faults.failWrite = (path, content) => path.endsWith('.converting.json') && content.includes('"phase": "verifying"');
+  const result = await startConversion(vault.app, {}, id, 'notes');
+  expect(result.ok).toBe(false); expect(result.phaseReached).toBe('writing');
+  expect(vault.frontmatterOf(releasePath)?.kind).toBe('mapping-set');
+  const releaseText = vault.written.get(releasePath);
+  vault.faults.failWrite = undefined;
+  expect((await resumeConversion(vault.app, {}, markerOn(vault, id)!)).ok).toBe(true);
+  expect(vault.written.get(userPath)).toBe('Independent user note'); expect(vault.trashed.has(userPath)).toBe(false);
+  expect(vault.written.get(releasePath)).toBe(releaseText); expect(vault.written.has(`${FOLDER}/demo-map 3.md`)).toBe(false);
+ });
+ it('refuses changed contents claiming the chosen release identity before creating a marker', async () => {
+  const vault = makeVault(); const id = await importTable(vault);
+  const { buildNoteContent } = await import('../src/generation/generation-engine');
+  const { mappingSetFromTableHeader, storedMappingSet } = await import('../src/mappings/mapping-set');
+  const header = parseMappingTable(vault.written.get(TABLE)!).header;
+  const record = mappingSetFromTableHeader(header, id, TABLE)!;
+  vault.written.set(`${FOLDER}/demo-map.md`, buildNoteContent({ ...storedMappingSet(record), license: 'Changed license', _crosswalker: header.crosswalker_provenance }, ''));
+  const before = new Map(vault.written);
+  const result = await startConversion(vault.app, {}, id, 'notes');
+  expect(result.ok).toBe(false); expect(result.phaseReached).toBe('not-started');
+  expect(vault.written).toEqual(before); expect(vault.trashed.size).toBe(0); expect(markerOn(vault, id)).toBeUndefined();
+ });
+
+ it('rechecks targets inside the actual engine before creating a missing note', async () => {
+  const vault = makeVault(); const id = await interrupted(vault, 'table', 'writing');
+  const removed = vault.notes()[1]; vault.written.delete(removed);
+  const { generateFromRecipe } = await import('../src/generation/generation-engine');
+  let expected: Map<string, string> | undefined;
+  const result = await resumeConversion(vault.app, { generateFromRecipe: async (...args) => {
+   editTarget(vault, 'table', 'reviewer'); expected = new Map(vault.written);
+   return generateFromRecipe(...args);
+  } }, markerOn(vault, id)!);
+  expect(expected).toBeDefined(); expect(result.ok).toBe(false); expect(vault.written).toEqual(expected); expect(vault.trashed.size).toBe(0);
+ });
+ it('checks current table text inside the guarded update rather than trusting the preflight read', async () => {
+  const vault = makeVault(); const id = await interrupted(vault, 'notes', 'writing');
+  const parsed = parseMappingTable(vault.written.get(TABLE)!); vault.written.set(TABLE, serializeMappingTable(parsed.header, parsed.rows.slice(1)));
+  let expected: Map<string, string> | undefined;
+  vault.faults.beforeProcess = path => { if (path === TABLE && !expected) { editTarget(vault, 'notes', 'reviewer'); expected = new Map(vault.written); } };
+  const result = await resumeConversion(vault.app, {}, markerOn(vault, id)!);
+  expect(expected).toBeDefined(); expect(result.ok).toBe(false); expect(vault.written).toEqual(expected); expect(vault.trashed.size).toBe(0);
+ });
+ it.each(['notes', 'table'] as const)('rechecks a late %s source change before target writes', async from => {
+  const vault = makeVault(); const id = await interrupted(vault, from, 'writing');
+  let expected: Map<string, string> | undefined;
+  const result = await resumeConversion(vault.app, {}, markerOn(vault, id)!, progress => {
+   if (progress.phase === 'writing' && !expected) {
+    if (from === 'notes') reviewNote(vault, 'demo-a:X-1', 'reviewer: late-source-reviewer');
+    else reviewTable(vault, TABLE, 'demo-a:X-1', { reviewer: 'late-source-reviewer' });
+    expected = new Map(vault.written);
+   }
+  });
+  expect(expected).toBeDefined(); expect(result.ok).toBe(false); expect(vault.written).toEqual(expected); expect(vault.trashed.size).toBe(0);
+ });
+ it('checks a release target that appears immediately after assertion generation', async () => {
+  const vault = makeVault(); const id = await importTable(vault);
+  const { generateFromRecipe, buildNoteContent } = await import('../src/generation/generation-engine');
+  const { mappingSetFromTableHeader, storedMappingSet } = await import('../src/mappings/mapping-set');
+  const header = parseMappingTable(vault.written.get(TABLE)!).header;
+  const record = mappingSetFromTableHeader(header, id, TABLE)!;
+  let expected: Map<string, string> | undefined;
+  const result = await startConversion(vault.app, { generateFromRecipe: async (...args) => {
+   const generated = await generateFromRecipe(...args);
+   vault.written.set(`${FOLDER}/demo-map.md`, buildNoteContent({ ...storedMappingSet(record), license: 'Late license', _crosswalker: header.crosswalker_provenance }, ''));
+   expected = new Map(vault.written); return generated;
+  } }, id, 'notes');
+  expect(expected).toBeDefined(); expect(result.ok).toBe(false); expect(vault.written).toEqual(expected); expect(vault.trashed.size).toBe(0);
+ });
+
+});
+
+describe('conversion scale and scoped conflicts', () => {
+ async function importRows(vault: Vault, form: 'notes' | 'table', count: number): Promise<string> {
+  const rows = Array.from({ length: count }, (_, index) => `demo-a:X-${index + 1}\tDemo ${index + 1}\tskos:exactMatch\tdemo-b:Y-${index + 1}\tTarget ${index + 1}\tsemapv:ManualMappingCuration\t0.9`);
+  const imported = await importSssom(vault.app, sssom(rows), null, null, { runTier2Projection: false, importSet: 'new-set-qualified', mappingForm: form });
+  expect(imported.generation?.success).toBe(true); return imported.generation!.importSetId!;
+ }
+ it('bounds actual engine write-boundary reads linearly for 200 rows', async () => {
+  const vault = makeVault(); const count = 200; const id = await importRows(vault, 'table', count);
+  const { generateFromRecipe } = await import('../src/generation/generation-engine');
+  let reads = 0; let tableReads = 0; let sourceTableBytes = 0;
+  const tableSize = Buffer.byteLength(vault.written.get(TABLE)!, 'utf8');
+  const result = await startConversion(vault.app, { generateFromRecipe: async (...args) => {
+   expect(args[3].concurrency).toBe(1);
+   const record = (path: string) => { reads++; if (path.endsWith('.mapping-table.tsv')) { tableReads++; sourceTableBytes += Buffer.byteLength(vault.written.get(path) ?? '', 'utf8'); } };
+   const read = jest.spyOn(vault.app.vault, 'read').mockImplementation(async file => { record(file.path); return vault.written.get(file.path)!; });
+   const adapterRead = jest.spyOn(vault.app.vault.adapter, 'read').mockImplementation(async path => { record(path); if (!vault.written.has(path)) throw new Error('missing'); return vault.written.get(path)!; });
+   try { return await generateFromRecipe(...args); } finally { read.mockRestore(); adapterRead.mockRestore(); }
+  } }, id, 'notes');
+  expect(result.ok).toBe(true); expect(result.rows).toBe(count);
+  expect(reads).toBeLessThan(12 * count); expect(tableReads).toBeLessThanOrEqual(3);
+  expect(sourceTableBytes).toBeLessThanOrEqual(3 * tableSize);
+ });
+ it.each(['changed-stat', 'unchanged-stat', 'unavailable-stat'] as const)('never retires a table edited mid-run with %s', async mode => {
+  const vault = makeVault(); const count = 12; const id = await importRows(vault, 'table', count);
+  const lookup = vault.app.vault.getAbstractFileByPath.bind(vault.app.vault);
+  const statLookup = mode === 'unavailable-stat' ? jest.spyOn(vault.app.vault, 'getAbstractFileByPath').mockImplementation(path => {
+   const file = lookup(path); if (path === TABLE && file instanceof TFile) Object.assign(file, { stat: { mtime: 0 } }); return file;
+  }) : undefined;
+  let edited: string | undefined;
+  const result = await startConversion(vault.app, {}, id, 'notes', progress => {
+   if (progress.phase === 'writing' && progress.done === 10 && !edited) {
+    edited = vault.written.get(TABLE)!.replace('Demo 1', mode === 'unchanged-stat' ? 'Late 1' : 'Late source label');
+    vault.written.set(TABLE, edited);
+   }
+  });
+  statLookup?.mockRestore();
+  expect(edited).toBeDefined(); expect(result.ok).toBe(false); expect(result.phaseReached).toBe('writing');
+  expect(result.reason).toContain(`Source ${TABLE} changed after preparation`);
+  expect(vault.notes()).toHaveLength(mode === 'unchanged-stat' ? count : 10);
+  expect(vault.written.get(TABLE)).toBe(edited); expect(vault.trashed.size).toBe(0);
+ });
+ it('retires 200 notes with only one source read per file after pre-loop validation', async () => {
+  const vault = makeVault(); const count = 200; const id = await importRows(vault, 'notes', count);
+  let retiring = false; let reads = 0;
+  const read = jest.spyOn(vault.app.vault, 'read'); const adapterRead = jest.spyOn(vault.app.vault.adapter, 'read');
+  const result = await startConversion(vault.app, {}, id, 'table', progress => {
+   if (progress.phase === 'retiring' && !retiring) { retiring = true; read.mockClear(); adapterRead.mockClear(); }
+  });
+  reads = read.mock.calls.length + adapterRead.mock.calls.length; read.mockRestore(); adapterRead.mockRestore();
+  expect(result.ok).toBe(true); expect(retiring).toBe(true); expect(result.trashed).toBe(count + 1);
+  expect(reads).toBeLessThan(2 * count + 10);
+ });
+ it('refuses a remaining source edited between individual retirements', async () => {
+  const vault = makeVault(); const id = await importNotes(vault); const changed = vault.notes()[1]; let edited: string | undefined;
+  const result = await startConversion(vault.app, {}, id, 'table', progress => {
+   if (progress.phase === 'retiring' && progress.done === 1) { edited = `${vault.written.get(changed)!}\nLate source edit\n`; vault.written.set(changed, edited); }
+  });
+  expect(result.ok).toBe(false); expect(result.phaseReached).toBe('retiring'); expect(result.trashed).toBe(1);
+  expect(vault.written.get(changed)).toBe(edited); expect(vault.trashed.has(changed)).toBe(false);
+ });
+ it.each([false, true])('scopes duplicate identity refusal to prepared curies (prepared: %s)', async prepared => {
+  const vault = makeVault(); const id = await importTable(vault);
+  const { derivedEdgeCurie } = await import('../src/mappings/mapping-table');
+  const table = parseMappingTable(vault.written.get(TABLE)!);
+  const curie = prepared ? derivedEdgeCurie(table.rows[0], table.header)! : 'demo-unrelated:duplicate';
+  const text = `---\ncurie: ${curie}\n_crosswalker:\n  import_set:\n    id: iset-abcdef\n    scheme: set-qualified-v1\n---\nIndependent imported note\n`;
+  vault.written.set('Unrelated/one.md', text); vault.written.set('Unrelated/two.md', text);
+  const before = new Map(vault.written);
+  const result = await startConversion(vault.app, {}, id, 'notes');
+  if (!prepared) expect(result.reason).toBeUndefined();
+  expect(result.ok).toBe(!prepared);
+  expect(vault.written.get('Unrelated/one.md')).toBe(text); expect(vault.written.get('Unrelated/two.md')).toBe(text);
+  if (prepared) { expect(result.phaseReached).toBe('not-started'); expect(vault.written).toEqual(before); expect(vault.trashed.size).toBe(0); }
+ });
+ it.each(['notes', 'table'] as const)('resumes %s output from an earlier plugin version without replacing its bytes', async from => {
+  const vault = makeVault(); const id = from === 'notes' ? await importNotes(vault) : await importTable(vault);
+  vault.faults.failWrite = (path, content) => path.endsWith('.converting.json') && content.includes('"phase": "verifying"');
+  expect((await startConversion(vault.app, {}, id, from === 'notes' ? 'table' : 'notes')).ok).toBe(false);
+  const targets = new Map<string, string>();
+  if (from === 'notes') {
+   const parsed = parseMappingTable(vault.written.get(TABLE)!);
+   const provenance = parsed.header.crosswalker_provenance!;
+   provenance.producer.version = '0.0.0';
+   const text = serializeMappingTable(parsed.header, parsed.rows); vault.written.set(TABLE, text); targets.set(TABLE, text);
+  } else for (const [path, text] of vault.written) if (path.endsWith('.md')) {
+   const changed = text.replace(/(    version: ).*/g, '$10.0.0'); expect(changed).not.toBe(text); vault.written.set(path, changed); targets.set(path, changed);
+  }
+  vault.faults.failWrite = undefined;
+  expect((await resumeConversion(vault.app, {}, markerOn(vault, id)!)).ok).toBe(true);
+  for (const [path, text] of targets) expect(vault.written.get(path)).toBe(text);
+ });
+ it('names the original source row when only a later missing subset fails in the engine', async () => {
+  const vault = makeVault(); const id = await importTable(vault);
+  vault.faults.failWrite = (path, content) => path.endsWith('.converting.json') && content.includes('"phase": "verifying"');
+  expect((await startConversion(vault.app, {}, id, 'notes')).ok).toBe(false); vault.faults.failWrite = undefined;
+  const missing = vault.notes().find(path => vault.frontmatterOf(path)?.subject_id === 'demo-a:X-3')!;
+  vault.written.delete(missing); vault.faults.failWrite = path => path === missing;
+  const result = await resumeConversion(vault.app, {}, markerOn(vault, id)!);
+  expect(result.ok).toBe(false); expect(result.reason).toContain('Source row 3 (demo-a:X-3 -> demo-b:Y-3)');
+  expect(vault.trashed.size).toBe(0);
+ });
 });
