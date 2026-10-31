@@ -1,3 +1,4 @@
+import { knownSssomRecipeDigests } from '../sssom-importer';
 import { MAPPING_PRESETS, RECIPE_REGISTRY, STACK_PRESETS, type MappingPreset } from '../recipe-registry';
 import { activeMappings, frameworkSlots, type StackSelection } from './stack-model';
 
@@ -188,4 +189,18 @@ export function slotRunChoices(fact: SlotRunFact | undefined, setPresent: boolea
 	return sourceDigest === fact.sourceDigest
 		? { choices: ['skip', 'refresh', 'new'], selected: 'skip' }
 		: { choices: ['refresh', 'new'], selected: 'new' };
+}
+
+/** Mapping-only equivalence: raw and normalized hashes of the SAME frozen template.
+ * New table run facts historically record raw hashes while table headers record normalized ones.
+ * The framework guard and generic slot choice remain exact comparisons.
+ */
+export function mappingSlotRunChoices(source: string, target: string, fact: SlotRunFact | undefined,
+	setPresent: boolean, sourceDigest: string | undefined, recipeDigest: string, guardMessage?: string | null) {
+	const known = knownSssomRecipeDigests(source, target);
+	const index = known.indexOf(recipeDigest);
+	const pair = index < 0 ? [] : known.slice(index - index % 2, index - index % 2 + 2);
+	const agrees = !!fact && pair.includes(fact.recipeDigest);
+	return slotRunChoices(agrees ? { ...fact!, recipeDigest } : fact, setPresent, sourceDigest, recipeDigest,
+		guardMessage ?? (fact && !agrees ? 'This set used different or unrecorded detail. Start a new set, or refresh it with the same detail as before.' : null));
 }

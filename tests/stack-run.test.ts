@@ -1,3 +1,5 @@
+import { knownSssomRecipeDigests, sssomRecipeDigest } from '../src/import/sssom-importer';
+import { mappingSlotRunChoices } from '../src/import/stack/stack-persistence';
 import type { DiscoveredImportSet } from '../src/generation/import-set';
 import { importMappingSlots, mappingCompletionText, reconnectMappings, waitForIndexedDestination, type MappingRunDependencies, type CompletedMapping } from '../src/import/stack/stack-run';
 import { MAPPING_PRESETS } from '../src/import/recipe-registry';
@@ -233,4 +235,21 @@ it('reports only tables written when every separately imported mapping set is a 
 	expect(mappingCompletionText([table, { ...table, id: 'map-t2' }])).toBe('2 mapping tables written. ');
 	expect(mappingCompletionText([table, notes])).toBe('3 separately imported mapping notes created or updated; 2 separately imported mapping notes already up to date. 1 mapping table written. ');
 	expect(mappingCompletionText([{ ...notes, form: undefined }])).toBe('3 separately imported mapping notes created or updated; 2 separately imported mapping notes already up to date. ');
+});
+
+
+it.each([0, 1, 2, 3])('records the selected set hash on refresh and keeps the next Run again available (%i)', async index => {
+	const mapping = MAPPING_PRESETS.find(item => item.id === '80053-attack')!;
+	const hash = knownSssomRecipeDigests(mapping.from, mapping.to)[index];
+	const existing = { ...tableSet('iset-tbl002', 2), recipeHashes: [hash] };
+	const file = { path: 'Sources/synthetic.json', name: 'synthetic.json' } as TFile;
+	const dependencies: MappingRunDependencies = { log: jest.fn(), listSets: async () => [existing], readBytes: async () => syntheticCtid(),
+		importRows: async () => tableOutcome(2) };
+	const completed = await importMappingSlots([mapping], [{ source: { path: file.path, name: file.name, peeks: [] }, mapping,
+		table: '$.mapping_objects[*]', headerRow: 0 }], new Map([[file.path, file]]), dependencies, [],
+		new Map([[mapping.id, { mode: 'refresh', setId: existing.id, folder: TABLE_ROOT, form: 'table' }]]));
+	expect(completed[0].recipeDigest).toBe(hash);
+	const record = { importSetId: existing.id, recipeDigest: completed[0].recipeDigest!, sourceDigest: completed[0].sourceDigest!, sourceName: file.name };
+	expect(mappingSlotRunChoices(mapping.from, mapping.to, record, true, completed[0].sourceDigest, hash).choices).toContain('refresh');
+	expect(sssomRecipeDigest(mapping.from, mapping.to)).toBe(knownSssomRecipeDigests(mapping.from, mapping.to)[2]);
 });

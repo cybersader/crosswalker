@@ -805,7 +805,25 @@ export function sssomRecipeDigest(source: string, target: string): string {
 	return computeRecipeHash(recipe.target, recipe.source);
 }
 
-export function buildSyntheticRecipe(source: string, target: string): Recipe {
+export const LEGACY_SSSOM_FILE_TEMPLATE = '{_crosswalker_curie_local_part|slug}.md';
+export const READABLE_SSSOM_FILE_TEMPLATE = '{subject_id|regex(^(?:[^:]*:)?([\\s\\S]*)$)|truncate(60)|name-safe|trim(.)|default(unnamed)} · {object_id|regex(^(?:[^:]*:)?([\\s\\S]*)$)|truncate(60)|name-safe|trim(.)|default(unnamed)} ({_crosswalker_curie_local_part|hash(8)}).md';
+
+/** Closed historical producer variants, including the normalized table stamps. */
+export function knownSssomRecipeDigests(source: string, target: string): string[] {
+	return [LEGACY_SSSOM_FILE_TEMPLATE, READABLE_SSSOM_FILE_TEMPLATE].flatMap(template => {
+		const raw = buildSyntheticRecipe(source, target, template);
+		const normalized = normalizedMappingRecipe(raw);
+		return [computeRecipeHash(raw.target, raw.source), computeRecipeHash(normalized.target, normalized.source)];
+	});
+}
+
+/** Keep one verified historical producer stamp; never reinterpret ambiguous history. */
+export function effectiveSssomDigest(source: string, target: string, recorded?: readonly string[]): string {
+	return recorded?.length === 1 && knownSssomRecipeDigests(source, target).includes(recorded[0])
+		? recorded[0] : sssomRecipeDigest(source, target);
+}
+
+export function buildSyntheticRecipe(source: string, target: string, template = READABLE_SSSOM_FILE_TEMPLATE): Recipe {
 	// Note: template is RELATIVE to options.basePath (which is `folder`); the
 	// generation engine joins them. Don't repeat `folder` here or paths
 	// double-prefix.
@@ -817,7 +835,7 @@ export function buildSyntheticRecipe(source: string, target: string): Recipe {
 				{
 					level: 'mapping',
 					mechanism: 'file',
-					template: '{_crosswalker_curie_local_part|slug}.md',
+					template,
 					kind: 'crosswalk-edge',
 				},
 			],

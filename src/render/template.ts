@@ -5,7 +5,7 @@
  * a `Function` primitive (Ch 20) which v0.1 doesn't ship.
  *
  * Closed filter set:
- *   lower, upper, title, slug, tagsafe, fs-safe, truncate(N), trim, trim(chars),
+ *   lower, upper, title, slug, tagsafe, fs-safe, name-safe, hash(N), default(text), truncate(N), trim, trim(chars),
  *   number, split(delim,index), split(delim), regex(pattern), reject(pattern),
  *   join(sep), wikilink, curie-prefix(prefix), plus first-position `optional`.
  *
@@ -38,6 +38,7 @@
  * Determinism: pure function. Same `(template, scope)` → byte-identical output.
  */
 
+import { sha256Hex } from '../generation/hash';
 import type { SourceScope, RenderReport } from './types';
 import { isTier1CuriePrefix } from '../validation/validator';
 
@@ -592,6 +593,25 @@ const FILTERS: Record<string, (v: unknown, arg?: string, ctx?: FilterCtx) => unk
 			.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
 			// Strip trailing dot/space (Windows quirk)
 			.replace(/[\s.]+$/g, ''),
+	// Additive filename hygiene: fs-safe remains byte-identical for old recipes.
+	'name-safe': (v) =>
+		String(v)
+			// Invisible formatting (zero-width, bidi controls, BOM) would let a name display
+			// differently from its text; lone surrogates (e.g. from an earlier truncate) are invalid.
+			.replace(/[​-‏‪-‮⁠-⁩﻿]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '')
+			.replace(/[\\/:*?"<>|#^\[\]\u0000-\u001f\u007f-\u009f\s]+/g, ' ')
+			.trim()
+			.replace(/^[.\s]+|[.\s]+$/g, ''),
+	hash: (v, arg) => {
+		if (arg === undefined || !/^(?:[4-9]|[1-5][0-9]|6[0-4])$/.test(arg)) {
+			throw new RenderError('hash filter requires an integer from 4 to 64, e.g. {var|hash(8)}.');
+		}
+		return sha256Hex(String(v)).slice(0, Number(arg));
+	},
+	default: (v, arg) => {
+		if (arg === undefined) throw new RenderError('default filter requires fallback text, e.g. {var|default(unnamed)}.');
+		return String(v).trim() === '' ? arg : v;
+	},
 	truncate: (v, arg) => {
 		if (arg === undefined) {
 			throw new RenderError(`truncate filter requires a numeric argument, e.g. {var|truncate(60)}.`);

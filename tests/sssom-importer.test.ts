@@ -307,12 +307,9 @@ x:C\tskos:exactMatch\ty:D\tset:two\tC\tD\tsemapv:ManualMappingCuration\t1`;
 		expect(new Set(paths).size).toBe(2);
 		// One shared destination folder, not one per mapping set.
 		expect(new Set(paths.map((path) => path.split('/').slice(0, -1).join('/'))).size).toBe(1);
-		// Endpoint-derived filenames, not mapping-set/assertion keys: the readable
-		// head still names the endpoints, lowercased by the filename mechanism, which
-		// also collapses the curie's `--` escape marker to a single hyphen. The
-		// ADDRESS is a slug; the digest that makes the pair injective lives in the
-		// note's `curie`, which is asserted below.
-		expect(paths.every((path) => /\/cw-x-[a-d](-[0-9a-f]{10})?-y-[a-d](-[0-9a-f]{10})?\.md$/.test(path))).toBe(true);
+		// New sets use readable endpoint stems plus a stable per-identity suffix.
+		// Legacy-set fixtures below explicitly retain their original template.
+		expect(paths.every((path) => /\/[A-D] · [A-D] \([a-f0-9]{8}\)\.md$/.test(path))).toBe(true);
 		const curies = [...written.values()]
 			// The emitter quotes a value containing a colon, and every curie has one.
 			.map((text) => /^curie: (.*)$/m.exec(text.replace(/^---\n/, ''))?.[1]?.trim().replace(/^["']|["']$/g, ''))

@@ -6,7 +6,7 @@
  */
 import type { App } from 'obsidian';
 import { TFile, TFolder, parseYaml } from 'obsidian';
-import { importSssom, sssomRecipeDigest } from '../src/import/sssom-importer';
+import { importSssom, sssomRecipeDigest, buildSyntheticRecipe, LEGACY_SSSOM_FILE_TEMPLATE, READABLE_SSSOM_FILE_TEMPLATE } from '../src/import/sssom-importer';
 import { parseMappingTable, serializeMappingTable } from '../src/mappings/mapping-table';
 import { discoverImportSets } from '../src/generation/import-set';
 import {
@@ -17,6 +17,10 @@ import { cancelConversion, resumeConversion, startConversion, type ConversionPro
 import { readVaultTree } from '../src/export/vault-reader';
 import { projectFromTier1 } from '../src/tier2/projector';
 import { applyMigrations } from '../src/tier2/migrations';
+
+import * as engine from '../src/generation/generation-engine';
+import * as hashes from '../src/generation/hash';
+import { renderTemplate } from '../src/render';
 
 const { DatabaseSync } = require('node:sqlite');
 
@@ -1178,4 +1182,80 @@ describe('conversion scale and scoped conflicts', () => {
   expect(result.ok).toBe(false); expect(result.reason).toContain('Source row 3 (demo-a:X-3 -> demo-b:Y-3)');
   expect(vault.trashed.size).toBe(0);
  });
+});
+
+
+describe('readable standalone mapping filenames', () => {
+	async function withTemplate(vault: Vault, template: string, text = sssom(ROWS)) {
+		const actual = engine.generateFromRecipe;
+		const spy = jest.spyOn(engine, 'generateFromRecipe').mockImplementation((app, data, _recipe, options, debug) =>
+			actual(app, data, buildSyntheticRecipe('demo-a', 'demo-b', template), options, debug));
+		try { return await importSssom(vault.app, text, null, null, { runTier2Projection: false, importSet: 'new-set-qualified' }); }
+		finally { spy.mockRestore(); }
+	}
+	it('changes addresses only: the readable and legacy imports preserve identical assertion data and curies', async () => {
+		jest.useFakeTimers().setSystemTime(new Date('2026-10-31T12:00:00Z'));
+		const random = jest.spyOn(globalThis.crypto, 'getRandomValues').mockImplementation((array: any) => { array.fill(1); return array; });
+		try {
+			const readable = makeVault(), legacy = makeVault();
+			const fresh = await importSssom(readable.app, sssom(ROWS), null, null, { runTier2Projection: false, importSet: 'new-set-qualified' });
+			const old = await withTemplate(legacy, LEGACY_SSSOM_FILE_TEMPLATE);
+			expect(fresh.generation?.errors).toEqual([]); expect(old.generation?.errors).toEqual([]);
+			const facts = (vault: Vault) => vault.notes().map(path => {
+				const fm = vault.frontmatterOf(path);
+				delete fm._crosswalker.recipe.hash;
+				delete fm._crosswalker.recipe.recipe_document_digest;
+				const text = vault.written.get(path)!;
+				return { fm, body: text.slice(text.indexOf('\n---', 4) + 4) };
+			}).sort((a, b) => a.fm.curie.localeCompare(b.fm.curie));
+			expect(facts(readable)).toEqual(facts(legacy));
+			for (const path of readable.notes()) {
+				const fm = readable.frontmatterOf(path);
+				const local = fm.curie.slice(fm.curie.indexOf(':') + 1);
+				expect(path).toBe(`${FOLDER}/${renderTemplate(READABLE_SSSOM_FILE_TEMPLATE, { ...fm, _crosswalker_curie_local_part: local })}`);
+			}
+			expect(legacy.notes().every(path => path.includes('/cwset-'))).toBe(true);
+		} finally { random.mockRestore(); jest.useRealTimers(); }
+	});
+	it.each([LEGACY_SSSOM_FILE_TEMPLATE, READABLE_SSSOM_FILE_TEMPLATE])('refreshes exact paths/bytes then round-trips the retained template %s', async template => {
+		const vault = makeVault();
+		const first = await withTemplate(vault, template);
+		expect(first.generation?.errors).toEqual([]);
+		const setId = first.generation!.importSetId!;
+		const before = new Map(vault.written);
+		const paths = vault.notes();
+		const refreshed = await importSssom(vault.app, sssom(ROWS), null, null, { importSet: { id: setId }, outputFolder: FOLDER, runTier2Projection: false });
+		expect(refreshed.generation?.errors).toEqual([]);
+		expect(vault.written).toEqual(before);
+		expect((await startConversion(vault.app, {}, setId, 'table')).reason).toBeUndefined();
+		expect((await startConversion(vault.app, {}, setId, 'notes')).reason).toBeUndefined();
+		expect(vault.notes()).toEqual(paths);
+		const after = await importSssom(vault.app, sssom(ROWS), null, null, { importSet: { id: setId }, outputFolder: FOLDER, runTier2Projection: false });
+		expect(after.generation?.errors).toEqual([]);
+		expect(vault.notes()).toEqual(paths);
+	});
+	it('keeps repeated subject ids distinct and distinguishes equal local ids from other prefixes', async () => {
+		const vault = makeVault();
+		const rows = ['demo-a:X', 'other:X', 'demo-a:x'].flatMap(subject => ['demo-b:Y', 'demo-b:Z'].map(object =>
+			`${subject}\tSubject\tskos:exactMatch\t${object}\tObject\tsemapv:ManualMappingCuration\t1`));
+		const result = await importSssom(vault.app, sssom(rows), null, null, { runTier2Projection: false });
+		expect(result.generation?.errors).toEqual([]);
+		expect(vault.notes()).toHaveLength(6);
+		expect(new Set(vault.notes().map(path => path.toLowerCase())).size).toBe(6);
+	});
+	it('refuses a forced display hash collision without overwriting the first assertion', async () => {
+		const vault = makeVault();
+		const spy = jest.spyOn(hashes, 'sha256Hex').mockReturnValue('a'.repeat(64));
+		try {
+			const result = await importSssom(vault.app, sssom([
+				'demo-a:X\tFirst\tskos:exactMatch\tdemo-b:Y\tObject\tsemapv:ManualMappingCuration\t1',
+				'other:X\tSecond\tskos:exactMatch\tdemo-b:Y\tObject\tsemapv:ManualMappingCuration\t1',
+			]), null, null, { runTier2Projection: false });
+			expect(result.generation?.success).toBe(false);
+			expect(result.generation?.errors.some(error => error.message.includes('Path collision'))).toBe(true);
+			expect(vault.notes()).toHaveLength(1);
+			expect(vault.frontmatterOf(vault.notes()[0]).subject_id).toBe('demo-a:X');
+			expect(vault.written.get(vault.notes()[0])).not.toContain('Second');
+		} finally { spy.mockRestore(); }
+	});
 });

@@ -1,6 +1,6 @@
 import type { App } from 'obsidian';
 import { TFile } from 'obsidian';
-import { buildSyntheticRecipe } from '../src/import/sssom-importer';
+import { buildSyntheticRecipe, LEGACY_SSSOM_FILE_TEMPLATE, READABLE_SSSOM_FILE_TEMPLATE } from '../src/import/sssom-importer';
 import { normalizeRecipe, serializeCanonicalRecipe } from '../src/import/recipe-document';
 import { computeRecipeDocumentDigest, computeRecipeHash } from '../src/generation/hash';
 import { importSetRecipePath } from '../src/import/import-set-recipes';
@@ -10,13 +10,13 @@ import { MAPPING_TABLE_FORMAT, serializeMappingTable, assignMappingRowIds } from
 import { CONVERSION_MARKER_FORMAT, serializeConversionMarker, type ConversionPhase } from '../src/mappings/conversion-marker';
 
 const SET = 'iset-abc123';
-const runtime = () => buildSyntheticRecipe('demo-a', 'demo-b');
-function fixture() {
+const runtime = (template = LEGACY_SSSOM_FILE_TEMPLATE) => buildSyntheticRecipe('demo-a', 'demo-b', template);
+function fixture(template = LEGACY_SSSOM_FILE_TEMPLATE) {
  const bytes = new Map<string, string>();
  const fm = new Map<string, Record<string, unknown>>();
- const recipe = normalizeRecipe(runtime());
+ const recipe = normalizeRecipe(runtime(template));
  const digest = computeRecipeDocumentDigest(recipe);
- const stamp = { id: recipe.recipe, hash: computeRecipeHash(runtime().target, runtime().source), recipe_document_digest: digest };
+ const stamp = { id: recipe.recipe, hash: computeRecipeHash(runtime(template).target, runtime(template).source), recipe_document_digest: digest };
  const provenance = () => ({ recipe: { ...stamp }, import_set: { id: SET, scheme: 'endpoint-v1' } });
  const add = (path: string, kind = 'crosswalk-edge', block = provenance()) => { bytes.set(path, 'synthetic'); fm.set(path, { kind, _crosswalker: block }); };
  bytes.set(importSetRecipePath(SET, digest)!, serializeCanonicalRecipe(recipe));
@@ -134,4 +134,15 @@ describe('operation-aware mapping recipe selection (read only)', () => {
   const g = fixture(); g.app.metadataCache.getFileCache = () => null;
   await expect(selectMappingRecipe(g.app, { setId: SET, operation: 'refresh-notes' })).rejects.toThrow(/index/);
  });
+});
+
+it.each([LEGACY_SSSOM_FILE_TEMPLATE, READABLE_SSSOM_FILE_TEMPLATE])('selects both frozen templates across every supported operation: %s', async template => {
+ for (const operation of ['refresh-notes', 'notes-to-table', 'refresh-table', 'table-to-notes', 'resume'] as const) {
+  const f = fixture(template);
+  if (operation === 'refresh-table' || operation === 'table-to-notes') { f.bytes.delete('moved/assertion.md'); f.table(); }
+  if (operation === 'resume') f.bytes.set(`${SET}.converting.json`, serializeConversionMarker({ format: CONVERSION_MARKER_FORMAT, import_set: SET, from: 'notes', to: 'table', phase: 'writing', target_path: 'target.mapping-table.tsv', source_count: 1, started_at: '', plugin_version: '', path: `${SET}.converting.json` }));
+  const before = new Map(f.bytes);
+  expect((await selectMappingRecipe(f.app, { setId: SET, operation })).original.target.layout[0].template).toBe(template);
+  expect(f.bytes).toEqual(before);
+ }
 });
