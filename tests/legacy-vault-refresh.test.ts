@@ -158,7 +158,7 @@ import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import { DEFAULT_SETTINGS } from '../src/settings/settings-data';
 import type { DebugLog } from '../src/utils/debug';
 import type { GenerationOptions } from '../src/generation/generation-engine';
-import type { Recipe } from '../src/render';
+import { RenderError, type Recipe } from '../src/render';
 import type { GenerationResult, ImportRecipe, ParsedData } from '../src/types/config';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -774,7 +774,7 @@ async function classicImport(
  */
 async function wizardImport(
 	app: unknown,
-	opts: Parameters<typeof makeFlow>[1] & { overwriteMode?: 'skip' | 'replace'; destination?: string } = {},
+	opts: Parameters<typeof makeFlow>[1] & { overwriteMode?: 'skip' | 'replace'; destination?: string; forcePlainNew?: boolean } = {},
 ) {
 	const { flow, texts, close } = makeFlow(app, opts);
 	flow.overwriteMode = opts.overwriteMode ?? 'replace';
@@ -783,6 +783,7 @@ async function wizardImport(
 		flow.outputPath = opts.destination;
 	}
 	await inner(flow).prepareStep3(true);
+	if (opts.forcePlainNew) (flow as unknown as { newSetOption(): string }).newSetOption = () => 'new';
 	const choice = inner(flow).importSetChoice;
 	const resolved = inner(flow).selectedImportSet();
 	const destination = inner(flow).currentOutputPath();
@@ -2303,7 +2304,7 @@ describe('the refresh offer, which is a suggestion and never a decision', () => 
 		expect(captureReview(flow).texts.filter((s) => /Looks like/.test(s))).toEqual([]);
 	});
 
-	it('appears for NEITHER when two sets share the ontology, because which one is the question', async () => {
+	it('offers only the overlapping set when two sets share the ontology', async () => {
 		// The bundled-recipe shape: `xwalk` backs every crosswalk, `nist-csf-2`
 		// backs three recipes. A label several frameworks answer to cannot pick one.
 		const vault = makeVault();
@@ -2321,8 +2322,8 @@ describe('the refresh offer, which is a suggestion and never a decision', () => 
 
 		expect(sets).toHaveLength(2);
 		expect(sets.every((set) => set.ontologyPrefixes.includes(ONTOLOGY))).toBe(true);
-		expect(inner(flow).offeredRefreshSet(sets)).toBeNull();
-		expect(captureReview(flow).texts.filter((s) => /Looks like/.test(s))).toEqual([]);
+		expect(inner(flow).offeredRefreshSet(sets)?.root).toBe('Ontologies/attack-mini');
+		expect(captureReview(flow).texts.filter((s) => /Looks like/.test(s))).toHaveLength(1);
 	});
 
 	it('never appears for a placeholder ontology, on either side', async () => {
@@ -2534,10 +2535,9 @@ describe('the sources that defeated matching land as new sets with no click', ()
 		});
 
 		expect(second.choice).toBeNull();
-		// AM-13: one stem, one derived ontology, one curie space -- so the second
-		// vendor's set is minted set-qualified and the two coexist at the note
-		// level, rather than meeting as an AM-12 refusal on every hub.
-		expect(second.resolved).toBe('new-set-qualified');
+		// A shared file stem is only a namespace. These identities and facets
+		// are disjoint, so the second vendor keeps publisher identities.
+		expect(second.resolved).toBe('new');
 		expect(second.destination).toBe('Vendor B/controls');
 		expect(await discoverImportSets(vault.app, undefined)).toHaveLength(2);
 		for (const [path, text] of firstBefore) expect(vault.files.get(path)).toBe(text);
@@ -3082,7 +3082,7 @@ describe('the two entries that end in a render rather than an answer', () => {
 		const { flow } = makeFlow(vault.app, { data });
 		flow.columnInfos = analyzeColumns(data);
 		(flow as unknown as { recognizedMatch: unknown }).recognizedMatch = {
-			entry: RECIPE_REGISTRY[0],
+			entry: { ...RECIPE_REGISTRY[0], recipe: RECIPE },
 			score: 100,
 		};
 		const gate = gateDiscovery(flow);
@@ -3601,7 +3601,7 @@ describe('an identity held by a note from before import sets existed', () => {
 			const named = collisionsNaming(result, `${ONTOLOGY}:${row.technique_id}`);
 			expect(named).toHaveLength(1);
 			expect(named[0]).toContain('a note from an earlier import that carries no import set');
-			expect(named[0]).toContain('Move or delete that note');
+			expect(named[0]).toContain('Refresh into a new set');
 			// Not "import set undefined", and not the owned-set wording either: the
 			// action that resolves an unowned collision is a different action.
 			expect(named[0]).not.toContain('claimed by import set');
@@ -3913,11 +3913,10 @@ describe.each(['replace', 'skip'] as const)(
 			});
 
 			expect(second.choice).toBeNull();
-			expect(second.resolved).toBe('new-set-qualified');
+			expect(second.resolved).toBe('new');
 			expectForeignVaultUntouched(vault, before, firstSet.id);
-			const [latest] = (await discoverImportSets(vault.app, undefined)).filter((set) => set.id !== firstSet.id);
 			for (const curie of curiesUnder(vault.files, 'Vendor B/controls')) {
-				expect(curie.startsWith(`controls-${latest.id}:`)).toBe(true);
+				expect(curie.startsWith(`controls:`)).toBe(true);
 			}
 		});
 
@@ -3966,12 +3965,10 @@ describe.each(['replace', 'skip'] as const)(
 // only what the USER gets: the notice text, the results screen, and whether the
 // window closed. Nothing here touches a `GenerationResult`.
 //
-// The fixture is the one collision AM-13 cannot design away, which is also the
-// residual case a very old vault is in: notes carrying `_crosswalker`
-// provenance and NO import-set block. AM-13's signal is what the discovered
-// sets' notes hold, and an unowned note belongs to no set, so the new set mints
-// plain `endpoint-v1`, walks straight into the identities those notes already
-// hold, and AM-12 refuses every row of it.
+// The enforcement fixture deliberately forces plain endpoint identities over
+// legacy null-owner notes. Automatic qualification now protects those notes too;
+// a separate no-override case proves that path. Forcing the decision here keeps
+// AM-12's refusal and AM-4's user-visible error handling independently covered.
 // ===========================================================================
 
 describe.each(['replace', 'skip'] as const)(
@@ -3993,7 +3990,7 @@ describe.each(['replace', 'skip'] as const)(
 			notices.length = 0;
 			const second = await wizardImport(vault.app, {
 				destination: 'Ontologies/attack-mini-2024',
-				overwriteMode,
+				overwriteMode, forcePlainNew: stripOwnership,
 			});
 			return { vault, before, second };
 		}
@@ -4013,9 +4010,24 @@ describe.each(['replace', 'skip'] as const)(
 			return [...before].filter(([, text]) => frontmatterOf(text).kind === undefined);
 		}
 
+		it('automatically qualifies overlapping null-owner legacy notes without refusals', async () => {
+			const vault = makeVault();
+			await wizardImport(vault.app, { destination: 'Ontologies/attack-mini-2023' });
+			deMigrateImportSetStamp(vault.files);
+			const before = new Map(vault.files);
+			const second = await wizardImport(vault.app, {
+				destination: 'Ontologies/attack-mini-2024', overwriteMode,
+			});
+			expect(second.choice).toBeNull();
+			expect(second.resolved).toBe('new-set-qualified');
+			expect(second.texts).not.toContain('Errors');
+			for (const [path, text] of before) expect(vault.files.get(path)).toBe(text);
+			expect(second.close).toHaveBeenCalled();
+		});
+
 		it('mints the plain endpoint form, which is what makes the collision reachable', async () => {
-			// The premise, asserted rather than assumed. If AM-13 qualified here the
-			// rest of this section would be testing an empty vault against itself.
+			// The test-only forced endpoint seam bypasses automatic qualification so
+			// AM-12 enforcement still receives a real foreign-owner collision.
 			const { second } = await importOverUnownedNotes(true);
 			expect(second.choice).toBeNull();
 			expect(second.resolved).toBe('new');
@@ -4713,3 +4725,158 @@ describe.each(['replace', 'skip'] as const)(
 		});
 	},
 );
+
+
+describe('shared-prefix review follow-ups', () => {
+	it('offers an overlapping set with an unslugged ontology pin', async () => {
+		const vault = makeVault();
+		const { flow } = await askWhereItLands(vault.app, { ontology: 'MITRE ATT&CK' });
+		const internals = flow as unknown as { candidateIdentities(set?: DiscoveredImportSet): Set<string> };
+		const set = { id: 'iset-aaaaaa', scheme: 'endpoint-v1', derivation: 'declared-facts-v1',
+			ontology: 'MITRE ATT&CK', ontologyPrefixes: [], curies: new Set<string>(),
+		} as unknown as DiscoveredImportSet;
+		set.curies = internals.candidateIdentities(set);
+		expect(set.curies.size).toBeGreaterThan(0);
+		expect(inner(flow).offeredRefreshSet([set])).toBe(set);
+		expect(inner(flow).importSetChoice).toBeNull();
+	});
+
+	it('keeps a partial recognized match review usable and safely qualified', async () => {
+		const vault = await vaultWithOneSetInTheSharedRoot();
+		const data = parsed();
+		const { flow } = makeFlow(vault.app, { data });
+		flow.columnInfos = analyzeColumns(data);
+		const partialRecipe: Recipe = { ...RECIPE, target: { ...RECIPE.target,
+			layout: [{ level: 'tactic', mechanism: 'folder', template: '{missing_group}' }, ...RECIPE.target.layout.slice(1)],
+		} };
+		(flow as unknown as { recognizedMatch: unknown }).recognizedMatch = {
+			entry: { ...RECIPE_REGISTRY[0], id: 'partial-match-nested', recipe: partialRecipe }, score: 60,
+		};
+		(flow as unknown as Record<string, unknown>).renderStep = () => {};
+		await expect(inner(flow).startRecognizedRecipe(3)).resolves.toBeUndefined();
+		expect(inner(flow).selectedImportSet()).toBe('new-set-qualified');
+		const texts = captureReview(flow).texts.join(' ');
+		expect(texts).toContain('Set-suffixed: the recipe needs columns this source could not supply.');
+		expect(texts).toContain('Review the column choices before importing.');
+		expect(texts).not.toContain('Looks like');
+		expect(inner(flow).importSetChoice).toBeNull();
+	});
+
+	it('memoizes candidates across offers and repeated review renders', async () => {
+		const vault = await vaultWithOneSetInTheSharedRoot();
+		const { flow } = await askWhereItLands(vault.app);
+		const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+		const spy = jest.spyOn(engine, 'candidateRunIdentities');
+		try {
+			captureReview(flow);
+			const afterFirst = spy.mock.calls.length;
+			captureReview(flow);
+			inner(flow).selectedImportSet();
+			expect(spy.mock.calls.length).toBe(afterFirst);
+			const internals = flow as unknown as { candidateIdentities(set?: DiscoveredImportSet): Set<string> };
+			const set = inner(flow).discoveredSets![0];
+			const first = internals.candidateIdentities(set);
+			expect(internals.candidateIdentities({ ...set, id: 'iset-bbbbbb' })).toBe(first);
+		} finally { spy.mockRestore(); }
+	});
+
+	it('shows the computed overlap count and the owning set in wizard review', async () => {
+		const vault = await vaultWithOneSetInTheSharedRoot();
+		const { flow } = await askWhereItLands(vault.app);
+		const text = captureReview(flow).texts.join(' ');
+		expect(text).toMatch(/Set-suffixed: \d+ identifiers? already held by/);
+		expect(text).toContain(inner(flow).setDisplayName(inner(flow).discoveredSets![0]));
+		expect(text).not.toContain('only when');
+	});
+});
+
+
+describe('second-round wizard planning safety', () => {
+	it('releases both shaped-row references before generation starts', async () => {
+		const vault = makeVault();
+		const { flow } = makeFlow(vault.app);
+		await inner(flow).prepareStep3(true);
+		inner(flow).selectedImportSet();
+		const fields = flow as unknown as { preparedIdentityRows: unknown; identityCandidateRows: unknown };
+		expect(fields.preparedIdentityRows).not.toBeNull();
+		expect(fields.identityCandidateRows).not.toBeNull();
+		const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+		const original = engine.generateNotes;
+		const release = jest.spyOn(engine, 'releaseIdentityPlanningSource');
+		const generate = jest.spyOn(engine, 'generateNotes').mockImplementation(async (...args) => {
+			expect(fields.preparedIdentityRows).toBeNull();
+			expect(fields.identityCandidateRows).toBeNull();
+			expect(release).toHaveBeenCalledWith(flow.parsedData);
+			return original(...args);
+		});
+		try {
+			await flow.generate();
+			expect(generate).toHaveBeenCalledTimes(1);
+		} finally { generate.mockRestore(); release.mockRestore(); }
+	});
+
+	it.each([new Error('Private planner failure detail'), new RenderError('Unknown filter "not-a-filter" in template "{title|not-a-filter}".')])(
+		'logs a non-column planner error without claiming missing columns: %s', async (error) => {
+			const vault = await vaultWithOneSetInTheSharedRoot();
+			const { flow } = await askWhereItLands(vault.app);
+			(flow as unknown as { identityCandidateCache: Map<string, Set<string>> }).identityCandidateCache.clear();
+			const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+			const planner = jest.spyOn(engine, 'candidateRunIdentities').mockImplementation(() => { throw error; });
+			const log = jest.spyOn(debugStub, 'error');
+			try {
+				const text = captureReview(flow).texts.join(' ');
+				expect(text).toContain('the recipe could not be checked for overlapping identifiers');
+				expect(text).toContain('Review the recipe and column choices, then try the import again.');
+				expect(text).not.toContain('the recipe needs columns this source could not supply');
+				expect(text).not.toContain(error.message);
+				expect(log).toHaveBeenCalledWith('wizard', 'identity-plan-failed', expect.any(String), { error: String(error) });
+				expect(inner(flow).selectedImportSet()).toBe('new-set-qualified');
+			} finally { planner.mockRestore(); log.mockRestore(); }
+		},
+	);
+});
+
+
+describe('third-round streamed wizard review', () => {
+	it('does not compute a zero-row outcome after generation throws', async () => {
+		const vault = makeVault();
+		const data: ParsedData = { columns: [...COLUMNS], rowCount: ROWS.length,
+			rows: (async function* () { yield* ROWS.map((row) => ({ ...row })); })(),
+		};
+		// Configure from the parser preview first, then supply its live stream.
+		const { flow } = makeFlow(vault.app);
+		flow.parsedData = data;
+		await inner(flow).prepareStep3(true);
+		const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+		const generate = jest.spyOn(engine, 'generateNotes').mockRejectedValue(new Error('Synthetic early failure'));
+		const render = jest.spyOn(flow, 'renderStep').mockImplementation(() => {});
+		const planner = jest.spyOn(engine, 'candidateRunIdentities');
+		try {
+			await flow.generate();
+			expect(generate).toHaveBeenCalledTimes(1);
+			planner.mockClear();
+			const text = captureReview(flow).texts.join(' ');
+			expect(text).toContain('Identifiers need checking again. Review the source, then try importing again.');
+			expect(text).not.toMatch(/Plain identifiers|Set-suffixed/);
+			expect(planner).not.toHaveBeenCalled();
+		} finally { generate.mockRestore(); render.mockRestore(); planner.mockRestore(); }
+	});
+});
+
+
+it.each([
+	[new RenderError('A differently worded missing value', 'MISSING_TEMPLATE_VALUE'), true],
+	[new RenderError('Template variable "missing" resolved to undefined/null in template "{missing}".'), false],
+] as const)('classifies planner failures by RenderError code, not wording: %s', async (error, missing) => {
+	const vault = await vaultWithOneSetInTheSharedRoot();
+	const { flow } = await askWhereItLands(vault.app);
+	(flow as unknown as { identityCandidateCache: Map<string, Set<string>> }).identityCandidateCache.clear();
+	const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+	const planner = jest.spyOn(engine, 'candidateRunIdentities').mockImplementation(() => { throw error; });
+	try {
+		const text = captureReview(flow).texts.join(' ');
+		expect(text.includes('the recipe needs columns this source could not supply')).toBe(missing);
+		expect(text.includes('the recipe could not be checked for overlapping identifiers')).toBe(!missing);
+		expect(text).not.toContain(error.message);
+	} finally { planner.mockRestore(); }
+});

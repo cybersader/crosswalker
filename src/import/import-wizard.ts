@@ -8,6 +8,7 @@ import { parseJSONFile, suggestIterators, JsonStructure } from './parsers/json-p
 import {
 	render,
 	renderTemplate,
+	RenderError,
 	summarizeRenderNotes,
 	type RenderReport,
 	type PreviewRowNotes,
@@ -21,6 +22,10 @@ import { ConfigBrowserModal } from '../config/config-browser-modal';
 import { VaultImportFilePicker } from '../ui/vault-file-picker';
 import { renderPresetGuide } from './import-preset-guide';
 import {
+	candidateRunIdentities,
+	candidateSourceRows,
+	releaseIdentityPlanningSource,
+	resolveRunOntology,
 	generateNotes,
 	buildConfigFromWizardState,
 	deriveIdSplitTemplates,
@@ -56,7 +61,7 @@ import {
 } from './recipe-registry';
 import { libraryRecognitionEntries, listLibrary, loadForImport } from './recipe-library';
 import { RecipeLibraryModal, SaveRecipeModal, obsidianRecipeLibraryFiles } from './recipe-library-modal';
-import { discoverImportSets, newSetSchemeFrom, settleVaultIndex, type DiscoveredImportSet, type ImportSetOption } from '../generation/import-set';
+import { discoverIdentityClaims, identityOverlappingSets, newSetIdentitySummary, discoverImportSets, newSetSchemeFrom, settleVaultIndex, type DiscoveredImportSet, type ImportSetOption } from '../generation/import-set';
 import { suggestWorkbookBinding, type WorkbookSuggestion } from './workbook-suggestion';
 import { refreshRecipeProblem } from './stack/stack-model';
 import {
@@ -2635,6 +2640,87 @@ export class ImportFlow {
 		return this.workbench.buildRecipe();
 	}
 
+	/** Source shaping is asynchronous; review and generation read this same proposal. */
+	private preparedIdentityRows: Awaited<ReturnType<typeof candidateSourceRows>> | null = null;
+	private identityClaims: Set<string> | null = null;
+	private identityCandidateCache = new Map<string, Set<string>>();
+	private identityCandidateSignature = '';
+	private identityCandidateRows: unknown = null;
+	private identityPlanningProblem: string | null = null;
+
+	private identityRecipeInputs() {
+		if (!this.parsedData) return null;
+		try {
+			const workbenchMode = this.isWorkbenchMode() && !!this.workbench;
+			const config = workbenchMode ? this.buildWorkbenchConfig()
+				: buildConfigFromWizardState(this.columnConfigs, this.parsedData.columns, this.appliedConfig?.config?.mapping?.filename);
+			const resolved = workbenchMode ? this.effectiveWorkbenchRecipe()
+				: legacyConfigToRecipe(config as ImportRecipe, { sourceFileName: this.sourceFile?.name });
+			const where = this.presetSourceWhere ?? shorthandToSourceExpression(this.jsonWhere);
+			const recipe = where ? { ...resolved, source: { ...resolved.source, where } } : resolved;
+			return { recipe, config };
+		} catch {
+			// A draft mapping may not yet be buildable. Generation retains its own
+			// validation; ownership discovery must still populate the chooser.
+			return null;
+		}
+	}
+
+	private candidateIdentities(importSet?: DiscoveredImportSet): Set<string> {
+		const inputs = this.identityRecipeInputs();
+		if (!inputs || !this.parsedData) return new Set();
+		if (!this.preparedIdentityRows && !isEagerRows(this.parsedData.rows)) {
+			// Generation released the review materialization. An unavailable stream
+			// is not an empty source, including when a failed run returns to review.
+			this.identityPlanningProblem = 'Identifiers need checking again. Review the source, then try importing again.';
+			return new Set();
+		}
+		const rows = this.preparedIdentityRows?.rows ?? (isEagerRows(this.parsedData.rows) ? this.parsedData.rows : []);
+		const signature = JSON.stringify([inputs, this.currentOutputPath()]);
+		if (signature !== this.identityCandidateSignature || rows !== this.identityCandidateRows) {
+			this.identityCandidateCache.clear();
+			this.identityPlanningProblem = null;
+			this.identityCandidateSignature = signature;
+			this.identityCandidateRows = rows;
+		}
+		const key = importSet ? JSON.stringify([importSet.scheme === 'set-qualified-v1' ? importSet.id : '', importSet.scheme, importSet.ontology, importSet.derivation, importSet.nest_identity]) : 'new';
+		const cached = this.identityCandidateCache.get(key);
+		if (cached) return cached;
+		try {
+			const claims = candidateRunIdentities(rows, inputs.recipe, {
+				basePath: this.currentOutputPath(), config: inputs.config, importSet,
+				streamed: !isEagerRows(this.parsedData.rows),
+				rowNumbers: this.preparedIdentityRows?.rowNumbers,
+				...(this.isWorkbenchMode() && this.workbench ? {
+					facetsForRow: (row: Record<string, unknown>) => deriveFacetMemberships(this.workbench!.getMapping(), row),
+				} : {}),
+			}).claims;
+			this.identityCandidateCache.set(key, claims);
+			return claims;
+		} catch (error) {
+			// Only the typed missing-value condition means columns were unavailable.
+			// Invalid filters and planner defects need their own cause.
+			const missingColumn = error instanceof RenderError && error.code === 'MISSING_TEMPLATE_VALUE';
+			if (missingColumn) {
+				if (!importSet) this.identityPlanningProblem = 'Set-suffixed: the recipe needs columns this source could not supply. Review the column choices before importing.';
+			} else {
+				this.plugin.debug.error('wizard', 'identity-plan-failed', 'Could not check this import for overlapping identifiers', { error: String(error) });
+				if (!importSet) this.identityPlanningProblem = 'Set-suffixed: the recipe could not be checked for overlapping identifiers. Review the recipe and column choices, then try the import again.';
+			}
+			const empty = new Set<string>();
+			this.identityCandidateCache.set(key, empty);
+			return empty;
+		}
+	}
+
+	private newSetIdentityExplanation(): string {
+		const candidates = this.candidateIdentities();
+		if (this.identityPlanningProblem) return this.identityPlanningProblem;
+		const sets = this.discoveredSets ?? [];
+		return newSetIdentitySummary(candidates, this.identityClaims ?? new Set(sets.flatMap((set) => [...set.curies])),
+			sets, (set) => this.setDisplayName(set), this.importSetChoice === 'new-set-qualified');
+	}
+
 	private sourceIdentityKeys(): { recipeId: string | null; ontologyPrefix: string | null } {
 		const none = { recipeId: null, ontologyPrefix: null };
 		if (!this.parsedData) return none;
@@ -2657,9 +2743,9 @@ export class ImportFlow {
 			// Mirrors generateNotes' `ontologyId`, slugified the same way. Deliberately
 			// the UNQUALIFIED prefix: AM-13's set-qualified form depends on a set id
 			// that does not exist yet at this point, and both readers below want the
-			// bare ontology - the offer compares it against a set's pin, and the
-			// collision test asks whether that bare space is already occupied.
-			const ontologyId = recipe.source?.ontology ?? config.name ?? LEGACY_ONTOLOGY_SENTINEL;
+			// bare ontology. The offer compares it against a set's pin; the new-set
+			// decision compares exact candidate identities against existing claims.
+			const ontologyId = resolveRunOntology(recipe, undefined, config.name ?? LEGACY_ONTOLOGY_SENTINEL);
 			return {
 				recipeId: recipeId ?? null,
 				ontologyPrefix: slugifyForCurie(ontologyId),
@@ -2688,14 +2774,11 @@ export class ImportFlow {
 	private offeredRefreshSet(sets: readonly DiscoveredImportSet[]): DiscoveredImportSet | null {
 		const prefix = this.sourceIdentityKeys().ontologyPrefix;
 		if (prefix === null || ImportFlow.isIdentitySentinel(prefix)) return null;
-		// The pinned ontology counts as well as the stamped curie prefixes. A set
-		// minted set-qualified (AM-13) writes `<ontology>-<set id>` prefixes, so a
-		// prefix-only comparison would stop offering it the moment it became the
-		// thing AM-13 exists to create. The pin is the unqualified ontology, which
-		// is exactly what this source proposes.
-		const candidates = sets.filter((set) =>
-			set.ontologyPrefixes.includes(prefix)
-			|| (set.ontology !== undefined && slugifyForCurie(set.ontology) === prefix));
+		// Compare the identities this source would actually refresh under EACH
+		// set's pinned scheme. A shared prefix alone never earns an offer.
+		const candidates = identityOverlappingSets(sets.filter((set) =>
+			slugifyForCurie(set.ontology ?? '') === prefix || set.ontologyPrefixes.includes(prefix)),
+			(set) => this.candidateIdentities(set));
 		return candidates.length === 1 ? candidates[0] : null;
 	}
 
@@ -2752,7 +2835,8 @@ export class ImportFlow {
 	 * cold-cache refusal: the user waited, so ask again.
 	 */
 	private async prepareStep3(force = false): Promise<{ ok: boolean; changed: boolean }> {
-		const signature = `${this.sourceFile?.name ?? ''}::${this.parsedData?.rowCount ?? -1}`;
+		const inputs = this.identityRecipeInputs();
+		const signature = `${this.sourceFile?.name ?? ''}::${this.parsedData?.rowCount ?? -1}::${JSON.stringify(inputs)}`;
 		if (this.step3InFlight) return { ok: this.indexingBlocked === null, changed: false };
 		if (!force && this.step3Signature === signature) {
 			return { ok: this.indexingBlocked === null, changed: false };
@@ -2804,7 +2888,10 @@ export class ImportFlow {
 			}
 			this.indexingBlocked = null;
 			try {
+				this.preparedIdentityRows = inputs && this.parsedData
+					? await candidateSourceRows(this.parsedData, inputs.recipe) : null;
 				this.discoveredSets = await discoverImportSets(app, undefined);
+				this.identityClaims = await discoverIdentityClaims(app, this.discoveredSets);
 				this.setDiscoveryError = null;
 				// The set list names the recipe that made each set. Without the
 				// saved recipes loaded, a set made by one would read "an unsaved
@@ -2906,7 +2993,10 @@ export class ImportFlow {
 			return;
 		}
 		const sets = this.discoveredSets;
-		if (sets.length === 0 && !this.runAgainSetMissing()) return;
+		if (sets.length === 0 && !this.runAgainSetMissing()) {
+			container.createEl('p', { text: this.newSetIdentityExplanation(), cls: 'setting-item-description' });
+			return;
+		}
 
 		const refreshing = this.refreshTargetSet();
 		const wrap = container.createDiv({ cls: 'crosswalker-import-set-review' });
@@ -2919,9 +3009,7 @@ export class ImportFlow {
 			line.setText(refreshingLine(this.setDisplayName(refreshing), refreshing.noteCount, this.runAgain?.importSetId === refreshing.id));
 			line.addClass('crosswalker-import-set-refreshing');
 		} else {
-			line.setText(sets.length === 1
-				? 'Importing as a new set. The one import already in this vault stays separate.'
-				: `Importing as a new set. The ${sets.length} imports already in this vault stay separate.`);
+			line.setText(`Importing as a new set. Existing imports stay separate. ${this.newSetIdentityExplanation()}`);
 		}
 
 		// Every set, with the facts that tell them apart. A minted id is
@@ -3085,10 +3173,12 @@ export class ImportFlow {
 	 * the pure form of the rule is the one this calls.
 	 */
 	private newSetOption(): ImportSetOption {
-		// `?? []` matches the pre-AM-18 behaviour exactly: an unanswered discovery
-		// question collides with nothing and degrades to the plain default. The
-		// caller above already fails closed on a null snapshot.
-		return newSetSchemeFrom(this.discoveredSets ?? [], this.sourceIdentityKeys().ontologyPrefix);
+		// The caller fails closed on an unanswered discovery. Retain discovered
+		// memberships as a defensive fallback for already-prepared review state.
+		const claims = this.identityClaims ?? new Set((this.discoveredSets ?? []).flatMap((set) => [...set.curies]));
+		const candidates = this.candidateIdentities();
+		return this.identityPlanningProblem ? 'new-set-qualified'
+			: newSetSchemeFrom(claims, this.sourceIdentityKeys().ontologyPrefix, candidates);
 	}
 
 	private validateImportSetSelection(): boolean {
@@ -4654,7 +4744,6 @@ export class ImportFlow {
 		const outputPath = this.currentOutputPath();
 		const options: GenerationOptions = {
 			basePath: outputPath,
-			importSet: this.selectedImportSet(),
 			overwriteMode: this.overwriteMode,
 			createFolders: true,
 			frameworkId: this.frameworkId || undefined,
@@ -4727,6 +4816,19 @@ export class ImportFlow {
 			// path owns provenance. Blank input supplies no override.
 			const sourceWhere = this.presetSourceWhere ?? shorthandToSourceExpression(this.jsonWhere);
 			if (sourceWhere) options.sourceWhere = sourceWhere;
+
+			// A direct generation entry must plan the same filtered/joined rows as
+			// review. Never derive ownership candidates from the unshaped source.
+			if (!this.preparedIdentityRows) {
+				const inputs = this.identityRecipeInputs();
+				if (inputs) this.preparedIdentityRows = await candidateSourceRows(this.parsedData, inputs.recipe);
+			}
+			options.importSet = this.selectedImportSet();
+			// The scheme is settled. Neither review field may retain shaped rows
+			// while generation opens the source again and builds its own state.
+			this.preparedIdentityRows = null;
+			this.identityCandidateRows = null;
+			releaseIdentityPlanningSource(this.parsedData);
 
 			// Run generation
 			const result = await generateNotes(

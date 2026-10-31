@@ -11,6 +11,8 @@ import { Aside } from '@astrojs/starlight/components';
 
 This is the **directory of security & GRC frameworks worth crosswalking** — scoped to Crosswalker's launch problem domains: **cybersecurity, information security, GRC, risk management, internal audit, and regulatory compliance**. Each entry links to a **durable home/landing page** (not a download URL — those rot), notes its **license**, and whether usable **source data is in hand**.
 
+**Public mapping binding last verified:** 2026-10-30 against the deterministic public demo and `tests/cli/demo-smoke.test.ts`. This verifies mitigation endpoint resolution only, not other corpus acquisition or licence statuses.
+
 <Aside type="tip" title="Using these in practice">
 Having the frameworks is step one. Turning them into a working crosswalk graph — cleaning inputs, importing concepts, mapping across frameworks, and storing the transform logic — is the real work. See: [unified risk model](/crosswalker/examples/unified-risk-model/) · [for internal audit](/crosswalker/examples/for-internal-audit/) · [for GRC / risk](/crosswalker/examples/for-grc-isrm/) · [for regulatory compliance](/crosswalker/examples/for-regulatory-compliance/) · [ETL & import pipeline](/crosswalker/concepts/etl-and-import/).
 </Aside>
@@ -131,7 +133,7 @@ The demo now uses the full Enterprise v16.1 technique catalog and separate mitig
 | CTID SP 800-53 Rev. 5 to ATT&CK 16.1 | Separate publisher mapping set; exact duplicate and `non_mappable` rows counted separately |
 | CSF 2.0 concept crosswalk to SP 800-53 | Same pairs as the existing CSF-to-800-53 set; not imported separately |
 | D3FEND NIST semantic table | Separate conservative related mappings; publisher relation direction unverified |
-| ATT&CK mitigation-to-D3FEND table | Separate mapping set; empty mapping cells counted and skipped. All endpoints exist, but mitigation-note links await the [shared-prefix identity fix](/crosswalker/reference/framework-data-sources/#public-demo-crosswalk-sources) |
+| ATT&CK mitigation-to-D3FEND table | Separate mapping set; empty mapping cells counted and skipped. All endpoints resolve after [collision-based identity selection](/crosswalker/agent-context/zz-log/2026-10-30-shared-prefix-identity-synthesis/); no publisher identifiers are rewritten |
 
 **Release follow-up:** fetch the current 800-53 rev5 release as a new set. The demo CSV does not record a minor release and lacks IA-13; the held OSCAL archive's revision history identifies IA-13 as a 5.1.1 addition, and its current catalog is 5.2.0. Reuse that held archive where appropriate rather than guessing the CSV's version. The separate Mobile ATT&CK import planned with the STIX reader can resolve the publisher's Mobile-matrix endpoint in its Enterprise mapping. Neither gap authorizes retargeting identifiers or inventing stub concepts (sources: `Frameworks/NIST_SP-800-53_rev5_catalog_load.csv`, the held `nist.gov-SP800-53_rev5` archive metadata, and `Frameworks/mobile-attack.json`; [source-reference context](/crosswalker/reference/framework-data-sources/#public-demo-crosswalk-sources)).
 

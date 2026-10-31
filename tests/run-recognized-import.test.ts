@@ -391,3 +391,26 @@ describe('runRecognizedImport', () => {
 		expect(harness.create).not.toHaveBeenCalled();
 	});
 });
+
+
+describe('recognized import identity planning release', () => {
+	it('releases planning source state after deciding ownership and before generation', async () => {
+		const harness = makeApp('Incoming/synthetic.csv', CSV);
+		const parsedData = await parseCSVFile(new File([CSV], 'synthetic.csv'));
+		const engine = jest.requireActual('../src/generation/generation-engine') as typeof import('../src/generation/generation-engine');
+		const original = engine.generateNotes;
+		const release = jest.spyOn(engine, 'releaseIdentityPlanningSource');
+		const generate = jest.spyOn(engine, 'generateNotes').mockImplementation(async (...args) => {
+			expect(release).toHaveBeenCalledWith(parsedData);
+			return original(...args);
+		});
+		try {
+			const result = await runRecognizedImport(harness.app, plugin(), {
+				file: harness.source, entry: ENTRY, table: '', headerRow: 0, parsedData,
+			});
+			expect(result.ok).toBe(true);
+			expect(generate).toHaveBeenCalledTimes(1);
+			expect(release.mock.invocationCallOrder[0]).toBeLessThan(generate.mock.invocationCallOrder[0]);
+		} finally { generate.mockRestore(); release.mockRestore(); }
+	});
+});

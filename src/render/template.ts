@@ -50,7 +50,7 @@ interface FilterCtx {
 }
 
 export class RenderError extends Error {
-	constructor(message: string) {
+	constructor(message: string, readonly code: 'MISSING_TEMPLATE_VALUE' | 'INVALID_TEMPLATE' = 'INVALID_TEMPLATE') {
 		super(message);
 		this.name = 'RenderError';
 	}
@@ -495,6 +495,7 @@ function finishValue(
 		if (allowMissing) return '';
 		throw new RenderError(
 			`Template variable "${rawPath}" resolved to undefined/null in template "${originalTemplate}".`,
+			'MISSING_TEMPLATE_VALUE',
 		);
 	}
 	return cur;

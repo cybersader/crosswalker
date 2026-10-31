@@ -199,6 +199,7 @@ describe('demo:build', () => {
 		const mitigations = read('Frameworks/MITRE-ATT&CK-Mitigations');
 		expect(mitigations).toHaveLength(44);
 		expect(mitigations.every((note) => note.mitigation_id && !note.technique_id)).toBe(true);
+		expect(mitigations.every((note) => note.curie === `mitre-attack:${note.mitigation_id}`)).toBe(true);
 		expect(mitigations.every((note) => note.tags?.includes('mitre-attack'))).toBe(true);
 		const graph = JSON.parse(fs.readFileSync(path.join(out, '.obsidian/graph.json'), 'utf8'));
 		expect(graph.colorGroups).toContainEqual(expect.objectContaining({ query: 'tag:#mitre-attack OR [curie:"mitre-attack:"]', color: { rgb: 0xe5484d, a: 1 } }));
@@ -214,18 +215,17 @@ describe('demo:build', () => {
 		// Tracked fidelity gap: neither extension nor comment projects to notes yet.
 		expect(edges[0]).not.toHaveProperty('source_relation');
 		expect(edges[0]).not.toHaveProperty('comment');
-		// Tracked shared-prefix identity gap. The follow-up fix flips this pin:
-		// both publisher endpoints exist, but set-qualified M ids do not link yet.
+		// Disjoint catalogs share the publisher namespace without changing M ids.
 		const mitigationEdges = read('_crosswalker/mappings/attack-mitigations-to-d3fend').filter((note) => note.kind === 'crosswalk-edge');
 		expect(mitigationEdges).toHaveLength(89);
 		for (const edge of mitigationEdges) {
 			expect(edge.subject_id).toMatch(/^mitre-attack:M\d{4}$/);
 			expect(mitigations.some((note) => note.mitigation_id === edge.subject_id.split(':')[1])).toBe(true);
 			expect(defensive.some((note) => note.curie === edge.object_id)).toBe(true);
-			expect(edge).not.toHaveProperty('subject_note');
+			expect(edge.subject_note).toBeTruthy();
 			expect(edge.object_note).toBeTruthy();
 		}
-		expect(fs.readFileSync(path.join(out, 'Start here.md'), 'utf8')).toContain('89 links listed; they do not connect to the mitigation notes yet.');
+		expect(fs.readFileSync(path.join(out, 'Start here.md'), 'utf8')).toContain('89 resolved subject links and 89 resolved object links.');
 	});
 
 	it('carries no restricted content or restricted framework names', () => {
