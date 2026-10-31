@@ -4,17 +4,21 @@ import { dump, load } from 'js-yaml';
 import {
 	deriveCrosswalkEdgeRows,
 	buildCrosswalkColumnRecipe,
+	frozenReadableChildRecipe20261031,
 	runCrosswalkEdgePass,
 	type CrosswalkEdgeInput,
 } from '../src/generation/crosswalk-edge-pass';
 import { generateFromRecipe, generateNotes } from '../src/generation/generation-engine';
-import { sssomEdgeCurie } from '../src/generation/crosswalk-identity';
-import { discoverImportSets } from '../src/generation/import-set';
+import { sssomEdgeCurie, SSSOM_CURIE_PREFIX } from '../src/generation/crosswalk-identity';
+import { discoverImportSets, type ImportSetOption } from '../src/generation/import-set';
+import { edgeEndpointIndex, resolveEdgeEndpoints } from '../src/generation/edge-endpoints';
+import { LEGACY_SSSOM_FILE_TEMPLATE, READABLE_SSSOM_FILE_TEMPLATE } from '../src/import/sssom-importer';
 import { validateTier1Frontmatter } from '../src/validation/validator';
 import type { DebugLog } from '../src/utils/debug';
 import type { Recipe } from '../src/render';
 import { computeMappingSetDigests, readMappingSet } from '../src/mappings/mapping-set';
 import { managedContentEquivalent } from '../src/generation/managed-equivalence';
+import { computeRecipeHash } from '../src/generation/hash';
 
 const debug = {
 	info() {}, trace() {}, warn() {}, error() {},
@@ -780,5 +784,226 @@ describe('S5 recipe-declared crosswalk release records', () => {
 		// The recipe declares nothing, so the id the set holds was assigned by Crosswalker.
 		expect(record).toEqual(expect.objectContaining({ mapping_set_id: oldId, id_origin: 'minted', assertion_count: 2 }));
 		expect(setNotes(files)).toHaveLength(1);
+	});
+});
+
+describe('readable filenames for child crosswalk link sets', () => {
+	const DEMO_ENTRY = { column: 'Maps to', to_ontology: 'demo-b', predicate: 'is_equivalent_to' as const };
+	const DEMO_INPUTS: CrosswalkEdgeInput[] = [
+		{ curie: 'demo-a:A1', row: { 'Maps to': 'B1' }, title: 'Synthetic A1' },
+		{ curie: 'demo-a:A2', row: { 'Maps to': 'B2' }, title: 'Synthetic A2' },
+	];
+	const demoArgs = (entry: Record<string, unknown> = {}, inputs = DEMO_INPUTS, recipeId = 'synthetic-demo-a') => ({
+		entries: [{ ...DEMO_ENTRY, ...entry }], sourceOntology: 'demo-a', recipeId,
+		producerSetId: 'iset-abcdef', inputs, overwriteMode: 'replace' as const,
+	});
+	const edges = (files: Map<string, string>) => [...files.entries()]
+		.filter(([, text]) => frontmatter(text).kind === 'crosswalk-edge');
+
+	/**
+	 * Seeds a child link set directly through `generateFromRecipe`, bypassing
+	 * `runCrosswalkEdgePass`'s own template selection, so a fixture can hold a
+	 * template stamp that current production code would never choose on a
+	 * fresh vault (e.g. the legacy template for a brand-new set). Mirrors the
+	 * row-derivation and option shape `runCrosswalkEdgePass` itself uses.
+	 */
+	async function writeDirect(
+		app: App,
+		entry: Record<string, unknown>,
+		template: string,
+		importSetOption: ImportSetOption,
+		inputs: CrosswalkEdgeInput[] = DEMO_INPUTS,
+	) {
+		const fullEntry = { ...DEMO_ENTRY, ...entry };
+		const { index } = await edgeEndpointIndex(app);
+		const derived = deriveCrosswalkEdgeRows(fullEntry, 'demo-a', 'demo-release-direct', inputs);
+		const resolvedRows = derived.rows.map((row) => {
+			const resolved = resolveEdgeEndpoints(index, { ...row });
+			return { ...row, subject_note: resolved.subject_note, object_note: resolved.object_note, edge_body: resolved.edge_body };
+		});
+		const parsedData = {
+			columns: Array.from(new Set(resolvedRows.flatMap((row) => Object.keys(row)))),
+			rows: resolvedRows,
+			rowCount: derived.rows.length,
+		};
+		const recipe = buildCrosswalkColumnRecipe(fullEntry, 'demo-a', 'synthetic-demo-a', template);
+		return generateFromRecipe(app, parsedData, recipe, {
+			basePath: `_crosswalker/mappings/demo-a-to-${fullEntry.to_ontology}`,
+			overwriteMode: 'replace',
+			createFolders: true,
+			importSet: importSetOption,
+			producerSetId: 'iset-abcdef',
+			strictValidation: true,
+			curieLocalPart: (row: Record<string, unknown>, _rowNumber: number, set: { id: string; scheme?: string; derivation?: string }) => sssomEdgeCurie(row, set as never),
+			curiePrefix: SSSOM_CURIE_PREFIX,
+		}, debug);
+	}
+
+	it('matches the live readable child producer to its frozen revision', () => {
+		const live = buildCrosswalkColumnRecipe(DEMO_ENTRY, 'demo-a', 'synthetic-demo-a', READABLE_SSSOM_FILE_TEMPLATE);
+		const frozen = frozenReadableChildRecipe20261031('synthetic-demo-a', DEMO_ENTRY.column, 'demo-a', 'demo-b');
+		const liveHash = computeRecipeHash(live.target, live.source);
+		const frozenHash = computeRecipeHash(frozen.target, frozen.source);
+		if (liveHash !== frozenHash) {
+			throw new Error('The live readable child producer changed. Add a new frozen readable child revision and keep the existing revision unchanged.');
+		}
+		expect(liveHash).toBe(frozenHash);
+	});
+
+	it('keeps an unstamped legacy child link set at byte-identical paths', async () => {
+		const { app, files } = makeApp();
+		const seed = await writeDirect(app, {}, LEGACY_SSSOM_FILE_TEMPLATE, 'new');
+		expect(seed.success).toBe(true);
+		const before = new Set(edges(files).map(([path]) => path));
+		expect(before.size).toBe(2);
+		// Preserve the recipe id for candidate discovery but remove its hash,
+		// faithfully representing notes written before recipe stamps existed.
+		for (const [path, text] of edges(files)) {
+			const fm = frontmatter(text);
+			delete fm._crosswalker.recipe.hash;
+			files.set(path, text.replace(/^---\n[\s\S]*?\n---/, `---\n${dump(fm).trimEnd()}\n---`));
+		}
+		const discovered = await discoverImportSets(app);
+		expect(discovered.find((set) => set.id === seed.importSetId)?.recipeHashes).toBeUndefined();
+
+		const refreshed = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(refreshed.errors).toEqual([]);
+		expect(refreshed.perEntry[0].importSetId).toBe(seed.importSetId);
+		expect(new Set(edges(files).map(([path]) => path))).toEqual(before);
+	});
+
+	it('keeps a readable child set readable, without renames, when the column is retargeted', async () => {
+		const { app, files } = makeApp();
+		const first = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(first.errors).toEqual([]);
+		const before = new Map(edges(files));
+		expect(before.size).toBe(2);
+
+		// Retargeting yields different assertions (A1 -> demo-c:B1 is not
+		// A1 -> demo-b:B1), so new edge notes are expected. What must hold: the
+		// set keeps its readable naming, and no existing note is moved.
+		const retargeted = await runCrosswalkEdgePass(app, demoArgs({ to_ontology: 'demo-c' }), debug);
+		expect(retargeted.errors).toEqual([]);
+		expect(retargeted.perEntry[0].importSetId).toBe(first.perEntry[0].importSetId);
+		const after = edges(files);
+		for (const [path, text] of before) expect(files.get(path)).toBe(text);
+		expect(after).toHaveLength(4);
+		for (const [path] of after) expect(path.split('/').pop()).toMatch(/^A[12] · B[12] \([0-9a-f]{8}\)\.md$/);
+
+		// The set now holds one stamp per framework pair; another run must still
+		// recognize it as readable and move nothing.
+		const settled = new Map(after);
+		const again = await runCrosswalkEdgePass(app, demoArgs({ to_ontology: 'demo-c' }), debug);
+		expect(again.errors).toEqual([]);
+		expect(new Set(edges(files).map(([path]) => path))).toEqual(new Set(settled.keys()));
+	});
+
+	it('keeps a retargeted readable child set in place after the old-pair links are deleted', async () => {
+		const { app, files } = makeApp();
+		const first = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(first.errors).toEqual([]);
+		const setId = first.perEntry[0].importSetId!;
+		expect((await runCrosswalkEdgePass(app, demoArgs({ to_ontology: 'demo-c' }), debug)).errors).toEqual([]);
+
+		// The user removes the demo-b links. The set record keeps a copied demo-b
+		// stamp, so no remaining link records the demo-b pair; that stamp must
+		// not decide the naming.
+		for (const [path, text] of edges(files)) {
+			if (frontmatter(text).target_framework === 'demo-b') files.delete(path);
+		}
+		const oldPair = frozenReadableChildRecipe20261031('synthetic-demo-a', DEMO_ENTRY.column, 'demo-a', 'demo-b');
+		const oldStamp = computeRecipeHash(oldPair.target, oldPair.source);
+		const records = [...files.entries()].filter(([, text]) => frontmatter(text).kind === 'mapping-set');
+		expect(records).toHaveLength(1);
+		const [recordPath, recordText] = records[0];
+		const record = frontmatter(recordText);
+		record._crosswalker.recipe.hash = oldStamp;
+		files.set(recordPath, recordText.replace(/^---\n[\s\S]*?\n---/, `---\n${dump(record).trimEnd()}\n---`));
+		const discovered = (await discoverImportSets(app)).find((set) => set.id === setId)!;
+		expect(discovered.recipeHashes).toContain(oldStamp);
+
+		const remaining = new Set(edges(files).map(([path]) => path));
+		expect(remaining.size).toBe(2);
+		const rerun = await runCrosswalkEdgePass(app, demoArgs({ to_ontology: 'demo-c' }), debug);
+		expect(rerun.errors).toEqual([]);
+		expect(rerun.perEntry[0].importSetId).toBe(setId);
+		const after = edges(files).map(([path]) => path);
+		expect(new Set(after)).toEqual(remaining);
+		for (const path of after) expect(path.split('/').pop()).toMatch(/^A[12] · B[12] \([0-9a-f]{8}\)\.md$/);
+	});
+
+	it('names a brand-new child link set with readable filenames', async () => {
+		const { app, files } = makeApp();
+		const pass = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(pass.errors).toEqual([]);
+		const names = edges(files).map(([path]) => path.split('/').pop()!).sort();
+		expect(names).toHaveLength(2);
+		for (const name of names) expect(name).toMatch(/^A[12] · B[12] \([0-9a-f]{8}\)\.md$/);
+	});
+
+	it('keeps a legacy-named child link set byte-identical on refresh', async () => {
+		const { app, files } = makeApp();
+		const seed = await writeDirect(app, {}, LEGACY_SSSOM_FILE_TEMPLATE, 'new');
+		expect(seed.success).toBe(true);
+		const setId = seed.importSetId!;
+		const before = new Map(edges(files));
+		expect(before.size).toBe(2);
+		for (const [path] of before) expect(path).not.toContain('·');
+
+		const refreshed = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(refreshed.errors).toEqual([]);
+		expect(refreshed.perEntry[0].importSetId).toBe(setId);
+		const after = edges(files);
+		expect(after.map(([path]) => path).sort()).toEqual([...before.keys()].sort());
+		for (const [path, text] of before) {
+			expect(managedContentEquivalent(text, files.get(path)!, { parseYaml: load, userPreserve: ['review_status', 'reviewer'] }))
+				.toEqual({ equal: true, differences: [] });
+		}
+	});
+
+	it('keeps a readable child link set stable across refreshes', async () => {
+		const { app, files } = makeApp();
+		const first = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(first.errors).toEqual([]);
+		const before = new Set(edges(files).map(([path]) => path));
+		expect(before.size).toBe(2);
+
+		const second = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(second.errors).toEqual([]);
+		expect(second.perEntry[0].importSetId).toBe(first.perEntry[0].importSetId);
+		const after = new Set(edges(files).map(([path]) => path));
+		expect(after).toEqual(before);
+	});
+
+	it('falls back to legacy filenames when any recipe stamp came from a non-readable producer', async () => {
+		const { app, files } = makeApp();
+		const seed = await writeDirect(app, {}, LEGACY_SSSOM_FILE_TEMPLATE, 'new');
+		expect(seed.success).toBe(true);
+		const setId = seed.importSetId!;
+		const before = new Map(edges(files));
+
+		// A second batch into the same set under a distinct (non-legacy,
+		// non-readable) template stamp gives the set a second recipe hash.
+		const variantTemplate = '{_crosswalker_curie_local_part|slug}-variant.md';
+		const variantSeed = await writeDirect(
+			app,
+			{},
+			variantTemplate,
+			{ id: setId },
+			[{ curie: 'demo-a:A3', row: { 'Maps to': 'B1' }, title: 'Synthetic A3' }],
+		);
+		expect(variantSeed.success).toBe(true);
+		const discovered = await discoverImportSets(app);
+		const set = discovered.find((candidate) => candidate.id === setId)!;
+		expect(set.recipeHashes).toHaveLength(2);
+
+		const refreshed = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(refreshed.errors).toEqual([]);
+		expect(refreshed.perEntry[0].importSetId).toBe(setId);
+		for (const [path, text] of before) {
+			expect(files.has(path)).toBe(true);
+			expect(managedContentEquivalent(text, files.get(path)!, { parseYaml: load, userPreserve: ['review_status', 'reviewer'] }))
+				.toEqual({ equal: true, differences: [] });
+		}
 	});
 });
