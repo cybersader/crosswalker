@@ -1,0 +1,93 @@
+---
+title: "Shared publisher namespaces: qualify actual collisions"
+description: "Disjoint catalogs keep publisher identities. Exact ownership claims decide release isolation, existing sets keep their recorded schemes, and later refresh collisions remain safely refused."
+tags: [design, identity, import, release-isolation]
+date: 2026-10-30
+sidebar:
+  label: "10-30 · Shared namespace identities"
+  order: -20261030.9
+---
+
+:::tip[Decision]
+A namespace identifies a publisher's identifier space, not an import's ownership. Two catalogs can share it without sharing a single identifier. New sets gain release-specific identifiers only when an actual identity claim overlaps.
+:::
+
+## The verdict
+
+Crosswalker should preserve publisher identifiers whenever doing so is safe. ATT&CK techniques (`mitre-attack:T…`) and mitigations (`mitre-attack:M…`) are separate catalogs in one namespace. Qualifying the mitigation catalog merely because techniques already exist breaks publisher crosswalks without protecting any overlapping identity.
+
+| Adopted | Rejected |
+|---|---|
+| Qualify an entire new set when **any exact identity claim** overlaps existing claims | Treat a shared namespace as proof of another release |
+| Derive candidates through the same row-identity and enrichment logic as generation | Infer row identity from a rendered address, filename or destination path |
+| Include legacy notes with no set owner and every row of table-form mappings | Compare only discovered stamped sets or the first table row |
+| Offer refresh only when actual identities overlap under that set's recorded scheme | Offer a techniques refresh for a disjoint mitigations catalog |
+| Keep refresh explicitly chosen and existing identity schemes frozen | Silently migrate or preselect an existing set |
+
+## What is locked in
+
+An [import set](/crosswalker/concepts/terminology/) owns its notes through a recorded identifier, not a folder. The decision compares the proposed run's **claims** (written identities plus aliases that write enforcement checks) against the whole-vault ownership index and all mapping-table rows. One overlap qualifies the whole new set; zero overlap preserves source identifiers.
+
+The implementation's shared pure planner returns `written` and `claims` separately (source: `src/generation/generation-engine.ts`). It covers explicit identifiers, nested identities, callbacks, row-number and legacy filename fallback, hierarchy notes, facet notes, implied concepts and old hub aliases. The source stage preserves filtering, joins and original row numbering. Rendering contributes enrichment structure, never row identity authority.
+
+Existing sets retain their recorded identity scheme, derivation and ontology on a chosen refresh. Explicit release isolation remains available, including stack imports that intentionally isolate all their assertions. Mapping CLI imports use the same automatic collision rule as the modal. Cache-cold discovery still waits for indexing rather than treating lag as absence.
+
+## Accepted trade-off: a later refresh can overlap
+
+Two catalogs may be disjoint today and develop a common identifier later. The owner accepted this consequence rather than qualifying every possible future overlap preemptively. A chosen refresh retains its existing scheme; ownership enforcement refuses the conflicting write and leaves the other owner's note unchanged. The error names the owning set and tells the user to **refresh into a new set** to keep the release separate. It does not silently change scheme, merge ownership or overwrite the foreign note.
+
+This is safety at the time of the write, not a promise that every future refresh will be collision-free. Revisit only if actual use demonstrates that the refusal workflow is insufficient; do not restore prefix-based guessing as a shortcut.
+
+## Known gap: table-form write-time ownership
+
+[Table-form mappings](/crosswalker/concepts/terminology/) participate in the planning snapshot, but their rows are not in the AM-12 write-time identity index (source: `src/generation/identity-index.ts`). A table set added after planning, while this run is writing, can therefore escape the final refusal. This pre-existing check-then-write race is not introduced or closed by this change; planning is not an atomic ownership reservation.
+
+## Open items
+
+- **Streaming identity planner:** retain only the claims set and minimal enrichment notes while consuming source rows, with constant auxiliary row-buffer memory rather than a full row materialization. The claims set and enrichment facts still grow with the identities being planned. Today planning materializes the shaped rows once; the wizard and recognized-import runner release that materialization before generation. Reopenable CSV sources then use the original reader, while non-reopenable programmatic sources also require a replay snapshot until generation has read it, preserving retry after an early source-preflight failure (source: `src/generation/generation-engine.ts`). This follow-up is not implemented or claimed as constant-memory planning.
+
+## Expected fresh-build changes
+
+Fresh demo builds intentionally differ from older builds. Mitigation notes keep `mitre-attack:M…` instead of a set-qualified namespace, allowing mitigation-to-D3FEND subject links to bind without rewriting publisher identifiers. F3 tactics similarly keep their disjoint publisher identities. Set schemes and any content derived from those identities change together; deterministic set ownership identifiers and unrelated catalogs do not require migration.
+
+The before/after proof observed exactly these changed files (source: deterministic public `scripts/demo-build.mjs` builds):
+
+| Group | Changed files | Reason |
+|---|---:|---|
+| ATT&CK mitigations | 44 | Publisher identities and their derived stamps |
+| F3 tactics | 8 | Publisher identities and their derived stamps |
+| Mitigation-to-D3FEND mappings | 89 | Newly resolved subject links, managed body and derived digests; assertion identities stay unchanged |
+| Start here | 1 | Resolved-link coverage and known-limit copy |
+
+Two fresh builds were byte-identical across all 8,805 files. Explicit replay of every one of the 13 existing sets preserved all 8,760 ownership-stamped Markdown files byte-for-byte, including mapping-set records without a top-level CURIE. That older vault intentionally retains its original qualified mitigations and unresolved subject links: this fix is not an implicit migration.
+
+Start here reports the now-resolved mitigation endpoint links instead of the old known limitation. Precise delivery counts and verification belong in [CHANGELOG](https://github.com/cybersader/Crosswalker/blob/main/CHANGELOG.md) and the [source inventory](/crosswalker/reference/framework-data-sources/), not duplicated milestone prose.
+
+## Discovery cost
+
+The exact-membership discovery adds tens of milliseconds in these filesystem-adapter measurements, not another order of magnitude. Each module was warmed once, then measured seven times in alternating old/new order; the table reports medians. Both versions read the same corpus in each row. These are local warm-discovery observations, not end-to-end import benchmarks or private-room measurements.
+
+| Corpus | Markdown files | Sets | Previous discovery | Exact-membership discovery | Difference |
+|---|---:|---:|---:|---:|---:|
+| Public demo, older identities | 8,771 | 13 | 386.38 ms | 402.55 ms | +16.17 ms (+4.2%) |
+| Public demo, fresh identities | 8,771 | 13 | 418.27 ms | 434.58 ms | +16.31 ms (+3.9%) |
+| Explicitly synthetic corpus | 40,000 | 20 | 496.44 ms | 526.26 ms | +29.82 ms (+6.0%) |
+
+The synthetic corpus contains generated identifiers and text only. It was generated and measured in the serialized verification slot, then deleted. No licensed or private-room output was measured. Retain the straightforward exact-membership implementation; these observations do not justify a new cache or weaker claim universe.
+
+## What this unblocks
+
+- Multiple catalogs from one publisher, including further ATT&CK object types, without namespace-specific exceptions.
+- Public crosswalk endpoint resolution through the publisher identities already present in the catalogs.
+- Shared UI and CLI safety rules while preserving explicitly isolated releases and byte-stable refresh of existing sets.
+
+No schema changes, automatic refresh selection, legacy-set migrations or broader identifier normalization are introduced.
+
+## Related
+
+- [Terminology](/crosswalker/concepts/terminology/): identity and import-set vocabulary.
+- [ETL and import](/crosswalker/concepts/etl-and-import/): producer independence and canonical source identity.
+- [Artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/): ownership is not a storage path.
+- [Framework data sources](/crosswalker/reference/framework-data-sources/): public demo catalogs and endpoint coverage.
+- [Development setup](/crosswalker/development/setup/): CLI mapping release isolation.
+- [Vision](/crosswalker/agent-context/vision/): resilient ontology and mapping lifecycle.

@@ -171,6 +171,8 @@ export async function importMappingSlots(
 		if (refresh && (!refresh.setId || !refresh.folder)) throw new Error(`${mapping.label} has no confirmed refresh set. Import as a new set.`);
 		const form: MappingForm = selection?.form ?? 'notes';
 		const before = refresh ? new Set<string>() : new Set((await dependencies.listSets()).map((set) => set.id));
+		// A stack release deliberately isolates all assertions, including those
+		// shared with other publishers. This explicit choice is not auto-qualification.
 		const outcome = await dependencies.importRows(tsv, refresh
 			? { importSet: { id: refresh.setId! }, outputFolder: refresh.folder, overwriteMode: 'replace', mappingForm: form }
 			: { importSet: 'new-set-qualified', overwriteMode: 'skip', mappingForm: form });

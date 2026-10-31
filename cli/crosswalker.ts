@@ -33,12 +33,14 @@ import {
 } from '../src/import/recipe-registry';
 import { parseRecognizedSource, runRecognizedImport } from '../src/import/run-recognized-import';
 import { refreshRootProblem } from '../src/import/import-wizard';
-import { discoverImportSets } from '../src/generation/import-set';
+import { discoverImportSets, newSetSchemeFor } from '../src/generation/import-set';
 import { listXLSXSheets } from '../src/import/parsers/xlsx-parser';
 import { analyzeColumns } from '../src/import/parsers/csv-parser';
 import { MappingWorkbench } from '../src/import/workbench';
 import { patchRecipeDocument } from '../src/import/recipe-document';
-import { importSssom } from '../src/import/sssom-importer';
+import { importSssom, SSSOM_CURIE_PREFIX } from '../src/import/sssom-importer';
+import { parseSssomTsv } from '../src/import/sssom-parser';
+import { candidateCrosswalkCuries } from '../src/generation/generation-engine';
 import { exportFolderAsCsv } from '../src/export/csv-exporter';
 import { csvExportNotice } from '../src/export/csv-inverse';
 import { exportFolderAsSssomTsv } from '../src/export/sssom-exporter';
@@ -383,8 +385,9 @@ async function commandImport(flags: Flags, io: Io): Promise<number> {
 			...(ontologyFlag ? { sourceOntology: ontologyFlag } : {}),
 			overwriteMode: 'replace',
 			// Explicit isolation for overlapping publisher releases. Preserve the
-			// existing default; never infer a refresh or change an existing set.
-			importSet: refreshSetId ? { id: refreshSetId } : qualifiedMappingSet ? 'new-set-qualified' : 'new',
+			// automatic collision rule; never infer a refresh or change an existing set.
+			importSet: refreshSetId ? { id: refreshSetId } : qualifiedMappingSet ? 'new-set-qualified'
+				: await newSetSchemeFor(app as never, SSSOM_CURIE_PREFIX, candidateCrosswalkCuries(parseSssomTsv(source.bytes.toString('utf8')).rows)),
 			runTier2Projection: false,
 		}, quietDebug(app));
 		const parseErrors = result.parse.errors.map((e) => (typeof e === 'string' ? e : JSON.stringify(e)));

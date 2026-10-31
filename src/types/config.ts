@@ -211,6 +211,8 @@ export function isEagerRows(
 export interface ParsedData {
 	columns: string[];
 	rows: Record<string, any>[] | AsyncIterable<Record<string, any>>;
+	/** Independent row read for identity planning without consuming the live stream. */
+	reopenRows?: () => AsyncIterable<Record<string, any>>;
 	sheetName?: string;
 	/** Total row count if known. -1 (or undefined) if streaming and count is unknown. */
 	rowCount: number;

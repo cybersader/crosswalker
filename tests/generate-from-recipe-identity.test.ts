@@ -253,7 +253,7 @@ describe('generateFromRecipe identity reconciliation', () => {
 		expect(result.success).toBe(false);
 		expect(result.errors).toEqual([{
 			row: 1,
-			message: `Cross-set identity collision: ${CURIE} is claimed by import set ${foreignSetId} at ${OLD_PATH}. Nothing was written for it. Refresh that set instead, or rename this source so it uses its own identities.`,
+			message: `Cross-set identity collision: ${CURIE} is claimed by import set ${foreignSetId} at ${OLD_PATH}. Nothing was written for it. Refresh into a new set to keep this release separate, or refresh the owning set only if you intend to replace it.`,
 		}]);
 		expect(result.created).toEqual([]);
 		expect(renameFile).not.toHaveBeenCalled();

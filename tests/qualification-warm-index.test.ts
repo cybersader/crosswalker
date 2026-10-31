@@ -33,6 +33,7 @@ import {
 	settleVaultIndex,
 } from '../src/generation/import-set';
 import { SssomImportModal } from '../src/import/sssom-import-modal';
+import { candidateCrosswalkCuries } from '../src/generation/generation-engine';
 import { SSSOM_CURIE_PREFIX } from '../src/import/sssom-importer';
 import type { App } from 'obsidian';
 import type CrosswalkerPlugin from '../src/main';
@@ -186,14 +187,14 @@ describe('AM-24: the qualification rule refuses to answer from a half-read vault
 		const vault = makeVault(); // resolved fires, but nothing warms.
 		seedSssomSet(vault.files, ROOT).forEach((p) => vault.cold.add(p));
 
-		await expect(newSetSchemeFor(vault.app, SSSOM_CURIE_PREFIX)).rejects.toBeInstanceOf(VaultStillIndexingError);
+		await expect(newSetSchemeFor(vault.app, SSSOM_CURIE_PREFIX, new Set([`${SSSOM_CURIE_PREFIX}:edge-1`]))).rejects.toBeInstanceOf(VaultStillIndexingError);
 		expect(vault.waits()).toBe(1);
 	});
 
 	it('says so in the one shared wording, so no window invents its own', async () => {
 		const vault = makeVault();
 		seedSssomSet(vault.files, ROOT).forEach((p) => vault.cold.add(p));
-		await expect(newSetSchemeFor(vault.app, SSSOM_CURIE_PREFIX)).rejects.toThrow(VAULT_STILL_INDEXING_MESSAGE);
+		await expect(newSetSchemeFor(vault.app, SSSOM_CURIE_PREFIX, new Set([`${SSSOM_CURIE_PREFIX}:edge-1`]))).rejects.toThrow(VAULT_STILL_INDEXING_MESSAGE);
 	});
 
 	it('never answers "new" about a vault it could not see', async () => {
@@ -203,7 +204,7 @@ describe('AM-24: the qualification rule refuses to answer from a half-read vault
 		const vault = makeVault();
 		seedSssomSet(vault.files, ROOT).forEach((p) => vault.cold.add(p));
 
-		const answer = await newSetSchemeFor(vault.app, SSSOM_CURIE_PREFIX).catch((err) => err);
+		const answer = await newSetSchemeFor(vault.app, SSSOM_CURIE_PREFIX, new Set([`${SSSOM_CURIE_PREFIX}:edge-1`])).catch((err) => err);
 
 		expect(answer).not.toBe('new');
 		expect(answer).toBeInstanceOf(Error);
@@ -216,14 +217,14 @@ describe('AM-24: the qualification rule refuses to answer from a half-read vault
 		const vault = makeVault({ onResolve: () => vault.cold.clear() });
 		seedSssomSet(vault.files, ROOT).forEach((p) => vault.cold.add(p));
 
-		expect(await newSetSchemeFor(vault.app, SSSOM_CURIE_PREFIX)).toBe('new-set-qualified');
+		expect(await newSetSchemeFor(vault.app, SSSOM_CURIE_PREFIX, new Set([`${SSSOM_CURIE_PREFIX}:edge-1`]))).toBe('new-set-qualified');
 	});
 
 	it('still answers plainly on a warm empty vault', async () => {
 		// The control. A precondition that refused everything would pass every test
 		// above and break the first import in the product.
 		const vault = makeVault();
-		expect(await newSetSchemeFor(vault.app, SSSOM_CURIE_PREFIX)).toBe('new');
+		expect(await newSetSchemeFor(vault.app, SSSOM_CURIE_PREFIX, new Set([`${SSSOM_CURIE_PREFIX}:edge-1`]))).toBe('new');
 		expect(vault.waits()).toBe(0);
 	});
 
@@ -235,7 +236,7 @@ describe('AM-24: the qualification rule refuses to answer from a half-read vault
 		const vault = makeVault();
 		seedSssomSet(vault.files, ROOT).forEach((p) => vault.cold.add(p));
 
-		await expect(newSetSchemeFor(vault.app, null)).rejects.toBeInstanceOf(VaultStillIndexingError);
+		await expect(newSetSchemeFor(vault.app, null, new Set())).rejects.toBeInstanceOf(VaultStillIndexingError);
 	});
 });
 
@@ -252,6 +253,7 @@ describe('AM-24: the caller cannot forget what the rule refuses to run without',
 			precomputeClosure: null,
 		} as unknown as CrosswalkerPlugin;
 		return new SssomImportModal(app, plugin) as unknown as {
+			parsedTsv: string;
 			detectedSource: string | null;
 			detectedTarget: string | null;
 			importSetChoice: unknown;
@@ -276,7 +278,10 @@ describe('AM-24: the caller cannot forget what the rule refuses to run without',
 	it('and answers normally once the vault is read', async () => {
 		const vault = makeVault();
 		seedSssomSet(vault.files, ROOT);
+		const edge = [...candidateCrosswalkCuries([{ subject_id: 'left:one', object_id: 'right:two' }])][0];
+		vault.files.set(`${ROOT}/edge-1.md`, vault.files.get(`${ROOT}/edge-1.md`)!.replace('sssom:edge-1', edge));
 		const sssom = modal(vault.app);
+		sssom.parsedTsv = 'subject_id\tpredicate_id\tobject_id\nleft:one\tskos:relatedMatch\tright:two\n';
 		sssom.detectedSource = 'csf';
 		sssom.detectedTarget = 'iso27001';
 		sssom.importSetChoice = null;
