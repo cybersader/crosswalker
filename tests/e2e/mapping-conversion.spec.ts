@@ -206,8 +206,10 @@ describe('Mapping set conversion between notes and a table', function () {
 		await $('.crosswalker-conversion-modal').waitForDisplayed();
 		const confirm = await browser.executeObsidian(() => document.querySelector('.crosswalker-conversion-modal')?.textContent ?? '');
 		expect(confirm).toContain('will not appear in Bases views, graph view or backlinks');
-		// Every note of the set goes, the release record note included: files, not mappings.
-		expect(confirm).toContain(`Moves ${fileCount.toLocaleString()} notes to the trash after the table is verified.`);
+		// Every note of the set goes, the release record note included, and the
+		// count names mappings the way the result line does.
+		expect(fileCount).toBe(noteCount + 1);
+		expect(confirm).toContain(`Moves ${noteCount.toLocaleString()} mapping notes and the set's release record note to the trash after the table is verified.`);
 		await capture('light', 'visual-conversion-01-confirm-table.png');
 		await capture('dark', 'visual-conversion-01-confirm-table-dark.png');
 		await modalButton('Convert to table');

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: mapping set counts name mappings, not files (2026-10-31)
+
+- A notes-form mapping set holds its mapping notes plus one release record note. Stack rows, the stack completion line, the mapping refresh chooser and line, and the conversion confirm dialog counted every note, so a set of 2 mappings read "3 notes" while the conversion result said "2 mappings". Discovery now records how many release record notes a set owns (`setNoteCount`, optional, absent reads as 0), and mapping surfaces count mappings through one helper. The conversion confirm names the release record note separately, since it is trashed too. Framework sets keep counting every note, so the import wizard and recipe library lines, which only list framework sets, are unchanged.
+
 ### Added: readable mapping filenames from recipe templates (2026-10-31)
 
 - New standalone mapping sets use readable endpoint names such as `T1059.001 · M1036 (a1b2c3d4).md`, with a stable short identity suffix. Naming is a recipe template, not a special mapping-only formatter: anyone writing or generating a recipe can compose `hash(N)`, `default(text)` and `name-safe` with the existing filters and any available source field. `name-safe` also drops invisible formatting characters and half characters left by a length cut. SchemaVer 1.20.0 documents these additive filters. Existing filters and recipes retain their behavior and hashes.

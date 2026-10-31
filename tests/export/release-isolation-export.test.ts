@@ -63,9 +63,9 @@ describe('the refresh picker describes a release, not just its id', () => {
 		expect(describeImportSet(set)).toContain('iset-aaa111');
 	});
 
-	it('states how many notes the release owns and where they live', () => {
+	it('states how many mappings the release holds and where they live', () => {
 		const label = describeImportSet(set);
-		expect(label).toContain('42 notes');
+		expect(label).toContain('42 mapping notes');
 		expect(label).toContain('Frameworks/NIST-800-53r5');
 	});
 
@@ -76,7 +76,11 @@ describe('the refresh picker describes a release, not just its id', () => {
 
 	it('reads naturally for a single-note release', () => {
 		const one = { ...set, noteCount: 1, paths: ['Frameworks/X/AC-1.md'] };
-		expect(describeImportSet(one)).toContain('1 note');
-		expect(describeImportSet(one)).not.toContain('1 notes');
+		expect(describeImportSet(one)).toContain('1 mapping note');
+		expect(describeImportSet(one)).not.toContain('1 mapping notes');
+	});
+
+	it('leaves the release record note out of the mapping count', () => {
+		expect(describeImportSet({ ...set, noteCount: 3, setNoteCount: 1 })).toContain('iset-aaa111: 2 mapping notes');
 	});
 });

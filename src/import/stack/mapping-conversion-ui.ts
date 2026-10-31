@@ -72,11 +72,17 @@ function notesDestinationText(set: Pick<DiscoveredImportSet, 'rowCount' | 'root'
  * trade-off line, then what goes to the trash. To notes: how many notes are
  * written where, then what goes to the trash.
  */
-export function conversionConfirmLines(set: Pick<DiscoveredImportSet, 'noteCount' | 'rowCount' | 'root'>, to: MappingForm): string[] {
+export function conversionConfirmLines(set: Pick<DiscoveredImportSet, 'noteCount' | 'setNoteCount' | 'rowCount' | 'root'>, to: MappingForm): string[] {
 	if (to === 'table') {
+		// Every owned note goes to the trash, the release record note included;
+		// name both so the count matches the mappings the result reports.
+		const records = set.setNoteCount ?? 0;
+		const mappings = plural(Math.max(0, set.noteCount - records), 'mapping note');
 		return [
 			MAPPING_TABLE_TRADE_OFF,
-			`Moves ${plural(set.noteCount, 'note')} to the trash after the table is verified.`,
+			records > 0
+				? `Moves ${mappings} and the set's release record note to the trash after the table is verified.`
+				: `Moves ${mappings} to the trash after the table is verified.`,
 		];
 	}
 	return [
