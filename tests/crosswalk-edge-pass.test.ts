@@ -959,6 +959,45 @@ describe('readable filenames for child crosswalk link sets', () => {
 			expect(managedContentEquivalent(text, files.get(path)!, { parseYaml: load, userPreserve: ['review_status', 'reviewer'] }))
 				.toEqual({ equal: true, differences: [] });
 		}
+
+		// The first refresh adds the set record note, which copies an edge's
+		// stamp. A second refresh must still keep the legacy names.
+		const again = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(again.errors).toEqual([]);
+		expect(again.perEntry[0].importSetId).toBe(setId);
+		expect(edges(files).map(([path]) => path).sort()).toEqual([...before.keys()].sort());
+	});
+
+	it('keeps a retargeted readable child set in place while one link is still indexing', async () => {
+		const { app, files } = makeApp();
+		const first = await runCrosswalkEdgePass(app, demoArgs(), debug);
+		expect(first.errors).toEqual([]);
+		expect((await runCrosswalkEdgePass(app, demoArgs({ to_ontology: 'demo-c' }), debug)).errors).toEqual([]);
+		const before = new Map(files);
+		expect(edges(files)).toHaveLength(4);
+
+		// One old-pair link reads as not indexed and not readable yet. Cache lag
+		// is not absence: the pass must refuse rather than judge the set legacy
+		// and rename its links.
+		const lagging = edges(files).find(([, text]) => frontmatter(text).target_framework === 'demo-b')![0];
+		const vault = app.vault as unknown as { cachedRead: (file: { path: string }) => Promise<string> };
+		const cache = app.metadataCache as unknown as { getFileCache: (file: { path: string }) => unknown };
+		const realRead = vault.cachedRead;
+		const realCache = cache.getFileCache;
+		vault.cachedRead = async (file) => {
+			if (file.path === lagging) throw new Error('not indexed yet');
+			return realRead(file);
+		};
+		cache.getFileCache = (file) => (file.path === lagging ? null : realCache(file));
+
+		try {
+			await expect(runCrosswalkEdgePass(app, demoArgs({ to_ontology: 'demo-c' }), debug))
+				.rejects.toThrow(/still indexing/);
+		} finally {
+			vault.cachedRead = realRead;
+			cache.getFileCache = realCache;
+		}
+		expect(files).toEqual(before);
 	});
 
 	it('keeps a readable child link set stable across refreshes', async () => {
