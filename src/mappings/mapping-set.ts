@@ -30,7 +30,8 @@ import { importSetIdOf } from './conversion-marker';
 import { normalizeMappingSetId } from '../utils/mapping-provenance';
 
 /** The Tier 1 discriminator of a release record. */
-export const MAPPING_SET_KIND = 'mapping-set';
+export { MAPPING_SET_KIND } from '../generation/import-set-block';
+import { MAPPING_SET_KIND } from '../generation/import-set-block';
 
 export type MappingSetIdOrigin = 'declared' | 'minted';
 

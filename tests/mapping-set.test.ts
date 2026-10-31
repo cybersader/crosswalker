@@ -10,7 +10,7 @@ import type { App } from 'obsidian';
 import { TFile, TFolder, parseYaml } from 'obsidian';
 import { importSssom } from '../src/import/sssom-importer';
 import { assignMappingRowIds, parseMappingTable, serializeMappingTable } from '../src/mappings/mapping-table';
-import { discoverImportSets, type DiscoveredImportSet } from '../src/generation/import-set';
+import { discoverImportSets, recordCountOf, type DiscoveredImportSet } from '../src/generation/import-set';
 import { startConversion } from '../src/mappings/mapping-conversion';
 import {
 	computeMappingSetDigests,
@@ -246,6 +246,9 @@ describe('SSSOM import writes the release record', () => {
 		const set = await setOf(vault, setId);
 		expect(set.mapping_form).toBe('notes');
 		expect(set.noteCount).toBe(4);
+		// The record note is owned but is not a mapping: counts name 3 mappings.
+		expect(set.setNoteCount).toBe(1);
+		expect(recordCountOf(set)).toBe(3);
 	});
 
 	it('table form: the header carries the identical record, and both forms digest the same rows equally', async () => {

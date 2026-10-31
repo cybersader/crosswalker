@@ -2,7 +2,7 @@ import { plural } from '../../utils/plural';
 import { copyTextWithFallback } from '../../utils/clipboard';
 import { App, Modal, Notice, Setting } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
-import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
+import { discoverImportSets, recordCountOf, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
 import { MAPPING_PRESETS, RECIPE_REGISTRY } from '../recipe-registry';
 import { MAPPING_TABLE_SUFFIX } from '../../mappings/mapping-table-reader';
 import { readMappingSet, type MappingSetRecord } from '../../mappings/mapping-set';
@@ -25,7 +25,7 @@ function fromSlotText(stack: StackDefinition, from: string): string {
 }
 
 /** One slot state derives only from the recorded minted ID, not a path, name, or recipe match. */
-export function installedStackRow(fact: SlotRunFact | undefined, known: ReadonlyMap<string, DiscoveredImportSet>): string {
+export function installedStackRow(fact: SlotRunFact | undefined, known: ReadonlyMap<string, DiscoveredImportSet>, slot: 'framework' | 'mapping' = 'framework'): string {
 	if (!fact) return 'Not imported yet';
 	const set = known.get(fact.importSetId);
 	if (!set) return `Set ${fact.importSetId} is no longer in this vault. Import as a new set.`;
@@ -34,7 +34,11 @@ export function installedStackRow(fact: SlotRunFact | undefined, known: Readonly
 	const converting = set.converting ? `. ${conversionStateText(set.converting)}` : '';
 	// A table-form set owns no notes; "0 notes" would read as an empty set.
 	if (set.mapping_form === 'table') return `set ${fact.importSetId}, 1 mapping table, ${plural(set.rowCount ?? 0, 'row')}${converting}`;
-	return `set ${fact.importSetId}${typeof set.noteCount === 'number' ? `, ${plural(set.noteCount, 'note')}` : ''}${converting}`;
+	if (typeof set.noteCount !== 'number') return `set ${fact.importSetId}${converting}`;
+	// A mapping set's release record is a note too; count mappings, as the
+	// import and conversion results do.
+	if (slot === 'mapping') return `set ${fact.importSetId}, ${plural(recordCountOf(set), 'mapping note')}${converting}`;
+	return `set ${fact.importSetId}, ${plural(set.noteCount, 'note')}${converting}`;
 }
 
 /**
@@ -81,7 +85,7 @@ export function stackSlotRows(stack: StackDefinition, run: CrosswalkerPlugin['se
 			// link set stays notes (slice 4 out of scope).
 			const mappingSet = fact ? known.get(fact.importSetId) : undefined;
 			return { label: mapping?.label ?? slot.presetId,
-				state: slot.kind === 'from-slot' ? fromSlotText(stack, slot.from) : installedStackRow(fact, known),
+				state: slot.kind === 'from-slot' ? fromSlotText(stack, slot.from) : installedStackRow(fact, known, 'mapping'),
 				...(mappingSet ? { mappingSet } : {}) };
 		}),
 	];

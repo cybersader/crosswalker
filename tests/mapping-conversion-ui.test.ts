@@ -29,8 +29,11 @@ it('offers the other form, and names the confirmation facts for each direction',
 	expect(convertButtonLabel('notes')).toBe('Convert to notes');
 	expect(conversionConfirmLines(notesSet, 'table')).toEqual([
 		MAPPING_TABLE_TRADE_OFF,
-		'Moves 12 notes to the trash after the table is verified.',
+		'Moves 12 mapping notes to the trash after the table is verified.',
 	]);
+	// The release record is a note too: it is trashed, but named, never counted as a mapping.
+	expect(conversionConfirmLines({ ...notesSet, noteCount: 3, setNoteCount: 1 }, 'table')[1])
+		.toBe("Moves 2 mapping notes and the set's release record note to the trash after the table is verified.");
 	expect(conversionConfirmLines(tableSet, 'notes')[0]).toBe('Writes 1,500 notes in Invented/mappings.');
 	expect(conversionConfirmLines({ ...tableSet, root: '' }, 'notes')[0]).toBe('Writes 1,500 notes in the vault root.');
 	for (const line of [...conversionConfirmLines(notesSet, 'table'), ...conversionConfirmLines(tableSet, 'notes')]) {
@@ -75,7 +78,7 @@ it('puts a recorded mapping set on its row so the row can offer conversion, and 
 	const rows = stackSlotRows(stack, run, new Map([[notesSet.id, converting]]));
 	const row = rows.find((item) => item.mappingSet);
 	expect(row?.mappingSet?.id).toBe(notesSet.id);
-	expect(row?.state).toBe('set iset-conv01, 12 notes. Converting to table (writing)');
+	expect(row?.state).toBe('set iset-conv01, 12 mapping notes. Converting to table (writing)');
 	expect(stackSlotRows(stack, run, new Map()).some((item) => item.mappingSet)).toBe(false);
 	const label = MAPPING_PRESETS.find((entry) => entry.id === mapping.presetId)!.label;
 	expect(conversionSetLabel({ settings: { stacks: [stack], stackRuns: [run] } } as never, notesSet.id)).toBe(`${label} (set iset-conv01)`);

@@ -147,3 +147,17 @@ it('reports a table-form mapping set by its rows, never as an empty set of notes
 	expect(stackSubtitle({ ...stack, detail: 'max' }, tableRun, new Map())).toBe('Every framework level as notes');
 	expect(stackDetailLabel('top-levels')).toBe('Top framework levels as notes');
 });
+
+it('counts a notes-form mapping set by its mappings, leaving out the release record note', () => {
+	const notesFact: SlotRunFact = { importSetId: 'iset-nts010', sourceDigest: 'source-n', recipeDigest: 'recipe-n', sourceName: 'invented.tsv' };
+	const mapping = stack.mappings.find((slot) => slot.kind !== 'from-slot')!;
+	const notesRun = { ...run, mappingSets: { [mappingKey({ ...mapping, id: mapping.presetId })]: notesFact } };
+	const known = new Map([
+		[notesFact.importSetId, { id: notesFact.importSetId, noteCount: 3, setNoteCount: 1, mapping_form: 'notes', rowCount: 0 } as DiscoveredImportSet],
+		[fact.importSetId, { id: fact.importSetId, noteCount: 3, mapping_form: 'notes', rowCount: 0 } as DiscoveredImportSet],
+	]);
+	const rows = stackSlotRows(stack, notesRun, known);
+	expect(rows.some((row) => row.state === 'set iset-nts010, 2 mapping notes')).toBe(true);
+	// A framework set has no release record: every owned note counts.
+	expect(rows.some((row) => row.state === 'set iset-synthetic, 3 notes')).toBe(true);
+});

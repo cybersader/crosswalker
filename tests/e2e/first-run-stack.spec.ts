@@ -136,10 +136,20 @@ describe('First run: synthetic framework stack', function () {
 		expect(result.text).toContain('2 mapping sets');
 		await themeCapture('light', 'visual-stack-06-complete.png');
 		await themeCapture('dark', 'visual-stack-06-complete-dark.png');
-		const mappingLinks = await browser.executeObsidian(({ app }) => app.vault.getMarkdownFiles()
-			.filter((file) => file.path.startsWith('_crosswalker/mappings/')).map((file) => ({
-				path: file.path, links: Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {}),
-			})));
+		// Each mapping set also owns one release record note; it is not a mapping.
+		// Tell them apart by kind, reading the file when its cache is still cold.
+		const mappingFiles = await browser.executeObsidian(async ({ app }) => {
+			const files = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/'));
+			const kinds = await Promise.all(files.map(async (file) => {
+				const cached = app.metadataCache.getFileCache(file)?.frontmatter?.kind;
+				if (typeof cached === 'string') return cached;
+				return /^kind:\s*['"]?([\w-]+)/m.exec(await app.vault.cachedRead(file))?.[1] ?? '';
+			}));
+			return files.map((file, index) => ({ path: file.path, kind: kinds[index],
+				links: Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {}) }));
+		});
+		expect(mappingFiles.filter((file) => file.kind === 'mapping-set')).toHaveLength(2);
+		const mappingLinks = mappingFiles.filter((file) => file.kind !== 'mapping-set');
 		expect(mappingLinks).toHaveLength(3);
 		expect(mappingLinks.filter((edge) => edge.links.length >= 2)).toHaveLength(2);
 		expect(mappingLinks.filter((edge) => edge.links.length === 1)).toHaveLength(1);
@@ -162,7 +172,9 @@ describe('First run: synthetic framework stack', function () {
 		});
 		await button('Reconnect mappings');
 		await browser.waitUntil(async () => (await browser.executeObsidian(({ app }) => {
-			const edges = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/'));
+			// Release record notes are not mappings; they never link endpoints.
+			const edges = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith('_crosswalker/mappings/')
+				&& app.metadataCache.getFileCache(file)?.frontmatter?.kind !== 'mapping-set');
 			return edges.length === 3 && edges.every((file) => Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {}).length >= 2)
 				&& !(document.querySelector('.crosswalker-stack-modal')?.textContent ?? '').includes('mapping endpoint could not link');
 		})), { timeout: 30_000, timeoutMsg: 'Explicit reconnect did not resolve the new technique identity' });
