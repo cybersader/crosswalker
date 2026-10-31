@@ -22,6 +22,21 @@ what only your hands can judge.
 - [ ] Regenerate the local licensed corpus: run every block in `TEST_CROSSWALK_PIVOT.md` § 1 + § 5 (concepts, hierarchy back-fills, OLIR edges, SCF melt). Expect: **~7.4k concept notes + ~7.9k edge notes**, all gitignored
 - [ ] **Reset between test runs** — after doing ad-hoc imports, clear them for a clean slate: **in Obsidian** run the command **"Crosswalker: Reset imported notes (dev)"** (groups generated notes by folder, protects the corpus, per-folder + delete-all buttons), or **outside Obsidian** double-click `reset.bat` (preview then keypress-to-delete) / run `bun run reset` (dry-run) / `bun run reset -- --yes` (delete). It removes only Crosswalker-generated notes **outside** the protected corpus — `Frameworks/_licensed/`, `Frameworks/NIST-mini/`, `_crosswalker/`, `GRC analysis/`, and `PROVENANCE.md` are never touched. Hand-written notes are never touched
 
+## Readable framework connections (2026-10-30)
+
+Automated: `tests/connections-query.test.ts`, `tests/cli/graph-connections.test.ts`, and `tests/e2e/visual-connections-browser.spec.ts` (synthetic notes/table, both themes, actual note/table navigation, cancellation and read-only proof).
+
+- [ ] Open **Crosswalker > Explore framework connections** from the workspace or command palette. No import/reset is needed for repeat visits.
+- [ ] Search for and explicitly choose the source and target imported sets. Both start unchosen, even when only one choice exists. The same set may be chosen twice.
+- [ ] Read the stored subject-to-object relationship. Reverse the selectors: this must not invert the assertion. A resolved membership match means concepts are present in these sets, not that a publisher intended those exact releases.
+- [ ] Search by title, identifier, relationship or recorded provider; choose an optional focal concept. Check total/filtered counts, negative assertions and unresolved candidates separately. Page size defaults to 40 and accepts 1–100 (source: `src/graph/connections-query.ts`).
+- [ ] Open the actual concept/assertion notes. For table assertions, open the mapping table and use the displayed row ID; this does not target a Markdown row anchor. Do not edit review status during a read-only pass.
+- [ ] Expand recorded provenance and coverage. Missing values say **Not recorded**. Evidence/junction notes are not evaluated; skipped files are not automatically missing mappings.
+- [ ] Change selections quickly, search for no match, close, reopen and repeat. No note, recipe, filename or graph default changes. **Refresh records** rereads the vault and clears set choices.
+- [ ] Local graph navigation is unavailable in this slice. Its isolated membership proof is a tracked follow-up, not a claim about native file-link semantics.
+
+Headless equivalent: `bun run cw -- graph connections --vault ./demo --source-set <id> --target-set <id>`. Optional focus requires `--focus-set` when an identifier belongs to both selected sets. No `--apply` exists.
+
 ## 0.5 Crosswalker workspace tab (NEW 2026-07-11)
 
 *Automated: `tests/workspace-view-helpers.test.ts` (pure helper). Manual value:

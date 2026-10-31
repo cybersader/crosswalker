@@ -19,8 +19,8 @@ The UI stays primary. Wizard steps, previews, pickers and navigation need no com
 
 {/* parity:generated:start */}
 
-47 capabilities (source: tools/parity/capabilities.ts).
-Stages: import: 10; map: 6; query: 7; share: 6; maintain: 18. Gaps: CLI 36; UI 1 (source: tools/parity/capabilities.ts).
+48 capabilities (source: tools/parity/capabilities.ts).
+Stages: import: 10; map: 6; query: 8; share: 6; maintain: 18. Gaps: CLI 36; UI 1 (source: tools/parity/capabilities.ts).
 
 | Stage | Action | UI | cw | Gap and plan |
 | --- | --- | --- | --- | --- |
@@ -42,6 +42,7 @@ Stages: import: 10; map: 6; query: 7; share: 6; maintain: 18. Gaps: CLI 36; UI 1
 | map | Import a mapping set as one table instead of notes (mapping-new-table) | Mapping import &gt; Storage; Settings &gt; Default mapping storage | Missing | CLI: cw import does not expose the mapping storage choice and uses the default notes form. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
 | query | Create a saved query in a note (saved-query-create) | Query builder; Command: insert-query-into-note | Missing | CLI: No saved-query generation verb. Plan: UI/CLI parity backlog priority 2: saved queries and graph colors; demo:build currently writes queries outside cw (reference/ui-cli-parity). |
 | query | Color the graph by framework (graph-colors) | Workspace &gt; Color graph; Command: color-graph-by-framework | cw graph configure --mode colors --apply | Covered |
+| query | Explore recorded connections between explicitly selected sets (framework-connections) | Workspace &gt; Explore framework connections; Command: explore-framework-connections | cw graph connections --source-set --target-set --focus-curie --focus-set --search --limit --offset | Covered |
 | query | Preview and apply a framework graph overview (graph-overview) | Configure framework graph &gt; Preview and apply; Command: configure-framework-graph | cw graph configure --mode overview --apply | Covered |
 | query | Embed a saved query in the current note (query-embed) | Command: embed-existing-query | Missing | CLI: No query embedding writer. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
 | query | Browse saved queries (query-browse) | Command: browse-queries | Missing | CLI: No saved-query listing verb. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |

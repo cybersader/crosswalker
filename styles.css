@@ -1,5 +1,32 @@
 /* Crosswalker Plugin Styles */
 
+/* Read-only Connections browser. Native theme tokens keep both themes usable. */
+.crosswalker-connections-modal { width: min(94vw, 1120px); max-height: 90vh; }
+.crosswalker-connections { overflow-wrap: anywhere; }
+.crosswalker-connections-modal .modal-content { min-height: 0; overflow-y: auto; }
+.cw-connections-toolbar { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.cw-connections-intro { margin: 0 0 8px; }
+.cw-connections-warning { color: var(--text-warning); font-size: var(--font-ui-small); margin: 6px 0; }
+.cw-connections-totals { margin: 8px 0 4px; }
+.cw-connections-selectors, .cw-connections-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 8px 0; }
+.cw-connections-filters { grid-template-columns: 2fr 2fr minmax(90px, 1fr); }
+.cw-connections-selectors label, .cw-connections-filters label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cw-connections-selectors select, .cw-connections-filters select, .cw-connections-filters input { width: 100%; }
+.cw-connections-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }
+.cw-connection-row { border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 12px; margin: 8px 0; background: var(--background-secondary); }
+.cw-connection-state { color: var(--text-muted); font-size: var(--font-ui-small); margin-bottom: 8px; }
+.cw-connection-relation { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; align-items: start; }
+.cw-connection-endpoint { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cw-connection-endpoint button { align-self: start; }
+.cw-connection-predicate { font-weight: var(--font-semibold); }
+.cw-connection-row pre { white-space: pre-wrap; }
+.cw-connection-row dt { color: var(--text-muted); }
+.cw-connection-row dd { margin: 0 0 8px; }
+.theme-light .crosswalker-connections-modal { background: #faf8f3; }
+.theme-light .cw-connection-row { background: #f4f1ea; }
+@media (max-width: 650px) { .cw-connections-selectors, .cw-connections-filters, .cw-connection-relation { grid-template-columns: 1fr; } }
+
+
 /* ============================================================================
    Wizard Modal
    ============================================================================ */

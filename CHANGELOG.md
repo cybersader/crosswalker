@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: read-only framework Connections browser (2026-10-30)
+
+- First-use clarity: primary counts describe current filtered results; broader counts are explicitly disclosed as Before search and vault coverage warnings remain separately scoped. Selectors show recorded recipe titles/source types when available, retaining stable set IDs without inferring types from filenames or prefixes.
+
+- Review corrections: search matches recorded values only; row/owner-release identity and explicit version must agree before metadata inheritance, with conflicting declarations kept separate; ambiguous short-link evidence cannot use runtime-specific first-match ranking. Compact cards expose supporting notes in the initial viewport; structured read failures name safe affected paths and recovery actions.
+
+- **Explore framework connections** is available in the workspace and command palette. Explicit source/target import-set choices, optional set-qualified focal concept, search and deterministic bounded pages expose recorded subject-to-object assertions, not inferred relationships. Resolved membership does not establish publisher release intent. Negative assertions and unresolved candidates remain separate from positive pathways.
+- Plugin and `cw graph connections` share the canonical conversion-aware note/table reader and collision-first selected-set identity resolution. Recorded links count only after identity/ownership validation. Exact `no_relationship` and NOT form a union negative count; unfamiliar predicate namespaces do not borrow canonical glosses. Release metadata is cached per owner, never used to add inactive-form assertions.
+- Actual note/table navigation, row IDs, recorded provenance, missing facts and coverage exclusions stay visible. No provenance verification or universal synthetic/publisher classification is inferred. Evidence/junction notes are explicitly not evaluated. Refresh/search/paging are read-only, stale responses are discarded, and no persistent index is added.
+- Native local-graph navigation remains unavailable pending a separate synthetic isolation/membership proof. Readable filename migration, the wider graph plan and portability milestone are not completed here. Existing identities, notes, recipes, filenames and saved graph defaults remain unchanged. The hands-on tour and living graph/parity references describe the reset-free workflow.
+
 ### Fixed: graph color preservation; added: explicit framework overview (2026-10-30)
 
 - Color refresh changes only color groups. Empty search, tags, unresolved/orphan visibility, attachments, arrows, forces, camera, panels and unknown options stay as chosen; absent display keys remain absent. Exact versioned ownership snapshots replace only matching previously emitted occurrences. Legacy query markers never authorize deleting or adopting a custom same-query color. Custom groups keep order and priority, including duplicates and edited generated entries.

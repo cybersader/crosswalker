@@ -5,6 +5,13 @@ import { createFsApp, vaultRelative } from './fs-app';
 import { discoverInstalledFrameworks } from '../src/discovery/installed-frameworks';
 import { graphColorGroups, type GraphConfigurationMode } from '../src/graph/graph-colors';
 import { applyGraphConfiguration, planGraphConfiguration } from '../src/graph/graph-configuration';
+import { loadConnectionsSnapshot, selectConnections, type ConnectionsSelection } from '../src/graph/connections-query';
+
+export async function connectionsFromCli(vault: string, selection: ConnectionsSelection) {
+	if (!fs.existsSync(vault) || !fs.statSync(vault).isDirectory()) throw new Error('The vault folder does not exist. Pass an existing vault with --vault; no folder was created.');
+	const app = createFsApp(vault);
+	return selectConnections(await loadConnectionsSnapshot(app as never), selection);
+}
 
 /** Check the nearest existing ancestor too, so a missing file cannot escape via a symlink. */
 export function graphConfigDirectory(rootDir: string, input = '.obsidian'): string {
