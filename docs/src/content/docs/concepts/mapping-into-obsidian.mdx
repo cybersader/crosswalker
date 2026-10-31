@@ -253,7 +253,7 @@ Each step of the morph, the convention that controls it, and where it's specifie
 |---|---|---|---|
 | **Parse** — source → structured data | **transformation primitives** | a closed ~40-primitive catalog (slugify, split, regex, tree-from-flat, joins, type-coerce) that turns messy input into structured data | [etl-and-import](/crosswalker/concepts/etl-and-import/) |
 | **Morph** — structured data → vault shape | **the recipe grammar** | a closed 5-mechanism grammar — `folder \| file \| heading \| tag \| wikilink` × ordered `layout` × `also_emit` × `graph_edges` — saying *which Obsidian primitive carries what* | [Ch 22 deliverable](/crosswalker/agent-context/zz-research/2026-05-04-challenge-22-target-structure-expressivity/) · [synthesis](/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/) |
-| **Address** — concept → place + links | **`render(Recipe, ConceptIdentity) → Address`** + 10 **template filters** | one pure, deterministic function turns a concept + recipe into its path, heading anchor, wikilink target, tags, and frontmatter — the single coupling point | [import-engine-design](/crosswalker/agent-context/zz-log/2026-05-04-import-engine-design/) |
+| **Address** — concept → place + links | **`render(Recipe, ConceptIdentity) → Address`** + **template filters** (source: `src/render/template.ts` `FILTERS`) | one pure, deterministic function turns a concept + recipe into its path, heading anchor, wikilink target, tags, and frontmatter — the single coupling point | [import-engine-design](/crosswalker/agent-context/zz-log/2026-05-04-import-engine-design/) |
 | **Identity** | **CURIE / ConceptIdentity** | every concept has one stable id (`nist-800-53:AC-2`) independent of where it's stored | [terminology](/crosswalker/concepts/terminology/) |
 | **Contract** — what lands on disk | **Tier 1 schema** (schema-as-primitive) | the canonical Markdown+frontmatter spec — plus `managed`/`user_preserve` ownership, the `_crosswalker` provenance block, and STRM/SSSOM for crosswalk edges | [v0.1 schema spec](/crosswalker/agent-context/v0-1-schema-spec/) · [the reframe](/crosswalker/concepts/etl-and-import/#the-reframe--schema-is-the-primitive-etl-is-convenience) |
 
@@ -264,7 +264,7 @@ The grammar is fully specified; only part is wired in v0.1. The line matters —
 | Convention | v0.1 | Status |
 |---|---|---|
 | `folder` / `file` / `heading` mechanisms | ✅ wired | — |
-| template filters (10) | ✅ wired | — |
+| template filters (source: `src/render/template.ts` `FILTERS`) | ✅ wired | — |
 | `managed` / `user_preserve` frontmatter | ✅ wired | — |
 | `tag` / `wikilink` as layout mechanisms | 📐 schema-reserved | **v0.2** |
 | `graph_edges` (concept ↔ concept links) | 📐 schema-reserved | **v0.2** |
@@ -273,6 +273,18 @@ The grammar is fully specified; only part is wired in v0.1. The line matters —
 | front-end ETL (raw xlsx → rows) | 🛠️ hand-wired per source | tooling/doc gap |
 
 So the "morph onto wikilinks" you'd expect for crosswalk navigation is the **reserved `wikilink` / `graph_edges`** part of the grammar — designed, not yet built. (It's why crosswalk-edge CURIEs don't yet click through to their concept notes.)
+
+## Readable names are recipe templates
+
+**Status last verified:** 2026-10-31, scoped to standalone mapping filenames and Run again. Checked against `src/import/sssom-importer.ts`, `src/render/template.ts`, `src/mappings/mapping-recipe.ts`, the stack guards, `spec/recipe.schema.json` and synthetic unit tests. This naming change has not yet been visually verified in Obsidian.
+
+New standalone [mapping sets](/crosswalker/concepts/terminology/#mapping-set) use names such as `T1059.001 · M1036 (a1b2c3d4).md`. The endpoint IDs stay readable, and a short hash of the assertion's identity distinguishes otherwise equal names. The filename does not convey direction or predicate; read the note's properties for those facts. Each endpoint stem is bounded to 60 UTF-16 code units by the existing `truncate(60)` filter (source: `src/import/sssom-importer.ts` `READABLE_SSSOM_FILE_TEMPLATE`). Very long destination folders can still approach Windows path-length limits.
+
+A [recipe](/crosswalker/concepts/terminology/) (saved instructions for layout and content) defines the name. Anyone authoring or generating a recipe can change its naming template and compose the same filters over any available source field. The default removes the first ID prefix, limits its length, makes a link-safe name, supplies `unnamed` for an empty stem, and adds a stable short hash. The general filters `name-safe`, `default(text)` and `hash(N)` are documented in the [schema spec](/crosswalker/agent-context/v0-1-schema-spec/#419-composable-filename-template-filters-added-2026-10-31-schemaver-1200-additive). They do not change existing `fs-safe`, `truncate`, or `slug` outputs.
+
+Existing sets keep their names and retained original recipe. There is no automatic rename or migration. A new readable set also keeps its chosen template through refresh and supported notes/table conversion; converting a newly imported standalone table into notes uses that table's retained recipe. This default does not change child mapping sets emitted by a framework recipe.
+
+Stack **Run again** accepts a known original recipe in either notes or table form. Table headers use the normalized recipe hash, and saved stack facts may use its raw equivalent. Only the pair from the same known naming template agrees; unknown hashes, ambiguous history and legacy/readable cross-pairs still refuse refresh. Framework recipe guards are unchanged.
 
 ## Mapping recipe continuity
 
@@ -288,7 +300,7 @@ Resume compares existing output against that source-derived preparation, includi
 
 During an interrupted conversion, the source selects the recipe until the verified target enters retirement; partially retired or missing source artifacts never choose a different revision. An active conversion blocks ordinary refresh. Corrupt or unreadable partial artifacts may independently block recovery, but never authorize automatic overwrite/deletion as repair. Finish or recover the existing conversion rather than starting another refresh.
 
-Missing or corrupt originals, conflicting assertion revisions and wholly unstamped history fail closed. Restore the exact original from backup or import into a new set; no recipe-repair UI or automatic migration is implied. Child producer compatibility and historical byte-preservation proofs are not completed by this slice. See [the delivery boundary in the changelog](https://github.com/cybersader/Crosswalker/blob/main/CHANGELOG.md) and the [mapping storage design](/crosswalker/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/).
+Missing or corrupt originals, conflicting assertion revisions and wholly unstamped history fail closed. Restore the exact original from backup or import into a new set; no recipe-repair UI or automatic migration is implied. Child producer compatibility and wholly unstamped history remain outside this slice; stamped legacy standalone recipes have synthetic byte-preserving refresh coverage. See [the delivery boundary in the changelog](https://github.com/cybersader/Crosswalker/blob/main/CHANGELOG.md) and the [mapping storage design](/crosswalker/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/).
 
 ## Related
 

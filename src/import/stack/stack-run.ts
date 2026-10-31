@@ -2,7 +2,7 @@ import { plural } from '../../utils/plural';
 import type { App, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
 import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
-import { importSssom, sssomRecipeDigest, type SssomImportResult } from '../sssom-importer';
+import { importSssom, effectiveSssomDigest, type SssomImportResult } from '../sssom-importer';
 import { computeSourceByteDigest } from '../../generation/hash';
 import type { RunChoice } from './stack-persistence';
 import { readCtidJson, readOlirWorkbookDetails, mappingRowsToTsv } from './mapping-readers';
@@ -170,7 +170,9 @@ export async function importMappingSlots(
 		const refresh = selection?.mode === 'refresh' ? selection : undefined;
 		if (refresh && (!refresh.setId || !refresh.folder)) throw new Error(`${mapping.label} has no confirmed refresh set. Import as a new set.`);
 		const form: MappingForm = selection?.form ?? 'notes';
-		const before = refresh ? new Set<string>() : new Set((await dependencies.listSets()).map((set) => set.id));
+		const existingSets = await dependencies.listSets();
+		const recordedHashes = refresh ? existingSets.find(set => set.id === refresh.setId)?.recipeHashes : undefined;
+		const before = new Set(existingSets.map(set => set.id));
 		// A stack release deliberately isolates all assertions, including those
 		// shared with other publishers. This explicit choice is not auto-qualification.
 		const outcome = await dependencies.importRows(tsv, refresh
@@ -195,7 +197,7 @@ export async function importMappingSlots(
 				upToDate: (outcome.generation.upToDate?.length ?? 0) };
 		const record: CompletedMapping = { id: mapping.id, label: mapping.label, setId: refresh ? refresh.setId! : added[0].id,
 			folder: outcome.folder, ...counts, duplicateRowsSkipped, sheetSkips, unresolved: outcome.summary, tsv, sourceDigest, sourceName,
-			recipeDigest: sssomRecipeDigest(mapping.from, mapping.to) };
+			recipeDigest: effectiveSssomDigest(mapping.from, mapping.to, recordedHashes) };
 		completed.push(record);
 		await dependencies.onCompleted?.(record);
 	}

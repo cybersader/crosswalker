@@ -23,8 +23,8 @@ import { LARGE_FILE_BYTES } from '../vault-source-scan-runner';
 import { recognizeStackSources, type StackCandidate, type StackRecognition, type StackSource } from './stack-recognize';
 import { builtInMappingTsv, importMappingSlots, mappingCompletionText, needsLateCrosswalkRefresh, reconnectMappings, stackMappingDependencies, waitForIndexedDestination, type CompletedMapping } from './stack-run';
 import { frameworkImportError } from './stack-errors';
-import { sssomRecipeDigest } from '../sssom-importer';
-import { checkpointFrameworkOutcome, fromDefinition, mappingKey, replaceStackDefinition, slotRunChoices, toDefinition,
+import { effectiveSssomDigest } from '../sssom-importer';
+import { checkpointFrameworkOutcome, fromDefinition, mappingKey, replaceStackDefinition, slotRunChoices, mappingSlotRunChoices, toDefinition,
 	type RunChoice, type StackDefinition, type StackRunRecord, type SlotRunFact } from './stack-persistence';
 import type { DiscoveredImportSet } from '../../generation/import-set';
 import type { MappingForm } from '../../generation/import-set-block';
@@ -415,12 +415,12 @@ export class StackSetupModal extends Modal {
 					const source = fill?.source.path;
 					const digest = mapping.kind === 'built-in' ? computeSourceByteDigest(new TextEncoder().encode(builtInMappingTsv()))
 						: source && this.sourceDigests.get(source);
-					const hash = sssomRecipeDigest(mapping.from, mapping.to);
 					const fact = this.storedRun?.mappingSets[mappingKey(mapping)];
 					const set = fact && this.knownSets.get(fact.importSetId);
+					const hash = effectiveSssomDigest(mapping.from, mapping.to, set?.recipeHashes);
 					const recipeId = `sssom-${mapping.from}-to-${mapping.to}`;
 					const guard = set ? refreshRootProblem(set) ?? refreshRecipeProblem(recipeId, set.recipeIds, hash, set.recipeHashes) : null;
-					this.choices.set(mappingKey(mapping), slotRunChoices(fact, !!set, digest, hash, guard).selected);
+					this.choices.set(mappingKey(mapping), mappingSlotRunChoices(mapping.from, mapping.to, fact, !!set, digest, hash, guard).selected);
 				}
 				this.screen = 'review';
 			} catch {
@@ -576,10 +576,11 @@ export class StackSetupModal extends Modal {
 	}
 
 	private renderRunChoice(row: HTMLElement, key: string, fact: SlotRunFact | undefined, digest: string | undefined,
-		hash: string, recipeId: string, available: boolean): void {
+		hash: string, recipeId: string, available: boolean, mapping?: Pick<MappingPreset, 'from' | 'to'>): void {
 		const set = fact && this.knownSets.get(fact.importSetId);
 		const guard = set ? refreshRootProblem(set) ?? refreshRecipeProblem(recipeId, set.recipeIds, hash, set.recipeHashes) : null;
-		const state = slotRunChoices(fact, !!set, digest, hash, guard);
+		const state = mapping ? mappingSlotRunChoices(mapping.from, mapping.to, fact, !!set, digest, hash, guard)
+			: slotRunChoices(fact, !!set, digest, hash, guard);
 		if (state.message) row.createDiv({ cls: 'crosswalker-stack-warning', text: state.message });
 		if (!available && state.selected !== 'skip') {
 			row.createDiv({ cls: 'crosswalker-stack-muted', text: 'Add the source file to import this slot.' });
@@ -690,8 +691,8 @@ export class StackSetupModal extends Modal {
 			if (this.revisiting) this.renderRunChoice(row, mappingKey(mapping), this.storedRun?.mappingSets[mappingKey(mapping)],
 				mapping.kind === 'built-in' ? computeSourceByteDigest(new TextEncoder().encode(builtInMappingTsv()))
 					: source && this.sourceDigests.get(source),
-				sssomRecipeDigest(mapping.from, mapping.to),
-				`sssom-${mapping.from}-to-${mapping.to}`, ready);
+				effectiveSssomDigest(mapping.from, mapping.to, this.knownSets.get(this.storedRun?.mappingSets[mappingKey(mapping)]?.importSetId ?? '')?.recipeHashes),
+				`sssom-${mapping.from}-to-${mapping.to}`, ready, mapping);
 			const refreshSet = this.mappingRefreshSet(mapping);
 			if (refreshSet) row.createDiv({ cls: 'crosswalker-stack-muted crosswalker-mapping-form-fixed', text: refreshFormText(refreshSet.mapping_form ?? 'notes') });
 			else if (ready && (!this.revisiting || (this.choices.get(mappingKey(mapping)) ?? 'new') === 'new')) {
@@ -864,10 +865,10 @@ export class StackSetupModal extends Modal {
 					const fill = this.recognition.mappingFills.find((item) => item.mapping.id === mapping.id);
 					const digest = mapping.kind === 'built-in' ? computeSourceByteDigest(new TextEncoder().encode(builtInMappingTsv()))
 						: fill && this.sourceDigests.get(fill.source.path);
-					const hash = sssomRecipeDigest(mapping.from, mapping.to);
+					const hash = effectiveSssomDigest(mapping.from, mapping.to, set?.recipeHashes);
 					const rootProblem = mode === 'refresh' ? refreshRootProblem(set) : null;
 					if (rootProblem) throw new Error(rootProblem);
-					const legal = slotRunChoices(fact, !!set, digest, hash,
+					const legal = mappingSlotRunChoices(mapping.from, mapping.to, fact, !!set, digest, hash,
 						set ? refreshRootProblem(set) ?? refreshRecipeProblem(`sssom-${mapping.from}-to-${mapping.to}`, set.recipeIds, hash, set.recipeHashes) : null);
 					if (this.revisiting && !legal.choices.includes(mode)) throw new Error(`${mapping.label} import choice is no longer available. Review the stack again before importing.`);
 					mappingChoices.set(mapping.id, { mode, form: mode === 'refresh' && set ? set.mapping_form ?? 'notes' : this.mappingFormFor(mapping),

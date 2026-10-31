@@ -113,9 +113,10 @@ export async function selectMappingRecipe(app: App, request: MappingRecipeReques
  if (original.recipe !== first.id) refuse('the retained original recipe identity does not agree');
  const effective = computeRecipeHash(original.target, original.source);
  if (effective !== first.hash) {
-  const frozen = frozenStandaloneRecipe(original);
-  if (!frozen || frozen.recipe !== first.id || computeRecipeHash(frozen.target, frozen.source) !== first.hash
-   || computeRecipeDocumentDigest(normalizeRecipe(frozen)) !== first.recipe_document_digest) refuse('the original effective hash does not agree with the recorded producer');
+  const frozen = [frozenStandaloneRecipe(original), frozenReadableStandaloneRecipe(original)].find(candidate =>
+   candidate && candidate.recipe === first.id && computeRecipeHash(candidate.target, candidate.source) === first.hash
+   && computeRecipeDocumentDigest(normalizeRecipe(candidate)) === first.recipe_document_digest);
+  if (!frozen) refuse('the original effective hash does not agree with the recorded producer');
  }
  return { original, provenanceRecipe: { ...first, recipe_document_digest: first.recipe_document_digest }, form, paths: votes.map(v => v.path).sort() };
 }
@@ -135,6 +136,34 @@ function frozenStandaloneRecipe(original: CrosswalkerImportRecipe): CrosswalkerI
   source: { ontology: source, levels: ['mapping'] },
   target: {
    layout: [{ level: 'mapping', mechanism: 'file', template: '{_crosswalker_curie_local_part|slug}.md', kind: 'crosswalk-edge' }],
+   also_emit: {
+    tags: [`crosswalk/${source}-to-${target}`],
+    frontmatter: {
+     managed: {
+      title: '{subject_id} -> {object_id}', predicate_id: '{predicate_id}', subject_id: '{subject_id}', object_id: '{object_id}',
+      subject_note: '{subject_note|optional}', object_note: '{object_note|optional}', subject_label: '{subject_label}', object_label: '{object_label}',
+      mapping_justification: '{mapping_justification}', mapping_provider: '{mapping_provider}', mapping_set_id: '{mapping_set_id}', predicate_modifier: '{predicate_modifier}',
+      source_framework: source, target_framework: target, sssom_predicate: '{sssom_predicate}', match_confidence: '{confidence|optional|number}',
+     },
+     user_preserve: ['review_status', 'reviewer', '*notes*'],
+    },
+    body: [{ template: '{edge_body}', position: 'append', format: 'text' }],
+   },
+  },
+ };
+}
+
+/** Frozen 2026-10-31 readable standalone producer. Keep independent of bundled defaults. */
+function frozenReadableStandaloneRecipe(original: CrosswalkerImportRecipe): CrosswalkerImportRecipe | undefined {
+ const managed = original.target.also_emit?.frontmatter?.managed;
+ const source = managed?.source_framework;
+ const target = managed?.target_framework;
+ if (typeof source !== 'string' || typeof target !== 'string') return undefined;
+ return {
+  recipe: `sssom-${source}-to-${target}`,
+  source: { ontology: source, levels: ['mapping'] },
+  target: {
+   layout: [{ level: 'mapping', mechanism: 'file', template: '{subject_id|regex(^(?:[^:]*:)?([\\s\\S]*)$)|truncate(60)|name-safe|trim(.)|default(unnamed)} · {object_id|regex(^(?:[^:]*:)?([\\s\\S]*)$)|truncate(60)|name-safe|trim(.)|default(unnamed)} ({_crosswalker_curie_local_part|hash(8)}).md', kind: 'crosswalk-edge' }],
    also_emit: {
     tags: [`crosswalk/${source}-to-${target}`],
     frontmatter: {

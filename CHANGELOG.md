@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: readable mapping filenames from recipe templates (2026-10-31)
+
+- New standalone mapping sets use readable endpoint names such as `T1059.001 · M1036 (a1b2c3d4).md`, with a stable short identity suffix. Naming is a recipe template, not a special mapping-only formatter: anyone writing or generating a recipe can compose `hash(N)`, `default(text)` and `name-safe` with the existing filters and any available source field. `name-safe` also drops invisible formatting characters and half characters left by a length cut. SchemaVer 1.20.0 documents these additive filters. Existing filters and recipes retain their behavior and hashes.
+- Existing sets keep their exact filenames and original recipe. New readable sets retain that same choice through refresh, conversion between notes and a table, and interrupted-conversion recovery. Names do not encode relationship direction or predicate; there is no rename or migration. Child mapping sets emitted by a framework recipe keep their existing names.
+- **Fixed: table-form stack Run again.** Table imports stamp the normalized recipe hash, while stack run facts previously recorded the raw hash. That mismatch already blocked table refresh before this naming change. Mapping-only run choices now recognize the raw/normalized pair for the same known template, never a legacy/readable cross-pair or an unknown hash. Refresh records the selected set's actual stamp; framework guards remain unchanged.
+- Synthetic unit regressions cover readable punctuation, sanitization, lists, truncation, identity stability, legacy byte-preserving refresh, both conversion directions, collision refusal and repeated Run again. UI screenshots are a separate verification step.
+
 ### Fixed: interrupted mapping conversion preserves edits (2026-10-31)
 
 - A conversion prepares every assertion and release destination before creating its marker. Preflight and execution share the actual conversion render/path/content preparation; conflicting normalized addresses, incompatible existing destinations and duplicate release records refuse without writing or automatic cleanup. Normal imports keep their existing execution path.
