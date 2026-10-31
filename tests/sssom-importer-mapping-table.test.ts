@@ -9,6 +9,10 @@
 import type { App } from 'obsidian';
 import { TFile, TFolder, parseYaml } from 'obsidian';
 import { importSssom, nonCurieEndpointRefusal } from '../src/import/sssom-importer';
+import { computeRecipeHash, computeRecipeDocumentDigest } from '../src/generation/hash';
+import { normalizeRecipe } from '../src/import/recipe-document';
+import { buildSyntheticRecipe } from '../src/import/sssom-importer';
+import { readImportSetRecipe, vaultImportSetRecipeFiles } from '../src/import/import-set-recipes';
 import { parseMappingTable, serializeMappingTable } from '../src/mappings/mapping-table';
 import { readMappingTables } from '../src/mappings/mapping-table-reader';
 import { discoverImportSets, resolveImportSet } from '../src/generation/import-set';
@@ -56,7 +60,7 @@ function makeVault(): { app: App; written: Map<string, string>; folders: Set<str
 				if (folders.has(path)) return new TFolder(path);
 				return null;
 			},
-			adapter: { exists: async (path: string) => written.has(path) || folders.has(path), mkdir: async (path: string) => { folders.add(path); } },
+			adapter: { exists: async (path: string) => written.has(path) || folders.has(path), read: async (path: string) => written.get(path)!, write: async (path: string, text: string) => { written.set(path, text); }, mkdir: async (path: string) => { folders.add(path); } },
 			create: async (path: string, content: string) => {
 				if (written.has(path)) throw new Error('File already exists.');
 				written.set(path, content);
@@ -90,7 +94,7 @@ describe('importSssom with mappingForm table', () => {
 		expect(result.mappingForm).toBe('table');
 		expect(result.tablePath).toBe(TABLE);
 		expect(result.rowsWritten).toBe(3);
-		expect([...written.keys()]).toEqual([TABLE]);
+		expect([...written.keys()].filter(path => path.endsWith('.mapping-table.tsv'))).toEqual([TABLE]);
 		expect([...written.keys()].some((path) => path.endsWith('.md'))).toBe(false);
 
 		const parsed = parseMappingTable(written.get(TABLE)!);
@@ -122,7 +126,9 @@ describe('importSssom with mappingForm table', () => {
 		expect(importSet.id).toBe(result.generation?.importSetId);
 		expect(head.import_set).toBe(importSet.id);
 		expect(importSet.destination).toBe(FOLDER);
-		expect(block.recipe).toMatchObject({ id: 'sssom-demo-a-to-demo-b' });
+		const original = normalizeRecipe(buildSyntheticRecipe('demo-a', 'demo-b'));
+		expect(block.recipe).toEqual({ id: original.recipe, hash: computeRecipeHash(original.target, original.source), recipe_document_digest: computeRecipeDocumentDigest(original) });
+		expect(await readImportSetRecipe(vaultImportSetRecipeFiles(app)!, String(importSet.id), computeRecipeDocumentDigest(original))).toEqual(original);
 		expect(block.concept_cid).toBeUndefined();
 		expect(block.review_cid).toBeUndefined();
 		expect(block.review_groups).toBeUndefined();
@@ -160,9 +166,10 @@ describe('importSssom with mappingForm table', () => {
 		// One row carried a review; the other matched row had none to carry.
 		expect(second.reviewCarried).toBe(1);
 		expect(second.rowsDropped).toBe(1);
-		expect([...written.keys()]).toEqual([TABLE]);
+		expect([...written.keys()].filter(path => path.endsWith('.mapping-table.tsv'))).toEqual([TABLE]);
 
 		const after = parseMappingTable(written.get(TABLE)!);
+		expect(after.header.crosswalker_provenance!.recipe).toEqual(before.header.crosswalker_provenance!.recipe);
 		expect(after.errors).toEqual([]);
 		expect(after.rows.map((row) => row.subject_id).sort()).toEqual(['demo-a:X-1', 'demo-a:X-2', 'demo-a:X-4']);
 		expect(after.rows.find((row) => row.row_id === removed.row_id)).toBeUndefined();
@@ -184,7 +191,7 @@ describe('importSssom with mappingForm table', () => {
 		const qualified = `${FOLDER}/demo-a-to-demo-b.${secondId}.mapping-table.tsv`;
 		expect(second.tablePath).toBe(qualified);
 		expect(written.get(TABLE)).toBe(original);
-		expect([...written.keys()].sort()).toEqual([TABLE, qualified].sort());
+		expect([...written.keys()].filter(path => path.endsWith('.mapping-table.tsv')).sort()).toEqual([TABLE, qualified].sort());
 
 		const sets = await discoverImportSets(app);
 		expect(sets).toHaveLength(2);
@@ -236,7 +243,7 @@ describe('importSssom with mappingForm table', () => {
 		});
 		expect(refused.generation?.success).toBe(false);
 		expect(refused.generation?.errors[0].message).toBe(`Import set ${setId} has no mapping table in the vault. Import the source as a new set instead.`);
-		expect(written.size).toBe(0);
+		expect([...written.keys()].every(path => path.startsWith('_crosswalker/import-sets/'))).toBe(true);
 	});
 
 	it('refuses to refresh a table with unreadable rows and says how to fix it', async () => {
@@ -285,6 +292,47 @@ describe('importSssom with mappingForm table', () => {
 		expect(refused.generation?.success).toBe(false);
 		expect(refused.generation?.errors[0].message).toBe(`Import set ${setId} stores its mappings as a table. Convert the set instead of refreshing it as notes.`);
 		expect(written).toEqual(snapshot);
+	});
+
+	it('refuses failed original retention without a successful table header', async () => {
+		const { app, written } = makeVault();
+		app.vault.adapter.write = async () => { throw new Error('synthetic failure'); };
+		const result = await importSssom(app, sssom([ROW_1]), null, null, { runTier2Projection: false, mappingForm: 'table', importSet: 'new-set-qualified' });
+		expect(result.generation?.success).toBe(false);
+		expect(result.generation?.runRecipeKeepFailed).toBe(true);
+		expect(result.generation?.errors[0].message).toMatch(/No table was written/);
+		expect([...written.keys()].some(p => p.endsWith('.mapping-table.tsv'))).toBe(false);
+	});
+
+	it('reports retained-only partial storage when the subsequent table write fails', async () => {
+		const { app, written } = makeVault();
+		app.vault.create = async () => { throw new Error('synthetic failure'); };
+		const result = await importSssom(app, sssom([ROW_1]), null, null, { runTier2Projection: false, mappingForm: 'table', importSet: 'new-set-qualified' });
+		expect(result.generation?.success).toBe(false);
+		expect(result.generation?.errors[0].message).toMatch(/original mapping recipe was saved, but the table write/);
+		expect([...written.keys()].some(p => p.includes('/recipe-sha256-'))).toBe(true);
+	});
+
+	it('propagates selected original lineage through the actual generation engine adapter', async () => {
+		const { mappingRecipeForGeneration } = await import('../src/mappings/mapping-recipe');
+		const { generateFromRecipe } = await import('../src/generation/generation-engine');
+		const { sssomEdgeCurie } = await import('../src/generation/crosswalk-identity');
+		const { app, written } = makeVault();
+		const original = normalizeRecipe(buildSyntheticRecipe('demo-a', 'demo-b'));
+		const runtime = buildSyntheticRecipe('demo-a', 'demo-b');
+		const provenanceRecipe = { id: original.recipe, hash: computeRecipeHash(runtime.target, runtime.source), recipe_document_digest: computeRecipeDocumentDigest(original) };
+		const row = { subject_id: 'demo-a:X', object_id: 'demo-b:Y', predicate_id: 'is_equivalent_to', subject_label: 'Source', object_label: 'Target', mapping_justification: '', mapping_provider: '', mapping_set_id: 'demo', predicate_modifier: '', sssom_predicate: 'skos:exactMatch', edge_body: 'Synthetic body' };
+		const result = await generateFromRecipe(app, { columns: Object.keys(row), rows: [row], rowCount: 1 }, runtime, {
+			basePath: 'Adapter proof', importSet: 'new-set-qualified', overwriteMode: 'replace', createFolders: true,
+			provenanceRecipe: mappingRecipeForGeneration({ original, provenanceRecipe, form: 'notes', paths: [] }),
+			curieLocalPart: (record, _row, set) => sssomEdgeCurie(record, set), curiePrefix: 'sssom', strictValidation: true,
+		});
+		expect(result.errors).toEqual([]);
+		expect(result.success).toBe(true);
+		const note = [...written.values()].find(text => text.startsWith('---'))!;
+		const fm = parseYaml(note.match(/^---\n([\s\S]*?)\n---/)![1]);
+		expect(fm._crosswalker.recipe).toEqual(provenanceRecipe);
+		expect([...written.keys()].some(path => path.includes('/recipe-'))).toBe(false);
 	});
 
 	it('runs the projection hook after a table write', async () => {

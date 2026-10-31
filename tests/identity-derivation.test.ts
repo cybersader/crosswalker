@@ -556,6 +556,8 @@ describe('AM-27: one run never writes two rows onto one identity', () => {
 			'x:A\tskos:closeMatch\ty:B\tset:one\tA\tB\tsemapv:ManualMappingCuration\t1',
 		].join('\n');
 		const { app, written } = makeSssomApp();
+		const { seedStampedSssomSet } = await import('./helpers/stamped-sssom-set');
+		await seedStampedSssomSet(app, 'iset-legacy', 'endpoint-v1');
 
 		const result = await importSssom(app, tsv, null, null, {
 			runTier2Projection: false,
@@ -578,15 +580,19 @@ describe('AM-27: one run never writes two rows onto one identity', () => {
 function makeSssomApp(): { app: App; written: Map<string, string> } {
 	const written = new Map<string, string>();
 	const folders = new Set<string>();
+	const retained = new Map<string, string>();
 	const app = {
 		vault: {
+			getFiles: () => [...written.keys()].map(path => ({ path })),
 			getMarkdownFiles: () => [...written.keys()]
 				.filter((path) => path.endsWith('.md'))
 				.map((path) => ({ path, basename: path.split('/').pop()?.replace(/\.md$/, '') ?? path, extension: 'md' })),
 			// The importer asks the adapter whether its destination exists before it
 			// creates one. Without it every row fails at the folder, not the guard.
 			adapter: {
-				exists: async (path: string) => written.has(path) || folders.has(path),
+				exists: async (path: string) => written.has(path) || retained.has(path) || folders.has(path),
+				read: async (path: string) => retained.get(path) ?? written.get(path)!,
+				write: async (path: string, text: string) => { retained.set(path, text); },
 				mkdir: async (path: string) => { folders.add(path); },
 			},
 			getAbstractFileByPath: (path: string) => {

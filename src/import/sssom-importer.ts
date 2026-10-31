@@ -40,7 +40,9 @@ import {
 	type SssomParseResult,
 	type SssomRow,
 } from './sssom-parser';
-import { computeRecipeHash } from '../generation/hash';
+import { computeRecipeDocumentDigest, computeRecipeHash } from '../generation/hash';
+import { normalizedMappingRecipe, selectMappingRecipe, mappingRecipeForGeneration, type SelectedMappingRecipe } from '../mappings/mapping-recipe';
+import { keepImportSetRecipe, readImportSetRecipe, vaultImportSetRecipeFiles } from './import-set-recipes';
 import { readNoteFrontmatterState } from '../export/vault-reader';
 import { TIER1_EDGE_PREDICATE_IDS, extractTier1Curie } from '../validation/validator';
 import { plural } from '../utils/plural';
@@ -351,7 +353,8 @@ async function runImportSssom(
 	});
 
 	result.summary = summarizeUnresolvedEndpoints(result.unresolved, unreadable, options.mappingForm ?? 'notes');
-	const recipe = buildSyntheticRecipe(source, target);
+	let recipe = buildSyntheticRecipe(source, target);
+	let selected: SelectedMappingRecipe | undefined;
 	const assertionFacts: MappingSetAssertionFacts[] = rowsForRecipe.map((row: Record<string, unknown>) => ({
 		subject_id: String(row.subject_id),
 		predicate_id: String(row.predicate_id),
@@ -395,6 +398,13 @@ async function runImportSssom(
 			result.generation = failedGeneration(existing.id, `Import set ${existing.id} stores its mappings as a table. Convert the set instead of refreshing it as notes.`);
 			return result;
 		}
+		try {
+			selected = await selectMappingRecipe(app, { setId: existing.id, operation: 'refresh-notes' });
+			recipe = selected.original as unknown as Recipe;
+		} catch (error) {
+			result.generation = failedGeneration(existing.id, error instanceof Error ? error.message : 'The original mapping recipe could not be read. Restore it from backup, or import into a new set.');
+			return result;
+		}
 	}
 	const generatedColumns = [
 		'sssom_predicate',
@@ -418,6 +428,7 @@ async function runImportSssom(
 			overwriteMode: options.overwriteMode ?? 'replace',
 			createFolders: true,
 			importSet: options.importSet,
+			...(selected ? { provenanceRecipe: mappingRecipeForGeneration(selected) } : {}),
 			sourceFileName: setMappingSetId,
 			strictValidation: true,
 			curieLocalPart: (row, _rowNum, importSet) => sssomEdgeCurie(row, importSet),
@@ -636,11 +647,21 @@ async function writeTableSet(app: App, input: TableSetInput, debug?: DebugLog): 
 		importSet = { ...importSet, mapping_form: 'table' };
 	}
 
+	// New tables retain and stamp one validated normalized representation.
+	// Existing refresh selects its recorded original below before modification.
+	let original: ReturnType<typeof normalizedMappingRecipe> | undefined;
+	if (!refresh) {
+		try { original = normalizedMappingRecipe(input.recipe); }
+		catch { return failedGeneration(importSet.id, 'The mapping recipe could not be validated. No table was written. Update the plugin, then import into a new set.'); }
+	}
+	const effectiveRecipe = original ?? input.recipe;
+	const documentDigest = original ? computeRecipeDocumentDigest(original) : undefined;
 	const provenance = buildProvenance(
 		{
 			sourceFile: input.sourceFileName,
-			recipeId: input.recipe.recipe,
-			recipeHash: computeRecipeHash(input.recipe.target, input.recipe.source),
+			recipeId: effectiveRecipe.recipe,
+			recipeHash: computeRecipeHash(effectiveRecipe.target, effectiveRecipe.source),
+			recipeDocumentDigest: documentDigest,
 			importSet,
 		},
 		PLUGIN_VERSION,
@@ -714,6 +735,10 @@ async function writeTableSet(app: App, input: TableSetInput, debug?: DebugLog): 
 			const detail = problems.length === 1 ? problems[0] : `${problems[0]} (and ${problems.length - 1} more)`;
 			return failedGeneration(importSet.id, `Mapping table ${existing.path} has rows Crosswalker could not read, so refreshing it would lose their reviews. Fix or remove those rows in the file, then run the import again. Detail: ${detail}`);
 		}
+		try {
+			const selected = await selectMappingRecipe(app, { setId: importSet.id, operation: 'refresh-table' });
+			provenance.recipe = selected.provenanceRecipe;
+		} catch (error) { return failedGeneration(importSet.id, error instanceof Error ? error.message : 'The original mapping recipe could not be verified. Restore it from backup, or import into a new set.'); }
 		const merged = mergeReviewColumns(rows, existing.rows);
 		rows = merged.rows;
 		result.reviewCarried = merged.carried;
@@ -730,13 +755,27 @@ async function writeTableSet(app: App, input: TableSetInput, debug?: DebugLog): 
 		}
 	}
 
+	let retainedPath: string | undefined;
+	if (original && documentDigest) {
+		const files = vaultImportSetRecipeFiles(app);
+		if (!files) return failedGeneration(importSet.id, 'The original mapping recipe cannot be saved because recipe storage is unavailable. No table was written. Reopen the vault and try again.');
+		const kept = await keepImportSetRecipe(files, importSet.id, original, documentDigest);
+		if (!kept.ok || kept.outcome === 'skipped' || !(await readImportSetRecipe(files, importSet.id, documentDigest))) {
+			const failed = failedGeneration(importSet.id, 'The original mapping recipe could not be saved and verified. No table was written; a partial recipe copy may remain. Check that the vault is writable, then import into a new set.');
+			failed.runRecipeKeepFailed = true;
+			return failed;
+		}
+		retainedPath = kept.path;
+	}
 	try {
 		const written = await writeMappingTable(app, { path, header, rows });
 		debug?.info('sssom-import', 'table-written', `SSSOM import: wrote mapping table ${path}`, {
 			path, rows: rows.length, bytes: written.bytes, created: written.created,
 		});
 	} catch (error) {
-		return failedGeneration(importSet.id, error instanceof Error ? error.message : String(error));
+		return failedGeneration(importSet.id, retainedPath
+			? 'The original mapping recipe was saved, but the table write did not finish. A partial table may remain. Check that the destination is writable and inspect it before importing into a new set; saved files were not rolled back.'
+			: error instanceof Error ? error.message : String(error));
 	}
 	result.tablePath = path;
 	result.rowsWritten = rows.length;
@@ -755,8 +794,8 @@ async function writeTableSet(app: App, input: TableSetInput, debug?: DebugLog): 
 
 /**
  * Build a synthetic crosswalk-edge recipe that maps SSSOM rows to
- * junction-edge .md files. The recipe is constructed in-memory; not
- * persisted to disk. Reuses Crosswalker's existing crosswalk-edge layout
+ * junction-edge .md files. New direct tables retain its normalized original;
+ * note generation retains recipes through the existing engine. Reuses Crosswalker's existing crosswalk-edge layout
  * mechanism so render() + frontmatter-merge + Tier 1 validation all
  * work unchanged.
  */

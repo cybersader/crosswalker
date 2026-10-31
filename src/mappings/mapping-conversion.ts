@@ -20,11 +20,18 @@
  * identity and provenance of converted notes are the engine's, not a copy.
  */
 
-import { TFile, normalizePath, type App } from 'obsidian';
+import { TFile, normalizePath, parseYaml, type App } from 'obsidian';
 import manifest from '../../manifest.json';
-import type { ParsedData, GenerationResult } from '../types/config';
-import type { Recipe } from '../render';
-import { generateFromRecipe } from '../generation/generation-engine';
+import type { ParsedData } from '../types/config';
+import { generateFromRecipe, prepareMappingConversionNote, resolveWriteTarget, foreignSetClaim, buildNoteContent, type RecipeImportOptions } from '../generation/generation-engine';
+import { buildIdentityIndex } from '../generation/identity-index';
+import { splitNoteText } from '../generation/note-text';
+import { importSetRecipePath } from '../import/import-set-recipes';
+import { normalizeMappingSetId, normalizePredicateModifierInput } from '../utils/mapping-provenance';
+import { validateTier1Frontmatter } from '../validation/validator';
+import { wrapManagedBody, scanRegions } from '../generation/managed-body';
+import { conversionManagedKeys, conversionRecipe, conversionRow, expectedConvertedNote } from './mapping-conversion-recipe';
+import { selectMappingRecipe, mappingRecipeForGeneration, type SelectedMappingRecipe } from './mapping-recipe';
 import {
 	discoverImportSets,
 	requireVaultIndexed,
@@ -35,9 +42,7 @@ import {
 } from '../generation/import-set';
 import { buildProvenance } from '../generation/provenance';
 import type { CrosswalkerProvenance } from '../generation/import-set-block';
-import { SSSOM_CURIE_PREFIX, sssomEdgeCurie } from '../generation/crosswalk-identity';
-import { edgeBodyOf } from '../generation/edge-endpoints';
-import { buildSyntheticRecipe } from '../import/sssom-importer';
+import { SSSOM_CURIE_PREFIX, crosswalkEdgeCuriePrefix, sssomEdgeCurie } from '../generation/crosswalk-identity';
 import { readNoteFrontmatterState } from '../export/vault-reader';
 import { normalizeFolderSetting } from '../settings/folder-settings';
 import {
@@ -61,7 +66,7 @@ import {
 	mappingSetFromTableHeader,
 	setNoteProvenance,
 	storedMappingSet,
-	writeMappingSetNote,
+	mappingSetNoteDestination,
 	type MappingSetRecord,
 } from './mapping-set';
 import {
@@ -70,7 +75,7 @@ import {
 	deleteConversionMarker,
 	importSetIdOf,
 	readConversionMarkerFiles,
-	writeConversionMarker,
+	serializeConversionMarker,
 	type ConversionMarker,
 	type ConversionPhase,
 } from './conversion-marker';
@@ -166,7 +171,8 @@ export async function startConversion(
 		if (set.mapping_form === to) {
 			return stopped(setId, from, to, 'not-started', `Import set ${setId} already stores its mappings as ${formLabel(to)}. Nothing needs converting.`);
 		}
-		const plan = await planConversion(app, set, to);
+		const selected = await selectMappingRecipe(app, { setId, operation: to === 'table' ? 'notes-to-table' : 'table-to-notes' });
+		const plan = await planConversion(app, set, to, selected);
 		if ('reason' in plan) return stopped(setId, from, to, 'not-started', plan.reason);
 		const marker: ConversionMarker = {
 			format: CONVERSION_MARKER_FORMAT,
@@ -180,7 +186,8 @@ export async function startConversion(
 			plugin_version: PLUGIN_VERSION,
 			path: conversionMarkerPath(plan.folder, setId),
 		};
-		await writeConversionMarker(app, marker);
+		await prepareConversion(app, marker, selected);
+		await app.vault.create(marker.path, serializeConversionMarker(marker));
 		return await runPhases(app, deps, marker, onProgress);
 	} catch (error) {
 		return stopped(setId, from, to, 'not-started', `Could not start converting import set ${setId} to ${formLabel(to)}: ${messageOf(error)}`);
@@ -231,6 +238,7 @@ async function rereadMarker(app: App, marker: ConversionMarker): Promise<{ marke
 	const entry = (await readConversionMarkerFiles(app)).find((file) => file.path === normalizePath(marker.path));
 	if (!entry) return { reason: `No conversion is waiting to finish for import set ${marker.import_set}. Check the set's mapping form in the stack before converting again.` };
 	if (!entry.marker) return { reason: entry.error ?? `Conversion marker ${marker.path} cannot be read.` };
+	if (entry.marker.import_set !== marker.import_set || entry.marker.from !== marker.from || entry.marker.to !== marker.to || entry.marker.target_path !== marker.target_path || entry.marker.source_count !== marker.source_count) return { reason: 'The conversion marker identity, destination or count changed. Nothing was changed. Reopen the conversion from the stack before finishing it.' };
 	return { marker: entry.marker };
 }
 
@@ -246,32 +254,39 @@ async function runPhases(app: App, deps: ConversionDeps, start: ConversionMarker
 		onProgress?.({ phase, done, total, message });
 	try {
 		for (;;) {
+			const selected = await selectMappingRecipe(app, { setId, operation: 'resume' });
+			conversionRecipe(selected);
+			const prepared = marker.phase === 'retiring' ? undefined : await prepareConversion(app, marker, selected);
+			if (!prepared) await validateTargetLineage(app, marker, selected);
 			if (marker.phase === 'writing') {
 				report('writing', 0, marker.source_count, `Writing ${formLabel(to)} for import set ${setId}...`);
-				const written = to === 'table'
-					? await writeTableTarget(app, marker)
-					: await writeNotesTarget(app, deps, marker, (done, total) => report('writing', done, total, `Writing notes for import set ${setId}...`));
+				const written = await writePreparedConversion(app, deps, marker, prepared!, (done, total) => report('writing', done, total, `Writing notes for import set ${setId}...`));
 				if (written) return stopped(setId, from, to, 'writing', written, marker.target_path);
+				await assertPreparedSafe(app, marker, prepared!, true);
 				await advance(app, marker, 'verifying');
 				continue;
 			}
 			if (marker.phase === 'verifying') {
 				report('verifying', 0, marker.source_count, `Checking ${formLabel(to)} against the ${from === 'table' ? 'table' : 'notes'} for import set ${setId}...`);
-				const mismatch = await verifyParity(app, marker);
+				const incomplete = await writePreparedConversion(app, deps, marker, prepared!);
+				if (incomplete) return stopped(setId, from, to, 'verifying', incomplete, marker.target_path);
+				await assertPreparedSafe(app, marker, prepared!, true);
+				const mismatch = await verifyParity(app, marker, selected);
 				if (mismatch) {
-					await advance(app, marker, 'writing');
-					return stopped(setId, from, to, 'writing',
-						`Converting import set ${setId} to ${formLabel(to)} stopped because the ${to === 'table' ? 'written table does' : 'written notes do'} not match the ${from === 'table' ? 'table' : 'notes'}: ${mismatch}. Nothing was moved to the trash. Finish the conversion to write them again, or cancel it.`,
+					return stopped(setId, from, to, 'verifying',
+						`Converting import set ${setId} to ${formLabel(to)} stopped because the ${to === 'table' ? 'written table does' : 'written notes do'} not match the ${from === 'table' ? 'table' : 'notes'}: ${mismatch}. Nothing was changed or moved to the trash. Restore the exact converted output before finishing, or cancel the conversion.`,
 						marker.target_path);
 				}
+				await assertPreparedSafe(app, marker, prepared!, true);
 				await advance(app, marker, 'retiring');
 				continue;
 			}
 			// retiring
-			const sources = await sourceArtifacts(app, marker);
+			const sources = await sourceArtifacts(app, marker, selected);
 			let done = 0;
 			report('retiring', 0, sources.length, `Moving the old ${from === 'table' ? 'table' : 'notes'} of import set ${setId} to the trash...`);
-			for (const file of sources) {
+			for (const { file, text } of sources) {
+				if (!(app.vault.getAbstractFileByPath(file.path) instanceof TFile) || await readTextAt(app, file.path) !== text) conversionConflict(`Source ${file.path} changed before retirement`);
 				await app.vault.trash(file, false);
 				trashed += 1;
 				done += 1;
@@ -299,7 +314,12 @@ async function runPhases(app: App, deps: ConversionDeps, start: ConversionMarker
  * reached, so the result disagrees with what a resume will actually do.
  */
 async function advance(app: App, marker: ConversionMarker, phase: ConversionPhase): Promise<void> {
-	await writeConversionMarker(app, { ...marker, phase });
+	const file = app.vault.getAbstractFileByPath(marker.path);
+	if (!(file instanceof TFile) || typeof app.vault.process !== 'function') conversionConflict('Current-text guarded phase updates are unavailable');
+	await app.vault.process(file, text => {
+		if (text !== serializeConversionMarker(marker)) conversionConflict('The conversion marker changed before its phase could advance');
+		return serializeConversionMarker({ ...marker, phase });
+	});
 	marker.phase = phase;
 }
 
@@ -323,11 +343,12 @@ interface ConversionPlan {
  * home folder (the marker and the target need one), a notes set holding
  * anything but mapping notes, and a table the notes form cannot hold.
  */
-async function planConversion(app: App, set: DiscoveredImportSet, to: MappingForm): Promise<ConversionPlan | { reason: string }> {
+async function planConversion(app: App, set: DiscoveredImportSet, to: MappingForm, selected: SelectedMappingRecipe): Promise<ConversionPlan | { reason: string }> {
 	if (set.root === null) {
 		return { reason: `Import set ${set.id} does not live under one folder, so Crosswalker cannot tell where the converted form belongs. Move its ${set.mapping_form === 'table' ? 'table' : 'notes'} back under one folder, then convert again.` };
 	}
 	const folder = set.root;
+	conversionRecipe(selected); // closed dependency proof, before marker creation
 	if (to === 'table') {
 		const read = await readSetEdgeNotes(app, set.id, folder);
 		if (read.unreadable.length) return { reason: unreadableReason(set.id, read.unreadable) };
@@ -337,7 +358,7 @@ async function planConversion(app: App, set: DiscoveredImportSet, to: MappingFor
 		if (!read.notes.length) return { reason: `Import set ${set.id} has no mapping notes to convert. Import the mapping file first, then convert it.` };
 		const release = releaseRecordOfNotes(set.id, read.releaseNotes);
 		if ('reason' in release) return { reason: release.reason };
-		const reverse = notesToTableProblem(set.id, read.notes);
+		const reverse = notesToTableProblem(set.id, read.notes, selected) ?? await notesFidelityProblem(app, read.notes, selected);
 		if (reverse) return { reason: reverse };
 		const frameworks = agreedFrameworks(read.notes.map((note) => note.frontmatter));
 		let targetPath = mappingTablePath(folder, frameworks.source, frameworks.target);
@@ -353,7 +374,7 @@ async function planConversion(app: App, set: DiscoveredImportSet, to: MappingFor
 	if ('reason' in table) return table;
 	const release = releaseRecordOfTable(set.id, table.table);
 	if ('reason' in release) return { reason: release.reason };
-	const problem = notesFormProblem(set.id, table.table);
+	const problem = notesFormProblem(set.id, table.table, selected);
 	if (problem) return { reason: problem };
 	return { folder, targetPath: parentOf(table.table.path), sourceCount: table.table.rows.length };
 }
@@ -457,11 +478,11 @@ const DERIVED_NOTE_KEYS = new Set(['curie', 'kind', 'title', 'tags', '_crosswalk
  * Why this table cannot become notes without losing something, or null. A
  * refusal before any write beats a conversion that silently drops a value.
  */
-function notesFormProblem(setId: string, table: MappingTableFile): string | null {
+function notesFormProblem(setId: string, table: MappingTableFile, selected: SelectedMappingRecipe): string | null {
 	if (!table.header.source_framework?.trim() || !table.header.target_framework?.trim()) {
 		return `Mapping table ${table.path} does not name its source and target frameworks, so its notes cannot be labelled. Add source_framework and target_framework header lines, then convert again.`;
 	}
-	const managed = conversionManagedKeys(table.header.source_framework, table.header.target_framework);
+	const managed = conversionManagedKeys(selected);
 	for (const row of table.rows) {
 		const problem = rowNotesFormProblem(row, managed, `Mapping ${row.subject_id} -> ${row.object_id} in import set ${setId}`, 'row');
 		if (problem) return problem;
@@ -528,7 +549,7 @@ function tagsKey(tags: unknown): string | null {
  * cannot carry passing into (or being dropped by) the table, and the notes
  * then being trashed.
  */
-function notesToTableProblem(setId: string, notes: EdgeNote[]): string | null {
+function notesToTableProblem(setId: string, notes: EdgeNote[], selected: SelectedMappingRecipe): string | null {
 	const frameworks = agreedFrameworks(notes.map((note) => note.frontmatter));
 	if (!frameworks.source || !frameworks.target) {
 		return `The notes of import set ${setId} do not all name the same source_framework and target_framework, so a table made from them could not be converted back to notes. Make those two properties agree on every note, then convert again.`;
@@ -536,7 +557,8 @@ function notesToTableProblem(setId: string, notes: EdgeNote[]): string | null {
 	for (const note of notes) {
 		const fm = note.frontmatter;
 		const title = fm.title;
-		const expected = `${String(fm.subject_id)} -> ${String(fm.object_id)}`;
+		const previewHeader: MappingTableHeader = { crosswalker_format: MAPPING_TABLE_FORMAT, source_framework: frameworks.source, target_framework: frameworks.target, crosswalker_provenance: fm._crosswalker as CrosswalkerProvenance, tags: fm.tags as string[] };
+		const expected = expectedConvertedNote(selected, previewHeader, noteToRowFacts(fm, previewHeader)).frontmatter.title;
 		if (title !== undefined && title !== expected) {
 			return `Note ${note.file.path} in import set ${setId} has its own title, which a table cannot store. Change the title back to "${expected}", then convert again.`;
 		}
@@ -562,7 +584,7 @@ function notesToTableProblem(setId: string, notes: EdgeNote[]): string | null {
 			? { crosswalker_provenance: notes[0].frontmatter._crosswalker as CrosswalkerProvenance }
 			: {}),
 	};
-	const managed = conversionManagedKeys(frameworks.source, frameworks.target);
+	const managed = conversionManagedKeys(selected);
 	const items: Array<{ facts: MappingTableRowFacts; name: string }> = [];
 	for (const note of notes) {
 		let facts: MappingTableRowFacts;
@@ -642,20 +664,20 @@ function stringField(record: unknown, key: string): string | undefined {
  * The table header for a notes set: the set's pin flipped to table (the only
  * place that happens), and the recipe and source the notes were produced by.
  */
-async function tableHeaderFor(app: App, marker: ConversionMarker, notes: EdgeNote[], record?: MappingSetRecord): Promise<MappingTableHeader> {
+async function tableHeaderFor(app: App, marker: ConversionMarker, notes: EdgeNote[], selected: SelectedMappingRecipe, record?: MappingSetRecord): Promise<MappingTableHeader> {
 	const folder = parentOf(marker.path);
 	const importSet = await resolveImportSet(app, folder, { id: marker.import_set }, undefined, undefined, undefined, { conversion: { to: 'table' } });
 	const first = notes[0].frontmatter._crosswalker as Record<string, unknown> | undefined;
 	const sourceRef = first?.source_ref;
-	const recipe = first?.recipe;
 	const provenance = buildProvenance({
 		sourceFile: stringField(sourceRef, 'file'),
 		sourceUrl: stringField(sourceRef, 'url'),
 		sourceCurie: stringField(sourceRef, 'curie'),
 		sourceVersion: stringField(sourceRef, 'version'),
 		sourceHash: stringField(sourceRef, 'source_hash'),
-		recipeId: stringField(recipe, 'id'),
-		recipeHash: stringField(recipe, 'hash'),
+		recipeId: selected.provenanceRecipe.id,
+		recipeHash: selected.provenanceRecipe.hash,
+		recipeDocumentDigest: selected.provenanceRecipe.recipe_document_digest,
 		importSet,
 	}, PLUGIN_VERSION) as CrosswalkerProvenance;
 	const fms = notes.map((note) => note.frontmatter);
@@ -681,63 +703,6 @@ async function tableHeaderFor(app: App, marker: ConversionMarker, notes: EdgeNot
 		crosswalker_provenance: provenance,
 		...(record ? { mapping_set: storedMappingSet(record) } : {}),
 	};
-}
-
-/** Returns a refusal reason, or null once the table is on disk and byte-verified. */
-async function writeTableTarget(app: App, marker: ConversionMarker): Promise<string | null> {
-	const read = await readSetEdgeNotes(app, marker.import_set, parentOf(marker.path));
-	if (read.unreadable.length) return unreadableReason(marker.import_set, read.unreadable);
-	if (!read.notes.length) {
-		return `Import set ${marker.import_set} has no mapping notes left to convert. Restore them from the trash or a backup, or cancel the conversion.`;
-	}
-	const reverse = notesToTableProblem(marker.import_set, read.notes);
-	if (reverse) return `${reverse.replace(/ then convert again\.$/, ' then finish the conversion, or cancel it.')} Nothing was moved to the trash.`;
-	const release = releaseRecordOfNotes(marker.import_set, read.releaseNotes);
-	if ('reason' in release) return `${release.reason} Nothing was moved to the trash.`;
-	const header = await tableHeaderFor(app, marker, read.notes, release.record);
-	const facts = read.notes.map((note) => noteToRowFacts(note.frontmatter, header));
-	const rows = assignMappingRowIds(facts, header.mapping_set_id);
-	await writeTableDurably(app, marker.target_path, serializeMappingTable(header, rows));
-	return null;
-}
-
-/**
- * Write a table so an interruption never leaves a half-written file at the
- * target: write `<target>.tmp`, rename it into place, then read the target back
- * and compare byte for byte. Some synced or network folders refuse a rename;
- * then the file is written in place through the vault and verified the same
- * way. Failure mode prevented: a crash mid-write leaving a truncated table that
- * a later phase reads as the whole set.
- */
-async function writeTableDurably(app: App, path: string, content: string): Promise<void> {
-	const target = normalizePath(path);
-	const parent = parentOf(target);
-	if (parent && !app.vault.getAbstractFileByPath(parent)) {
-		try { await app.vault.createFolder(parent); } catch { /* already present on disk */ }
-	}
-	const tmp = `${target}.tmp`;
-	const adapter = app.vault.adapter;
-	let renamed = false;
-	if (typeof adapter?.write === 'function' && typeof adapter?.rename === 'function') {
-		try {
-			await adapter.write(tmp, content);
-			await adapter.rename(tmp, target);
-			renamed = true;
-		} catch {
-			await removeAdapterFile(app, tmp);
-		}
-	}
-	if (!renamed) {
-		const existing = app.vault.getAbstractFileByPath(target);
-		if (existing && !(existing instanceof TFile)) {
-			throw new Error(`A folder already exists at ${target}, so the mapping table cannot be written there. Rename or move that folder, then finish the conversion.`);
-		}
-		if (existing) await app.vault.modify(existing, content);
-		else await app.vault.create(target, content);
-	}
-	if (await readTextAt(app, target) !== content) {
-		throw new Error(`Could not verify the mapping table after writing ${target}. Check the folder is writable and not synced by another tool, then finish the conversion.`);
-	}
 }
 
 async function readTextAt(app: App, path: string): Promise<string | undefined> {
@@ -777,137 +742,6 @@ async function trashIfPresent(app: App, path: string): Promise<void> {
 	if (typeof adapter?.exists === 'function' && typeof adapter?.trashLocal === 'function' && await adapter.exists(target)) {
 		await adapter.trashLocal(target);
 	}
-}
-
-/** The managed keys of the transport recipe, so a table row's own extra cannot collide with them. */
-function conversionManagedKeys(source: string, target: string): Set<string> {
-	const managed = buildSyntheticRecipe(source, target).target.also_emit?.frontmatter?.managed ?? {};
-	return new Set([...Object.keys(managed), 'review_status', 'reviewer']);
-}
-
-/**
- * The import recipe, adapted to carry a table's rows back into notes for this
- * run only. Every optional fact renders only when present (a table may be
- * sparser than a fresh import), and the review columns plus every user field
- * become source-carried values: the import recipe only preserves them, which on
- * a fresh note means dropping them. `carried` maps each user field to the row
- * column it rides in, so a key with spaces or punctuation never enters a
- * template.
- */
-function conversionRecipe(source: string, target: string, carried: Map<string, string>, tags?: string[]): Recipe {
-	const base = buildSyntheticRecipe(source, target);
-	const frontmatter = base.target.also_emit!.frontmatter!;
-	const identity = new Set(['subject_id', 'object_id', 'predicate_id']);
-	const managed: Record<string, unknown> = {};
-	for (const [key, template] of Object.entries(frontmatter.managed ?? {})) {
-		const match = typeof template === 'string' ? /^\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(template) : null;
-		managed[key] = match && !identity.has(match[1]) ? `{${match[1]}|optional}` : template;
-	}
-	managed.review_status = '{review_status|optional}';
-	managed.reviewer = '{reviewer|optional}';
-	for (const [key, column] of carried) managed[key] = `{${column}|optional}`;
-	return {
-		...base,
-		target: {
-			...base.target,
-			also_emit: {
-				...base.target.also_emit,
-				...(tags !== undefined ? { tags: [...tags] } : {}),
-				frontmatter: { ...frontmatter, managed: managed as typeof frontmatter.managed, user_preserve: [] },
-			},
-		},
-	};
-}
-
-/** Returns a refusal reason, or null once the engine wrote every row. */
-async function writeNotesTarget(
-	app: App,
-	deps: ConversionDeps,
-	marker: ConversionMarker,
-	onProgress: (done: number, total: number) => void,
-): Promise<string | null> {
-	const owned = await ownedTable(app, marker.import_set);
-	if ('reason' in owned) return owned.reason;
-	const { table } = owned;
-	const problem = notesFormProblem(marker.import_set, table);
-	if (problem) return problem;
-	const source = table.header.source_framework!.trim();
-	const target = table.header.target_framework!.trim();
-	const carried = new Map<string, string>();
-	for (const row of table.rows) {
-		for (const key of [...Object.keys(row.notes ?? {}), ...Object.keys(row.extra ?? {})]) {
-			if (!carried.has(key)) carried.set(key, `conversion_field_${carried.size}`);
-		}
-	}
-	const rows = table.rows.map((row) => {
-		const record: Record<string, unknown> = {
-			subject_id: row.subject_id,
-			predicate_id: row.predicate_id,
-			object_id: row.object_id,
-			edge_body: edgeBodyOf(row.subject_id, row.predicate_id, row.object_id, row.subject_note ?? '', row.object_note ?? ''),
-		};
-		const optional: Array<[string, string | undefined]> = [
-			['sssom_predicate', row.sssom_predicate], ['predicate_modifier', row.predicate_modifier],
-			['mapping_justification', row.mapping_justification], ['confidence', row.confidence],
-			['subject_label', row.subject_label], ['object_label', row.object_label],
-			['subject_note', row.subject_note], ['object_note', row.object_note],
-			['mapping_provider', row.mapping_provider], ['mapping_set_id', row.mapping_set_id],
-			['review_status', row.review_status], ['reviewer', row.reviewer],
-		];
-		for (const [key, value] of optional) if (value !== undefined) record[key] = value;
-		for (const [key, value] of [...Object.entries(row.notes ?? {}), ...Object.entries(row.extra ?? {})]) {
-			record[carried.get(key)!] = value;
-		}
-		return record;
-	});
-	const provenance = table.header.crosswalker_provenance as Record<string, unknown> | undefined;
-	const sourceRef = provenance?.source_ref;
-	const recipeBlock = provenance?.recipe;
-	const recipeId = stringField(recipeBlock, 'id');
-	const sourceHash = stringField(sourceRef, 'source_hash');
-	const parsedData: ParsedData = {
-		columns: [...new Set(rows.flatMap((row) => Object.keys(row)))],
-		rows,
-		rowCount: rows.length,
-		...(sourceHash ? { sourceByteDigest: sourceHash } : {}),
-	};
-	const generate = deps.generateFromRecipe ?? generateFromRecipe;
-	const gen: GenerationResult = await generate(app, parsedData, conversionRecipe(source, target, carried, table.header.tags), {
-		basePath: marker.target_path,
-		overwriteMode: 'replace',
-		createFolders: true,
-		importSet: { id: marker.import_set },
-		mappingConversion: { to: 'notes' },
-		...(recipeId ? { provenanceRecipe: { id: recipeId, hash: stringField(recipeBlock, 'hash') } } : {}),
-		sourceFileName: stringField(sourceRef, 'file') ?? table.header.mapping_set_id,
-		sourceVersion: stringField(sourceRef, 'version'),
-		strictValidation: true,
-		curieLocalPart: (row, _rowNum, importSet) => sssomEdgeCurie(row, importSet),
-		curiePrefix: SSSOM_CURIE_PREFIX,
-		onProgress: (current, total) => onProgress(current, total),
-	});
-	if (!gen.success || gen.errors.length) {
-		const first = (gen.errors[0]?.message ?? 'the notes could not be written').trim().replace(/[.!?]+$/, '');
-		const more = gen.errors.length > 1 ? ` (and ${gen.errors.length - 1} more problems)` : '';
-		return `Converting import set ${marker.import_set} to notes stopped while writing notes: ${first}${more}. Nothing was moved to the trash. Fix the cause, then finish the conversion, or cancel it.`;
-	}
-	const release = releaseRecordOfTable(marker.import_set, table);
-	if ('reason' in release) return `${release.reason} Nothing was moved to the trash.`;
-	if (release.record) {
-		// The record carries over as the set note (M8), with the ownership block
-		// the converted mapping notes carry.
-		const written = await readSetEdgeNotes(app, marker.import_set, marker.target_path);
-		const edgeProvenance = written.notes[0]?.frontmatter._crosswalker;
-		if (!edgeProvenance || typeof edgeProvenance !== 'object') {
-			return `Converting import set ${marker.import_set} to notes stopped before its release record was written, because the converted notes could not be read yet. Nothing was moved to the trash. Wait for indexing, then finish the conversion.`;
-		}
-		await writeMappingSetNote(app, {
-			folder: marker.target_path,
-			record: release.record,
-			provenance: setNoteProvenance(edgeProvenance as Record<string, unknown>),
-		});
-	}
-	return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -996,7 +830,7 @@ function sameRelease(record: MappingSetRecord | undefined, stored: Record<string
 	}
 }
 
-async function verifyParity(app: App, marker: ConversionMarker): Promise<string | null> {
+async function verifyParity(app: App, marker: ConversionMarker, selected: SelectedMappingRecipe): Promise<string | null> {
 	const folder = parentOf(marker.path);
 	if (marker.to === 'table') {
 		const text = await readTextAt(app, marker.target_path);
@@ -1029,13 +863,13 @@ async function verifyParity(app: App, marker: ConversionMarker): Promise<string 
 	for (const note of read.notes) {
 		const block = (note.frontmatter._crosswalker as Record<string, unknown> | undefined)?.import_set as Record<string, unknown> | undefined;
 		if (block?.mapping_form === 'table') return `${note.file.path} is still pinned to the table form`;
-		const expectedTitle = `${String(note.frontmatter.subject_id)} -> ${String(note.frontmatter.object_id)}`;
+		const expectedTitle = expectedConvertedNote(selected, header, noteToRowFacts(note.frontmatter, header)).frontmatter.title;
 		if (note.frontmatter.title !== undefined && note.frontmatter.title !== expectedTitle) return `${note.file.path} has a different title`;
 		if (header.tags !== undefined && tagsKey(note.frontmatter.tags) !== tagsKey(header.tags)) return `${note.file.path} has different tags from the table`;
 	}
 	const source = assignMappingRowIds(rowsAsFacts(owned.table.rows), header.mapping_set_id);
 	const target = assignMappingRowIds(read.notes.map((note) => noteToRowFacts(note.frontmatter, header)), header.mapping_set_id);
-	return compareRows(source, target, 'notes', 'table');
+	return compareRows(source, target, 'notes', 'table') ?? await notesFidelityProblem(app, read.notes, selected, header);
 }
 
 // ---------------------------------------------------------------------------
@@ -1043,17 +877,47 @@ async function verifyParity(app: App, marker: ConversionMarker): Promise<string 
 // ---------------------------------------------------------------------------
 
 /** What is left of the source form, re-read from the vault. */
-async function sourceArtifacts(app: App, marker: ConversionMarker): Promise<TFile[]> {
+async function sourceArtifacts(app: App, marker: ConversionMarker, selected: SelectedMappingRecipe): Promise<Array<{ file: TFile; text: string }>> {
 	if (marker.from === 'notes') {
 		const read = await readSetEdgeNotes(app, marker.import_set, parentOf(marker.path));
 		if (read.unreadable.length) throw new Error(unreadableReason(marker.import_set, read.unreadable));
-		return [...read.notes, ...read.releaseNotes].map((note) => note.file);
+		const sources: Array<{ file: TFile; text: string }> = [];
+		const assertions = new Set(read.notes);
+		for (const note of [...read.notes, ...read.releaseNotes]) {
+			const text = await readTextAt(app, note.file.path);
+			if (text === undefined) conversionConflict(`Source ${note.file.path} cannot be read before retirement`);
+			note.frontmatter = rawNote(text).frontmatter;
+			if (importSetIdOf(note.frontmatter._crosswalker) !== marker.import_set || note.frontmatter.kind !== (assertions.has(note) ? 'crosswalk-edge' : MAPPING_SET_KIND)) conversionConflict(`Source ${note.file.path} changed before retirement`);
+			sources.push({ file: note.file, text });
+		}
+		if (read.others.length || read.notes.some(note => !sameRecipeStamp(note.frontmatter._crosswalker, selected))) throw new Error('The remaining source notes have unverifiable ownership or recipe lineage. Nothing was retired. Restore their verified versions before finishing the conversion.');
+		const target = parseMappingTable((await readTextAt(app, marker.target_path)) ?? '');
+		const remaining = assignMappingRowIds(read.notes.map(note => noteToRowFacts(note.frontmatter, target.header)), target.header.mapping_set_id);
+		const ids = new Set(remaining.map(row => row.row_id));
+		if (target.header.tags !== undefined && read.notes.some(note => tagsKey(note.frontmatter.tags) !== tagsKey(target.header.tags))) throw new Error('The remaining source tags no longer agree with the verified target. Nothing was retired. Restore their verified versions before finishing the conversion.');
+		const mismatch = compareRows(remaining, target.rows.filter(row => ids.has(row.row_id)), 'verified table', 'remaining notes')
+			?? await notesFidelityProblem(app, read.notes, selected, target.header);
+		if (mismatch) throw new Error(`The remaining source no longer matches the verified target: ${mismatch}. Nothing was retired. Restore the verified versions before finishing the conversion.`);
+		const release = releaseRecordOfNotes(marker.import_set, read.releaseNotes);
+		if ('reason' in release || (release.record && !sameRelease(release.record, target.header.mapping_set))) throw new Error('The remaining release record no longer agrees with the verified target. Nothing was retired. Restore its verified version before finishing the conversion.');
+		return sources;
 	}
-	const files: TFile[] = [];
-	for (const table of await readMappingTables(app)) {
-		if (importSetIdOf(table.header.crosswalker_provenance) !== marker.import_set) continue;
+	const files: Array<{ file: TFile; text: string }> = [];
+	for (const listed of await readMappingTables(app)) {
+		if (importSetIdOf(listed.header.crosswalker_provenance) !== marker.import_set) continue;
+		const text = await readTextAt(app, listed.path);
+		if (text === undefined) conversionConflict(`Source ${listed.path} cannot be read before retirement`);
+		const table = { ...listed, ...parseMappingTable(text) };
+		if (importSetIdOf(table.header.crosswalker_provenance) !== marker.import_set) conversionConflict(`Source ${listed.path} changed before retirement`);
+		if (!table.readable || table.errors.length || table.rowErrors.length || !sameRecipeStamp(table.header.crosswalker_provenance, selected)) throw new Error('The remaining source table is unreadable or has unverifiable recipe lineage. Nothing was retired. Restore its verified version before finishing the conversion.');
+		const target = await readSetEdgeNotes(app, marker.import_set, marker.target_path);
+		const release = releaseRecordOfNotes(marker.import_set, target.releaseNotes);
+		if ('reason' in release || !sameRelease(release.record, table.header.mapping_set) || (table.header.tags !== undefined && target.notes.some(note => tagsKey(note.frontmatter.tags) !== tagsKey(table.header.tags)))) throw new Error('The remaining source tags or release record no longer agree with the verified target. Nothing was retired. Restore its verified version before finishing the conversion.');
+		const targetRows = assignMappingRowIds(target.notes.map(note => noteToRowFacts(note.frontmatter, table.header)), table.header.mapping_set_id);
+		const mismatch = compareRows(assignMappingRowIds(rowsAsFacts(table.rows), table.header.mapping_set_id), targetRows, 'verified notes', 'remaining table');
+		if (mismatch) throw new Error(`The remaining source no longer matches the verified target: ${mismatch}. Nothing was retired. Restore its verified version before finishing the conversion.`);
 		const file = app.vault.getAbstractFileByPath(table.path);
-		if (file instanceof TFile) files.push(file);
+		if (file instanceof TFile) files.push({ file, text });
 	}
 	return files;
 }
@@ -1110,4 +974,254 @@ async function projectAndPrecompute(app: App, deps: ConversionDeps, frameworks: 
 		}
 	}
 	return warnings;
+}
+
+
+function sameRecipeStamp(provenance: unknown, selected: SelectedMappingRecipe): boolean {
+ const recipe = provenance && typeof provenance === 'object' ? (provenance as Record<string, unknown>).recipe : undefined;
+ if (!recipe || typeof recipe !== 'object') return false;
+ const stamp = recipe as Record<string, unknown>;
+ return stamp.id === selected.provenanceRecipe.id && stamp.hash === selected.provenanceRecipe.hash && stamp.recipe_document_digest === selected.provenanceRecipe.recipe_document_digest;
+}
+async function validateTargetLineage(app: App, marker: ConversionMarker, selected: SelectedMappingRecipe): Promise<void> {
+ if (marker.to === 'table') {
+  const file = app.vault.getAbstractFileByPath(marker.target_path);
+  const text = await readTextAt(app, marker.target_path);
+  if (!file && text === undefined && marker.phase === 'writing') return;
+  const parsed = parseMappingTable(text ?? '');
+  if ((marker.phase !== 'writing' && parsed.rows.length !== marker.source_count) || parsed.errors.length || parsed.rowErrors.length || importSetIdOf(parsed.header.crosswalker_provenance) !== marker.import_set || !sameRecipeStamp(parsed.header.crosswalker_provenance, selected)) throw new Error('The partial or verified target table has unverifiable ownership, contents or recipe lineage. It was left unchanged. Restore its exact saved version before finishing the conversion.');
+ } else {
+  const read = await readSetEdgeNotes(app, marker.import_set, marker.target_path);
+  if ((marker.phase !== 'writing' && read.notes.length !== marker.source_count) || read.unreadable.length || read.others.length || read.notes.some(n => (marker.target_path && !n.file.path.startsWith(`${marker.target_path.replace(/\/$/, '')}/`)) || !sameRecipeStamp(n.frontmatter._crosswalker, selected))) throw new Error('The partial or verified target notes have unverifiable ownership or recipe lineage. They were left unchanged. Restore their exact saved versions before finishing the conversion.');
+ }
+}
+async function notesFidelityProblem(app: App, notes: EdgeNote[], selected: SelectedMappingRecipe, supplied?: MappingTableHeader): Promise<string | null> {
+ for (const note of notes) {
+  const fm = note.frontmatter;
+  const header: MappingTableHeader = supplied ?? { crosswalker_format: MAPPING_TABLE_FORMAT, source_framework: String(fm.source_framework), target_framework: String(fm.target_framework), crosswalker_provenance: fm._crosswalker as CrosswalkerProvenance, tags: fm.tags as string[] };
+  const expected = expectedConvertedNote(selected, header, noteToRowFacts(fm, header));
+  for (const [key, value] of Object.entries(expected.address.frontmatter)) {
+   if (['review_status', 'reviewer'].includes(key)) continue;
+   if (JSON.stringify(fm[key]) !== JSON.stringify(value)) return `Note ${note.file.path} has a different recipe-managed ${key}, which the selected original cannot reproduce from the table`;
+  }
+  const text = await app.vault.read(note.file);
+  const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').replace(/\r\n/g, '\n');
+  const scan = scanRegions(body);
+  if (!scan.ok || scan.spans.length !== 1 || scan.spans[0].name !== 'body') return `Note ${note.file.path} has an unverified managed body that the table cannot reproduce`;
+  const span = scan.spans[0];
+  if (body.slice(0, span.outerStart).trim() || body.slice(span.outerEnd).trim()) return `Note ${note.file.path} has user body content that a table cannot carry; keep it as notes`;
+  if (body.slice(span.outerStart, span.outerEnd) !== wrapManagedBody(expected.body).trimEnd()) return `Note ${note.file.path} has recipe-managed body content that the table cannot reproduce`;
+ }
+ return null;
+}
+
+
+interface PreparedConversion {
+ sources: Map<string, string>;
+ sourceStats: Map<string, { mtime: number; size: number }>;
+ sourceAssertions: string[];
+ sourceReleases: string[];
+ markerText?: string;
+ artifacts: Map<string, string>;
+ table?: { header: MappingTableHeader; rows: MappingTableRow[] };
+ notes?: { data: ParsedData & { rows: Record<string, unknown>[] }; recipe: ReturnType<typeof conversionRecipe>; options: RecipeImportOptions; rowPaths: string[]; releasePath?: string };
+}
+function conversionConflict(detail: string): never {
+ throw new Error(`${detail}. No changed data was overwritten or deleted. Inspect the partial output and restore its expected contents before finishing, or cancel the conversion.`);
+}
+function rawNote(text: string): { frontmatter: Record<string, unknown>; body: string } {
+ const { frontmatterText, body } = splitNoteText(text);
+ const frontmatter = parseYaml(frontmatterText) as unknown;
+ if (!frontmatter || typeof frontmatter !== 'object' || Array.isArray(frontmatter)) conversionConflict('A conversion note has unreadable properties');
+ return { frontmatter: frontmatter as Record<string, unknown>, body };
+}
+function canonical(value: unknown): string {
+ const sort = (v: unknown): unknown => Array.isArray(v) ? v.map(sort) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, sort(x)])) : v;
+ return JSON.stringify(sort(value));
+}
+function withoutGeneratedRunFields(frontmatter: Record<string, unknown>, provenanceKey = '_crosswalker'): Record<string, unknown> {
+ const copy = { ...frontmatter };
+ const provenance = copy[provenanceKey];
+ if (provenance && typeof provenance === 'object' && !Array.isArray(provenance)) {
+  const block = { ...provenance as Record<string, unknown> }; delete block.produced_at;
+  if (block.producer && typeof block.producer === 'object' && !Array.isArray(block.producer)) {
+   const producer = { ...block.producer as Record<string, unknown> }; delete producer.version; block.producer = producer;
+  }
+  copy[provenanceKey] = block;
+ }
+ return copy;
+}
+function targetProblem(plan: PreparedConversion, path: string, text: string): string | null {
+ if (plan.table) {
+  const parsed = parseMappingTable(text);
+  if (parsed.errors.length || parsed.rowErrors.length) return 'The existing target table cannot be read in full';
+  if (canonical(withoutGeneratedRunFields(parsed.header as unknown as Record<string, unknown>, 'crosswalker_provenance')) !== canonical(withoutGeneratedRunFields(plan.table.header as unknown as Record<string, unknown>, 'crosswalker_provenance'))) return 'The existing target table header differs from the source-prepared output';
+  const expected = new Map(plan.table.rows.map(row => [row.row_id, row]));
+  for (const row of parsed.rows) if (!expected.has(row.row_id) || canonical(row) !== canonical(expected.get(row.row_id))) return 'The existing target table assertion differs from the source-prepared output';
+  return null;
+ }
+ const expectedText = plan.artifacts.get(path);
+ if (expectedText === undefined) return 'An additional target note is not part of the source-prepared output';
+ const current = rawNote(text); const expected = rawNote(expectedText);
+ if (canonical(withoutGeneratedRunFields(current.frontmatter)) !== canonical(withoutGeneratedRunFields(expected.frontmatter)) || current.body !== expected.body) return `The existing target note ${path} differs from the source-prepared output`;
+ return null;
+}
+function sourceStat(app: App, path: string): { mtime: number; size: number } | undefined {
+ const file = app.vault.getAbstractFileByPath(path);
+ if (!(file instanceof TFile) || !file.stat || !Number.isFinite(file.stat.mtime) || !Number.isFinite(file.stat.size) || file.stat.size < 0) return undefined;
+ return { mtime: file.stat.mtime, size: file.stat.size };
+}
+async function captureSource(app: App, plan: PreparedConversion, path: string): Promise<string> {
+ const text = await readTextAt(app, path);
+ if (text === undefined) conversionConflict(`Source ${path} cannot be read`);
+ plan.sources.set(path, text);
+ const stat = sourceStat(app, path); if (stat) plan.sourceStats.set(path, stat);
+ return text;
+}
+async function checkDestination(app: App, path: string): Promise<void> {
+ if (!path || normalizePath(path) !== path || path === '.md') conversionConflict('The prepared target has an invalid normalized address');
+ const pieces = path.split('/');
+ for (let n = 1; n < pieces.length; n++) {
+  const ancestor = app.vault.getAbstractFileByPath(pieces.slice(0, n).join('/'));
+  if (ancestor instanceof TFile) conversionConflict(`A file occupies the prepared target folder ${ancestor.path}`);
+  if (!ancestor && await app.vault.adapter?.exists?.(pieces.slice(0, n).join('/'))) conversionConflict('A prepared target folder is not indexed yet');
+ }
+ const existing = app.vault.getAbstractFileByPath(path);
+ if (existing && !(existing instanceof TFile)) conversionConflict(`A folder occupies the prepared target file ${path}`);
+ if (!existing && await app.vault.adapter?.exists?.(path)) conversionConflict(`The prepared target ${path} is not indexed yet`);
+}
+/** One complete, mutation-free source-to-target preparation, shared by start and execution. */
+async function prepareConversion(app: App, marker: ConversionMarker, selected: SelectedMappingRecipe): Promise<PreparedConversion> {
+ if (typeof app.vault.process !== 'function') conversionConflict('Current-text guarded conversion updates are unavailable');
+ const plan: PreparedConversion = { sources: new Map(), sourceStats: new Map(), sourceAssertions: [], sourceReleases: [], markerText: await readTextAt(app, marker.path), artifacts: new Map() };
+ const originalPath = importSetRecipePath(marker.import_set, selected.provenanceRecipe.recipe_document_digest);
+ if (!originalPath) conversionConflict('The retained original has no valid storage address');
+ await captureSource(app, plan, originalPath);
+ if (marker.to === 'table') {
+  const read = await readSetEdgeNotes(app, marker.import_set, parentOf(marker.path));
+  if (read.unreadable.length || read.others.length || read.releaseNotes.length > 1) conversionConflict('The source notes or duplicate release records cannot be verified');
+  for (const note of [...read.notes, ...read.releaseNotes]) {
+   const assertion = read.notes.includes(note);
+   note.frontmatter = rawNote(await captureSource(app, plan, note.file.path)).frontmatter;
+   if (importSetIdOf(note.frontmatter._crosswalker) !== marker.import_set || note.frontmatter.kind !== (assertion ? 'crosswalk-edge' : MAPPING_SET_KIND) || (assertion && !sameRecipeStamp(note.frontmatter._crosswalker, selected))) conversionConflict('The raw source ownership, kind or recipe changed after selection');
+  }
+  plan.sourceAssertions = read.notes.map(note => note.file.path).sort(); plan.sourceReleases = read.releaseNotes.map(note => note.file.path).sort();
+  const problem = notesToTableProblem(marker.import_set, read.notes, selected) ?? await notesFidelityProblem(app, read.notes, selected);
+  if (problem) conversionConflict(problem);
+  const release = releaseRecordOfNotes(marker.import_set, read.releaseNotes); if ('reason' in release) conversionConflict(release.reason);
+  const header = await tableHeaderFor(app, marker, read.notes, selected, release.record);
+  const rows = assignMappingRowIds(read.notes.map(note => noteToRowFacts(note.frontmatter, header)), header.mapping_set_id);
+  plan.table = { header, rows }; plan.artifacts.set(marker.target_path, serializeMappingTable(header, rows));
+ } else {
+  const owned = await ownedTable(app, marker.import_set); if ('reason' in owned) conversionConflict(owned.reason);
+  const text = await captureSource(app, plan, owned.table.path); const parsed = parseMappingTable(text);
+  const table = { ...owned.table, ...parsed }; plan.sourceAssertions = [table.path];
+  if (parsed.errors.length || parsed.rowErrors.length || importSetIdOf(parsed.header.crosswalker_provenance) !== marker.import_set || !sameRecipeStamp(parsed.header.crosswalker_provenance, selected)) conversionConflict('The raw source table changed after selection');
+  const problem = notesFormProblem(marker.import_set, table, selected); if (problem) conversionConflict(problem);
+  const carried = new Map<string, string>();
+  for (const row of table.rows) for (const key of [...Object.keys(row.notes ?? {}), ...Object.keys(row.extra ?? {})]) if (!carried.has(key)) carried.set(key, `conversion_field_${carried.size}`);
+  const rows = table.rows.map(row => conversionRow(row, carried));
+  const recipe = conversionRecipe(selected, carried, table.header.tags);
+  const provenance = table.header.crosswalker_provenance as Record<string, unknown>; const sourceRef = provenance.source_ref;
+  const sourceHash = stringField(sourceRef, 'source_hash');
+  const data: ParsedData & { rows: Record<string, unknown>[] } = { columns: [...new Set(rows.flatMap(row => Object.keys(row)))], rows, rowCount: rows.length, ...(sourceHash ? { sourceByteDigest: sourceHash } : {}) };
+  const options: RecipeImportOptions = { concurrency: 1, basePath: marker.target_path, overwriteMode: 'skip', createFolders: true, importSet: { id: marker.import_set }, mappingConversion: { to: 'notes' }, provenanceRecipe: mappingRecipeForGeneration(selected), sourceFileName: stringField(sourceRef, 'file') ?? table.header.mapping_set_id, sourceVersion: stringField(sourceRef, 'version'), strictValidation: true, curieLocalPart: (row, _row, set) => sssomEdgeCurie(row, set), curiePrefix: SSSOM_CURIE_PREFIX };
+  const importSet = await resolveImportSet(app, options.basePath, options.importSet, SSSOM_CURIE_PREFIX, undefined, undefined, { conversion: { to: 'notes' } });
+  const ownedIndex = await buildIdentityIndex(app, { importSetId: marker.import_set }); const index = await buildIdentityIndex(app);
+  const rowPaths: string[] = [];
+  for (const row of rows) {
+   const scope = { ...row, mapping_set_id: normalizeMappingSetId(row.mapping_set_id), predicate_modifier: normalizePredicateModifierInput(row.predicate_modifier) };
+   const curie = `${crosswalkEdgeCuriePrefix(importSet.ontology ?? SSSOM_CURIE_PREFIX)}:${sssomEdgeCurie(scope, importSet)}`;
+   const prepared = prepareMappingConversionNote(recipe, curie, row, scope, options, importSet, data.sourceByteDigest);
+   if (!validateTier1Frontmatter(prepared.frontmatter).valid) conversionConflict(`The prepared assertion at ${prepared.fullPath} does not satisfy the note contract`);
+   if (foreignSetClaim(ownedIndex, index, curie)) conversionConflict(`The prepared identity ${curie} belongs to another import set`);
+   if (plan.artifacts.has(prepared.fullPath)) conversionConflict(`Path collision: multiple source assertions prepare ${prepared.fullPath}`);
+   const target = resolveWriteTarget(app, prepared.fullPath, curie, false, ownedIndex, index, marker.import_set);
+   if (target.refusal || target.moveFrom || target.writePath !== prepared.fullPath || index.collisions.some(collision => collision.curie === curie)) conversionConflict(`The prepared destination ${prepared.fullPath} has an incompatible identity or owner`);
+   plan.artifacts.set(prepared.fullPath, buildNoteContent(prepared.frontmatter, wrapManagedBody(prepared.managedBody))); rowPaths.push(prepared.fullPath);
+  }
+  plan.notes = { data, recipe, options, rowPaths };
+  const release = releaseRecordOfTable(marker.import_set, table); if ('reason' in release) conversionConflict(release.reason);
+  if (release.record) {
+   const targetNotes = await readSetEdgeNotes(app, marker.import_set, marker.target_path);
+   if (targetNotes.releaseNotes.length > 1) conversionConflict('Duplicate target release records cannot be repaired by conversion');
+   const ownedRelease = targetNotes.releaseNotes[0]?.file.path;
+   const path = ownedRelease ?? mappingSetNoteDestination(marker.target_path, release.record, path => plan.artifacts.has(path) || !!app.vault.getAbstractFileByPath(path));
+   if (plan.artifacts.has(path)) conversionConflict(`Path collision: release and assertion prepare ${path}`);
+   const edge = rawNote(plan.artifacts.get(rowPaths[0])!).frontmatter._crosswalker as Record<string, unknown>;
+   plan.artifacts.set(path, buildNoteContent({ ...storedMappingSet(release.record), _crosswalker: setNoteProvenance(edge) }, '')); plan.notes.releasePath = path;
+  }
+ }
+ for (const path of plan.artifacts.keys()) await checkDestination(app, path);
+ await assertPreparedSafe(app, marker, plan);
+ return plan;
+}
+async function assertPreparedSafe(app: App, marker: ConversionMarker, plan: PreparedConversion, complete = false): Promise<void> {
+ if (await readTextAt(app, marker.path) !== plan.markerText) conversionConflict('The conversion marker changed after preparation');
+ for (const [path, text] of plan.sources) if (await readTextAt(app, path) !== text) conversionConflict(`Source ${path} changed after preparation`);
+ if (marker.from === 'notes') {
+  const read = await readSetEdgeNotes(app, marker.import_set, parentOf(marker.path));
+  if (read.unreadable.length || read.others.length || canonical(read.notes.map(note => note.file.path).sort()) !== canonical(plan.sourceAssertions) || canonical(read.releaseNotes.map(note => note.file.path).sort()) !== canonical(plan.sourceReleases)) conversionConflict('The source population changed after preparation');
+ } else {
+  const tables = (await readMappingTables(app)).filter(table => importSetIdOf(table.header.crosswalker_provenance) === marker.import_set);
+  if (canonical(tables.map(table => table.path).sort()) !== canonical(plan.sourceAssertions)) conversionConflict('The source table population changed after preparation');
+  const read = await readSetEdgeNotes(app, marker.import_set, marker.target_path);
+  if (read.unreadable.length || read.others.length || [...read.notes, ...read.releaseNotes].some(note => !plan.artifacts.has(note.file.path))) conversionConflict('Additional or unreadable target notes are not in the prepared output');
+ }
+ for (const path of plan.artifacts.keys()) {
+  await checkDestination(app, path);
+  const text = await readTextAt(app, path);
+  if (text === undefined) { if (app.vault.getAbstractFileByPath(path) || complete) conversionConflict(`Prepared target ${path} is missing or unreadable`); continue; }
+  const problem = targetProblem(plan, path, text); if (problem) conversionConflict(problem);
+  if (complete && plan.table && parseMappingTable(text).rows.length !== plan.table.rows.length) conversionConflict('The prepared target table is incomplete');
+ }
+}
+/** Per-row boundary: compare source stats (bytes only without stats) and this destination, never rescan populations. */
+async function assertWriteSafe(app: App, marker: ConversionMarker, plan: PreparedConversion, path: string): Promise<void> {
+ if (await readTextAt(app, marker.path) !== plan.markerText) conversionConflict('The conversion marker changed after preparation');
+ for (const [source, text] of plan.sources) {
+  const expected = plan.sourceStats.get(source); const current = sourceStat(app, source);
+  if (expected && current) {
+   if (current.mtime !== expected.mtime || current.size !== expected.size) conversionConflict(`Source ${source} changed after preparation`);
+  } else if (await readTextAt(app, source) !== text) conversionConflict(`Source ${source} changed after preparation`);
+ }
+ if (!plan.artifacts.has(path)) conversionConflict(`Target ${path} is not part of the prepared output`);
+ await checkDestination(app, path);
+ const text = await readTextAt(app, path);
+ if (text === undefined) { if (app.vault.getAbstractFileByPath(path)) conversionConflict(`Prepared target ${path} is unreadable`); return; }
+ const problem = targetProblem(plan, path, text); if (problem) conversionConflict(problem);
+}
+async function writePreparedConversion(app: App, deps: ConversionDeps, marker: ConversionMarker, plan: PreparedConversion, onProgress: (done: number, total: number) => void = () => {}): Promise<string | null> {
+ await assertPreparedSafe(app, marker, plan);
+ if (plan.table) {
+  const path = marker.target_path; const expected = plan.artifacts.get(path)!; const current = await readTextAt(app, path);
+  if (current !== undefined && parseMappingTable(current).rows.length === plan.table.rows.length) return null;
+  await assertPreparedSafe(app, marker, plan);
+  const file = app.vault.getAbstractFileByPath(path);
+  if (file instanceof TFile) {
+   if (typeof app.vault.process !== 'function') conversionConflict('Current-text guarded table updates are unavailable');
+   await app.vault.process(file, text => { const problem = targetProblem(plan, path, text); if (problem) conversionConflict(problem); return expected; });
+  } else await app.vault.create(path, expected);
+  return null;
+ }
+ const notes = plan.notes!;
+ const missing: Record<string, unknown>[] = []; const sourceRows: number[] = [];
+ for (let index = 0; index < notes.rowPaths.length; index++) if (await readTextAt(app, notes.rowPaths[index]) === undefined) { missing.push(notes.data.rows[index]); sourceRows.push(index + 1); }
+ if (missing.length) {
+  await assertPreparedSafe(app, marker, plan);
+  const gen = await (deps.generateFromRecipe ?? generateFromRecipe)(app, { ...notes.data, rows: missing, rowCount: missing.length }, notes.recipe, { ...notes.options, mappingConversion: { to: 'notes', beforeWrite: path => path === undefined ? assertPreparedSafe(app, marker, plan) : assertWriteSafe(app, marker, plan, path) }, onProgress });
+  if (!gen.success || gen.errors.length) {
+   // Engine error rows are 1-based positions in missing, not in the original source rows.
+   const error = gen.errors[0]; const row = error && error.row > 0 ? sourceRows[error.row - 1] : undefined;
+   const source = row === undefined ? undefined : notes.data.rows[row - 1];
+   const first = `${source ? `Source row ${row} (${String(source.subject_id)} -> ${String(source.object_id)}): ` : ''}${(error?.message ?? 'the notes could not be written').trim().replace(/[.!?]+$/, '')}`;
+   return `Converting import set ${marker.import_set} to notes stopped while writing notes: ${first}${gen.errors.length > 1 ? ` (and ${gen.errors.length - 1} more problems)` : ''}. Nothing was moved to the trash. Fix the cause, then finish the conversion, or cancel it.`;
+  }
+ }
+ await assertPreparedSafe(app, marker, plan);
+ if (notes.releasePath && await readTextAt(app, notes.releasePath) === undefined) {
+  await assertPreparedSafe(app, marker, plan);
+  await app.vault.create(notes.releasePath, plan.artifacts.get(notes.releasePath)!);
+ }
+ return null;
 }
