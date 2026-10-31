@@ -7,7 +7,13 @@ import type { CrosswalkPredicate } from '../import/mapping/types';
 import { splitCrosswalkCell } from '../import/detection';
 import { readNoteFrontmatterState } from '../export/vault-reader';
 import { TFile } from 'obsidian';
-import { SSSOM_CURIE_PREFIX, sssomEdgeCurie, strmToSkos } from '../import/sssom-importer';
+import {
+	LEGACY_SSSOM_FILE_TEMPLATE,
+	READABLE_SSSOM_FILE_TEMPLATE,
+	SSSOM_CURIE_PREFIX,
+	sssomEdgeCurie,
+	strmToSkos,
+} from '../import/sssom-importer';
 import { assertionBaseKey, normalizeMappingSetId } from '../utils/mapping-provenance';
 import type { SssomHeader } from '../import/sssom-parser';
 import {
@@ -21,6 +27,7 @@ import {
 import { candidateCrosswalkCuries } from './generation-engine';
 import { discoverIdentityClaims, discoverImportSets, newSetSchemeFor, newSetSchemeFrom, requireVaultIndexed, settleVaultIndex } from './import-set';
 import { generateFromRecipe } from './generation-engine';
+import { computeRecipeHash } from './hash';
 import { edgeEndpointIndex, resolveEdgeEndpoints, summarizeUnresolvedEndpoints, type UnresolvedEndpoint } from './edge-endpoints';
 
 const DEFAULT_SPLIT = [',', '\n', ';'] as const;
@@ -238,11 +245,21 @@ export function deriveCrosswalkEdgeRows(
 	return { rows, skippedCells, emptyAtoms };
 }
 
-/** Build the synthetic recipe used for one concept-source crosswalk column. */
+/**
+ * Build the synthetic recipe used for one concept-source crosswalk column.
+ *
+ * `template` picks the child link set's file-naming scheme: readable
+ * (default, PR #78's `READABLE_SSSOM_FILE_TEMPLATE`) for a brand-new set, or
+ * legacy (`LEGACY_SSSOM_FILE_TEMPLATE`) to keep an existing set's filenames
+ * byte-identical on refresh. The `recipe` id string below never changes with
+ * the template, so callers may compute it before deciding which template a
+ * given column's existing link set (if any) requires.
+ */
 export function buildCrosswalkColumnRecipe(
 	entry: CrosswalkColumnEntry,
 	sourceOntology: string,
 	recipeId: string,
+	template: string = READABLE_SSSOM_FILE_TEMPLATE,
 ): Recipe {
 	const target = entry.to_ontology;
 	return {
@@ -253,7 +270,7 @@ export function buildCrosswalkColumnRecipe(
 				{
 					level: 'mapping',
 					mechanism: 'file',
-					template: '{_crosswalker_curie_local_part|slug}.md',
+					template,
 					kind: 'crosswalk-edge',
 				},
 			],
@@ -282,6 +299,91 @@ export function buildCrosswalkColumnRecipe(
 	};
 }
 
+/**
+ * Frozen 2026-10-31 readable child producer. Keep independent of the live builder.
+ * When the builder changes, add the new revision here as another frozen entry;
+ * never edit this one.
+ */
+export function frozenReadableChildRecipe20261031(
+	recipeId: string,
+	column: string,
+	sourceOntology: string,
+	targetOntology: string,
+): Recipe {
+	return {
+		recipe: `${recipeId}::crosswalk::${slug(column)}`,
+		source: { ontology: 'sssom', levels: ['mapping'] },
+		target: {
+			layout: [{
+				level: 'mapping',
+				mechanism: 'file',
+				template: '{subject_id|regex(^(?:[^:]*:)?([\\s\\S]*)$)|truncate(60)|name-safe|trim(.)|default(unnamed)} · {object_id|regex(^(?:[^:]*:)?([\\s\\S]*)$)|truncate(60)|name-safe|trim(.)|default(unnamed)} ({_crosswalker_curie_local_part|hash(8)}).md',
+				kind: 'crosswalk-edge',
+			}],
+			also_emit: {
+				tags: [`crosswalk/${sourceOntology}-to-${targetOntology}`],
+				frontmatter: {
+					managed: {
+						title: '{subject_id} -> {object_id}',
+						predicate_id: '{predicate_id}',
+						subject_id: '{subject_id}',
+						object_id: '{object_id}',
+						subject_note: '{subject_note|optional}',
+						object_note: '{object_note|optional}',
+						subject_label: '{subject_label}',
+						mapping_justification: '{mapping_justification}',
+						mapping_set_id: '{mapping_set_id}',
+						source_framework: sourceOntology,
+						target_framework: targetOntology,
+						sssom_predicate: '{sssom_predicate}',
+					},
+					user_preserve: ['review_status', 'reviewer', '*notes*'],
+				},
+				body: [{ template: '{edge_body}', position: 'append', format: 'text' }],
+			},
+		},
+	};
+}
+
+const FROZEN_READABLE_CHILD_REVISIONS = [frozenReadableChildRecipe20261031] as const;
+
+type FrameworkPair = { source: string; target: string };
+
+type EdgeMemberStamps = { pairs: FrameworkPair[]; stamps: string[]; unstamped: boolean };
+
+/**
+ * Read each edge member's own recipe stamp and framework pair, including during
+ * cache lag. Non-edge members (the set's record note copies an edge's stamp)
+ * are ignored so a copied stamp can never decide the naming.
+ */
+async function readEdgeMemberStamps(app: App, paths: readonly string[]): Promise<EdgeMemberStamps> {
+	const pairs = new Map<string, FrameworkPair>();
+	const stamps = new Set<string>();
+	let unstamped = false;
+	for (const path of paths) {
+		const file = app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) continue;
+		const read = await readNoteFrontmatterState(app, file);
+		if (read.state !== 'ok' || read.frontmatter.kind !== 'crosswalk-edge') continue;
+		const provenance = read.frontmatter._crosswalker as { recipe?: { hash?: unknown } } | undefined;
+		const stamp = provenance?.recipe?.hash;
+		if (typeof stamp === 'string') stamps.add(stamp);
+		else unstamped = true;
+		const { source_framework: source, target_framework: target } = read.frontmatter;
+		if (typeof source !== 'string' || typeof target !== 'string') continue;
+		pairs.set(JSON.stringify([source, target]), { source, target });
+	}
+	return { pairs: [...pairs.values()], stamps: [...stamps], unstamped };
+}
+
+function frozenReadableChildHashes(recipeId: string, column: string, pairs: readonly FrameworkPair[]): Set<string> {
+	return new Set(pairs.flatMap(({ source, target }) =>
+		FROZEN_READABLE_CHILD_REVISIONS.map((revision) => {
+			const frozen = revision(recipeId, column, source, target);
+			return computeRecipeHash(frozen.target, frozen.source);
+		})));
+}
+
 /** Run every declared crosswalk column as its own SSSOM-owned edge import. */
 export async function runCrosswalkEdgePass(
 	app: App,
@@ -307,6 +409,7 @@ export async function runCrosswalkEdgePass(
 			result.errors.push(error);
 			continue;
 		}
+		// The recipe id does not depend on the filename template.
 		const columnRecipeId = buildCrosswalkColumnRecipe(entry, args.sourceOntology, args.recipeId).recipe;
 		// A zero-row refresh still has an owned set to inspect for retained links.
 		const candidates = args.producerSetId
@@ -322,6 +425,29 @@ export async function runCrosswalkEdgePass(
 			result.errors.push(error);
 			continue;
 		}
+		// Recognize historical readable producers, never the live builder's hash.
+		// More than one candidate was refused above, so at most one remains.
+		// Fast path: every set stamp is a frozen readable stamp for the current
+		// pair. Otherwise a retargeted column leaves one stamp per framework pair,
+		// so judge each edge member's own stamp against the frozen readable stamps
+		// for the current pair and every pair the edges record.
+		let useReadableNames = candidates.length === 0;
+		const stamps = candidates.length === 1 ? candidates[0].recipeHashes ?? [] : [];
+		if (stamps.length > 0) {
+			const current: FrameworkPair = { source: args.sourceOntology, target: entry.to_ontology };
+			const currentHashes = frozenReadableChildHashes(args.recipeId, entry.column, [current]);
+			useReadableNames = stamps.every((stamp) => currentHashes.has(stamp));
+			if (!useReadableNames) {
+				const members = await readEdgeMemberStamps(app, candidates[0].paths);
+				const readableHashes = frozenReadableChildHashes(args.recipeId, entry.column, [current, ...members.pairs]);
+				useReadableNames = !members.unstamped
+					&& members.stamps.length > 0
+					&& members.stamps.every((stamp) => readableHashes.has(stamp));
+			}
+		}
+		// Missing, mixed, legacy or unrecognized stamps retain legacy naming.
+		const columnRecipe = buildCrosswalkColumnRecipe(entry, args.sourceOntology, args.recipeId,
+			useReadableNames ? READABLE_SSSOM_FILE_TEMPLATE : LEGACY_SSSOM_FILE_TEMPLATE);
 		// The release these links belong to (S5, M6b): the recipe's declared id;
 		// else the id the link set already holds (its record, or the id a set
 		// written before records existed stamped on every link); else one minted
@@ -410,7 +536,7 @@ export async function runCrosswalkEdgePass(
 		const generation = await generateFromRecipe(
 			app,
 			parsedData,
-			buildCrosswalkColumnRecipe(entry, args.sourceOntology, args.recipeId),
+			columnRecipe,
 			{
 				basePath: destination,
 				overwriteMode: args.overwriteMode,
