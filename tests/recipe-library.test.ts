@@ -7,6 +7,7 @@
  * e2e flow spec. Every id, title and column here is invented.
  */
 
+import { recipeSaveDefaultName } from '../src/import/import-wizard';
 import richFixture from './fixtures/portable-import-recipe-rich.json';
 import {
 	RECIPE_LIBRARY_FOLDER,
@@ -584,4 +585,20 @@ describe('recipe library: saving twice in one session', () => {
 		expect(replaced.id).toBe(first.id);
 		expect((await listLibrary(files)).entries.map((e) => e.id)).toEqual([first.id]);
 	});
+});
+
+
+it('saves a previous default under its clean default title, not its picker comparison label', async () => {
+	const previous = RECIPE_REGISTRY.find((entry) => entry.id === 'mitre-attack-technique-flat')!;
+	const recognized = findRecognizedRecipes(previous.signatureColumns).find((match) => match.entry.id === previous.id)!;
+	const document = loadDoc(previous.recipe, 'bundled');
+	const files = memoryFiles();
+	const saved = await saveToLibrary(files, document, {
+		name: recipeSaveDefaultName(document, recognized.entry, 'synthetic.csv'), mode: 'new',
+	});
+	expect(saved.ok).toBe(true);
+	const listing = await listLibrary(files);
+	expect(listing.entries).toHaveLength(1);
+	expect(listing.entries[0].name).toBe(previous.label);
+	expect(listing.entries[0].name).not.toContain('(previous default)');
 });

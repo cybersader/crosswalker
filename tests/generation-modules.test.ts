@@ -10,10 +10,14 @@
  * idempotency, edge cases, and round-trip determinism.
  */
 
+import d3fend from '../recipes/import/mitre-d3fend.json';
+import listView from '../recipes/v0-1/list-view.json';
+import type { Recipe } from '../src/render';
 import { legacyConfigToRecipe } from '../src/generation/legacy-recipe-shim';
 import { mergeFrontmatter, computeDeclaredManagedKeys, computeManagedKeys } from '../src/generation/frontmatter-merge';
 import { buildProvenance } from '../src/generation/provenance';
 import {
+	facetMembershipsForRecipe,
 	buildConfigFromWizardState,
 	buildNoteData,
 	buildNoteContent,
@@ -626,4 +630,17 @@ describe('render: empty managed values are omitted, not emitted as broken links'
 		const childAddr = render(recipe, { curie: 'x:CIS-1.1', scope: { id: 'CIS-1.1', parent: 'CIS-1', name: 'Child' } });
 		expect(childAddr.frontmatter.parent).toBe('[[CIS-1]]');
 	});
+});
+
+describe('facet membership compatibility', () => {
+	it.each([['D3FEND', d3fend], ['800-53 list view', listView]] as const)(
+		'keeps caller-supplied hub names for %s without a recipe facet declaration', (_name, recipe) => {
+			const facets = [{ namespace: 'original/facet', value: 'Original Display Name' }];
+			const fallback = jest.fn(() => facets);
+			expect(facetMembershipsForRecipe(recipe as unknown as Recipe, {}, 7, ['original/facet/lossy-name'], fallback)).toBe(facets);
+			expect(fallback).toHaveBeenCalledWith({}, 7);
+			expect(facetMembershipsForRecipe(recipe as unknown as Recipe, {}, 7, ['original/facet/lossy-name']))
+				.toEqual([{ namespace: 'original/facet', value: 'lossy-name' }]);
+		},
+	);
 });

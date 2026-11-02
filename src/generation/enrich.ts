@@ -1758,12 +1758,20 @@ function computeLevelHubs(
 		const facetGroup = isRoot && rootFacetLinks.length > 0 ? [{ label: 'Facets', links: rootFacetLinks }] : [];
 
 		if (id.hostedPath) {
-			if (config.level_hubs !== 'notes') {
-				if (config.children_lists !== false && flaggedFolders.size > 0) {
-					result.childrenByPath.set(id.hostedPath, links);
-				}
-				continue;
+			// A host note's children are the folder's contents. Its children's parent
+			// links come from this pass (attachParent), not from row frontmatter, so
+			// step 3 never sees them. Without this a recipe that asks for children lists
+			// AND level hubs gets a body Contents list but no `children` property on
+			// row-hosted folders, while implied-concept hubs carry both. Gated on an
+			// explicit `children_lists: true` so hub recipes that never asked keep
+			// their output byte-identical.
+			const hostChildren = config.level_hubs !== 'notes'
+				? config.children_lists !== false
+				: config.children_lists === true;
+			if (hostChildren && flaggedFolders.size > 0) {
+				result.childrenByPath.set(id.hostedPath, links);
 			}
+			if (config.level_hubs !== 'notes') continue;
 			// A note already hosts this folder (e.g. a concept row whose id
 			// equals the root folder's own name). `hostedChildrenByPath`'s value
 			// is a plain wikilink array (shared with every non-root hosted

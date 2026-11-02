@@ -22,14 +22,16 @@ const mergedHash = (old: ReturnType<typeof stamp>, fresh: ReturnType<typeof stam
 // Old copies normalized defaults before storage. The document, not that
 // representation-only target-hash difference, decides whether a revision changed.
 describe('historical normalized-copy provenance compatibility', () => {
-	it('preserves each note\'s own historical hash only for an equivalent document', () => {
+	it('treats a normalized copy as the same document; the run, not each merge, keeps the old hash', () => {
 		const recipe = original();
 		const normalized = normalizeRecipe(recipe);
 		const old = stamp(recipe);
 		const fresh = stamp(normalized);
 		expect(old._crosswalker.recipe.hash).not.toBe(fresh._crosswalker.recipe.hash);
 		expect(old._crosswalker.recipe.recipe_document_digest).toBe(fresh._crosswalker.recipe.recipe_document_digest);
-		expect(mergedHash(old, fresh)).toBe(old._crosswalker.recipe.hash);
+		// recipeHashForRun (tests/recipe-run-hash.test.ts) selects one hash for the
+		// whole run before any write; the merge writes whatever the run stamped.
+		expect(mergedHash(old, fresh)).toBe(fresh._crosswalker.recipe.hash);
 		expect(fresh).toEqual(stamp(normalized)); // merge never mutates the input
 	});
 

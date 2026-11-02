@@ -154,10 +154,11 @@ describe('AM-68: an unreadable concept is not an unreadable index', () => {
 		const setId = frontmatterOf(files.get(P1)!)?._crosswalker?.import_set?.id;
 		const hubBefore = files.get(HUB)!;
 
-		// P1 is in the identity index (the cache answers for the two index scans and
-		// the conflict check) and then becomes unreadable on disk.
+		// P1 is in the identity index (the cache answers for the two index scans, the
+		// run's one recipe-hash read and the conflict check) and then becomes
+		// unreadable on disk.
 		goodFm.set(P1, frontmatterOf(files.get(P1)!));
-		cacheGoodUntil.set(P1, 3);
+		cacheGoodUntil.set(P1, 4);
 		files.set(P1, '---\n: : :\ncurie: bogus\n---\nBody.\n');
 
 		modifyCalls.length = 0;
@@ -195,10 +196,10 @@ describe('AM-68: an unreadable concept is not an unreadable index', () => {
 		const setId = frontmatterOf(files.get(R1)!)?._crosswalker?.import_set?.id;
 
 		// The user deletes the index note by hand, and the only other note in the
-		// folder becomes unreadable.
+		// folder becomes unreadable (after the same four cache answers as above).
 		files.delete(HUB);
 		goodFm.set(R1, frontmatterOf(files.get(R1)!));
-		cacheGoodUntil.set(R1, 3);
+		cacheGoodUntil.set(R1, 4);
 		files.set(R1, '---\n: : :\ncurie: bogus\n---\nBody.\n');
 
 		modifyCalls.length = 0;

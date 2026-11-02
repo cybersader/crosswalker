@@ -146,6 +146,8 @@ export interface Recipe {
 
 /** The `target.enrichment` block (see spec/recipe.schema.json $defs/enrichment). */
 export interface RecipeEnrichment {
+	/** Omitted preserves caller-first facet membership; tag_template opts into canonical tag templates. */
+	facet_source?: 'tag_template' | 'caller';
 	parent_links?: boolean;
 	children_lists?: boolean;
 	facet_notes?: 'none' | 'tags-only' | 'notes';

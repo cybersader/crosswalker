@@ -53,6 +53,9 @@ export function fromDefinition(definition: StackDefinition): StackSelection {
 		.map((slot) => RECIPE_REGISTRY.find((entry) => entry.id === slot.presetId)!.ontology);
 	return {
 		chosen, detail: definition.detail,
+		recordedRecipes: Object.fromEntries(definition.slots.map((slot) => [
+			RECIPE_REGISTRY.find((entry) => entry.id === slot.presetId)!.ontology, slot.presetId,
+		])),
 		connectorExcluded: chosen.includes('cri-profile') && chosen.includes('nist-800-53')
 			&& !definition.slots.some((slot) => slot.role === 'connector'),
 		optionalMappings: definition.mappings.map((slot) => slot.presetId)

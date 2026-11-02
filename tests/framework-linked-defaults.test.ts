@@ -8,16 +8,17 @@ import { runCli } from '../cli/crosswalker';
 import { createFsApp } from '../cli/fs-app';
 import { REPO, captureIo, installByteFile, readTree, tempDir } from './cli/helpers';
 import { RECIPE_REGISTRY, findRecognizedRecipes, matchScore, type RecipeRegistryEntry } from '../src/import/recipe-registry';
-import { existingFrameworkNotice, honestEnrichment, shouldAutoApplyRecognizedMatch } from '../src/import/import-wizard';
+import { recipeSaveDefaultName, existingFrameworkNotice, honestEnrichment, shouldAutoApplyRecognizedMatch } from '../src/import/import-wizard';
+import { computeRecipeHash } from '../src/generation/hash';
 import { serializeCanonicalRecipe } from '../src/import/recipe-document';
 import { recipeChangedSinceRun, recipeRunDigest } from '../src/import/recipe-runs';
-import { frameworkSlots, DEFAULT_STACK_SELECTION } from '../src/import/stack/stack-model';
+import { frameworkSlots, DEFAULT_STACK_SELECTION, refreshRecipeProblem } from '../src/import/stack/stack-model';
 import { generateNotes } from '../src/generation/generation-engine';
 import { discoverImportSets } from '../src/generation/import-set';
 import { edgeEndpointIndex, resolveEdgeEndpoints } from '../src/generation/edge-endpoints';
-import { deriveRecipeFacetMemberships } from '../src/import/mapping/facets';
+import { deriveFacetMemberships, deriveRecipeFacetMemberships } from '../src/import/mapping/facets';
 import { validateRecipe } from '../src/validation/validator';
-import type { Recipe } from '../src/render';
+import { render, type Recipe } from '../src/render';
 
 installByteFile();
 const SET = 'iset-a0f1e2';
@@ -145,6 +146,42 @@ describe.each(IDS)('historical normalized kept copy: %s', (id) => {
 	});
 });
 
+describe.each(['wizard', 'headless'] as const)('historical normalized added rows: %s', (mode) => {
+	it('stamps one hash on old rows, new rows and hubs so later refresh is not refused', async () => {
+		const id = 'mitre-attack-technique-linked';
+		const recipe = entry(id).recipe as unknown as Recipe;
+		const input = source(id);
+		const vault = await imported(id, input);
+		const oldHash = computeRecipeHash(recipe.target, recipe.source);
+		const kept = [...readTree(vault).keys()].find((file) => /recipe-sha256-.*\.json$/.test(file))!;
+		const oldBytes = serializeCanonicalRecipe(entry(id).recipe);
+		fs.writeFileSync(path.join(vault, kept), oldBytes);
+		const normalized = JSON.parse(oldBytes) as Recipe;
+		expect(computeRecipeHash(normalized.target, normalized.source)).not.toBe(oldHash);
+		const rows = [...ROWS[id],
+			{ ID: 'T1002', name: 'New row one', description: 'Synthetic', tactics: 'Fresh facet' },
+			{ ID: 'T1003', name: 'New row two', description: 'Synthetic', tactics: 'Fresh facet' }];
+		if (mode === 'headless') {
+			fs.writeFileSync(input, Papa.unparse(rows));
+			const io = captureIo();
+			expect(await runCli(['replay', '--vault', vault, '--set', SET, '--source', input, '--deterministic'], io.io)).toBe(0);
+			expect(io.err).toEqual([]);
+		} else {
+			const result = await generateNotes(createFsApp(vault) as any,
+				{ columns: Object.keys(rows[0]), rows, rowCount: rows.length },
+				{ name: 'shape-workbench', mapping: { hierarchy: [], frontmatter: [], links: [], body: [], filename: { template: '{ID|fs-safe}.md', sanitize: true } } },
+				{ basePath: DEST, importSet: { id: SET }, overwriteMode: 'replace', createFolders: true, recipeOverride: normalized });
+			expect(result.errors).toEqual([]);
+		}
+		expect(notes(vault).has(`${DEST}/T1002.md`)).toBe(true);
+		expect(notes(vault).has(`${DEST}/Fresh facet.md`)).toBe(true);
+		const set = (await discoverImportSets(createFsApp(vault) as any)).find((item) => item.id === SET)!;
+		expect(set.recipeHashes).toEqual([oldHash]);
+		expect(refreshRecipeProblem(id, set.recipeIds, oldHash, set.recipeHashes)).toBeNull();
+		expect(fs.readFileSync(path.join(vault, kept), 'utf8')).toBe(oldBytes);
+	});
+});
+
 describe('linked navigation', () => {
 	it('intentionally retains the existing hub/_root CURIE for level indexes', async () => {
 		for (const id of ['nist-csf-2-linked', 'nist-800-53-linked'] as const) {
@@ -166,6 +203,19 @@ describe('linked navigation', () => {
 		}
 	});
 
+	it('gives SP 800-53 control notes that host a folder a children property, not only a Contents list', async () => {
+		const vault = await imported('nist-800-53-linked', source('nist-800-53-linked'));
+		const all = notes(vault);
+		const control = all.get(`${DEST}/ZZ/ZZ-1/ZZ-1.md`)!;
+		expect(control.parent).toBe('[[ZZ]]');
+		expect(control.children).toEqual(['[[ZZ-1(1)]]']);
+		expect(fs.readFileSync(path.join(vault, DEST, 'ZZ/ZZ-1/ZZ-1.md'), 'utf8')).toContain('## Contents');
+		const enhancement = all.get(`${DEST}/ZZ/ZZ-1/ZZ-1(1).md`)!;
+		expect(enhancement.parent).toBe('[[ZZ-1]]');
+		expect(enhancement.parent_curie).toBe(control.curie);
+		expect(all.get(`${DEST}/ZZ/ZZ.md`)!.children).toEqual(['[[ZZ-1]]']);
+	});
+
 	it('derives ATT&CK parents from ID and creates only multi-member tactic hubs', async () => {
 		const vault = await imported('mitre-attack-technique-linked', source('mitre-attack-technique-linked'));
 		const all = notes(vault);
@@ -179,6 +229,24 @@ describe('linked navigation', () => {
 		expect(hubs).toHaveLength(1);
 		expect(hubs[0][0]).toBe(`${DEST}/Command and Control.md`);
 		expect(hubs[0][1].members).toEqual(['[[T1001]]', '[[T1001.001]]', '[[T1001.002]]']);
+	});
+
+	it('preserves wizard and preset comma-separated facet hubs without a facet_source opt-in', async () => {
+		const recipe: Recipe = { recipe: 'wizard-facets', source: { ontology: 'synthetic', levels: ['concept'] },
+			target: { layout: [{ level: 'concept', mechanism: 'file', template: '{ID}.md' }],
+				also_emit: { tags: ['facet/{facets|tagsafe}'] }, enrichment: { facet_notes: 'notes' } } };
+		const rows = [{ ID: 'one', facets: 'A, B' }, { ID: 'two', facets: 'A; B' }];
+		const mapping = { mappings: [{ id: 'facet', levels: [{ id: 'value', source: { column: 'facets' },
+			destinations: [{ primitive: 'tag' as const, namespace: 'facet' }] }] }] };
+		const vault = tempDir('wizard-comma-hubs');
+		const result = await generateNotes(createFsApp(vault) as any,
+			{ columns: ['ID', 'facets'], rows, rowCount: rows.length },
+			{ name: 'shape-workbench', mapping: { hierarchy: [], frontmatter: [], links: [], body: [], filename: { template: '{ID}.md', sanitize: true } } },
+			{ basePath: DEST, importSet: { id: SET }, overwriteMode: 'replace', createFolders: true,
+				recipeOverride: recipe, facetsForRow: (row) => deriveFacetMemberships(mapping, row) });
+		expect(result.errors).toEqual([]);
+		expect([...notes(vault)].filter(([, note]) => note.kind === 'facet').map(([file]) => file).sort())
+			.toEqual([`${DEST}/A.md`, `${DEST}/B.md`]);
 	});
 
 	it('uses the same raw facet membership authority on the wizard and CLI paths', async () => {
@@ -249,12 +317,21 @@ describe('recommended selection is additive', () => {
 			const columns = [...new Set([...entry(id).signatureColumns, ...previous.signatureColumns])];
 			const ranked = findRecognizedRecipes(columns);
 			expect(ranked[0].entry.id).toBe(id);
-			expect(previous.label).toMatch(/ \(previous default\)$/);
+			expect(previous.label).not.toContain('(previous default)');
 			expect(entry(id).label).not.toContain('previous default');
 			expect(shouldAutoApplyRecognizedMatch(true, 100, previous)).toBe(false);
 			expect(shouldAutoApplyRecognizedMatch(true, 100, ranked[0].entry)).toBe(true);
 			expect(ranked.find((match) => match.entry.id === previous.id)?.score).toBe(100);
 		}
+	});
+
+	it('prefills a saved library recipe title without the picker-only previous-default suffix', () => {
+		const previous = entry('mitre-attack-technique-flat');
+		const recognized = findRecognizedRecipes([...new Set([...previous.signatureColumns, ...entry(previous.supersededBy!).signatureColumns])])
+			.find((match) => match.entry.id === previous.id)!;
+		const name = recipeSaveDefaultName({ origin: 'bundled', original: previous.recipe }, recognized.entry, 'synthetic.csv');
+		expect(name).toBe(previous.label);
+		expect(name).not.toContain('(previous default)');
 	});
 
 	it('totally orders successor, previous default and a specificity-winning third candidate in all six input orders', () => {
@@ -279,7 +356,8 @@ describe('recommended selection is additive', () => {
 
 	it('uses linked stack defaults, but generic 800-53 discovery remains flat only', () => {
 		const slots = frameworkSlots(DEFAULT_STACK_SELECTION);
-		for (const id of IDS) expect(slots.some((slot) => slot.entry.id === id)).toBe(true);
+		for (const id of IDS.filter((id) => id !== 'nist-csf-2-linked')) expect(slots.some((slot) => slot.entry.id === id)).toBe(true);
+		expect(slots.find((slot) => slot.role === 'connector')?.entry.id).toBe('nist-csf-2-cprt-hierarchical');
 		const ids = findRecognizedRecipes(entry('nist-800-53-linked').signatureColumns).map((match) => match.entry.id);
 		expect(ids).toContain('nist-800-53-r5-flat');
 		expect(ids).not.toContain('nist-800-53-linked');
@@ -310,4 +388,13 @@ describe('recommended selection is additive', () => {
 		expect(signatures.length).toBeGreaterThan(25);
 		for (const columns of signatures) expect(matchScore(d3fend, columns)).toBeLessThan(100);
 	});
+});
+
+it('trims source IDs before deriving ATT&CK parent links and CURIEs', () => {
+	const recipe = entry('mitre-attack-technique-linked').recipe as unknown as Recipe;
+	const address = render(recipe, { curie: 'mitre-attack:T1001.001', scope: {
+		ID: '  T1001.001  ', name: 'Synthetic child', description: 'Synthetic prose',
+	} });
+	expect(address.frontmatter.parent).toBe('[[T1001]]');
+	expect(address.frontmatter.parent_curie).toBe('mitre-attack:T1001');
 });

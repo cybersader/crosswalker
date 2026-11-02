@@ -1,3 +1,4 @@
+import { recipeHashForRun } from './recipe-run-hash';
 /**
  * Generation Engine
  *
@@ -261,6 +262,8 @@ interface EnrichmentWriteOptions {
 	sourceVersion?: string;
 	/** Complete pre-parse source-byte digest associated with this ParsedData. */
 	sourceHash?: string;
+	/** Hash selected once for existing and new notes in this run. */
+	recipeHash?: string;
 	/**
 	 * Carried in so the enrichment phase can honour `skip` on its own. A hub
 	 * relocation is a change to the vault, and `skip` means leave existing notes
@@ -615,7 +618,8 @@ export async function generateNotes(
 		// buildProvenance call this run makes — see src/generation/hash.ts.
 		// `recipe.source` is passed at every call site so one recipe hashes to
 		// one value no matter which code path computed it.
-		const recipeHash = computeRecipeHash(recipe.target, recipe.source);
+		const recipeHash = await recipeHashForRun(app, ownedIdentityIndex, provenanceRecipeId,
+			recipeDocumentDigestFor(recipe), computeRecipeHash(recipe.target, recipe.source));
 
 		// Track paths emitted in THIS generation pass to detect collisions
 		// (two source rows rendering to the same vault path).
@@ -1200,6 +1204,7 @@ export async function generateNotes(
 						sourceFileName: options.sourceFileName,
 						sourceVersion: options.frameworkVersion ?? recipe.source?.version,
 						sourceHash: parsedData.sourceByteDigest,
+						recipeHash,
 						overwriteMode: options.overwriteMode,
 					},
 					curiePrefix,
@@ -3246,10 +3251,11 @@ export async function generateFromRecipe(
 	// src/generation/hash.ts's doc comments for the exact field-set definition.
 	// `recipe.source` participates only through its shaping declarations; a
 	// recipe declaring none hashes byte-identically to its pre-1.9.0 self.
+	const provenanceRecipeId = options.provenanceRecipe?.id ?? recipe.recipe;
 	const recipeHash = options.provenanceRecipe
 		? options.provenanceRecipe.hash
-		: computeRecipeHash(recipe.target, recipe.source);
-	const provenanceRecipeId = options.provenanceRecipe?.id ?? recipe.recipe;
+		: await recipeHashForRun(app, ownedIdentityIndex, provenanceRecipeId,
+			stampedRecipeDocumentDigest(recipe, options), computeRecipeHash(recipe.target, recipe.source));
 	// See generateNotes above: recipe declaration, not row output, decides ownership.
 	const declaredManagedKeys = computeDeclaredManagedKeys(recipe.target.also_emit?.frontmatter);
 	// Resolve existing notes by canonical identity before considering their current
@@ -3980,6 +3986,7 @@ export async function generateFromRecipe(
 					...options,
 					sourceVersion: options.sourceVersion ?? recipe.source?.version,
 					sourceHash: parsedData.sourceByteDigest,
+					recipeHash,
 				},
 				curiePrefix,
 				[...enrichRecords, ...keptRecords],
@@ -4061,13 +4068,17 @@ export async function generateFromRecipe(
 	return result;
 }
 
-/** Shared display-name authority for UI, CLI, preview and demo generation. */
-function facetMembershipsForRecipe(
+/** Explicit recipe authority is opt-in; existing wizard and preset callers keep their memberships. */
+export function facetMembershipsForRecipe(
 	recipe: Recipe, row: Record<string, unknown>, rowNum: number, tags: string[],
 	fallback?: (row: Record<string, unknown>, rowNum: number) => FacetMembership[],
 ): FacetMembership[] {
-	if (recipe.target.also_emit?.tags?.length) return deriveRecipeFacetMemberships(recipe, row);
-	return fallback ? fallback(row, rowNum) : facetMembershipsFromTags(tags);
+	if (recipe.target.enrichment?.facet_source === 'tag_template') return deriveRecipeFacetMemberships(recipe, row);
+	if (fallback) return fallback(row, rowNum);
+	if (recipe.target.enrichment?.facet_notes === 'notes' && recipe.target.also_emit?.tags?.length) {
+		return deriveRecipeFacetMemberships(recipe, row);
+	}
+	return facetMembershipsFromTags(tags);
 }
 
 /**
@@ -5190,7 +5201,7 @@ async function applyEnrichment(
 	// Hub/facet notes are synthetic (no source row → no concept identity), so
 	// they carry recipe.hash but never concept_cid — see the two buildProvenance
 	// calls below. Computed once per applyEnrichment call (one per generation run).
-	const recipeHash = computeRecipeHash(recipe.target, recipe.source);
+	const recipeHash = options.recipeHash ?? computeRecipeHash(recipe.target, recipe.source);
 	// AM-72. One fresh block per run for the held-host writer below. Only its
 	// `produced_at` is ever taken (`heldHubProvenance`), except on a host that
 	// records no provenance at all, where writing one is a gain and not an

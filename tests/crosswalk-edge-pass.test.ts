@@ -18,6 +18,7 @@ import type { DebugLog } from '../src/utils/debug';
 import type { Recipe } from '../src/render';
 import { computeMappingSetDigests, readMappingSet } from '../src/mappings/mapping-set';
 import { managedContentEquivalent } from '../src/generation/managed-equivalence';
+import { serializeCanonicalRecipe } from '../src/import/recipe-document';
 import { computeRecipeHash } from '../src/generation/hash';
 
 const debug = {
@@ -1045,4 +1046,26 @@ describe('readable filenames for child crosswalk link sets', () => {
 				.toEqual({ equal: true, differences: [] });
 		}
 	});
+});
+
+
+it('keeps one verified historical hash when a normalized edge recipe adds a new edge', async () => {
+	const harness = makeApp();
+	const recipe = buildCrosswalkColumnRecipe(ENTRY, 'cri-profile', 'synthetic-parent');
+	const rows = deriveCrosswalkEdgeRows(ENTRY, 'cri-profile', 'synthetic-release', [
+		{ curie: 'cri-profile:ONE', row: { [ENTRY.column]: 'GV.OC-01' } },
+		{ curie: 'cri-profile:TWO', row: { [ENTRY.column]: 'GV.OC-02' } },
+	]).rows.map((row) => ({ ...row, edge_body: 'Synthetic mapping', subject_note: '', object_note: '' }));
+	const options = { basePath: 'Mappings/Synthetic', importSet: { id: 'iset-a0f1e2' }, overwriteMode: 'replace' as const,
+		createFolders: true, curiePrefix: SSSOM_CURIE_PREFIX, curieLocalPart: (row: Record<string, unknown>, _n: number, set: any) => sssomEdgeCurie(row, set) };
+	const initial = await generateFromRecipe(harness.app, { columns: Object.keys(rows[0]), rows: rows.slice(0, 1), rowCount: 1 }, recipe, options, debug);
+	expect(initial.errors).toEqual([]);
+	const oldHash = computeRecipeHash(recipe.target, recipe.source);
+	const normalized = JSON.parse(serializeCanonicalRecipe(recipe as any)) as Recipe;
+	expect(computeRecipeHash(normalized.target, normalized.source)).not.toBe(oldHash);
+	const replay = await generateFromRecipe(harness.app, { columns: Object.keys(rows[0]), rows, rowCount: rows.length }, normalized, options, debug);
+	expect(replay.errors).toEqual([]);
+	const set = (await discoverImportSets(harness.app)).find((item) => item.id === options.importSet.id)!;
+	expect(set.noteCount).toBe(2);
+	expect(set.recipeHashes).toEqual([oldHash]);
 });

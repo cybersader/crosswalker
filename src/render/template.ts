@@ -384,9 +384,8 @@ export function renderTagTemplate(template: string, scope: SourceScope, report?:
 		: evaluateInterpolation(segment.interp, scope, template, report));
 	// Source data may already hold arrays without a list-producing filter.
 	assertSingleTagList(values.filter(Array.isArray).length);
-	if (values.some((value, index) => segments[index].kind === 'interp' && !Array.isArray(value) && String(value).trim() === '')) {
-		return [];
-	}
+	// Preserve scalar interpolation bytes, including empty middle segments. Only
+	// an empty final segment (or an empty list item) suppresses the tag.
 	const list = values.find(Array.isArray);
 	const items = list ?? [undefined];
 	const tags = items

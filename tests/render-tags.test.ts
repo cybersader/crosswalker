@@ -1,4 +1,6 @@
 import { render, renderTemplate, type ConceptIdentity, type Recipe, type SourceScope } from '../src/render';
+import previousD3fend from '../recipes/import/mitre-d3fend.json';
+import listView from '../recipes/v0-1/list-view.json';
 import { validateRecipe } from '../src/validation/validator';
 
 const listError = 'A tag template may hold one list-valued field. Split it into two tags.';
@@ -42,9 +44,10 @@ describe('also_emit.tags list fan-out', () => {
 		expect(renderTags({ tactics })).toEqual([]);
 	});
 
-	it('skips a missing optional path and a scalar optional value, not just a list', () => {
+	it('skips an absent final field but preserves an empty middle interpolation byte-for-byte', () => {
 		expect(renderTags({}, ['mitre-attack/tactic/{tactics|optional|tagsafe}'])).toEqual([]);
-		expect(renderTags({}, ['mitre-attack/{nested.tactic|optional|tagsafe}/member'])).toEqual([]);
+		expect(renderTags({}, ['mitre-attack/{nested.tactic|optional|tagsafe}/member'])).toEqual(['mitre-attack//member']);
+		expect(renderTags({ middle: '' }, ['namespace/{middle}/member'])).toEqual(['namespace//member']);
 	});
 
 	it('drops a scalar empty value and any tag whose last path segment is empty', () => {
@@ -113,4 +116,14 @@ describe('also_emit.tags list fan-out', () => {
 		expect(() => render(recipe, { curie: 'mitre-attack:T1001', scope: { tactics: 'A,B' } })).toThrow(/produced a list.*add \|join/);
 		expect(() => renderTemplate('{tactics|split(,)}', { tactics: 'A,B' })).toThrow(/produced a list.*add \|join/);
 	});
+});
+
+it('keeps existing shipped scalar tag templates byte-identical', () => {
+	for (const [recipe, scope] of [
+		[previousD3fend, { ID: 'D3-SYN', 'D3FEND Tactic': 'Harden' }],
+		[listView, { catalog: { name: 'Synthetic' }, family: { id: 'AC' }, control: { id: 'AC-1' } }],
+	] as const) {
+		const templates = recipe.target.also_emit.tags;
+		expect(renderTags(scope, templates)).toEqual(templates.map((template) => renderTemplate(template, scope)));
+	}
 });

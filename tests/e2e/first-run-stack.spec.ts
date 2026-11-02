@@ -8,9 +8,9 @@ import { RECIPE_REGISTRY } from '../../src/import/recipe-registry';
 const OUT = path.resolve('test-screenshots');
 const nistHeaders = ['Control Identifier', 'Control (or Enhancement) Name', 'Control Text', 'Discussion', 'Related Controls'];
 const source = (id: string) => RECIPE_REGISTRY.find((entry) => entry.id === id)!;
-function workbook(sheet: string, columns: string[], values: Record<string, string>, headerRow = 0): number[] {
+function workbook(sheet: string, columns: string[], values: Record<string, string>, headerRow = 0, additional: Record<string, string>[] = []): number[] {
 	const rows = Array.from({ length: headerRow }, () => ['Synthetic banner']);
-	rows.push(columns, columns.map((column) => values[column] ?? ''));
+	rows.push(columns, ...[values, ...additional].map((row) => columns.map((column) => row[column] ?? '')));
 	const book = XLSX.utils.book_new();
 	XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), sheet);
 	return Array.from(new Uint8Array(XLSX.write(book, { type: 'buffer', bookType: 'xlsx' })));
@@ -63,16 +63,18 @@ describe('First run: synthetic framework stack', function () {
 	before(() => { mkdirSync(OUT, { recursive: true }); });
 	it('recognizes three synthetic sources, imports three separate sets, and offers but never selects refresh', async () => {
 		const cri = source('cri-profile-v2-2-flat');
-		const attack = source('mitre-attack-technique-flat');
+		const attack = source('mitre-attack-technique-linked');
 		const criValues = Object.fromEntries(cri.signatureColumns.map((column) => [column, '']));
 		Object.assign(criValues, { 'Profile Id': 'ZZ.ZZ-01.01', Level: 'DS', 'Outline Id': 'Z.1',
 			'CRI Profile Function / Category / Subcategory': 'Invented / Category / Subcategory',
 			'CRI Profile v2.2 Diagnostic Statement': 'Invented statement.' });
 		const attackValues = Object.fromEntries(attack.signatureColumns.map((column) => [column, '']));
-		Object.assign(attackValues, { ID: 'T9999', name: 'Invented technique', description: 'Invented description.' });
+		Object.assign(attackValues, { ID: 'T9999', name: 'Invented technique', description: 'Invented description.', tactics: 'Execution' });
 		const payloads = [
 			{ name: 'synthetic-cri.xlsx', bytes: workbook('CRI Profile v2.2 Structure', cri.signatureColumns, criValues, 2) },
-			{ name: 'synthetic-attack.xlsx', bytes: workbook('techniques', attack.signatureColumns, attackValues) },
+			{ name: 'synthetic-attack.xlsx', bytes: workbook('techniques', attack.signatureColumns, attackValues, 0, [
+				{ ...attackValues, ID: 'T9999.001', name: 'Invented child technique' },
+			]) },
 			{ name: 'synthetic-nist.xlsx', bytes: workbook('Controls', nistHeaders, {
 				'Control Identifier': 'ZZ-1', 'Control (or Enhancement) Name': 'Invented control',
 				'Control Text': 'Invented control text.', Discussion: 'Invented discussion.', 'Related Controls': '',
@@ -127,10 +129,16 @@ describe('First run: synthetic framework stack', function () {
 			console.log(`[stack-import-state] ${JSON.stringify(state)}`);
 			throw error;
 		}
-		const result = await browser.executeObsidian(({ app }) => {
+		const result = await browser.executeObsidian(async ({ app, obsidian }) => {
 			const notes = app.vault.getMarkdownFiles().filter((file) => ['Frameworks/NIST 800-53', 'Frameworks/MITRE ATT&CK', 'Frameworks/CRI Profile'].some((root) => file.path.startsWith(root)));
+			const facts = await Promise.all(notes.map(async (file) => {
+				const body = await app.vault.read(file);
+				const yaml = /^---\r?\n([\s\S]*?)\r?\n---/.exec(body)?.[1];
+				const fm = yaml ? obsidian.parseYaml(yaml) as Record<string, unknown> : {};
+				return { path: file.path, curie: fm.curie, kind: fm.kind, parent: fm.parent };
+			}));
 			return { text: document.querySelector('.crosswalker-stack-modal')?.textContent ?? '',
-				paths: notes.map((file) => file.path) };
+				paths: notes.map((file) => file.path), facts };
 		});
 		expect(result.text).toContain('5 sets confirmed in the vault');
 		expect(result.text).toContain('2 mapping sets');
@@ -186,7 +194,10 @@ describe('First run: synthetic framework stack', function () {
 		await $('.workspace-leaf-content[data-type="graph"]').waitForDisplayed();
 		await browser.pause(3000);
 		await browser.saveScreenshot(path.join(OUT, 'visual-stack-06-graph-connected.png'));
-		expect(result.paths).toHaveLength(4);
+		const tacticHubs = result.facts.filter((note) => note.kind === 'facet');
+		expect(tacticHubs).toHaveLength(1);
+		expect(tacticHubs[0].path).toBe('Frameworks/MITRE ATT&CK/Execution.md');
+		expect(result.facts.find((note) => note.curie === 'mitre-attack:T9999.001')?.parent).toBe('[[T9999]]');
 		expect(result.paths).toContain('Frameworks/NIST 800-53/ZZ/ZZ.md');
 		expect(new Set(result.paths.map((file) => file.split('/').slice(0, 2).join('/'))).size).toBe(3);
 		await openStack();
@@ -225,7 +236,13 @@ describe('First run: synthetic framework stack', function () {
 			paths: app.vault.getMarkdownFiles().filter((file) => ['Frameworks/NIST 800-53', 'Frameworks/MITRE ATT&CK', 'Frameworks/CRI Profile'].some((root) => file.path.startsWith(root))).map((file) => file.path),
 		}));
 		expect(second.text).toContain('5 sets confirmed in the vault');
-		expect(second.paths).toHaveLength(9);
+		// Each new set writes the same 7 notes again: NIST root, family and control;
+		// ATT&CK tactic hub, technique and sub-technique; one CRI statement. The
+		// reconnect step above planted one extra note in the first ATT&CK set.
+		const added = second.paths.filter((file) => !result.paths.includes(file)
+			&& !file.endsWith('/Invented missing technique.md'));
+		expect(added).toHaveLength(7);
+		expect(added.every((file) => file.includes(' (new 2)/'))).toBe(true);
 		expect(new Set(second.paths.map((file) => file.split('/').slice(0, 2).join('/'))).size).toBe(6);
 		await button('Done');
 	});

@@ -759,7 +759,14 @@ export function applyHeaderAliases<T extends ParsedData>(data: T, entry: RecipeR
 	return { ...data, columns: [...data.columns, ...chosen.map(({ canonical }) => canonical)], rows };
 }
 
-/** Build a registry entry from a bundled raw recipe. */
+/** Supersession is comparison copy, not a permanent rename of a saved recipe. */
+export function recipeChoiceLabel(entry: Pick<RecipeRegistryEntry, 'label' | 'supersededBy'>, listedIds: readonly string[]): string {
+	if (!entry.supersededBy) return entry.label;
+	const label = entry.label.replace(/ \(previous default\)$/, '');
+	return label + (listedIds.includes(entry.supersededBy) ? ' (previous default)' : '');
+}
+
+/** Build a registry entry with a clean, reusable recipe name. */
 function toEntry(raw: unknown): RecipeRegistryEntry {
 	const r = raw as RawRecipe;
 	const { signature, required } = deriveSignature(r);
@@ -775,7 +782,7 @@ function toEntry(raw: unknown): RecipeRegistryEntry {
 	).length;
 	return {
 		id: r.recipe,
-		label: meta.label + (meta.supersededBy ? ' (previous default)' : ''),
+		label: meta.label,
 		supersededBy: meta.supersededBy,
 		description: meta.description,
 		ontology: r.source?.ontology ?? 'unknown',
@@ -828,27 +835,30 @@ export function libraryRegistryEntry(recipe: CrosswalkerImportRecipe): RecipeReg
  * scores, so richer/more-specific recipes (the nested CPRT export) are listed
  * before their flatter siblings.
  */
-export const RECIPE_REGISTRY: RecipeRegistryEntry[] = [
-	toEntry(nistCsf2CprtHierarchical),
-	toEntry(nistCsf2Cprt),
-	toEntry(nistCsf2Flat),
-	toEntry(mitreAttackTechnique),
-	toEntry(nistCsf2Linked),
-	toEntry(nist80053Linked),
-	toEntry(mitreAttackLinked),
-	toEntry(mitreD3fend),
-	toEntry(mitreF3Technique),
-	toEntry(cisControlsV8Controls),
-	toEntry(cisControlsV8Flat),
-	toEntry(scf2026Flat),
-	toEntry(nist80053Flat),
-	toEntry(nist80053Nested),
-	toEntry(criProfileV22),
-	toEntry(criProfileV22Nested),
-	toEntry(crosswalkEdge),
-	toEntry(nistCsf2WithdrawalLineage),
-	toEntry(evidenceJunctionNotes),
+const BUNDLED_RECIPES = [
+	nistCsf2CprtHierarchical,
+	nistCsf2Cprt,
+	nistCsf2Flat,
+	mitreAttackTechnique,
+	nistCsf2Linked,
+	nist80053Linked,
+	mitreAttackLinked,
+	mitreD3fend,
+	mitreF3Technique,
+	cisControlsV8Controls,
+	cisControlsV8Flat,
+	scf2026Flat,
+	nist80053Flat,
+	nist80053Nested,
+	criProfileV22,
+	criProfileV22Nested,
+	crosswalkEdge,
+	nistCsf2WithdrawalLineage,
+	evidenceJunctionNotes,
 ];
+
+export const RECIPE_REGISTRY: RecipeRegistryEntry[] = BUNDLED_RECIPES.map((recipe) =>
+	toEntry(recipe));
 
 // ============================================================================
 // Matching (pure, deterministic)

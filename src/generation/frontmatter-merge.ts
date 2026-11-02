@@ -49,9 +49,6 @@ export function mergeFrontmatter(
 	const alwaysManaged = (k: string): boolean => k === '_crosswalker' || k === 'curie';
 	const ownsKey = (k: string): boolean => managedKeys.has(k) || alwaysManaged(k);
 	const freshValue = (k: string): unknown => {
-		if (k === '_crosswalker' && typeof existing.curie === 'string' && existing.curie && existing.curie === managed.curie) {
-			return preserveEquivalentRecipeHash(existing[k], managed[k]);
-		}
 		return LIST_UNION_KEYS.has(k) && managedKeys.has(k) && k in existing
 			? unionStringList(managed[k], existing[k])
 			: managed[k];
@@ -85,31 +82,6 @@ export function mergeFrontmatter(
 	}
 
 	return result;
-}
-
-/**
- * Old kept recipe copies inserted explicit defaults. Their historical target
- * hashes can differ despite an identical canonical document digest. Preserve
- * that note's hash only for the same identity, owner and verified revision;
- * never choose another note's hash or treat a missing digest as equivalence.
- */
-function preserveEquivalentRecipeHash(existing: unknown, fresh: unknown): unknown {
-	const record = (value: unknown): Record<string, unknown> | null =>
-		value !== null && typeof value === 'object' && !Array.isArray(value)
-			? value as Record<string, unknown> : null;
-	const oldBlock = record(existing);
-	const newBlock = record(fresh);
-	const oldRecipe = record(oldBlock?.recipe);
-	const newRecipe = record(newBlock?.recipe);
-	const oldOwner = record(oldBlock?.import_set)?.id;
-	const newOwner = record(newBlock?.import_set)?.id;
-	const digest = oldRecipe?.recipe_document_digest;
-	if (typeof oldOwner !== 'string' || !/^iset-[a-z0-9]{6}$/.test(oldOwner) || oldOwner !== newOwner
-		|| typeof oldRecipe?.id !== 'string' || !oldRecipe.id || oldRecipe.id !== newRecipe?.id
-		|| typeof digest !== 'string' || !/^sha256-[a-f0-9]{64}$/.test(digest)
-		|| digest !== newRecipe?.recipe_document_digest
-		|| typeof oldRecipe.hash !== 'string' || !/^sha256-[a-f0-9]{64}$/.test(oldRecipe.hash)) return fresh;
-	return { ...newBlock, recipe: { ...newRecipe, hash: oldRecipe.hash } };
 }
 
 /**

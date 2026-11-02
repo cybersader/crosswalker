@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: linked recommended defaults for NIST CSF 2.0, SP 800-53 and ATT&CK (2026-11-02)
+
+- Three new import recipes build each framework as a connected graph rather than a bare folder tree: `nist-csf-2-linked`, `nist-800-53-linked` and `mitre-attack-technique-linked` in `recipes/import/`. Each one writes the hierarchy once, links every note to its parent using the dotted or parent ID, and adds hub notes for shared facets such as ATT&CK tactics. The design spec is `.workspace/2026-11-02-framework-recommended-defaults-spec.md`.
+- **Shipped recipes are unchanged.** When a recipe is replaced by a linked default, the recipe picker labels it "(previous default)", but only if the replacement is also listed. Saved titles and recipe ids do not change.
+- Workbook recognition now recommends `nist-csf-2-linked` for a CSF 2.0 workbook. Framework stacks use the linked recipes for SP 800-53 and ATT&CK. Stack CSF stays on the CPRT recipe until the CPRT and F3 linked variants ship.
+- Saved stacks keep the recipe ids they were saved with, so a stack created before this change refreshes the same sets.
+- Replaying an import set stamps one verified recipe hash across the whole run: existing notes, new rows, hub notes and mapping notes.
+- When a workbook matches more than one recipe, the recognized-source card lists them under "Available configurations" so the user picks one; nothing is switched silently. If that framework is already in the vault, the card says that importing again creates a second set and existing mappings keep pointing at the first.
+- The import card now reads "N rows to N notes plus parent notes" when a recipe also creates parent notes.
+- A row note that also holds a folder of children, such as an SP 800-53 control with enhancements, now gets a `children` list when the recipe sets `children_lists: true`. Previously only standalone parent notes got it, so the linked SP 800-53 recipe left those controls without a children list.
+
+### Added: one tag per value from a list-valued tag template (2026-11-02, SchemaVer 1.21.0 and 1.22.0)
+
+- A tag template may hold one list-valued field, and the import writes one tag per value. For example, a technique with two tactics gets two `mitre-attack/tactic/...` tags. Two list-valued fields in one template is a validation error with a fix-it message. Details are in [schema spec §4.20](docs/src/content/docs/agent-context/v0-1-schema-spec.mdx).
+- New optional `target.enrichment.facet_source: tag_template` (SchemaVer 1.22.0) makes facet hub notes follow the tag templates. With it, the wizard, a stack and `cw` build identical hubs. Recipes without the field behave and hash exactly as before.
+- **Visible change to existing recipes:** a tag repeated by two templates is now written once, and a tag whose last segment renders empty is no longer written. Of the shipped recipes, only `mitre-d3fend` and `mitre-attack-mitigation` produce different tags when re-imported.
+
 ### Changed: demo uses the linked recommended defaults (2026-11-02)
 
 - The demo build now uses the linked recommended defaults for NIST CSF 2.0, NIST SP 800-53 and MITRE ATT&CK from `recipes/import/`. The three superseded demo-only recipe variants are retired. Existing demo vaults keep working because each set stores its executed recipe.

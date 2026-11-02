@@ -45,13 +45,14 @@ import {
 import { MappingWorkbench, renderProvenanceBadge, type ColumnDest } from './workbench';
 import type { ImportMapping, Enrichment } from './mapping/types';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
-import type { RecipeDocumentOrigin } from './recipe-document';
+import type { RecipeDocument, RecipeDocumentOrigin } from './recipe-document';
 import { buildShapeMapRecap, deriveDestinationDefault, preferredParentNote, detectWaypointPlugin, type Provenance } from './mapping/view-model';
 import { explainRecipeError } from './mapping/diagnostics';
 import { computePlan } from './mapping/plan';
 import { outputRootPath, normalizeFolderSetting, evidenceJunctionFolder } from '../settings/folder-settings';
 import { deriveFacetMemberships } from './mapping/facets';
 import {
+	recipeChoiceLabel,
 	bestRecognizedRecipe,
 	findRecognizedRecipes,
 	libraryRegistryEntry,
@@ -195,10 +196,21 @@ export function honestEnrichment(entry: RecipeRegistryEntry): Enrichment | undef
 	const facetLive = hint.facetNotes === 'notes' && shapes.includes('tags');
 	if (!childrenLive && !facetLive && !levelHubsLive) return undefined;
 	const out: Enrichment = {};
+	if (entry.recipe.target.enrichment?.facet_source) out.facet_source = entry.recipe.target.enrichment.facet_source;
 	if (childrenLive) out.children_lists = true;
 	if (facetLive) out.facet_notes = 'notes';
 	if (levelHubsLive) out.level_hubs = 'notes';
 	return out;
+}
+
+/** A picker comparison label must never become a saved library title. */
+export function recipeSaveDefaultName(
+	document: Pick<RecipeDocument, 'origin' | 'original'>, entry: Pick<RecipeRegistryEntry, 'label'> | undefined,
+	sourceFileName: string | undefined,
+): string {
+	const title = document.origin === 'fresh' || document.origin === 'legacy'
+		? undefined : document.original.metadata?.title ?? entry?.label;
+	return title ?? (sourceFileName ?? '').replace(/\.[^.]+$/, '');
 }
 
 /**
@@ -1097,12 +1109,8 @@ export class ImportFlow {
 		if (!this.workbench) return;
 		const input = this.workbench.patchForSave();
 		const doc = input.document;
-		const stem = (this.sourceFile?.name ?? '').replace(/\.[^.]+$/, '');
-		const title = doc.origin === 'fresh' || doc.origin === 'legacy'
-			? null
-			: doc.original.metadata?.title ?? (this.recognizedMatch?.entry.label ?? null);
 		new SaveRecipeModal(this.app, input, {
-			defaultName: title ?? stem,
+			defaultName: recipeSaveDefaultName(doc, this.recognizedMatch?.entry, this.sourceFile?.name),
 			onSaved: (saved) => { void this.afterRecipeSaved(saved); },
 		}).open();
 	}
@@ -1882,7 +1890,13 @@ export class ImportFlow {
 		}
 
 		const summary = card.createEl('div', { cls: 'crosswalker-recognized-summary' });
-		summary.createSpan({ cls: 'crosswalker-recognized-metric', text: `${plural(rowCount, 'row')} to ${plural(rowCount, 'note')}` });
+		// Implied parent concepts (CSF categories, ATT&CK parent techniques) become
+		// notes too, so a bare row count would understate what lands in the vault.
+		const impliedParents = entry.recipe.target.layout?.some((level) => level.mechanism === 'folder' && level.implied_concept);
+		summary.createSpan({
+			cls: 'crosswalker-recognized-metric',
+			text: `${plural(rowCount, 'row')} to ${plural(rowCount, 'note')}${impliedParents ? ' plus parent notes' : ''}`,
+		});
 		if (shapes.length) summary.createSpan({ cls: 'crosswalker-recognized-metric', text: shapes.join(', ') });
 		summary.createSpan({ cls: 'crosswalker-recognized-metric', text: `lands in ${dest}` });
 		if (enrichment?.children_lists) {
@@ -1907,7 +1921,7 @@ export class ImportFlow {
 			const choices = card.createEl('div', { cls: 'crosswalker-recognized-alternatives' });
 			choices.createEl('span', { text: 'Available configurations: ' });
 			for (const match of alternatives) {
-				const button = choices.createEl('button', { text: match.entry.label });
+				const button = choices.createEl('button', { text: recipeChoiceLabel(match.entry, alternatives.map((item) => item.entry.id)) });
 				button.disabled = match.entry.id === entry.id;
 				button.addEventListener('click', () => {
 					this.recognizedMatch = match;

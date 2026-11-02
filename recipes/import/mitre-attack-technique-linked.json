@@ -27,14 +27,14 @@
           "platforms": "{platforms|optional|split(,)}",
           "data_sources": "{data sources|optional|split(,)}",
           "is_subtechnique": "{is sub-technique|optional|lower|trim}",
-          "parent": "{ID|regex(^([^.]+)[.]|$)|wikilink}",
+          "parent": "{ID|trim|regex(^([^.]+)[.]|$)|wikilink}",
           "technique_version": "{version|optional|trim}",
           "defenses_bypassed": "{defenses bypassed|optional|trim}",
           "permissions_required": "{permissions required|optional|trim}",
           "effective_permissions": "{effective permissions|optional|trim}",
           "impact_type": "{impact type|optional|trim}",
           "supports_remote": "{supports remote|optional|lower|trim}",
-          "parent_curie": "{ID|regex(^([^.]+)[.]|$)|curie-prefix(mitre-attack)}"
+          "parent_curie": "{ID|trim|regex(^([^.]+)[.]|$)|curie-prefix(mitre-attack)}"
         },
         "user_preserve": [
           "reviewer",
@@ -75,6 +75,7 @@
       ]
     },
     "enrichment": {
+      "facet_source": "tag_template",
       "children_lists": true,
       "facet_notes": "notes"
     }

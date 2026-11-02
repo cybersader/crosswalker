@@ -128,7 +128,7 @@ describe('vault source scan runner', () => {
 		expect(report.rows.map((row) => row.candidate.label)).toEqual(expect.arrayContaining([
 			expect.stringContaining('NIST CSF 2.0'),
 			'CRI Profile v2.2',
-			'MITRE ATT&CK techniques (previous default)',
+			'MITRE ATT&CK techniques',
 		]));
 		expect(report.rows.every((row) => row.candidate.confident && row.state.kind === 'not-imported')).toBe(true);
 		expect(report.rows.find((row) => row.path === 'b.xlsx')?.candidate).toMatchObject({
