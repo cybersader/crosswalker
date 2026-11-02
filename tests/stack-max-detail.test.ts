@@ -1,3 +1,4 @@
+import nistLinked from '../recipes/import/nist-800-53-linked.json';
 import nistNested from '../recipes/import/nist-800-53-nested.json';
 import criNested from '../recipes/import/cri-profile-v2-2-nested.json';
 import { findRecognizedRecipes } from '../src/import/recipe-registry';
@@ -16,14 +17,15 @@ describe('stack-only max-detail recipes', () => {
 		expect(validateRecipe(criNested, 'A').valid).toBe(true);
 	});
 
-	it('retains flat choices for generic imports and chooses nested recipes only in the stack', () => {
-		expect(frameworkChoices().find((entry) => entry.ontology === 'nist-800-53')?.id).toBe('nist-800-53-r5-flat');
+	it('retains flat generic recognition while recommending linked NIST only in the stack', () => {
+		expect(frameworkChoices().find((entry) => entry.ontology === 'nist-800-53')?.id).toBe('nist-800-53-linked');
 		expect(frameworkChoices().find((entry) => entry.ontology === 'cri-profile')?.id).toBe('cri-profile-v2-2-flat');
-		expect(frameworkSlots(selection).find((slot) => slot.ontology === 'nist-800-53')?.entry.id).toBe(nistNested.recipe);
+		expect(frameworkSlots(selection).find((slot) => slot.ontology === 'nist-800-53')?.entry.id).toBe(nistLinked.recipe);
 		expect(frameworkSlots(selection).find((slot) => slot.ontology === 'cri-profile')?.entry.id).toBe(criNested.recipe);
 		const found = findRecognizedRecipes(['identifier', 'name', 'control_text', 'discussion', 'related']);
 		expect(found.some((match) => match.entry.id === 'nist-800-53-r5-flat')).toBe(true);
 		expect(found.some((match) => match.entry.id.endsWith('-nested'))).toBe(false);
+		expect(found.some((match) => match.entry.id === nistLinked.recipe)).toBe(false);
 	});
 
 	it.each([

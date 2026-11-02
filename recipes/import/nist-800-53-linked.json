@@ -1,0 +1,75 @@
+{
+  "$comment": "Recommended stack-only linked variant of nist-800-53-r5-nested. Family and control folders have index notes, parent and children links, and the unchanged related control links. Row identity, layout and managed fields match the previous default.",
+  "recipe": "nist-800-53-linked",
+  "source": {
+    "ontology": "nist-800-53",
+    "levels": [
+      "family",
+      "control",
+      "entry"
+    ]
+  },
+  "target": {
+    "auto_heading": "{name}",
+    "layout": [
+      {
+        "level": "family",
+        "mechanism": "folder",
+        "implied_concept": true,
+        "template": "{identifier|prefix(-,0)}"
+      },
+      {
+        "level": "control",
+        "mechanism": "folder",
+        "template": "{identifier|prefix(\\(,0)}"
+      },
+      {
+        "level": "entry",
+        "mechanism": "file",
+        "template": "{identifier|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "frontmatter": {
+        "managed": {
+          "title": "{name}",
+          "control_id": "{identifier}",
+          "related_curies": "{related|optional|split(,)|trim(.)|reject(^\\[None\\]$)|curie-prefix(nist-800-53)}",
+          "family": "{identifier|prefix(-,0)}"
+        },
+        "user_preserve": [
+          "reviewer",
+          "status",
+          "notes"
+        ]
+      },
+      "body": [
+        {
+          "template": "{control_text|trim}",
+          "position": "section",
+          "heading": "Control",
+          "heading_depth": 2,
+          "format": "text"
+        },
+        {
+          "template": "{discussion|trim}",
+          "position": "section",
+          "heading": "Discussion",
+          "heading_depth": 2,
+          "format": "text"
+        },
+        {
+          "template": "{related|optional|split(,)|trim(.)|reject(^\\[None\\]$)|wikilink}",
+          "position": "section",
+          "heading": "Related controls",
+          "heading_depth": 2,
+          "format": "list"
+        }
+      ]
+    },
+    "enrichment": {
+      "children_lists": true,
+      "level_hubs": "notes"
+    }
+  }
+}

@@ -100,6 +100,10 @@ import nistCsf2CprtHierarchical from '../../recipes/import/nist-csf-2-cprt-hiera
 import nistCsf2Cprt from '../../recipes/import/nist-csf-2-cprt.json';
 import nistCsf2Flat from '../../recipes/import/nist-csf-2.json';
 import mitreAttackTechnique from '../../recipes/import/mitre-attack-technique.json';
+import nistCsf2Linked from '../../recipes/import/nist-csf-2-linked.json';
+import nist80053Linked from '../../recipes/import/nist-800-53-linked.json';
+import mitreAttackLinked from '../../recipes/import/mitre-attack-technique-linked.json';
+import mitreD3fend from '../../recipes/import/mitre-d3fend.json';
 import mitreF3Technique from '../../recipes/import/mitre-f3-technique.json';
 import cisControlsV8Controls from '../../recipes/import/cis-controls-v8-controls.json';
 import cisControlsV8Flat from '../../recipes/import/cis-controls-v8.json';
@@ -140,6 +144,8 @@ function deriveRoutingKind(raw: RawRecipe): RegistryRoutingKind {
 export interface RecipeEnrichmentHint {
 	/** Would a managed `children` wikilink array on parent notes suit this shape? */
 	childrenLists: boolean;
+	/** Folder index notes declared by the recipe. */
+	levelHubs: boolean;
 	/** Facet hub note recommendation ('none' | 'tags-only' | 'notes'). */
 	facetNotes: 'none' | 'tags-only' | 'notes';
 	/** The frontmatter/tag field the facet hub would group by, when facetNotes !== 'none'. */
@@ -152,6 +158,8 @@ export interface RecipeEnrichmentHint {
 export interface RecipeRegistryEntry {
 	/** Stable id — the recipe JSON's `recipe` field. */
 	id: string;
+	/** Recommended successor, without changing this recipe or saved copies. */
+	supersededBy?: string;
 	/** Human, GRC-first label shown on the card ("NIST CSF 2.0 (CPRT export)"). */
 	label: string;
 	/** One-line, plain-language description of what the recipe produces (sentence case, no em dashes). */
@@ -345,6 +353,7 @@ function deriveSignature(raw: RawRecipe): { signature: string[]; required: strin
 /** No-op enrichment hint — the default for shapes with no facet-worthy column. */
 const NO_ENRICHMENT: RecipeEnrichmentHint = {
 	childrenLists: false,
+	levelHubs: false,
 	facetNotes: 'none',
 	rationale: 'No column in this shape groups rows into a small, meaningful set of facet values.',
 };
@@ -360,6 +369,7 @@ const DEFAULTS: Record<
 	string,
 	{
 		label: string;
+		supersededBy?: string;
 		description: string;
 		suggestedFolder: string;
 		recommendedEnrichment: RecipeEnrichmentHint;
@@ -375,6 +385,7 @@ const DEFAULTS: Record<
 		idPattern: '^[A-Z]{2}\\.[A-Z]{2}-\\d{2}(\\.\\d{2})?$',
 		recommendedEnrichment: {
 			childrenLists: false,
+			levelHubs: false,
 			facetNotes: 'notes',
 			facetField: 'function',
 			rationale:
@@ -389,6 +400,7 @@ const DEFAULTS: Record<
 		idPattern: '^[A-Z]{2}\\.[A-Z]{2}-\\d{2}(\\.\\d{2})?$',
 		recommendedEnrichment: {
 			childrenLists: false,
+			levelHubs: false,
 			facetNotes: 'notes',
 			facetField: 'element_type',
 			rationale:
@@ -396,6 +408,7 @@ const DEFAULTS: Record<
 		},
 	},
 	'nist-csf-2-flat': {
+		supersededBy: 'nist-csf-2-linked',
 		label: 'NIST CSF 2.0 (subcategories)',
 		description: 'Each subcategory becomes a note.',
 		suggestedFolder: 'Frameworks/NIST CSF 2.0',
@@ -404,6 +417,7 @@ const DEFAULTS: Record<
 		recommendedEnrichment: NO_ENRICHMENT,
 	},
 	'mitre-attack-technique-flat': {
+		supersededBy: 'mitre-attack-technique-linked',
 		label: 'MITRE ATT&CK techniques',
 		description: 'Each technique becomes a note keyed by its technique id.',
 		suggestedFolder: 'Frameworks/MITRE ATT&CK',
@@ -411,6 +425,7 @@ const DEFAULTS: Record<
 		idPattern: '^T\\d{4}(\\.\\d{3})?$',
 		recommendedEnrichment: {
 			childrenLists: false,
+			levelHubs: false,
 			facetNotes: 'notes',
 			facetField: 'tactic',
 			rationale:
@@ -428,6 +443,7 @@ const DEFAULTS: Record<
 		idPattern: '^F\\d{4}(\\.\\d{3})?$',
 		recommendedEnrichment: {
 			childrenLists: false,
+			levelHubs: false,
 			facetNotes: 'notes',
 			facetField: 'tactics',
 			rationale:
@@ -450,6 +466,7 @@ const DEFAULTS: Record<
 		idPattern: '^\\d{1,2}(\\.\\d{1,2})?$',
 		recommendedEnrichment: {
 			childrenLists: false,
+			levelHubs: false,
 			facetNotes: 'notes',
 			facetField: 'security_function',
 			rationale:
@@ -464,6 +481,7 @@ const DEFAULTS: Record<
 		idPattern: '^[A-Z]{3}-\\d{2}(\\.\\d)?$',
 		recommendedEnrichment: {
 			childrenLists: false,
+			levelHubs: false,
 			facetNotes: 'notes',
 			facetField: 'domain',
 			rationale:
@@ -478,6 +496,7 @@ const DEFAULTS: Record<
 		idPattern: '^[A-Z]{2}-\\d{1,2}(\\(\\d{1,2}\\))?$',
 		recommendedEnrichment: {
 			childrenLists: false,
+			levelHubs: false,
 			facetNotes: 'notes',
 			facetField: 'family',
 			rationale:
@@ -485,6 +504,7 @@ const DEFAULTS: Record<
 		},
 	},
 	'nist-800-53-r5-nested': {
+		supersededBy: 'nist-800-53-linked',
 		label: 'NIST 800-53 Rev 5',
 		description: 'Families become folders; controls become folder notes and enhancements become notes.',
 		suggestedFolder: 'Frameworks/NIST 800-53',
@@ -492,6 +512,7 @@ const DEFAULTS: Record<
 		idPattern: '^[A-Z]{2}-\\d{1,2}(\\(\\d{1,2}\\))?$',
 		recommendedEnrichment: {
 			childrenLists: false,
+			levelHubs: false,
 			facetNotes: 'notes',
 			facetField: 'family',
 			rationale:
@@ -506,6 +527,7 @@ const DEFAULTS: Record<
 		idPattern: '^[A-Z]{2}\\.[A-Z]{2}-\\d{2}\\.\\d{2}$',
 		recommendedEnrichment: {
 			childrenLists: false,
+			levelHubs: false,
 			facetNotes: 'notes',
 			facetField: 'level',
 			rationale:
@@ -520,6 +542,7 @@ const DEFAULTS: Record<
 		idPattern: '^[A-Z]{2}\\.[A-Z]{2}-\\d{2}\\.\\d{2}$',
 		recommendedEnrichment: {
 			childrenLists: false,
+			levelHubs: false,
 			facetNotes: 'notes',
 			facetField: 'level',
 			rationale:
@@ -558,6 +581,29 @@ const DEFAULTS: Record<
 				'Evidence links are read through coverage reports, which count controls rather than junctions, so facet hub notes over the junctions themselves would not answer the question anyone asks.',
 		},
 	},
+};
+
+// Successors inherit recognition and download guidance, never the old recipe bytes.
+for (const [id, previous, description, facetField] of [
+	['nist-csf-2-linked', 'nist-csf-2-flat', 'Function and category folders, an index note per folder, and parent and children links on every note.', undefined],
+	['nist-800-53-linked', 'nist-800-53-r5-nested', 'Family and control folders, an index note per folder, parent and children links, and related control links.', undefined],
+	['mitre-attack-technique-linked', 'mitre-attack-technique-flat', 'One note per technique, sub-techniques linked to their parent, and a hub note per tactic listing its techniques.', 'tactics'],
+] as const) {
+	DEFAULTS[id] = {
+		...DEFAULTS[previous], supersededBy: undefined, description,
+		recommendedEnrichment: {
+			childrenLists: true, levelHubs: facetField === undefined,
+			facetNotes: facetField ? 'notes' : 'none', facetField,
+			rationale: description,
+		},
+	};
+}
+DEFAULTS['mitre-d3fend-flat'] = {
+	label: 'MITRE D3FEND techniques',
+	description: 'One note per defensive technique, with tactic tags.',
+	suggestedFolder: 'Frameworks/MITRE D3FEND',
+	ontologyAliases: ['D3FEND'], idPattern: '^D3-[A-Z0-9]+$',
+	recommendedEnrichment: NO_ENRICHMENT,
 };
 
 const FRAMEWORK_DATA_SOURCES_URL =
@@ -667,6 +713,14 @@ const SOURCE_GUIDANCE: Record<
 	},
 };
 
+SOURCE_GUIDANCE['nist-csf-2-linked'] = SOURCE_GUIDANCE['nist-csf-2-flat'];
+SOURCE_GUIDANCE['nist-800-53-linked'] = SOURCE_GUIDANCE['nist-800-53-r5-nested'];
+SOURCE_GUIDANCE['mitre-attack-technique-linked'] = SOURCE_GUIDANCE['mitre-attack-technique-flat'];
+SOURCE_GUIDANCE['mitre-d3fend-flat'] = {
+	sourceLink: { label: 'Get the D3FEND catalog from MITRE', url: 'https://d3fend.mitre.org/' },
+	docsUrl: FRAMEWORK_DATA_SOURCES_URL,
+};
+
 /** NIST catalog workbook display headers mapped to the recipe's canonical source keys. */
 export const NIST_CATALOG_HEADER_ALIASES: Record<string, string[]> = {
 	identifier: ['Control Identifier', 'Control ID'],
@@ -721,7 +775,8 @@ function toEntry(raw: unknown): RecipeRegistryEntry {
 	).length;
 	return {
 		id: r.recipe,
-		label: meta.label,
+		label: meta.label + (meta.supersededBy ? ' (previous default)' : ''),
+		supersededBy: meta.supersededBy,
 		description: meta.description,
 		ontology: r.source?.ontology ?? 'unknown',
 		ontologyAliases: meta.ontologyAliases ?? [],
@@ -734,7 +789,7 @@ function toEntry(raw: unknown): RecipeRegistryEntry {
 		docsUrl: guidance.docsUrl,
 		signatureColumns: signature,
 		requiredColumns: required,
-		...(r.recipe === 'nist-800-53-r5-flat' || r.recipe === 'nist-800-53-r5-nested'
+		...(r.recipe === 'nist-800-53-r5-flat' || r.recipe === 'nist-800-53-r5-nested' || r.recipe === 'nist-800-53-linked'
 			? { headerAliases: NIST_CATALOG_HEADER_ALIASES } : {}),
 		structuralDepth,
 		recipe: raw as CrosswalkerImportRecipe,
@@ -778,6 +833,10 @@ export const RECIPE_REGISTRY: RecipeRegistryEntry[] = [
 	toEntry(nistCsf2Cprt),
 	toEntry(nistCsf2Flat),
 	toEntry(mitreAttackTechnique),
+	toEntry(nistCsf2Linked),
+	toEntry(nist80053Linked),
+	toEntry(mitreAttackLinked),
+	toEntry(mitreD3fend),
 	toEntry(mitreF3Technique),
 	toEntry(cisControlsV8Controls),
 	toEntry(cisControlsV8Flat),
@@ -828,7 +887,7 @@ export function matchScore(
 }
 
 /** Nested variants are chosen by the stack, never proposed for a generic dropped file. */
-const STACK_ONLY_RECIPES = new Set(['nist-800-53-r5-nested', 'cri-profile-v2-2-nested']);
+const STACK_ONLY_RECIPES = new Set(['nist-800-53-linked', 'nist-800-53-r5-nested', 'cri-profile-v2-2-nested']);
 
 /** Exclude stack-specific variants from every generic source-discovery path. */
 export function isGenericRecipe(entry: RecipeRegistryEntry): boolean {
@@ -838,9 +897,10 @@ export function isGenericRecipe(entry: RecipeRegistryEntry): boolean {
 /**
  * Score every registry entry against the source and return the candidates at or
  * above `CANDIDATE_FLOOR`, best first. Ties break by richer vault structure
- * (more folder/heading depth — a nested recipe beats its flat sibling), then more
- * signature columns (more specific), then registry declaration order. All
- * deterministic.
+ * (more folder/heading depth — a nested recipe beats its flat sibling), then
+ * active supersession, signature specificity and registry declaration order.
+ * A predecessor is deprioritized only when its named successor also matches at
+ * the same score, origin and depth. Each tie group has a total ordering.
  */
 export function findRecognizedRecipes(
 	columns: string[],
@@ -858,8 +918,14 @@ export function findRecognizedRecipes(
 		score: matchScore(entry, columns, sampleRows),
 		order,
 	}));
-	return scored
-		.filter((m) => m.score >= CANDIDATE_FLOOR)
+	const eligible = scored.filter((match) => match.score >= CANDIDATE_FLOOR);
+	const tieKey = (match: RecipeMatch, id: string): string => JSON.stringify([
+		match.score, match.entry.origin === 'user', match.entry.structuralDepth, id,
+	]);
+	const present = new Set(eligible.map((match) => tieKey(match, match.entry.id)));
+	const supersededPriority = (match: RecipeMatch): number =>
+		match.entry.supersededBy && present.has(tieKey(match, match.entry.supersededBy)) ? 1 : 0;
+	return eligible
 		.sort((a, b) => {
 			if (b.score !== a.score) return b.score - a.score;
 			const aUser = a.entry.origin === 'user' ? 1 : 0;
@@ -868,6 +934,10 @@ export function findRecognizedRecipes(
 			if (b.entry.structuralDepth !== a.entry.structuralDepth) {
 				return b.entry.structuralDepth - a.entry.structuralDepth;
 			}
+			// A direct-pair override can cycle with a third candidate ranked by
+			// specificity. A tie-group priority is transitive for every input order.
+			const superseded = supersededPriority(a) - supersededPriority(b);
+			if (superseded !== 0) return superseded;
 			if (b.entry.signatureColumns.length !== a.entry.signatureColumns.length) {
 				return b.entry.signatureColumns.length - a.entry.signatureColumns.length;
 			}
@@ -912,7 +982,9 @@ export function summarizeRecipeShapes(entry: RecipeRegistryEntry): string[] {
 		if ((emit.tags ?? []).length > 0) shapes.push('tags');
 		const managed = emit.frontmatter?.managed ?? {};
 		const managedLinks = emit.frontmatter?.managed_links ?? {};
-		const hasLink = Object.values(managed).some((t) => t.includes('[[')) || Object.keys(managedLinks).length > 0;
+		const hasLink = Object.values(managed).some((t) => t.includes('[[')
+			|| parseTemplateSegments(t).some((segment) => segment.kind === 'interp' && segment.interp.filters.some((filter) => filter.name === 'wikilink')))
+			|| Object.keys(managedLinks).length > 0;
 		if (hasLink) shapes.push('links');
 		const hasProperty = Object.values(managed).some((t) => !t.includes('[['));
 		if (hasProperty) shapes.push('properties');

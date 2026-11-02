@@ -31,12 +31,14 @@ export type ChecklistRow =
 /** The registry remains the source of truth for labels and publisher links. */
 const NESTED_STACK_RECIPES: Readonly<Record<string, string>> = {
 	'cri-profile': 'cri-profile-v2-2-nested',
-	'nist-800-53': 'nist-800-53-r5-nested',
+	'nist-800-53': 'nist-800-53-linked',
+	'nist-csf-2': 'nist-csf-2-linked',
+	'mitre-attack': 'mitre-attack-technique-linked',
 };
 
 const PREFERRED_RECIPES = [
-	'cri-profile-v2-2-flat', 'mitre-attack-technique-flat', 'nist-800-53-r5-flat',
-	'nist-csf-2-cprt-hierarchical', 'cis-controls-v8-controls', 'scf-2026-flat',
+	'cri-profile-v2-2-flat', 'mitre-attack-technique-linked', 'nist-800-53-linked',
+	'nist-csf-2-linked', 'cis-controls-v8-controls', 'scf-2026-flat',
 ];
 
 export const DEFAULT_STACK_SELECTION: StackSelection = {

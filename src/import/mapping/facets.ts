@@ -13,6 +13,45 @@
 
 import type { ImportMapping, Destination, LevelSource } from './types';
 import { isConstantRef, toSourceRefs } from './types';
+import { parseTemplateSegments, renderTagTemplate, renderTemplate } from '../../render/template';
+import type { Recipe } from '../../render';
+
+/**
+ * Canonical tag templates are the membership authority for every entry point.
+ * Keep the display value before tagsafe, while using the same split/filter
+ * grammar as rendering. Do not reverse a lossy tag slug into a concept title.
+ */
+export function deriveRecipeFacetMemberships(recipe: Recipe, row: Record<string, unknown>): FacetMembership[] {
+	const out: FacetMembership[] = [];
+	const seen = new Set<string>();
+	for (const template of recipe.target.also_emit?.tags ?? []) {
+		const segments = parseTemplateSegments(template);
+		// A facet value follows the final namespace slash outside interpolations.
+		let boundary = -1;
+		let raw = '';
+		for (const segment of segments) {
+			if (segment.kind === 'lit') {
+				const slash = segment.text.lastIndexOf('/');
+				if (slash >= 0) boundary = raw.length + slash;
+				raw += segment.text;
+			} else {
+				const interp = segment.interp;
+				raw += `{${interp.rawPath}${interp.filters.filter((filter) => filter.name !== 'tagsafe').map((filter) => `|${filter.raw}`).join('')}}`;
+			}
+		}
+		if (boundary < 0) continue;
+		const prefix = renderTemplate(raw.slice(0, boundary + 1), row);
+		for (const tag of renderTagTemplate(raw, row)) {
+			const namespace = prefix.slice(0, -1).replace(/^#+/, '');
+			const value = tag.slice(prefix.length).trim();
+			const key = JSON.stringify([namespace, value]);
+			if (!namespace || !value || seen.has(key)) continue;
+			seen.add(key);
+			out.push({ namespace, value });
+		}
+	}
+	return out;
+}
 
 /** One facet a row belongs to: a tag namespace + the raw (display) cell value. */
 export interface FacetMembership {

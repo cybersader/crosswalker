@@ -195,7 +195,7 @@ describe('vault source scan modal', () => {
 		await priv(modal).scanTask;
 
 		expect(content.textContent).toContain('Looks like NIST CSF 2.0');
-		expect(content.textContent).toContain('Possible match: NIST CSF 2.0 (subcategories) (score 47 of 100)');
+		expect(content.textContent).toContain('Possible match: NIST CSF 2.0 (subcategories) (previous default) (score 47 of 100)');
 		expect(content.textContent).not.toContain('Score 100');
 	});
 

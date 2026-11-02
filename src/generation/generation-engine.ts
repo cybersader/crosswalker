@@ -99,7 +99,7 @@ import { wrapManagedBody, scanRegions, findSpan, replaceRegion } from './managed
 // ends. The held-host writer works on raw bytes and must agree with it exactly,
 // so it asks that reader rather than carrying a second copy of the fence rule.
 import { mergeExistingNote, readExistingNote, splitNoteText, ExistingNoteReadError } from './existing-note';
-import type { FacetMembership } from '../import/mapping/facets';
+import { deriveRecipeFacetMemberships, type FacetMembership } from '../import/mapping/facets';
 import type { CrosswalkColumnEntry, NestedRecordLevel } from '../types/generated/recipe';
 import { normalizeMappingSetId, normalizePredicateModifierInput } from '../utils/mapping-provenance';
 import {
@@ -1005,9 +1005,7 @@ export async function generateNotes(
 									layoutValues: noteData.layoutValues,
 									curie: noteData.curie,
 									frontmatter: { ...noteData.frontmatter },
-									facets: options.facetsForRow
-										? options.facetsForRow(row as Record<string, unknown>, rowNum)
-										: facetMembershipsFromTags(noteData.tags),
+									facets: facetMembershipsForRecipe(recipe, row as Record<string, unknown>, rowNum, noteData.tags, options.facetsForRow),
 									// Never read: this record is never written back. Kept empty
 									// rather than carrying a fresh render, which is exactly the
 									// content a skip promised not to write.
@@ -1096,9 +1094,7 @@ export async function generateNotes(
 					// Collect a record for Pass 1.5 enrichment (parent→children +
 					// facet hubs) — same collection generateFromRecipe performs.
 					if (enrichmentEnabled) {
-						const facets = options.facetsForRow
-							? options.facetsForRow(row as Record<string, unknown>, rowNum)
-							: facetMembershipsFromTags(noteData.tags);
+						const facets = facetMembershipsForRecipe(recipe, row as Record<string, unknown>, rowNum, noteData.tags, options.facetsForRow);
 						enrichRecords.push({
 							path: writePath,
 							renderedPath: fullPath,
@@ -3791,9 +3787,7 @@ export async function generateFromRecipe(
 							layoutValues,
 							curie,
 							frontmatter: { ...frontmatter },
-							facets: options.facetsForRow
-								? options.facetsForRow(row as Record<string, unknown>, rowNum)
-								: facetMembershipsFromTags(address.tags),
+							facets: facetMembershipsForRecipe(recipe, row as Record<string, unknown>, rowNum, address.tags, options.facetsForRow),
 							// Never read: this record is never written back. Empty rather
 							// than a fresh render, which is the content a skip promised not
 							// to write.
@@ -3895,9 +3889,7 @@ export async function generateFromRecipe(
 
 			// Collect a record for Pass 1.5 enrichment (parent→children + facet hubs).
 			if (enrichmentEnabled) {
-				const facets = options.facetsForRow
-					? options.facetsForRow(row as Record<string, unknown>, rowNum)
-					: facetMembershipsFromTags(address.tags);
+				const facets = facetMembershipsForRecipe(recipe, row as Record<string, unknown>, rowNum, address.tags, options.facetsForRow);
 				// `body` is the body AS ACTUALLY WRITTEN (merged when the note existed),
 				// never the fresh render — Pass 1.5 writes this back, so the unmerged
 				// render here would destroy the prose the row write just preserved.
@@ -4069,12 +4061,19 @@ export async function generateFromRecipe(
 	return result;
 }
 
+/** Shared display-name authority for UI, CLI, preview and demo generation. */
+function facetMembershipsForRecipe(
+	recipe: Recipe, row: Record<string, unknown>, rowNum: number, tags: string[],
+	fallback?: (row: Record<string, unknown>, rowNum: number) => FacetMembership[],
+): FacetMembership[] {
+	if (recipe.target.also_emit?.tags?.length) return deriveRecipeFacetMemberships(recipe, row);
+	return fallback ? fallback(row, rowNum) : facetMembershipsFromTags(tags);
+}
+
 /**
- * Best-effort facet memberships from a note's rendered (tagsafe) facet tags.
- * Each `namespace/value` tag → one membership; nested tags (several slashes)
- * split on the LAST slash. Display value is the tagsafe token (lowercased) — the
- * mapping-driven `facetsForRow` callback preserves original casing when the
- * caller can supply it. Deterministic. Exported for tests.
+ * Best-effort memberships for legacy callers without canonical tag templates.
+ * Split a rendered tag on its final slash; its lossy display value cannot recover
+ * source casing. Canonical recipes instead use deriveRecipeFacetMemberships.
  */
 export function facetMembershipsFromTags(tags: string[]): FacetMembership[] {
 	const out: FacetMembership[] = [];
@@ -6271,7 +6270,7 @@ export function candidateRunIdentities(
 		const address = render(recipe, { curie, scope }, undefined, values);
 		const path = options.basePath ? normalizePath(`${options.basePath}/${address.primary.path}`) : normalizePath(address.primary.path);
 		notes.push({ path, curie, frontmatter: address.frontmatter,
-			facets: options.facetsForRow ? options.facetsForRow(row, rowNum) : facetMembershipsFromTags(address.tags),
+			facets: facetMembershipsForRecipe(recipe, row, rowNum, address.tags, options.facetsForRow),
 			layoutValues: values });
 	}
 	return runIdentityCuries({ rows: inputs, ...(enrichmentEnabled ? { enrichment: {

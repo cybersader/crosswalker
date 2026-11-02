@@ -517,10 +517,9 @@ describe('classic body columns round trip through the recipe copy', () => {
 
 		const digest = frontmatterOf(note[1])._crosswalker.recipe.recipe_document_digest as string;
 		const kept = await readImportSetRecipe(vaultLibrary(files, folders), result.importSetId!, digest);
-		// The kept copy is the normalized canonical document, defaults filled in.
+		// Keep the exact executed declarations, without inserting representation-only defaults.
 		expect(kept?.target.also_emit?.body).toEqual([{
 			template: '{description|optional}', position: 'section', heading: 'description',
-			heading_depth: 2, format: 'text', omit_if_empty: true,
 		}]);
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any

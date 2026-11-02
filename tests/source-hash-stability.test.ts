@@ -88,6 +88,7 @@ const DECLARED_WHERE: Record<string, string> = {
 	'recipes/import/cis-controls-v8.json': "$trim(`CIS Safeguard`) != ''",
 	'recipes/import/nist-csf-2-cprt-hierarchical.json': "$not(element_type in ['sort', 'party'])",
 	'recipes/import/nist-csf-2-cprt.json': "$not(element_type in ['sort', 'party'])",
+	'recipes/import/nist-csf-2-linked.json': "Subcategory != ''",
 	'recipes/import/nist-csf-2.json': "Subcategory != ''",
 	'recipes/import/nist-csf-2-withdrawal-lineage.json': "successor_id != ''",
 };
@@ -97,7 +98,7 @@ describe('A1 — the source-stage code change moved no shipped recipe hash', () 
 
 	it('covers every shipped recipe, so a new one cannot slip past unpinned', () => {
 		expect(recipes.map((r) => r.relPath).sort()).toEqual(Object.keys(GOLDEN).sort());
-		expect(recipes).toHaveLength(20);
+		expect(recipes).toHaveLength(23);
 	});
 
 	/**
