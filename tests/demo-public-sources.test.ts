@@ -5,7 +5,7 @@ import { validateRecipe } from '../src/validation/validator';
 import { d3fendNames, d3fendControlMappings, d3fendAttackMappings, mappingPairDiff, mappingResolution, publicCsv } from '../tools/lib/demo-public-sources';
 
 const recipe = (file: string): Recipe => JSON.parse(readFileSync(join(__dirname, '..', file), 'utf8')) as Recipe;
-const attack = recipe('tools/fixtures/demo/recipes/mitre-attack-demo-full.json');
+const attack = recipe('recipes/import/mitre-attack-technique-linked.json');
 const mitigations = recipe('recipes/import/mitre-attack-mitigation.json');
 const d3fend = recipe('recipes/import/mitre-d3fend.json');
 const catalog = [{ ID: 'D3-TEST', 'D3FEND Tactic': 'Test', 'D3FEND Technique': 'Test technique' }];
@@ -62,11 +62,17 @@ describe('public demo recipes', () => {
 	it('keeps the shipped ATT&CK body and facets while deriving only real dotted parents', () => {
 		const shipped = recipe('recipes/import/mitre-attack-technique.json');
 		expect(attack.target.also_emit?.body).toEqual(shipped.target.also_emit?.body);
-		const scope = { ID: 'T1000.001', name: 'Synthetic child', description: 'Synthetic description' };
+		const scope = { ID: 'T1000.001', name: 'Synthetic child', description: 'Synthetic description', tactics: 'Command and Control, Discovery', platforms: 'Linux, Windows', 'data sources': 'Process, File' };
 		const child = render(attack, { curie: 'mitre-attack:T1000.001', scope });
 		expect(child.frontmatter.parent).toBe('[[T1000]]');
 		expect(child.frontmatter.parent_curie).toBe('mitre-attack:T1000');
-		expect(render(attack, { curie: 'mitre-attack:T1000', scope: { ...scope, ID: 'T1000' } }).frontmatter.parent).toBeUndefined();
+		expect(child.frontmatter.tactics).toEqual(['Command and Control', 'Discovery']);
+		expect(child.frontmatter.platforms).toEqual(['Linux', 'Windows']);
+		expect(child.frontmatter.data_sources).toEqual(['Process', 'File']);
+		expect(child.tags).toEqual(['mitre-attack/tactic/command-and-control', 'mitre-attack/tactic/discovery']);
+		const root = render(attack, { curie: 'mitre-attack:T1000', scope: { ...scope, ID: 'T1000' } });
+		expect(root.frontmatter.parent).toBeUndefined();
+		expect(root.frontmatter.parent_curie).toBeUndefined();
 	});
 
 	it('imports mitigation identities without claiming they are techniques', () => {

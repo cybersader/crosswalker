@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Changed: demo uses the linked recommended defaults (2026-11-02)
+
+- The demo build now uses the linked recommended defaults for NIST CSF 2.0, NIST SP 800-53 and MITRE ATT&CK from `recipes/import/`. The three superseded demo-only recipe variants are retired. Existing demo vaults keep working because each set stores its executed recipe.
+
 ### Fixed: mapping set counts name mappings, not files (2026-10-31)
 
 - A notes-form mapping set holds its mapping notes plus one release record note. Stack rows, the stack completion line, the mapping refresh chooser and line, and the conversion confirm dialog counted every note, so a set of 2 mappings read "3 notes" while the conversion result said "2 mappings". Discovery now records how many release record notes a set owns (`setNoteCount`, optional, absent reads as 0), and mapping surfaces count mappings through one helper. The conversion confirm names the release record note separately, since it is trashed too. Framework sets keep counting every note, so the import wizard and recipe library lines, which only list framework sets, are unchanged.
