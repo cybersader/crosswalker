@@ -179,7 +179,8 @@ describe('SchemaVer 1.14.0 body projection schema', () => {
 
 	it('records the additive 1.14.0 schema history', () => {
 		const schema = JSON.parse(readFileSync('spec/recipe.schema.json', 'utf8')) as { $comment: string };
-		expect(schema.$comment).toContain('SchemaVer 1.20.0');
+		expect(schema.$comment).toContain('SchemaVer 1.21.0');
+		expect(schema.$comment).toContain('1.21.0 (2026-11-02): additive tag-template list fan-out');
 		expect(schema.$comment).toContain('1.20.0 (2026-10-31): additive template filters');
 		expect(schema.$comment).toContain('1.14.0 (2026-09-22)');
 		expect(schema.$comment).toContain("nest_level.leaf gains 'section'");

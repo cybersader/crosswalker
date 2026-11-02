@@ -375,6 +375,51 @@ export function renderTemplate(template: string, scope: SourceScope, report?: Re
 	return renderSegments(parseTemplateSegments(template), template, scope, report);
 }
 
+/** Tag-only list sink. Ordinary text templates retain rule L3 unchanged. */
+export function renderTagTemplate(template: string, scope: SourceScope, report?: RenderReport): string[] {
+	const segments = parseTemplateSegments(template);
+	assertSingleTagList(countTagListInterpolations(segments));
+	const values = segments.map(segment => segment.kind === 'lit'
+		? segment.text
+		: evaluateInterpolation(segment.interp, scope, template, report));
+	// Source data may already hold arrays without a list-producing filter.
+	assertSingleTagList(values.filter(Array.isArray).length);
+	if (values.some((value, index) => segments[index].kind === 'interp' && !Array.isArray(value) && String(value).trim() === '')) {
+		return [];
+	}
+	const list = values.find(Array.isArray);
+	const items = list ?? [undefined];
+	const tags = items
+		.filter(item => list === undefined || String(item ?? '').trim() !== '')
+		.map(item => values.map(value => String(Array.isArray(value) ? item : value)).join(''))
+		.filter(tag => tag.split('/').pop()!.trim() !== '');
+	return [...new Set(tags)];
+}
+
+/** Reject ambiguous tag fan-out at recipe-load time, without source-row values. */
+export function validateTagTemplateSyntax(template: string): void {
+	assertSingleTagList(countTagListInterpolations(parseTemplateSegments(template)));
+}
+
+function assertSingleTagList(count: number): void {
+	if (count > 1) {
+		throw new RenderError('A tag template may hold one list-valued field. Split it into two tags.');
+	}
+}
+
+/** Track list-producing filters and joins using the same parsed filter grammar. */
+function countTagListInterpolations(segments: TemplateSegment[]): number {
+	return segments.filter(segment => {
+		if (segment.kind !== 'interp') return false;
+		let list = false;
+		for (const call of segment.interp.filters) {
+			if (call.name === 'join') list = false;
+			else if (isListAware(call)) list = true;
+		}
+		return list;
+	}).length;
+}
+
 function renderSegments(
 	segments: TemplateSegment[],
 	template: string,

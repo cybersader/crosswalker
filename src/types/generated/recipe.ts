@@ -547,7 +547,7 @@ export interface WikilinkLayoutEntry {
  */
 export interface CrossCuttingEmissionsParallelToLayout {
 	/**
-	 * Tag-path templates emitted into every note's tags array. Example: ['framework/nist/{family.id|lower}/{control.id|tagsafe}', 'cross-cutting/access-control'].
+	 * Tag-path templates emitted into every note's tags array. SchemaVer 1.21.0: one list-valued interpolation (for example {tactics|optional|split(,)|tagsafe}) emits one tag per non-empty value, applying remaining filters per value. Tags keep source and template order and are deduplicated. Two or more list-valued interpolations are a recipe validation error: A tag template may hold one list-valued field. Split it into two tags. Empty or optional-absent values emit no tag; a tag with an empty final path segment is dropped. Aliases and other text-template sinks still reject lists unless joined. Example: ['framework/nist/{family.id|lower}/{control.id|tagsafe}', 'cross-cutting/access-control'].
 	 */
 	tags?: Template[];
 	/**
