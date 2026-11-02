@@ -38,6 +38,7 @@ import {
 	identityOverlappingSets,
 	newSetIdentitySummary,
 	newSetSchemeFor,
+	recordCountOf,
 	type DiscoveredImportSet,
 	type ImportSetOption,
 } from '../generation/import-set';
@@ -107,13 +108,13 @@ type Source =
  * many notes it owns and where they live. The id stays visible because it is what
  * appears in note frontmatter.
  */
-export function describeImportSet(set: { id: string; noteCount: number; paths: string[]; scheme?: string; mapping_form?: MappingForm; rowCount?: number }): string {
+export function describeImportSet(set: { id: string; noteCount: number; setNoteCount?: number; paths: string[]; scheme?: string; mapping_form?: MappingForm; rowCount?: number }): string {
 	const folder = commonFolder(set.paths);
 	const where = folder ? ` in ${folder}` : '';
 	// A table-form set owns no notes; "0 notes" would read as an empty set.
 	if (set.mapping_form === 'table') return `${set.id}: mapping table, ${plural(set.rowCount ?? 0, 'row')}${where}`;
-	const noteWord = set.noteCount === 1 ? 'note' : 'notes';
-	return `${set.id}: ${set.noteCount} ${noteWord}${where}`;
+	// Every set this modal lists is a mapping set: count its mappings, leaving out the release record note.
+	return `${set.id}: ${plural(recordCountOf(set), 'mapping note')}${where}`;
 }
 
 /** Longest shared folder prefix of the given paths, or '' when they share none. */
@@ -488,7 +489,7 @@ export class SssomImportModal extends Modal {
 			line.setText(
 				refreshing.mapping_form === 'table'
 					? `Refreshing ${refreshing.id} (a mapping table of ${plural(refreshing.rowCount, 'row')}). This rewrites that table and keeps its review columns by row.`
-					: `Refreshing ${refreshing.id} (${plural(refreshing.noteCount, 'existing note')}). This replaces that release while preserving its identities.`,
+					: `Refreshing ${refreshing.id} (${plural(recordCountOf(refreshing), 'existing mapping note')}). This replaces that release while preserving its identities.`,
 			);
 		} else {
 			line.setText(`Importing as a new set. Existing imports stay separate. ${identityExplanation}`);

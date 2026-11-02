@@ -4,7 +4,7 @@ import { copyTextWithFallback } from '../../utils/clipboard';
 import { App, Modal, Notice, Setting, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
 import { computeSourceByteDigest } from '../../generation/hash';
-import { discoverImportSets, settleVaultIndex } from '../../generation/import-set';
+import { discoverImportSets, recordCountOf, settleVaultIndex } from '../../generation/import-set';
 import { evidenceJunctionFolder, outputRootPath } from '../../settings/folder-settings';
 import { MAPPING_PRESETS } from '../recipe-registry';
 import { ImportWizardModal, recognizedDestination, refreshRootProblem } from '../import-wizard';
@@ -896,7 +896,7 @@ export class StackSetupModal extends Modal {
 				const roots = new Set([...this.completed.map((item) => item.folder), ...this.mappingSets.map((item) => item.folder)]);
 				const discovered = (await Promise.all([...roots].map((folder) => discoverImportSets(this.app, folder))))
 					.flat().filter((set) => ids.has(set.id));
-				const byId = new Map(discovered.map((set) => [set.id, set.mapping_form === 'table' ? set.rowCount : set.noteCount]));
+				const byId = new Map(discovered.map((set) => [set.id, recordCountOf(set)]));
 				this.discoveredSets = byId.size === ids.size ? byId.size : null;
 				this.discoveredCounts = byId;
 			} catch { this.discoveredSets = null; }
@@ -936,7 +936,7 @@ export class StackSetupModal extends Modal {
 				}
 			} else {
 				const count = this.discoveredCounts.get(item.setId) ?? item.noteCount;
-				row.createDiv({ cls: 'crosswalker-stack-muted', text: `${count} edge ${count === 1 ? 'note' : 'notes'} · Set ${item.setId}` });
+				row.createDiv({ cls: 'crosswalker-stack-muted', text: `${plural(count, 'mapping note')} · Set ${item.setId}` });
 			}
 			if (item.duplicateRowsSkipped) row.createDiv({ cls: 'crosswalker-stack-muted', text: `${plural(item.duplicateRowsSkipped, 'duplicate row')} skipped` });
 			for (const skip of item.sheetSkips ?? []) row.createDiv({ cls: 'crosswalker-stack-warning', text: `Sheet ${skip.sheet} skipped: ${skip.reason}. Choose a workbook with matching Focal/Reference columns to include it.` });
@@ -951,7 +951,7 @@ export class StackSetupModal extends Modal {
 					try {
 						this.mappingSets = await reconnectMappings(this.mappingSets, stackMappingDependencies(this.app, this.plugin));
 						const sets = await discoverImportSets(this.app);
-						this.discoveredCounts = new Map(sets.map((set) => [set.id, set.mapping_form === 'table' ? set.rowCount : set.noteCount]));
+						this.discoveredCounts = new Map(sets.map((set) => [set.id, recordCountOf(set)]));
 					} catch (err) {
 						this.error = err instanceof Error ? err.message : 'Mappings could not reconnect. Check the source files and vault permissions, then try again.';
 					}

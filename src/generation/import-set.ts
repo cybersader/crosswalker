@@ -22,6 +22,7 @@ import {
 	IMPORT_SET_SCHEMES,
 	ImportSetProvenanceError,
 	MAPPING_FORMS,
+	MAPPING_SET_KIND,
 	assertImportSetBlockObject,
 	isImportSetDerivation,
 	isImportSetScheme,
@@ -169,6 +170,12 @@ export interface DiscoveredImportSet extends ImportSetReference {
 	/** Markdown notes the set owns. A table-form set owns none. */
 	noteCount: number;
 	/**
+	 * Of `noteCount`, the notes that are a mapping set's release record rather
+	 * than a mapping (at most one per set). Mapping counts subtract it; see
+	 * `recordCountOf`. Absent when zero, and on records built before it existed.
+	 */
+	setNoteCount?: number;
+	/**
 	 * How the set stores its mapping rows, always answered: the stamped pin,
 	 * else 'notes' (absence is the legacy form). Note: `resolveImportSet` carries
 	 * only a 'table' pin forward, so a notes set is never newly stamped.
@@ -244,6 +251,8 @@ interface ImportSetObservation {
 	storage: 'note' | 'table';
 	/** Rows in the table file for a table observation; 0 for a note. */
 	rowCount: number;
+	/** True for a note whose `kind` marks it as the set's release record. */
+	setNote: boolean;
 	parentSet: string | null;
 	/** Nested level identity modes pinned in this note's import_set block, if any. */
 	nestIdentity: Record<string, 'global' | 'path'> | null;
@@ -251,6 +260,18 @@ interface ImportSetObservation {
 	sourceFile: string | null;
 	sourceHash: string | null;
 	producedAt: string | null;
+}
+
+/**
+ * What a set holds, counted the way its results report it: rows for a table-form
+ * set, owned notes minus the release record note for a notes-form set. For a
+ * framework set this is its note count. Failure mode prevented: a mapping set
+ * with 2 mappings and its release record listed as "3 notes" beside a result
+ * that says "2 mappings".
+ */
+export function recordCountOf(set: { mapping_form?: DiscoveredImportSet['mapping_form']; rowCount?: number; noteCount: number; setNoteCount?: number | undefined }): number {
+	if (set.mapping_form === 'table') return set.rowCount ?? 0;
+	return Math.max(0, set.noteCount - (set.setNoteCount ?? 0));
 }
 
 /**
@@ -740,6 +761,8 @@ async function collectObservations(
 			readString((fm as Record<string, unknown>).curie),
 			'note',
 			0,
+			undefined,
+			(fm as Record<string, unknown>).kind === MAPPING_SET_KIND,
 		));
 	}
 	observations.push(...await collectTableObservations(app, basePath, onlyId, reads));
@@ -829,6 +852,7 @@ function observationOf(
 	storage: 'note' | 'table',
 	rowCount: number,
 	curies = new Set(curie ? [curie] : []),
+	setNote = false,
 ): ImportSetObservation {
 	const recipeBlock = provenanceRecord.recipe;
 	const recipeId = recipeBlock && typeof recipeBlock === 'object'
@@ -853,6 +877,7 @@ function observationOf(
 		mappingForm: block.mappingForm,
 		storage,
 		rowCount,
+		setNote,
 		parentSet: block.parentSet,
 		nestIdentity: block.nestIdentity,
 		sourceFile: readString(sourceRecord?.file),
@@ -907,10 +932,12 @@ function buildDiscoveredSets(observations: ImportSetObservation[], markers: read
 		const pinnedDerivation = agreedDerivation(id, group);
 		const pinnedMappingForm = agreedMappingForm(id, group);
 		const pinnedNestIdentity = agreedNestIdentity(id, group);
+		const setNoteCount = group.filter((entry) => entry.storage === 'note' && entry.setNote).length;
 		sets.push({
 			id,
 			scheme,
 			noteCount: group.filter((entry) => entry.storage === 'note').length,
+			...(setNoteCount > 0 ? { setNoteCount } : {}),
 			mapping_form: pinnedMappingForm ?? 'notes',
 			rowCount: group.reduce((sum, entry) => sum + entry.rowCount, 0),
 			...(markerBySet.has(id) ? { converting: { to: markerBySet.get(id)!.to, phase: markerBySet.get(id)!.phase } } : {}),

@@ -154,3 +154,6 @@ function readNestIdentity(value: unknown, path: string): Record<string, 'global'
 	}
 	return out;
 }
+
+/** The Tier 1 `kind` of a mapping set's release record note. */
+export const MAPPING_SET_KIND = 'mapping-set';

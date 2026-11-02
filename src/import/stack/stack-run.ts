@@ -1,7 +1,7 @@
 import { plural } from '../../utils/plural';
 import type { App, TFile } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
-import { discoverImportSets, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
+import { discoverImportSets, recordCountOf, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
 import { importSssom, effectiveSssomDigest, type SssomImportResult } from '../sssom-importer';
 import { computeSourceByteDigest } from '../../generation/hash';
 import type { RunChoice } from './stack-persistence';
@@ -193,7 +193,7 @@ export async function importMappingSlots(
 		const counts = form === 'table'
 			? { form, noteCount: 0, rowCount: outcome.rowsWritten ?? (refresh ? 0 : added[0].rowCount), upToDate: 0,
 				...(refresh ? { reviewCarried: outcome.reviewCarried ?? 0, rowsDropped: outcome.rowsDropped ?? 0 } : {}) }
-			: { form, noteCount: refresh ? (outcome.generation.created.length + (outcome.generation.updated?.length ?? 0) + (outcome.generation.upToDate?.length ?? 0)) : added[0].noteCount,
+			: { form, noteCount: refresh ? (outcome.generation.created.length + (outcome.generation.updated?.length ?? 0) + (outcome.generation.upToDate?.length ?? 0)) : recordCountOf(added[0]),
 				upToDate: (outcome.generation.upToDate?.length ?? 0) };
 		const record: CompletedMapping = { id: mapping.id, label: mapping.label, setId: refresh ? refresh.setId! : added[0].id,
 			folder: outcome.folder, ...counts, duplicateRowsSkipped, sheetSkips, unresolved: outcome.summary, tsv, sourceDigest, sourceName,

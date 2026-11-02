@@ -60,7 +60,8 @@ it('records a successful mapping set and reports exact duplicate source rows', a
 		readBytes: async () => Buffer.from(source),
 		importRows: async (tsv) => {
 			expect(tsv.split('\n').filter((line) => line.startsWith('nist-800-53:'))).toHaveLength(1);
-			sets = [set('iset-deduped', 1)];
+			// The set owns one mapping note plus its release record note; only the mapping counts.
+			sets = [{ ...set('iset-deduped', 2), setNoteCount: 1 }];
 			return { generation: { success: true, created: ['edge.md'], skipped: [], errors: [] },
 				folder: '_crosswalker/mappings/nist-800-53-to-mitre-attack', summary: [], unresolved: [],
 				parse: { header: {}, rows: [], warnings: [], errors: [] }, source: 'nist-800-53', target: 'mitre-attack' };
