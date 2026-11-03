@@ -1,0 +1,58 @@
+{
+  "$comment": "R4 amendment (2026-11-02): this linked default keeps the flat file layout and explicitly declares ID through source.outline.id. Parentage is the source's row-ordered outline containment, NOT OWL rdfs:subClassOf; Tier 2 consumers must not interpret parent_curie as a subclass assertion. Roots have no parent. Children lists and tactic hub notes add navigation. The hardcoded mitre-d3fend parent_curie prefix cannot target a second set with a qualified prefix; that remains a known limit shared with the F3/ATT&CK linked patterns.",
+  "recipe": "mitre-d3fend-linked",
+  "source": {
+    "ontology": "mitre-d3fend",
+    "levels": [
+      "technique"
+    ],
+    "outline": {
+      "levels": [
+        "D3FEND Technique",
+        "D3FEND Technique Level 0",
+        "D3FEND Technique Level 1"
+      ],
+      "id": "{ID|trim}"
+    }
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "technique",
+        "mechanism": "file",
+        "template": "{ID|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "tags": [
+        "mitre-d3fend/tactic/{D3FEND Tactic|tagsafe}"
+      ],
+      "frontmatter": {
+        "managed": {
+          "title": "{D3FEND Technique|optional}{D3FEND Technique Level 0|optional}{D3FEND Technique Level 1|optional}",
+          "technique_id": "{ID|trim}",
+          "tactic": "{D3FEND Tactic|trim}",
+          "technique": "{D3FEND Technique|optional|trim}",
+          "technique_level_0": "{D3FEND Technique Level 0|optional|trim}",
+          "technique_level_1": "{D3FEND Technique Level 1|optional|trim}",
+          "parent": "{_cw.parent|optional|wikilink}",
+          "parent_curie": "{_cw.parent|optional|curie-prefix(mitre-d3fend)}"
+        }
+      },
+      "body": [
+        {
+          "template": "{Definition|optional|trim}",
+          "position": "section",
+          "heading": "Definition",
+          "heading_depth": 2,
+          "format": "text"
+        }
+      ]
+    },
+    "enrichment": {
+      "facet_source": "tag_template",
+      "children_lists": true,
+      "facet_notes": "notes"
+    }
+  }
+}

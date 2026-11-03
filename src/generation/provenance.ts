@@ -120,6 +120,7 @@ export function buildProvenance(input: ProvenanceInput, pluginVersion: string): 
 			// Nested level identity is another set-level identity rule. A refresh
 			// re-stamps the map unchanged so an edited recipe cannot re-identify a level.
 			...(input.importSet.nest_identity ? { nest_identity: { ...input.importSet.nest_identity } } : {}),
+			...(input.importSet.outline_identity ? { outline_identity: { ...input.importSet.outline_identity, levels: [...input.importSet.outline_identity.levels] } } : {}),
 			// Slice 2 of the mapping table form. Stamped only when the reference
 			// carries a form. Absence means notes, so a notes-form set keeps omitting
 			// it: stamping 'notes' would rewrite every existing mapping note for no

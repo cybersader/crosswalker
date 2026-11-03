@@ -31,6 +31,7 @@ import {
 	type ImportSetDerivation,
 	type ImportSetScheme,
 	type MappingForm,
+	type OutlineIdentityPin,
 } from './import-set-block';
 
 // The block rules live in a pure module so the mapping table codec can share
@@ -159,6 +160,8 @@ export interface ImportSetReference {
 	 * Absence means every level is `global`; a refresh must keep that legacy fact.
 	 */
 	nest_identity?: Record<string, 'global' | 'path'>;
+	/** Ordered depth columns and id template, fixed at mint for outline sources. */
+	outline_identity?: OutlineIdentityPin;
 }
 
 export type ImportSetOption =
@@ -256,6 +259,7 @@ interface ImportSetObservation {
 	parentSet: string | null;
 	/** Nested level identity modes pinned in this note's import_set block, if any. */
 	nestIdentity: Record<string, 'global' | 'path'> | null;
+	outlineIdentity: OutlineIdentityPin | null;
 	/** Source provenance stamped beside the import-set ownership block. */
 	sourceFile: string | null;
 	sourceHash: string | null;
@@ -545,7 +549,7 @@ export async function resolveImportSet(
 	 */
 	proposedOntology?: string,
 	/** Nested identity declarations this run would pin if it mints a new set. */
-	proposedNest?: readonly NestedRecordLevel[],
+	proposedNest?: readonly NestedRecordLevel[] | OutlineIdentityPin,
 	/**
 	 * Slice 3 of the mapping table form. The storage form a MINT pins. Ignored on
 	 * a refresh: an existing set keeps the form it was minted with, and switching
@@ -583,7 +587,9 @@ export async function resolveImportSet(
 		id: mintImportSetId(collectKnownIds(app)),
 		scheme,
 		derivation: CURRENT_IMPORT_SET_DERIVATION,
-		...(proposedNest?.length ? { nest_identity: nestIdentityOf(proposedNest) } : {}),
+		...(proposedNest && 'levels' in proposedNest
+			? { outline_identity: { id: proposedNest.id, levels: [...proposedNest.levels] } }
+			: proposedNest?.length ? { nest_identity: nestIdentityOf(proposedNest) } : {}),
 		...(proposedMappingForm === 'table' ? { mapping_form: 'table' as const } : {}),
 	});
 
@@ -627,6 +633,7 @@ export async function resolveImportSet(
 					// notes for no change in meaning. A conversion names the new form.
 					...((conversion ? conversion.to : existing.mapping_form) === 'table' ? { mapping_form: 'table' as const } : {}),
 					...(existing.nest_identity ? { nest_identity: { ...existing.nest_identity } } : {}),
+					...(existing.outline_identity ? { outline_identity: { ...existing.outline_identity, levels: [...existing.outline_identity.levels] } } : {}),
 				},
 				pinnedOntologyOf(existing, proposed),
 			);
@@ -880,6 +887,7 @@ function observationOf(
 		setNote,
 		parentSet: block.parentSet,
 		nestIdentity: block.nestIdentity,
+		outlineIdentity: block.outlineIdentity,
 		sourceFile: readString(sourceRecord?.file),
 		sourceHash: readString(sourceRecord?.source_hash),
 		producedAt: readString(provenanceRecord.produced_at),
@@ -932,6 +940,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[], markers: read
 		const pinnedDerivation = agreedDerivation(id, group);
 		const pinnedMappingForm = agreedMappingForm(id, group);
 		const pinnedNestIdentity = agreedNestIdentity(id, group);
+		const pinnedOutlineIdentity = agreedOutlineIdentity(id, group);
 		const setNoteCount = group.filter((entry) => entry.storage === 'note' && entry.setNote).length;
 		sets.push({
 			id,
@@ -954,6 +963,7 @@ function buildDiscoveredSets(observations: ImportSetObservation[], markers: read
 			...(pinnedOntology ? { ontology: pinnedOntology } : {}),
 			...(pinnedDerivation ? { derivation: pinnedDerivation } : {}),
 			...(pinnedNestIdentity ? { nest_identity: pinnedNestIdentity } : {}),
+			...(pinnedOutlineIdentity ? { outline_identity: pinnedOutlineIdentity } : {}),
 		});
 	}
 	sets.sort((a, b) => a.id.localeCompare(b.id));
@@ -1150,6 +1160,23 @@ function agreedMappingForm(id: string, group: readonly ImportSetObservation[]): 
 	}
 	const form = [...forms][0];
 	return group.every((entry) => entry.mappingForm === null) ? null : form as MappingForm;
+}
+
+function agreedOutlineIdentity(id: string, group: readonly ImportSetObservation[]): OutlineIdentityPin | null {
+	const pins = group.map((entry) => entry.outlineIdentity);
+	const keys = new Set(pins.map((pin) => pin === null ? null : JSON.stringify([pin.id, pin.levels])));
+	if (keys.size !== 1) {
+		const details = group
+			.map((entry) => `${entry.path} (${entry.outlineIdentity === null ? 'no outline settings' : JSON.stringify(entry.outlineIdentity)})`)
+			.sort()
+			.join(', ');
+		throw new ImportSetProvenanceError(
+			`Import set ${id} records different outline settings, so its notes cannot all be recognised by one recipe: ${details}. `
+			+ 'Restore the notes that disagree from a backup, or move them out of this folder, then run the import again.',
+			group.map((entry) => entry.path).sort(),
+		);
+	}
+	return pins[0] === null ? null : { id: pins[0].id, levels: [...pins[0].levels] };
 }
 
 function agreedNestIdentity(

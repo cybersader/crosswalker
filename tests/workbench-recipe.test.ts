@@ -114,6 +114,8 @@ describe('MappingWorkbench recipe assembly', () => {
 		const noFamily = [{ _cw: { level: 'control' } }];
 		expect(impliedConceptControlState(folder, 0, 2, hasFamily)).toEqual({ visible: true, suggest: false });
 		expect(impliedConceptControlState(folder, 0, 2, noFamily)).toEqual({ visible: true, suggest: true });
+		expect(impliedConceptControlState(folder, 0, 2, [{ _cw: { level: 'D3FEND Technique' } }], true))
+			.toEqual({ visible: true, suggest: false });
 		expect(impliedConceptControlState(folder, 0, 2, null)).toEqual({ visible: true, suggest: false });
 		expect(impliedConceptControlState(folder, 1, 2, noFamily)).toEqual({ visible: false, suggest: false });
 	});

@@ -82,6 +82,8 @@ function shippedRecipes(): ShippedRecipe[] {
  * deliberate two-file change, never a drive-by. Adding or removing a row here
  * without the matching recipe edit fails immediately.
  */
+const OUTLINE_RECIPE = 'recipes/import/mitre-d3fend-linked.json';
+
 const DECLARED_WHERE: Record<string, string> = {
 	'recipes/import/cis-controls-v8-1-safeguards.json': "$trim(`CIS Safeguard`) != ''",
 	'recipes/import/cis-controls-v8-controls.json': "$trim(`CIS Safeguard`) = ''",
@@ -98,7 +100,7 @@ describe('A1 — the source-stage code change moved no shipped recipe hash', () 
 
 	it('covers every shipped recipe, so a new one cannot slip past unpinned', () => {
 		expect(recipes.map((r) => r.relPath).sort()).toEqual(Object.keys(GOLDEN).sort());
-		expect(recipes).toHaveLength(23);
+		expect(recipes).toHaveLength(24);
 	});
 
 	/**
@@ -116,7 +118,7 @@ describe('A1 — the source-stage code change moved no shipped recipe hash', () 
 		},
 	);
 
-	const undeclared = recipes.filter((r) => !(r.relPath in DECLARED_WHERE));
+	const undeclared = recipes.filter((r) => !(r.relPath in DECLARED_WHERE) && r.relPath !== OUTLINE_RECIPE);
 
 	it.each(undeclared.map((r) => [r.relPath, r] as const))(
 		'%s declares no shaping, so its LIVE hash is unchanged too',
@@ -127,10 +129,10 @@ describe('A1 — the source-stage code change moved no shipped recipe hash', () 
 
 	it('the set of recipes declaring source shaping is pinned', () => {
 		const declaring = recipes
-			.filter((r) => r.recipe.source?.where !== undefined || r.recipe.source?.joins !== undefined)
+			.filter((r) => r.recipe.source?.outline !== undefined || r.recipe.source?.where !== undefined || r.recipe.source?.joins !== undefined)
 			.map((r) => r.relPath)
 			.sort();
-		expect(declaring).toEqual(Object.keys(DECLARED_WHERE).sort());
+		expect(declaring).toEqual([...Object.keys(DECLARED_WHERE), OUTLINE_RECIPE].sort());
 	});
 
 	it('pins the sole Wave 2d target-hash move to the CRI crosswalk declaration', () => {
@@ -155,6 +157,16 @@ describe('A1 — the source-stage code change moved no shipped recipe hash', () 
 		expect(GOLDEN['recipes/starter/evidence-junction-notes.json']).toBe(
 			'sha256-e2f58e928fd9b83bbad21ca657be80af72b07a6cef7ffd9dae31cf190ff5d83a',
 		);
+	});
+
+	it('pins outline shaping independently of where, and strips it for the golden baseline', () => {
+		const entry = recipes.find((r) => r.relPath === OUTLINE_RECIPE)!;
+		expect(entry.recipe.source?.outline).toEqual({
+			levels: ['D3FEND Technique', 'D3FEND Technique Level 0', 'D3FEND Technique Level 1'], id: '{ID|trim}',
+		});
+		expect(entry.recipe.source?.where).toBeUndefined();
+		expect(computeRecipeHash(entry.recipe.target, entry.recipe.source)).not.toBe(GOLDEN[OUTLINE_RECIPE]);
+		expect(recipeHashCanonicalInput(entry.recipe.target, entry.recipe.source)).toContain('source_outline');
 	});
 
 	it('no shipped recipe declares joins', () => {

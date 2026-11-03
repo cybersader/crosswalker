@@ -76,7 +76,7 @@ import {
 	type ReviewGroupCids,
 } from './hash';
 import { reviewedAgainstFor } from '../views/evidence-link';
-import { prepareSourceStage, SourceStageError, type SourceStage } from '../source';
+import { prepareSourceStage, SourceStageError, type SourceStage, type OutlineDeclaration } from '../source';
 import { SourceOrderStamper, stripBasePath, shouldStampSourceOrder } from './source-order';
 import { validateTier1Frontmatter } from '../validation/validator';
 import {
@@ -553,15 +553,17 @@ export async function generateNotes(
 		// Ownership is minted or selected once per run, before any note is written.
 		// Never derive this id from recipe/source/path: all are allowed to change on
 		// a legitimate refresh, while the import set must remain the same.
-		const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest);
+		const importSet = await resolveImportSet(app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest ?? recipe.source?.outline);
 		// Same as the recipe entry: callers (the wizard's Run again record) need
 		// the set this run wrote into, by minted id.
 		result.importSetId = importSet.id;
-		if (recipe.source?.nest && derivationOf(importSet) !== 'declared-facts-v1') {
+		if ((recipe.source?.nest || recipe.source?.outline) && derivationOf(importSet) !== 'declared-facts-v1') {
 			result.errors.push({
 				row: 0,
-				message: 'Nested records need the declared-facts identity rule. This import set was minted under filename-stem-v1; import into a new set.',
-				declaration: 'source.nest',
+				message: recipe.source?.outline
+				? 'Outline records need a newer identity setting. Import into a new set instead of refreshing this older set.'
+				: 'Nested records need the declared-facts identity rule. This import set was minted under filename-stem-v1; import into a new set.',
+				declaration: recipe.source?.outline ? 'source.outline' : 'source.nest',
 			});
 			result.success = false;
 			result.duration = Date.now() - startTime;
@@ -575,7 +577,7 @@ export async function generateNotes(
 			result.duration = Date.now() - startTime;
 			return result;
 		}
-		const nestIdentityMismatch = nestedIdentityPinMismatch(recipe.source?.nest, importSet);
+		const nestIdentityMismatch = nestedIdentityPinMismatch(recipe.source?.nest, importSet, recipe.source?.outline);
 		if (nestIdentityMismatch) {
 			result.errors.push({
 				row: 0,
@@ -709,7 +711,7 @@ export async function generateNotes(
 		}
 		addUnparentedWarnings(result, sourceStage);
 		let rowsForGeneration: Iterable<Record<string, unknown>> | AsyncIterable<Record<string, unknown>> = sourceStage.rows;
-		if (recipe.source?.nest) {
+		if (recipe.source?.nest || recipe.source?.outline) {
 			let nestedRows: Record<string, unknown>[];
 			try {
 				nestedRows = await materializeNestedStageRows(sourceStage);
@@ -728,15 +730,15 @@ export async function generateNotes(
 					curiePrefix,
 					basePrefix,
 					importSet,
-					recipe.source?.nest,
+					recipe.source?.nest ?? recipe.source?.outline,
 					() => deriveRawFilenameStem(row, mapping, rowNum),
 					() => derivationOf(importSet) === 'declared-facts-v1'
 						? declaredFactsLocalPart(row, () => deriveRawFilenameStem(row, mapping, rowNum), basePrefix)
 						: filenameStem,
 				);
-			});
+			}, !!recipe.source?.outline);
 			if (collision) {
-				result.errors.push({ row: 0, message: collision, declaration: 'source.nest' });
+				result.errors.push({ row: 0, message: collision, declaration: recipe.source?.outline ? 'source.outline' : 'source.nest' });
 				result.success = false;
 				result.duration = Date.now() - startTime;
 				return result;
@@ -744,7 +746,7 @@ export async function generateNotes(
 			rowsForGeneration = nestedRows;
 		}
 
-		// Folder creation follows all nested identity preflight, so a duplicate
+		// Folder creation follows all hierarchical source and identity preflight, so a duplicate
 		// identity leaves the vault unchanged.
 		if (options.createFolders) {
 			await ensureFolderExists(app, options.basePath);
@@ -1982,7 +1984,7 @@ function buildNoteDataViaRender(
 		curiePrefix,
 		basePrefix,
 		importSet,
-		recipe.source?.nest,
+		recipe.source?.nest ?? recipe.source?.outline,
 		() => deriveRawFilenameStem(row, mapping, rowNum),
 		() => noteKind === 'crosswalk-edge'
 			? sssomEdgeCurie(row, importSet!)
@@ -3196,18 +3198,20 @@ export async function generateFromRecipe(
 	// Headless imports obey the same destination-discovery rules as the wizard.
 	// Callers can name a wiped/empty set explicitly or force a new mint.
 	const resolvedImportSet = await resolveImportSet(
-		app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest, undefined,
+		app, options.basePath, options.importSet, proposedOntologyId, recipe.source?.nest ?? recipe.source?.outline, undefined,
 		options.mappingConversion ? { conversion: options.mappingConversion } : undefined,
 	);
 	const importSet = options.producerSetId
 		? { ...resolvedImportSet, parent_set: options.producerSetId }
 		: resolvedImportSet;
 	result.importSetId = importSet.id;
-	if (recipe.source?.nest && derivationOf(importSet) !== 'declared-facts-v1') {
+	if ((recipe.source?.nest || recipe.source?.outline) && derivationOf(importSet) !== 'declared-facts-v1') {
 		result.errors.push({
 			row: 0,
-			message: 'Nested records need the declared-facts identity rule. This import set was minted under filename-stem-v1; import into a new set.',
-			declaration: 'source.nest',
+			message: recipe.source?.outline
+				? 'Outline records need a newer identity setting. Import into a new set instead of refreshing this older set.'
+				: 'Nested records need the declared-facts identity rule. This import set was minted under filename-stem-v1; import into a new set.',
+			declaration: recipe.source?.outline ? 'source.outline' : 'source.nest',
 		});
 		result.success = false;
 		result.duration = Date.now() - startTime;
@@ -3220,7 +3224,7 @@ export async function generateFromRecipe(
 		result.duration = Date.now() - startTime;
 		return result;
 	}
-	const nestIdentityMismatch = nestedIdentityPinMismatch(recipe.source?.nest, importSet);
+	const nestIdentityMismatch = nestedIdentityPinMismatch(recipe.source?.nest, importSet, recipe.source?.outline);
 	if (nestIdentityMismatch) {
 		result.errors.push({
 			row: 0,
@@ -3309,7 +3313,7 @@ export async function generateFromRecipe(
 
 	addUnparentedWarnings(result, sourceStage);
 	let rowsForGeneration: Iterable<Record<string, unknown>> | AsyncIterable<Record<string, unknown>> = sourceStage.rows;
-	if (recipe.source?.nest) {
+	if (recipe.source?.nest || recipe.source?.outline) {
 		let nestedRows: Record<string, unknown>[];
 		try {
 			nestedRows = await materializeNestedStageRows(sourceStage);
@@ -3334,7 +3338,7 @@ export async function generateFromRecipe(
 				curiePrefix,
 				baseCuriePrefix,
 				importSet,
-				recipe.source?.nest,
+				recipe.source?.nest ?? recipe.source?.outline,
 				() => `row-${rowNum}`,
 				() => recipeNoteKind === 'crosswalk-edge'
 					? sssomEdgeCurie(scope, importSet)
@@ -3342,9 +3346,9 @@ export async function generateFromRecipe(
 						? options.curieLocalPart(scope, rowNum, importSet)
 						: defaultCurieLocalPart(scope, rowNum, derivationOf(importSet), baseCuriePrefix),
 			);
-		});
+		}, !!recipe.source?.outline);
 		if (collision) {
-			result.errors.push({ row: 0, message: collision, declaration: 'source.nest' });
+			result.errors.push({ row: 0, message: collision, declaration: recipe.source?.outline ? 'source.outline' : 'source.nest' });
 			result.success = false;
 			result.duration = Date.now() - startTime;
 			return result;
@@ -3512,7 +3516,7 @@ export async function generateFromRecipe(
 				curiePrefix,
 				baseCuriePrefix,
 				importSet,
-				recipe.source?.nest,
+				recipe.source?.nest ?? recipe.source?.outline,
 				() => `row-${rowNum}`,
 				() => recipeNoteKind === 'crosswalk-edge'
 					? sssomEdgeCurie(scope, importSet)
@@ -6183,7 +6187,28 @@ function nestedLineageOf(row: Record<string, unknown>): NestedLineage | null {
 function nestedIdentityPinMismatch(
 	nest: readonly NestedRecordLevel[] | undefined,
 	importSet: ImportSetReference,
+	outline?: OutlineDeclaration,
 ): SourceStageError | null {
+	const pin = importSet.outline_identity;
+	if (outline && !pin) {
+		return new SourceStageError(
+			'This set was imported without an outline. Import into a new set to use the outline layout.',
+			{ declaration: 'source.outline' },
+		);
+	}
+	if (pin && !outline) {
+		return new SourceStageError(
+			'This set was imported with an outline. Restore the outline settings in the recipe, or import into a new set.',
+			{ declaration: 'source.outline' },
+		);
+	}
+	if (outline && pin && (outline.id !== pin.id
+		|| JSON.stringify(outline.levels) !== JSON.stringify(pin.levels))) {
+		return new SourceStageError(
+			'This set is fixed to its original depth columns and identity template. Restore those recipe choices or import into a new set to change them.',
+			{ declaration: 'source.outline' },
+		);
+	}
 	if (!nest) return null;
 	for (let index = 0; index < nest.length; index++) {
 		const entry = nest[index];
@@ -6265,7 +6290,7 @@ export function candidateRunIdentities(
 		const row = rows[i];
 		const rowNum = options.rowNumbers?.[i] ?? i + 1;
 		const fallback = () => mapping ? deriveRawFilenameStem(row, mapping, rowNum) : `row-${rowNum}`;
-		const args: Parameters<typeof deriveRowCurieRaw> = [row, prefix, basePrefix, set, recipe.source?.nest, fallback,
+		const args: Parameters<typeof deriveRowCurieRaw> = [row, prefix, basePrefix, set, recipe.source?.nest ?? recipe.source?.outline, fallback,
 			() => kind === 'crosswalk-edge' ? sssomEdgeCurie(row, set)
 				: options.curieLocalPart ? options.curieLocalPart(row, rowNum, set)
 					: derivationOf(set) === 'declared-facts-v1' ? declaredFactsLocalPart(row, fallback, basePrefix)
@@ -6381,12 +6406,25 @@ function deriveRowCurieRaw(
 	curiePrefix: string,
 	basePrefix: string,
 	importSet: ImportSetReference | undefined,
-	nest: readonly NestedRecordLevel[] | undefined,
+	nest: readonly NestedRecordLevel[] | OutlineDeclaration | undefined,
 	lastResort: () => string,
 	defaultLocalPart: () => string,
 ): string {
 	const lineage = nestedLineageOf(row);
-	const entry = lineage ? nest?.find((candidate) => candidate.level === lineage.level) : undefined;
+	// An outline's id template is an explicit identity declaration, just like
+	// nest.id. Both generation entry points and ownership planning use it;
+	// uppercase/domain-specific source columns must never fall back to row-N.
+	if (lineage && nest && 'levels' in nest) {
+		if (derivationOf(importSet) !== 'declared-facts-v1') {
+			throw new SourceStageError(
+				'Outline records need a newer identity setting. Import into a new set instead of refreshing this older set.',
+				{ declaration: 'source.outline' },
+			);
+		}
+		return `${curiePrefix}:${injectiveDeclaredIdLocalPart(lineage.path[lineage.path.length - 1])}`;
+	}
+	const entries = nest && !('levels' in nest) ? nest : undefined;
+	const entry = lineage ? entries?.find((candidate) => candidate.level === lineage.level) : undefined;
 	if (!lineage || !entry) return `${curiePrefix}:${defaultLocalPart()}`;
 	if (derivationOf(importSet) !== 'declared-facts-v1') {
 		throw new SourceStageError(
@@ -6399,7 +6437,7 @@ function deriveRowCurieRaw(
 	if (recipeIdentity !== pinnedIdentity) {
 		throw new SourceStageError(
 			`Level "${lineage.level}" is named by its place in this set; import into a new set to change it.`,
-			{ declaration: `source.nest.${nest?.indexOf(entry) ?? 0}.identity` },
+			{ declaration: `source.nest.${entries?.indexOf(entry) ?? 0}.identity` },
 		);
 	}
 	const localPart = pinnedIdentity === 'path'
@@ -6419,6 +6457,7 @@ interface NestedCurieClaim {
 function nestedIdentityCollision(
 	rows: readonly Record<string, unknown>[],
 	deriveCurie: (row: Record<string, unknown>, rowIndex: number) => string,
+	outline = false,
 ): string | null {
 	const claims = new Map<string, NestedCurieClaim>();
 	for (let index = 0; index < rows.length; index++) {
@@ -6430,7 +6469,8 @@ function nestedIdentityCollision(
 		const first = claims.get(curie);
 		if (first) {
 			return `Ambiguous identity ${curie} claimed by rows at ${first.path} and ${path}. `
-				+ `Set identity: path on level "${lineage.level}" so each row is named by its place in the hierarchy.`;
+				+ (outline ? 'Give each source row a unique identity value or change the identity template before importing again.'
+				: `Set identity: path on level "${lineage.level}" so each row is named by its place in the hierarchy.`);
 		}
 		claims.set(curie, { path, level: lineage.level });
 	}

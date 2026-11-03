@@ -664,6 +664,7 @@ export interface EffectiveRecipeTarget {
  * recipe declaring neither hashes byte-identically to its pre-1.9.0 self.
  */
 export interface EffectiveRecipeSource {
+	outline?: unknown;
 	nest?: unknown;
 	where?: unknown;
 	joins?: unknown;
@@ -748,6 +749,8 @@ export function recipeHashCanonicalInput(target: EffectiveRecipeTarget, source?:
 		// Nested expansion changes which notes exist. Keep absence as undefined;
 		// NEVER use `?? null`, so recipes without nest retain their exact hash.
 		source_nest: source?.nest,
+		// Outline lineage changes parentage and identity; absence stays absent.
+		source_outline: source?.outline,
 		source_where: source?.where,
 		source_joins: source?.joins,
 	});

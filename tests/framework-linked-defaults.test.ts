@@ -377,7 +377,7 @@ describe('recommended selection is additive', () => {
 		// Reuse every literal `const cols = [...]` corpus signature already pinned
 		// in the registry suite, without duplicating any held publisher content.
 		const fixture = ts.createSourceFile('signatures.ts', fs.readFileSync(path.join(REPO, 'tests/recipe-registry.test.ts'), 'utf8'), ts.ScriptTarget.Latest, true);
-		const signatures: string[][] = RECIPE_REGISTRY.filter((item) => item.id !== d3fend.id).map((item) => item.signatureColumns);
+		const signatures: string[][] = RECIPE_REGISTRY.filter((item) => item.id !== d3fend.id && item.id !== 'mitre-d3fend-linked').map((item) => item.signatureColumns);
 		function visit(node: ts.Node): void {
 			if (ts.isVariableDeclaration(node) && node.name.getText(fixture) === 'cols' && node.initializer && ts.isArrayLiteralExpression(node.initializer)) {
 				signatures.push(node.initializer.elements.filter(ts.isStringLiteral).map((item) => item.text));
