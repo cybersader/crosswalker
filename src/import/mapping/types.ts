@@ -388,6 +388,8 @@ export interface StructureMapping {
  * 2026-07-10 batch-enrichment design.
  */
 export interface Enrichment {
+	/** Facet membership authority; omitted keeps caller-first compatibility. */
+	facet_source?: 'tag_template' | 'caller';
 	/** Identity-based parent links on nested notes; on by default for implied levels. */
 	parent_links?: boolean;
 	/** Managed `children` array on every parent note (sorted by child curie). */

@@ -47,12 +47,12 @@ export const RESTRICTED = /(_licensed|\bcri\b|cri-profile|iso[-_ ]?27|\biso\b|so
 
 const FRAMEWORKS = [
 	// The full public NIST catalogs, so every CSF to 800-53 link lands on two real notes.
-	// Demo-only recipes (tools/fixtures/demo/recipes) make every level a note
-	// and tag every row note by level. Identities match the shipped recipes, so
-	// mapping links resolve exactly as they do against the flat imports.
-	{ key: 'csf', label: 'NIST CSF 2.0', source: 'Frameworks/csf2.xlsx', how: ['--recipe', `${DEMO_RECIPES}/nist-csf-2-demo-hierarchical.json`, '--sheet', 'CSF 2.0', '--header-row', '2'], destination: 'Frameworks/NIST-CSF-2.0', levels: 'one folder per function and category' },
-	{ key: 'sp80053', label: 'NIST SP 800-53 Rev. 5', source: 'Frameworks/NIST_SP-800-53_rev5_catalog_load.csv', how: ['--recipe', `${DEMO_RECIPES}/nist-800-53-demo-nested.json`], destination: 'Frameworks/NIST-SP-800-53-r5', levels: 'one folder per family and control, with enhancements inside their control' },
-	{ key: 'attack', label: 'MITRE ATT&CK Enterprise v16.1', source: 'Frameworks/enterprise-attack-v16.1.xlsx', how: ['--recipe', `${DEMO_RECIPES}/mitre-attack-demo-full.json`, '--sheet', 'techniques'], destination: 'Frameworks/MITRE-ATT&CK', levels: 'the full techniques sheet, one note per technique and sub-technique with parent links' },
+	// Use the shipped linked recommended defaults: NIST folder indexes and
+	// parent/children links, plus ATT&CK dotted-ID parents and tactic facet hubs.
+	// Publisher row identities stay unchanged, so mapping endpoints still resolve.
+	{ key: 'csf', label: 'NIST CSF 2.0', source: 'Frameworks/csf2.xlsx', how: ['--recipe', 'recipes/import/nist-csf-2-linked.json', '--sheet', 'CSF 2.0', '--header-row', '2'], destination: 'Frameworks/NIST-CSF-2.0', levels: 'function and category folders with index notes, subcategory notes, parent and children links, and no hierarchy tags' },
+	{ key: 'sp80053', label: 'NIST SP 800-53 Rev. 5', source: 'Frameworks/NIST_SP-800-53_rev5_catalog_load.csv', how: ['--recipe', 'recipes/import/nist-800-53-linked.json'], destination: 'Frameworks/NIST-SP-800-53-r5', levels: 'family and control folders with index notes, enhancements inside their control, parent and children links, and related-control links' },
+	{ key: 'attack', label: 'MITRE ATT&CK Enterprise v16.1', source: 'Frameworks/enterprise-attack-v16.1.xlsx', how: ['--recipe', 'recipes/import/mitre-attack-technique-linked.json', '--sheet', 'techniques'], destination: 'Frameworks/MITRE-ATT&CK', levels: 'one note per technique and sub-technique, dotted-ID parent and children links, one tag per tactic, and multi-member tactic hub notes' },
 ];
 
 const MAPPINGS = [

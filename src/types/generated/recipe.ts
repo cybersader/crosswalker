@@ -547,7 +547,7 @@ export interface WikilinkLayoutEntry {
  */
 export interface CrossCuttingEmissionsParallelToLayout {
 	/**
-	 * Tag-path templates emitted into every note's tags array. Example: ['framework/nist/{family.id|lower}/{control.id|tagsafe}', 'cross-cutting/access-control'].
+	 * Tag-path templates emitted into every note's tags array. SchemaVer 1.21.0: one list-valued interpolation (for example {tactics|optional|split(,)|tagsafe}) emits one tag per non-empty value, applying remaining filters per value. Tags keep source and template order and are deduplicated. Two or more list-valued interpolations are a recipe validation error: A tag template may hold one list-valued field. Split it into two tags. Empty or optional-absent values emit no tag; a tag with an empty final path segment is dropped. Aliases and other text-template sinks still reject lists unless joined. Example: ['framework/nist/{family.id|lower}/{control.id|tagsafe}', 'cross-cutting/access-control'].
 	 */
 	tags?: Template[];
 	/**
@@ -731,6 +731,10 @@ export interface BatchEnrichmentPass15 {
 	 * When true, every parent note gains a managed `children` array of wikilinks to its direct children (derived from the same parent relation the parent link uses), sorted by child curie. Regenerated wholesale on re-import (fully managed, not unioned).
 	 */
 	children_lists?: boolean;
+	/**
+	 * Optional facet membership authority (SchemaVer 1.22.0). tag_template derives raw display values from also_emit.tags, including list splitting and filters, for identical UI and CLI hubs. caller (or omission) preserves caller-supplied memberships when present; without a caller, declared facet notes derive from tag templates, otherwise rendered tags are used. Existing recipes need no field and retain their hash.
+	 */
+	facet_source?: 'tag_template' | 'caller';
 	/**
 	 * How facet values materialize. 'none': nothing beyond the per-note facet tags. 'tags-only': facet tags only, no hub notes. 'notes': one synthetic hub note per facet value with a managed `members` list of its member notes (sorted by curie), a `kind: facet` discriminator, the facet tag, and an H1 body; user prose below the H1 survives re-import. Hub notes are emitted only for facet values with two or more members.
 	 */

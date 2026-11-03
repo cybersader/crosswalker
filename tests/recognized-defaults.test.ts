@@ -39,6 +39,7 @@ function fakeEntry(overrides: {
 		suggestedFolder: 'Frameworks/Fake',
 		recommendedEnrichment: {
 			childrenLists: overrides.childrenLists ?? false,
+			levelHubs: false,
 			facetNotes: overrides.facetNotes ?? 'none',
 			facetField: overrides.facetField,
 			rationale: 'synthetic fixture',
@@ -117,9 +118,10 @@ describe('recognizedDestination: evidence link folder setting (2026-10-28)', () 
 });
 
 describe('honestEnrichment (spec §7m curated defaults — honest handling)', () => {
-	it('every bundled recipe today is not-live, so the hint stays off (matches the registry doc comment)', () => {
+	it('previous recipes retain their inert hints; linked defaults declare their enrichment', () => {
 		for (const e of RECIPE_REGISTRY) {
-			expect(honestEnrichment(e)).toBeUndefined();
+			if (e.id.endsWith('-linked')) expect(honestEnrichment(e)).toEqual(e.recipe.target.enrichment);
+			else expect(honestEnrichment(e)).toBeUndefined();
 		}
 	});
 

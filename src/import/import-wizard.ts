@@ -45,14 +45,16 @@ import {
 import { MappingWorkbench, renderProvenanceBadge, type ColumnDest } from './workbench';
 import type { ImportMapping, Enrichment } from './mapping/types';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
-import type { RecipeDocumentOrigin } from './recipe-document';
+import type { RecipeDocument, RecipeDocumentOrigin } from './recipe-document';
 import { buildShapeMapRecap, deriveDestinationDefault, preferredParentNote, detectWaypointPlugin, type Provenance } from './mapping/view-model';
 import { explainRecipeError } from './mapping/diagnostics';
 import { computePlan } from './mapping/plan';
 import { outputRootPath, normalizeFolderSetting, evidenceJunctionFolder } from '../settings/folder-settings';
 import { deriveFacetMemberships } from './mapping/facets';
 import {
+	recipeChoiceLabel,
 	bestRecognizedRecipe,
+	findRecognizedRecipes,
 	libraryRegistryEntry,
 	summarizeRecipeShapes,
 	RECIPE_REGISTRY,
@@ -163,8 +165,15 @@ export function resolveDestinationDefault(
  * mandatory either way (never straight to generate). Pure so the gate is
  * unit-testable without mounting the wizard.
  */
-export function shouldAutoApplyRecognizedMatch(autoApplyExactMatch: boolean, score: number): boolean {
-	return autoApplyExactMatch && score === 100;
+export function shouldAutoApplyRecognizedMatch(autoApplyExactMatch: boolean, score: number, entry?: Pick<RecipeRegistryEntry, 'supersededBy'>): boolean {
+	return autoApplyExactMatch && score === 100 && !entry?.supersededBy;
+}
+
+/** Same-ontology notice only: discovery never chooses a refresh target. */
+export function existingFrameworkNotice(entry: Pick<RecipeRegistryEntry, 'id' | 'ontology'>, sets: readonly Pick<DiscoveredImportSet, 'ontology'>[]): string | null {
+	return entry.id.endsWith('-linked') && sets.some((set) => set.ontology === entry.ontology)
+		? 'This framework is already in your vault. Importing again creates a second set; existing mappings keep pointing at the first one.'
+		: null;
 }
 
 /**
@@ -172,22 +181,36 @@ export function shouldAutoApplyRecognizedMatch(autoApplyExactMatch: boolean, sco
  * hint (recipe-registry's "CURATED DEFAULTS" doc comment). A hint is only
  * turned on when the recipe's OWN recipe JSON already emits the mechanism the
  * hint depends on: children lists need an existing parent wikilink (a `links`
- * shape), facet hub notes need an existing `also_emit.tags` destination (a
+ * shape) or an implied folder concept, facet hub notes need an existing `also_emit.tags` destination (a
  * `tags` shape) — reusing `summarizeRecipeShapes`'s shape detection so this
  * stays in lockstep with what the recipe can actually back up. Never flips on
  * a Pass 1.5 mechanism the recipe doesn't already feed. Returns undefined when
- * nothing is live, so an inert recipe's regions stay byte-identical.
+ * nothing is live (including explicitly declared level hubs), so an inert recipe's regions stay byte-identical.
  */
 export function honestEnrichment(entry: RecipeRegistryEntry): Enrichment | undefined {
 	const shapes = summarizeRecipeShapes(entry);
 	const hint = entry.recommendedEnrichment;
-	const childrenLive = hint.childrenLists && shapes.includes('links');
+	const impliedLevel = entry.recipe.target.layout?.some((level) => level.mechanism === 'folder' && level.implied_concept);
+	const childrenLive = hint.childrenLists && (shapes.includes('links') || impliedLevel);
+	const levelHubsLive = hint.levelHubs && entry.recipe.target.enrichment?.level_hubs === 'notes';
 	const facetLive = hint.facetNotes === 'notes' && shapes.includes('tags');
-	if (!childrenLive && !facetLive) return undefined;
+	if (!childrenLive && !facetLive && !levelHubsLive) return undefined;
 	const out: Enrichment = {};
+	if (entry.recipe.target.enrichment?.facet_source) out.facet_source = entry.recipe.target.enrichment.facet_source;
 	if (childrenLive) out.children_lists = true;
 	if (facetLive) out.facet_notes = 'notes';
+	if (levelHubsLive) out.level_hubs = 'notes';
 	return out;
+}
+
+/** A picker comparison label must never become a saved library title. */
+export function recipeSaveDefaultName(
+	document: Pick<RecipeDocument, 'origin' | 'original'>, entry: Pick<RecipeRegistryEntry, 'label'> | undefined,
+	sourceFileName: string | undefined,
+): string {
+	const title = document.origin === 'fresh' || document.origin === 'legacy'
+		? undefined : document.original.metadata?.title ?? entry?.label;
+	return title ?? (sourceFileName ?? '').replace(/\.[^.]+$/, '');
 }
 
 /**
@@ -1086,12 +1109,8 @@ export class ImportFlow {
 		if (!this.workbench) return;
 		const input = this.workbench.patchForSave();
 		const doc = input.document;
-		const stem = (this.sourceFile?.name ?? '').replace(/\.[^.]+$/, '');
-		const title = doc.origin === 'fresh' || doc.origin === 'legacy'
-			? null
-			: doc.original.metadata?.title ?? (this.recognizedMatch?.entry.label ?? null);
 		new SaveRecipeModal(this.app, input, {
-			defaultName: title ?? stem,
+			defaultName: recipeSaveDefaultName(doc, this.recognizedMatch?.entry, this.sourceFile?.name),
 			onSaved: (saved) => { void this.afterRecipeSaved(saved); },
 		}).open();
 	}
@@ -1856,18 +1875,59 @@ export class ImportFlow {
 		);
 		const enrichment = honestEnrichment(entry);
 		if (entry.description) card.createEl('p', { cls: 'crosswalker-recognized-desc', text: entry.description });
+		if (entry.id.endsWith('-linked')) {
+			const existingLine = card.createEl('p', { cls: 'setting-item-description' });
+			// Discovery reads note content when the metadata cache is cold. Never
+			// infer absence from a missing cache entry or select a refresh target.
+			if (this.app?.vault) {
+				void discoverImportSets(this.app).then((sets) => {
+					const line = existingFrameworkNotice(entry, sets);
+					if (line) existingLine.setText(line);
+				}).catch(() => {
+					existingLine.setText('The vault could not be checked for this framework. Review existing sets before importing.');
+				});
+			}
+		}
+
 		const summary = card.createEl('div', { cls: 'crosswalker-recognized-summary' });
-		summary.createSpan({ cls: 'crosswalker-recognized-metric', text: `${plural(rowCount, 'row')} to ${plural(rowCount, 'note')}` });
+		// Implied parent concepts (CSF categories, ATT&CK parent techniques) become
+		// notes too, so a bare row count would understate what lands in the vault.
+		const impliedParents = entry.recipe.target.layout?.some((level) => level.mechanism === 'folder' && level.implied_concept);
+		summary.createSpan({
+			cls: 'crosswalker-recognized-metric',
+			text: `${plural(rowCount, 'row')} to ${plural(rowCount, 'note')}${impliedParents ? ' plus parent notes' : ''}`,
+		});
 		if (shapes.length) summary.createSpan({ cls: 'crosswalker-recognized-metric', text: shapes.join(', ') });
 		summary.createSpan({ cls: 'crosswalker-recognized-metric', text: `lands in ${dest}` });
 		if (enrichment?.children_lists) {
 			summary.createSpan({ cls: 'crosswalker-recognized-metric', text: 'parents linked to children' });
+		}
+		if (enrichment?.level_hubs === 'notes') {
+			summary.createSpan({ cls: 'crosswalker-recognized-metric', text: 'an index note per folder' });
 		}
 		if (enrichment?.facet_notes === 'notes') {
 			summary.createSpan({
 				cls: 'crosswalker-recognized-metric',
 				text: `hub notes for ${entry.recommendedEnrichment.facetField ?? 'facets'}`,
 			});
+		}
+
+		// Both exact variants stay available; changing this choice is explicit.
+		const alternatives = this.parsedData
+			? findRecognizedRecipes(this.parsedData.columns, undefined, this.libraryRecognition)
+				.filter((match) => match.score === this.recognizedMatch!.score && match.entry.ontology === entry.ontology)
+			: [];
+		if (alternatives.length > 1) {
+			const choices = card.createEl('div', { cls: 'crosswalker-recognized-alternatives' });
+			choices.createEl('span', { text: 'Available configurations: ' });
+			for (const match of alternatives) {
+				const button = choices.createEl('button', { text: recipeChoiceLabel(match.entry, alternatives.map((item) => item.entry.id)) });
+				button.disabled = match.entry.id === entry.id;
+				button.addEventListener('click', () => {
+					this.recognizedMatch = match;
+					this.renderStep();
+				});
+			}
 		}
 
 		// Actions — one confident primary, escape hatches beside it.
@@ -2633,7 +2693,7 @@ export class ImportFlow {
 	 * still use the workbench and cannot refresh a set owned by another recipe. */
 	private effectiveWorkbenchRecipe(): Recipe {
 		if (this.recognizedFastPath && !this.recognizedEdited &&
-			this.recognizedMatch?.entry.id.endsWith('-nested')) {
+			(this.recognizedMatch?.entry.id.endsWith('-nested') || this.recognizedMatch?.entry.id.endsWith('-linked'))) {
 			return this.recognizedMatch.entry.recipe as unknown as Recipe;
 		}
 		if (!this.workbench) throw new Error('Open the mapping workbench before generating.');
@@ -4546,7 +4606,7 @@ export class ImportFlow {
 								// always shows the card, regardless of this setting.
 								// A saved recipe of yours is only ever offered, never applied silently.
 								if (this.recognizedMatch.entry.origin !== 'user'
-									&& shouldAutoApplyRecognizedMatch(this.plugin.settings.autoApplyExactMatch, this.recognizedMatch.score)) {
+									&& shouldAutoApplyRecognizedMatch(this.plugin.settings.autoApplyExactMatch, this.recognizedMatch.score, this.recognizedMatch.entry)) {
 									this.plugin.debug.info('wizard', 'recognized-auto-applied', `Auto-applied "${this.recognizedMatch.entry.id}" (100% match, card skipped)`, {
 										recipeId: this.recognizedMatch.entry.id,
 									});

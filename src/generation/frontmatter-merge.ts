@@ -48,10 +48,11 @@ export function mergeFrontmatter(
 	const result: Record<string, unknown> = {};
 	const alwaysManaged = (k: string): boolean => k === '_crosswalker' || k === 'curie';
 	const ownsKey = (k: string): boolean => managedKeys.has(k) || alwaysManaged(k);
-	const freshValue = (k: string): unknown =>
-		LIST_UNION_KEYS.has(k) && managedKeys.has(k) && k in existing
+	const freshValue = (k: string): unknown => {
+		return LIST_UNION_KEYS.has(k) && managedKeys.has(k) && k in existing
 			? unionStringList(managed[k], existing[k])
 			: managed[k];
+	};
 
 	// 1. Walk the note's EXISTING key order. A key the user (or another plugin)
 	//    owns keeps its value where it already sits. A managed key that this run

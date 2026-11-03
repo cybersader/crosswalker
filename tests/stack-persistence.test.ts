@@ -161,3 +161,50 @@ it('counts a notes-form mapping set by its mappings, leaving out the release rec
 	// A framework set has no release record: every owned note counts.
 	expect(rows.some((row) => row.state === 'set iset-synthetic, 3 notes')).toBe(true);
 });
+
+/** IDs emitted by a066a54d, before recommended stack recipes changed. */
+function legacyStack() {
+	const current = toDefinition(DEFAULT_STACK_SELECTION, 'stack-old123', 'Existing stack', '2026-10-01T00:00:00Z');
+	const previous: Record<string, string> = {
+		'mitre-attack-technique-linked': 'mitre-attack-technique-flat',
+		'nist-800-53-linked': 'nist-800-53-r5-nested',
+		'nist-csf-2-linked': 'nist-csf-2-cprt-hierarchical',
+	};
+	return { ...current, slots: current.slots.map((slot) => ({ ...slot, presetId: previous[slot.presetId] ?? slot.presetId })) };
+}
+
+it('loads pre-linked saved stacks and their run facts intact and imports their exported JSON', () => {
+	const saved = legacyStack();
+	const savedRun = { ...run, stackId: saved.id, detail: saved.detail,
+		slotSets: Object.fromEntries(saved.slots.map((slot) => [slot.presetId, fact])) };
+	const loaded = normalizeStacks(JSON.parse(JSON.stringify([saved])));
+	expect(loaded).toEqual([saved]);
+	expect(normalizeStackRuns(JSON.parse(JSON.stringify([savedRun])), loaded)).toEqual([savedRun]);
+	expect(toDefinition(fromDefinition(saved), saved.id, saved.label, saved.createdAt)).toEqual(saved);
+	const imported = importStackDefinition(JSON.stringify(saved), [saved], () => 0.5);
+	expect({ ...imported, id: saved.id, createdAt: saved.createdAt }).toEqual(saved);
+});
+
+it('revisits recorded recipe slots with their original run facts and only offers refresh', () => {
+	const saved = legacyStack();
+	const slots = frameworkSlots(fromDefinition(saved));
+	const slotSets = Object.fromEntries(saved.slots.map((slot) => [slot.presetId, { ...fact,
+		recipeDigest: stackRecipeHash(slots.find((item) => item.entry.id === slot.presetId)!, saved.detail),
+	}]));
+	expect(slots.map((slot) => slot.entry.id)).toEqual(saved.slots.map((slot) => slot.presetId));
+	expect(slots.some((slot) => slot.entry.label.includes('previous default'))).toBe(false);
+	for (const slot of slots) {
+		const recorded = slotSets[slot.entry.id];
+		expect(recorded).toBeDefined();
+		expect(slotRunChoices(recorded, true, 'source-b', stackRecipeHash(slot, saved.detail))).toEqual({
+			choices: ['refresh', 'new'], selected: 'new',
+		});
+	}
+});
+
+it('does not label an installed previous default when its successor is not listed alongside it', () => {
+	const saved = legacyStack();
+	const rows = stackSlotRows(saved, undefined, new Map());
+	expect(rows.some((row) => row.label.includes('previous default'))).toBe(false);
+	expect(rows.map((row) => row.label)).toContain('MITRE ATT&CK techniques');
+});

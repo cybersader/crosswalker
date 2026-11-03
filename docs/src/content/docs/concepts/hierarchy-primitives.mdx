@@ -136,6 +136,8 @@ The right composition depends on:
 - Cross-referencing density (wikilink-heavy fits PKM workflows)
 - Whether the source ontology is genuinely a tree (folders fine) or a graph (wikilinks needed)
 
+These mechanisms are the output side. The input side, meaning how a source states its hierarchy (a path in the ID, a parent column, nested records, an outline), is covered in [How sources encode hierarchy](/crosswalker/concepts/etl-and-import/#how-sources-encode-hierarchy).
+
 ## Why this matters for Crosswalker
 
 Crosswalker is fundamentally an *ingestion target* — its load-bearing primitive is the [Tier 1 schema](/crosswalker/agent-context/v0-1-schema-spec/) (Markdown + YAML frontmatter + folder layout + wikilinks). Whether a recipe author uses one mechanism or composes all four, the **concept identity is invariant** — `nist:AC-2` refers to the same concept whether it's stored at `Frameworks/NIST/AC/AC-2.md`, as a `## AC-2` heading inside `NIST.md`, as a flat `AC-2.md` with tags, or as an edge `[[AC-2]]` from a parent.

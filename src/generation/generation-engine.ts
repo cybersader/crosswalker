@@ -1,3 +1,4 @@
+import { recipeHashForRun } from './recipe-run-hash';
 /**
  * Generation Engine
  *
@@ -99,7 +100,7 @@ import { wrapManagedBody, scanRegions, findSpan, replaceRegion } from './managed
 // ends. The held-host writer works on raw bytes and must agree with it exactly,
 // so it asks that reader rather than carrying a second copy of the fence rule.
 import { mergeExistingNote, readExistingNote, splitNoteText, ExistingNoteReadError } from './existing-note';
-import type { FacetMembership } from '../import/mapping/facets';
+import { deriveRecipeFacetMemberships, type FacetMembership } from '../import/mapping/facets';
 import type { CrosswalkColumnEntry, NestedRecordLevel } from '../types/generated/recipe';
 import { normalizeMappingSetId, normalizePredicateModifierInput } from '../utils/mapping-provenance';
 import {
@@ -261,6 +262,8 @@ interface EnrichmentWriteOptions {
 	sourceVersion?: string;
 	/** Complete pre-parse source-byte digest associated with this ParsedData. */
 	sourceHash?: string;
+	/** Hash selected once for existing and new notes in this run. */
+	recipeHash?: string;
 	/**
 	 * Carried in so the enrichment phase can honour `skip` on its own. A hub
 	 * relocation is a change to the vault, and `skip` means leave existing notes
@@ -615,7 +618,8 @@ export async function generateNotes(
 		// buildProvenance call this run makes — see src/generation/hash.ts.
 		// `recipe.source` is passed at every call site so one recipe hashes to
 		// one value no matter which code path computed it.
-		const recipeHash = computeRecipeHash(recipe.target, recipe.source);
+		const recipeHash = await recipeHashForRun(app, ownedIdentityIndex, provenanceRecipeId,
+			recipeDocumentDigestFor(recipe), computeRecipeHash(recipe.target, recipe.source));
 
 		// Track paths emitted in THIS generation pass to detect collisions
 		// (two source rows rendering to the same vault path).
@@ -1005,9 +1009,7 @@ export async function generateNotes(
 									layoutValues: noteData.layoutValues,
 									curie: noteData.curie,
 									frontmatter: { ...noteData.frontmatter },
-									facets: options.facetsForRow
-										? options.facetsForRow(row as Record<string, unknown>, rowNum)
-										: facetMembershipsFromTags(noteData.tags),
+									facets: facetMembershipsForRecipe(recipe, row as Record<string, unknown>, rowNum, noteData.tags, options.facetsForRow),
 									// Never read: this record is never written back. Kept empty
 									// rather than carrying a fresh render, which is exactly the
 									// content a skip promised not to write.
@@ -1096,9 +1098,7 @@ export async function generateNotes(
 					// Collect a record for Pass 1.5 enrichment (parent→children +
 					// facet hubs) — same collection generateFromRecipe performs.
 					if (enrichmentEnabled) {
-						const facets = options.facetsForRow
-							? options.facetsForRow(row as Record<string, unknown>, rowNum)
-							: facetMembershipsFromTags(noteData.tags);
+						const facets = facetMembershipsForRecipe(recipe, row as Record<string, unknown>, rowNum, noteData.tags, options.facetsForRow);
 						enrichRecords.push({
 							path: writePath,
 							renderedPath: fullPath,
@@ -1204,6 +1204,7 @@ export async function generateNotes(
 						sourceFileName: options.sourceFileName,
 						sourceVersion: options.frameworkVersion ?? recipe.source?.version,
 						sourceHash: parsedData.sourceByteDigest,
+						recipeHash,
 						overwriteMode: options.overwriteMode,
 					},
 					curiePrefix,
@@ -3250,10 +3251,11 @@ export async function generateFromRecipe(
 	// src/generation/hash.ts's doc comments for the exact field-set definition.
 	// `recipe.source` participates only through its shaping declarations; a
 	// recipe declaring none hashes byte-identically to its pre-1.9.0 self.
+	const provenanceRecipeId = options.provenanceRecipe?.id ?? recipe.recipe;
 	const recipeHash = options.provenanceRecipe
 		? options.provenanceRecipe.hash
-		: computeRecipeHash(recipe.target, recipe.source);
-	const provenanceRecipeId = options.provenanceRecipe?.id ?? recipe.recipe;
+		: await recipeHashForRun(app, ownedIdentityIndex, provenanceRecipeId,
+			stampedRecipeDocumentDigest(recipe, options), computeRecipeHash(recipe.target, recipe.source));
 	// See generateNotes above: recipe declaration, not row output, decides ownership.
 	const declaredManagedKeys = computeDeclaredManagedKeys(recipe.target.also_emit?.frontmatter);
 	// Resolve existing notes by canonical identity before considering their current
@@ -3791,9 +3793,7 @@ export async function generateFromRecipe(
 							layoutValues,
 							curie,
 							frontmatter: { ...frontmatter },
-							facets: options.facetsForRow
-								? options.facetsForRow(row as Record<string, unknown>, rowNum)
-								: facetMembershipsFromTags(address.tags),
+							facets: facetMembershipsForRecipe(recipe, row as Record<string, unknown>, rowNum, address.tags, options.facetsForRow),
 							// Never read: this record is never written back. Empty rather
 							// than a fresh render, which is the content a skip promised not
 							// to write.
@@ -3895,9 +3895,7 @@ export async function generateFromRecipe(
 
 			// Collect a record for Pass 1.5 enrichment (parent→children + facet hubs).
 			if (enrichmentEnabled) {
-				const facets = options.facetsForRow
-					? options.facetsForRow(row as Record<string, unknown>, rowNum)
-					: facetMembershipsFromTags(address.tags);
+				const facets = facetMembershipsForRecipe(recipe, row as Record<string, unknown>, rowNum, address.tags, options.facetsForRow);
 				// `body` is the body AS ACTUALLY WRITTEN (merged when the note existed),
 				// never the fresh render — Pass 1.5 writes this back, so the unmerged
 				// render here would destroy the prose the row write just preserved.
@@ -3988,6 +3986,7 @@ export async function generateFromRecipe(
 					...options,
 					sourceVersion: options.sourceVersion ?? recipe.source?.version,
 					sourceHash: parsedData.sourceByteDigest,
+					recipeHash,
 				},
 				curiePrefix,
 				[...enrichRecords, ...keptRecords],
@@ -4069,12 +4068,23 @@ export async function generateFromRecipe(
 	return result;
 }
 
+/** Explicit recipe authority is opt-in; existing wizard and preset callers keep their memberships. */
+export function facetMembershipsForRecipe(
+	recipe: Recipe, row: Record<string, unknown>, rowNum: number, tags: string[],
+	fallback?: (row: Record<string, unknown>, rowNum: number) => FacetMembership[],
+): FacetMembership[] {
+	if (recipe.target.enrichment?.facet_source === 'tag_template') return deriveRecipeFacetMemberships(recipe, row);
+	if (fallback) return fallback(row, rowNum);
+	if (recipe.target.enrichment?.facet_notes === 'notes' && recipe.target.also_emit?.tags?.length) {
+		return deriveRecipeFacetMemberships(recipe, row);
+	}
+	return facetMembershipsFromTags(tags);
+}
+
 /**
- * Best-effort facet memberships from a note's rendered (tagsafe) facet tags.
- * Each `namespace/value` tag → one membership; nested tags (several slashes)
- * split on the LAST slash. Display value is the tagsafe token (lowercased) — the
- * mapping-driven `facetsForRow` callback preserves original casing when the
- * caller can supply it. Deterministic. Exported for tests.
+ * Best-effort memberships for legacy callers without canonical tag templates.
+ * Split a rendered tag on its final slash; its lossy display value cannot recover
+ * source casing. Canonical recipes instead use deriveRecipeFacetMemberships.
  */
 export function facetMembershipsFromTags(tags: string[]): FacetMembership[] {
 	const out: FacetMembership[] = [];
@@ -5191,7 +5201,7 @@ async function applyEnrichment(
 	// Hub/facet notes are synthetic (no source row → no concept identity), so
 	// they carry recipe.hash but never concept_cid — see the two buildProvenance
 	// calls below. Computed once per applyEnrichment call (one per generation run).
-	const recipeHash = computeRecipeHash(recipe.target, recipe.source);
+	const recipeHash = options.recipeHash ?? computeRecipeHash(recipe.target, recipe.source);
 	// AM-72. One fresh block per run for the held-host writer below. Only its
 	// `produced_at` is ever taken (`heldHubProvenance`), except on a host that
 	// records no provenance at all, where writing one is a gain and not an
@@ -6271,7 +6281,7 @@ export function candidateRunIdentities(
 		const address = render(recipe, { curie, scope }, undefined, values);
 		const path = options.basePath ? normalizePath(`${options.basePath}/${address.primary.path}`) : normalizePath(address.primary.path);
 		notes.push({ path, curie, frontmatter: address.frontmatter,
-			facets: options.facetsForRow ? options.facetsForRow(row, rowNum) : facetMembershipsFromTags(address.tags),
+			facets: facetMembershipsForRecipe(recipe, row, rowNum, address.tags, options.facetsForRow),
 			layoutValues: values });
 	}
 	return runIdentityCuries({ rows: inputs, ...(enrichmentEnabled ? { enrichment: {

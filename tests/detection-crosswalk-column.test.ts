@@ -144,6 +144,7 @@ describe('crosswalk recognition data and atomization', () => {
 			'nist-csf-2-cprt-hierarchical',
 			'nist-csf-2-cprt',
 			'nist-csf-2-flat',
+			'nist-csf-2-linked',
 		]);
 	});
 

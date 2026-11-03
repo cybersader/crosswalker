@@ -1,3 +1,4 @@
+import { recipeChoiceLabel } from '../src/import/recipe-registry';
 /**
  * recipe-registry.test.ts — the recognized-source registry (spec §7m).
  *
@@ -477,4 +478,20 @@ describe('recipe-registry — real-world corpus confusion table (pinned regressi
 		// sheets); see the module doc comment in recipe-registry.ts.
 		expect(entry('mitre-attack-technique-flat').signatureColumns).toContain('platforms');
 	});
+});
+
+it('labels a previous default only when its successor is listed alongside it', () => {
+	const previous = entry('mitre-attack-technique-flat');
+	expect(previous.label).toBe('MITRE ATT&CK techniques');
+	expect(recipeChoiceLabel(previous, [previous.id])).toBe('MITRE ATT&CK techniques');
+	expect(recipeChoiceLabel(previous, [previous.id, previous.supersededBy!])).toBe(previous.label + ' (previous default)');
+	expect(recipeChoiceLabel({ label: 'Future recipe', supersededBy: 'not-shipped' }, RECIPE_REGISTRY.map((item) => item.id)))
+		.toBe('Future recipe');
+});
+
+it('removes the previous-default comparison label when its successor is absent from recognition results', () => {
+	const previous = { ...entry('mitre-attack-technique-flat'), id: 'custom-previous',
+		label: 'Saved recipe (previous default)', supersededBy: 'not-installed' };
+	const matches = findRecognizedRecipes(previous.signatureColumns, undefined, [previous]);
+	expect(recipeChoiceLabel(matches.find((match) => match.entry.id === previous.id)!.entry, matches.map((match) => match.entry.id))).toBe('Saved recipe');
 });

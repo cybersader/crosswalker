@@ -4,7 +4,7 @@ import type { MappingForm } from '../../generation/import-set-block';
 import { MAPPING_TABLE_HIDDEN_FROM } from '../mapping-form-copy';
 import type { Recipe } from '../../render';
 import {
-	MAPPING_PRESETS, RECIPE_REGISTRY, STACK_PRESETS,
+	MAPPING_PRESETS, RECIPE_REGISTRY, STACK_PRESETS, recipeChoiceLabel,
 	type MappingPreset, type RecipeRegistryEntry,
 } from '../recipe-registry';
 
@@ -16,6 +16,8 @@ export interface StackSelection {
 	connectorExcluded: boolean;
 	optionalMappings: readonly string[];
 	detail: 'max' | 'top-levels';
+	/** Saved slots keep their exact recipe; changed defaults apply only to new slots. */
+	recordedRecipes?: Readonly<Record<string, string>>;
 }
 
 export interface FrameworkSlot {
@@ -31,11 +33,12 @@ export type ChecklistRow =
 /** The registry remains the source of truth for labels and publisher links. */
 const NESTED_STACK_RECIPES: Readonly<Record<string, string>> = {
 	'cri-profile': 'cri-profile-v2-2-nested',
-	'nist-800-53': 'nist-800-53-r5-nested',
+	'nist-800-53': 'nist-800-53-linked',
+	'mitre-attack': 'mitre-attack-technique-linked',
 };
 
 const PREFERRED_RECIPES = [
-	'cri-profile-v2-2-flat', 'mitre-attack-technique-flat', 'nist-800-53-r5-flat',
+	'cri-profile-v2-2-flat', 'mitre-attack-technique-linked', 'nist-800-53-linked',
 	'nist-csf-2-cprt-hierarchical', 'cis-controls-v8-controls', 'scf-2026-flat',
 ];
 
@@ -63,12 +66,19 @@ export function frameworkSlots(
 	const chosen = new Set(selection.chosen);
 	const connector = chosen.has('cri-profile') && chosen.has('nist-800-53')
 		&& !chosen.has(CONNECTOR_ONTOLOGY) && !selection.connectorExcluded;
-	return entries.filter((entry) => chosen.has(entry.ontology) || (connector && entry.ontology === CONNECTOR_ONTOLOGY))
-		.map((entry) => ({
-			ontology: entry.ontology,
-			entry: registry.find((variant) => variant.id === NESTED_STACK_RECIPES[entry.ontology]) ?? entry,
-			role: chosen.has(entry.ontology) ? 'chosen' as const : 'connector' as const,
-		}));
+	const slots = entries.filter((entry) => chosen.has(entry.ontology) || (connector && entry.ontology === CONNECTOR_ONTOLOGY))
+		.map((entry) => {
+			const role = chosen.has(entry.ontology) ? 'chosen' as const : 'connector' as const;
+			// The connector still consumes the CPRT export, not the CSF reference workbook.
+			const recipeId = selection.recordedRecipes?.[entry.ontology]
+				?? (role === 'connector' ? 'nist-csf-2-cprt-hierarchical' : NESTED_STACK_RECIPES[entry.ontology]);
+			return { ontology: entry.ontology, role,
+				entry: registry.find((variant) => variant.id === recipeId && variant.ontology === entry.ontology
+					&& variant.routingKind === 'concept') ?? entry };
+		});
+	const listedIds = slots.map((slot) => slot.entry.id);
+	return slots.map((slot) => ({ ...slot, entry: { ...slot.entry,
+		label: recipeChoiceLabel(slot.entry, listedIds) } }));
 }
 
 /** Plain-language summary of what one slot creates at the selected detail. */

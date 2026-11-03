@@ -92,7 +92,7 @@ describe('recognition', () => {
 		expect(matchScore(entry('mitre-f3-technique-flat'), ATTACK_TECHNIQUES_COLUMNS)).toBeLessThan(
 			CONFIDENT_MATCH_THRESHOLD,
 		);
-		expect(bestRecognizedRecipe(ATTACK_TECHNIQUES_COLUMNS)?.entry.id).toBe('mitre-attack-technique-flat');
+		expect(bestRecognizedRecipe(ATTACK_TECHNIQUES_COLUMNS)?.entry.id).toBe('mitre-attack-technique-linked');
 	});
 
 	it('does not match the F3 Tactics sheet (a different shape)', () => {

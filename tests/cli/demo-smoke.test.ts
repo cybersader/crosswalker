@@ -83,8 +83,12 @@ describe('demo:build', () => {
 
 	it('builds every framework level as a note that links to its parent', () => {
 		for (const note of [
+			'Frameworks/NIST-CSF-2.0/PR/PR.md',
+			'Frameworks/NIST-CSF-2.0/PR/PR.AA/PR.AA.md',
 			'Frameworks/NIST-CSF-2.0/PR/PR.AA/PR.AA-01.md',
+			'Frameworks/NIST-SP-800-53-r5/AC/AC.md',
 			'Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2.md',
+			'Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2(1).md',
 		]) {
 			expect({ note, exists: fs.existsSync(path.join(out, note)) }).toEqual({ note, exists: true });
 		}
@@ -92,8 +96,20 @@ describe('demo:build', () => {
 		for (const [, file] of start.matchAll(/`((?:Frameworks|Queries)\/[^`]+\.(?:md|base))`/g)) {
 			expect({ file, exists: fs.existsSync(path.join(out, file)) }).toEqual({ file, exists: true });
 		}
+		for (const [file, parent, parentCurie] of [
+			['Frameworks/NIST-CSF-2.0/PR/PR.AA/PR.AA-01.md', 'PR.AA', 'nist-csf-2:PR.AA'],
+			['Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2.md', 'AC', 'nist-800-53:AC'],
+			['Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2(1).md', 'AC-2', 'nist-800-53:AC-2'],
+		]) {
+			const text = fs.readFileSync(path.join(out, file), 'utf8');
+			const note = yaml.load(text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)![1]) as Record<string, any>;
+			expect(note.parent).toBe(`[[${parent}]]`);
+			expect(note.parent_curie).toBe(parentCurie);
+			expect(note).not.toHaveProperty('tags');
+		}
 		const control = fs.readFileSync(path.join(out, 'Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2.md'), 'utf8');
-		expect(control).toMatch(/^parent: .*\[\[/m);
+		expect(control).toContain('## Related controls');
+		expect(control).toMatch(/- \[\[AC-\d/);
 	});
 
 	it('validates with cw validate', async () => {
@@ -181,6 +197,8 @@ describe('demo:build', () => {
 		expect(licenseMd.startsWith('# MITRE Fight Fraud Framework (F3) license\n')).toBe(true);
 		expect(licenseMd).toContain(`\n\`\`\`text\n${license.replace(/\n$/, '')}\n\`\`\`\n`);
 		expect(licenseMd).not.toMatch(/^---/);
+		// IDs follow the deterministic random stream and occupied-id collision retries,
+		// not recipe hashes. Linked recipes keep the import order and set count.
 		expect(result.stdout).toContain('csf=iset-a0f1e2, sp80053=iset-0f6ht0, attack=iset-xskeb8, csfTo80053=iset-7z4lxm, csfToAttack=iset-if5214, evidence=iset-g3sec8, f3=iset-xfkz1i, f3Tactics=iset-juu0p7');
 		const start = fs.readFileSync(path.join(out, 'Start here.md'), 'utf8');
 		expect(start).toContain('Frameworks/MITRE-F3/F1002.001.md');
@@ -190,11 +208,37 @@ describe('demo:build', () => {
 	it('imports full ATT&CK with resolved parents, separate mitigations and sparse D3FEND levels', () => {
 		const read = (folder: string) => fs.readdirSync(path.join(out, folder)).filter((name) => name.endsWith('.md') && name !== 'LICENSE.md')
 			.map((name) => yaml.load(fs.readFileSync(path.join(out, folder, name), 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)![1]) as Record<string, any>);
-		const techniques = read('Frameworks/MITRE-ATT&CK');
+		const attackNotes = read('Frameworks/MITRE-ATT&CK');
+		const techniques = attackNotes.filter((note) => note.technique_id);
+		const tacticHubs = attackNotes.filter((note) => note.kind === 'facet');
 		expect(techniques).toHaveLength(656);
 		expect(techniques.filter((note) => note.parent)).toHaveLength(453);
-		for (const note of techniques.filter((note) => note.parent)) {
-			expect(fs.existsSync(path.join(out, 'Frameworks/MITRE-ATT&CK', `${note.technique_id.split('.')[0]}.md`))).toBe(true);
+		for (const note of techniques) {
+			if (note.technique_id.includes('.')) {
+				const parent = note.technique_id.split('.')[0];
+				expect(note.parent).toBe(`[[${parent}]]`);
+				expect(note.parent_curie).toBe(`mitre-attack:${parent}`);
+				expect(fs.existsSync(path.join(out, 'Frameworks/MITRE-ATT&CK', `${parent}.md`))).toBe(true);
+				expect(techniques.find((candidate) => candidate.technique_id === parent)?.children).toContain(`[[${note.technique_id}]]`);
+			} else {
+				expect(note.parent).toBeUndefined();
+				expect(note.parent_curie).toBeUndefined();
+			}
+		}
+		const tacticNames = [...new Set<string>(techniques.flatMap((note) => note.tactics))];
+		expect(tacticHubs).toHaveLength(tacticNames.length);
+		expect(tacticHubs.length).toBeGreaterThan(0);
+		expect(attackNotes).toHaveLength(techniques.length + tacticHubs.length);
+		for (const tactic of tacticNames) {
+			const members = techniques.filter((note) => note.tactics.includes(tactic));
+			expect(members.length).toBeGreaterThan(1);
+			const hubPath = path.join(out, 'Frameworks/MITRE-ATT&CK', `${tactic}.md`);
+			expect(fs.existsSync(hubPath)).toBe(true);
+			const text = fs.readFileSync(hubPath, 'utf8');
+			const hub = yaml.load(text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)![1]) as Record<string, any>;
+			expect(hub.kind).toBe('facet');
+			expect(hub._crosswalker.import_set.id).toBe(techniques[0]._crosswalker.import_set.id);
+			expect([...hub.members].sort()).toEqual(members.map((note) => `[[${note.technique_id}]]`).sort());
 		}
 		const mitigations = read('Frameworks/MITRE-ATT&CK-Mitigations');
 		expect(mitigations).toHaveLength(44);

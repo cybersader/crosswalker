@@ -1,0 +1,69 @@
+{
+  "$comment": "Recommended linked variant of nist-csf-2-flat. Function and category folders have index notes and parent and children links. Hierarchy is not repeated as tags. Row identity and all managed fields and body sections match the previous default.",
+  "recipe": "nist-csf-2-linked",
+  "source": {
+    "ontology": "nist-csf-2",
+    "levels": [
+      "function",
+      "category",
+      "subcategory"
+    ],
+    "where": "Subcategory != ''"
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "function",
+        "mechanism": "folder",
+        "implied_concept": true,
+        "template": "{Subcategory|split(:,0)|split(.,0)}"
+      },
+      {
+        "level": "category",
+        "mechanism": "folder",
+        "implied_concept": true,
+        "template": "{Subcategory|split(:,0)|split(-,0)}"
+      },
+      {
+        "level": "subcategory",
+        "mechanism": "file",
+        "template": "{Subcategory|split(:,0)|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "frontmatter": {
+        "managed": {
+          "subcategory_id": "{Subcategory|split(:,0)}",
+          "function": "{Subcategory|split(:,0)|split(.,0)}",
+          "category": "{Subcategory|split(:,0)|split(-,0)}"
+        },
+        "user_preserve": [
+          "reviewer",
+          "status",
+          "notes"
+        ]
+      },
+      "body": [
+        {
+          "template": "{Subcategory|trim}",
+          "position": "section",
+          "heading": "Outcome",
+          "heading_depth": 2,
+          "format": "text"
+        },
+        {
+          "template": "{Implementation Examples|optional|trim}",
+          "position": "section",
+          "heading": "Implementation examples",
+          "heading_depth": 2,
+          "format": "list"
+        }
+      ]
+    },
+    "enrichment": {
+      "facet_source": "tag_template",
+      "children_lists": true,
+      "level_hubs": "notes"
+    }
+  }
+}

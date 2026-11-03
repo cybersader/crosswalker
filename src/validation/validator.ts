@@ -26,7 +26,7 @@ import addFormats from 'ajv-formats';
 import tier1Schema from '../../spec/tier1.schema.json';
 import recipeSchema from '../../spec/recipe.schema.json';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
-import { validateTemplateSyntax } from '../render/template';
+import { validateTagTemplateSyntax, validateTemplateSyntax } from '../render/template';
 
 const tier1CuriePattern = (tier1Schema as { $defs?: { curie?: { pattern?: unknown } } }).$defs?.curie?.pattern;
 if (typeof tier1CuriePattern !== 'string' || tier1CuriePattern.length === 0) {
@@ -181,6 +181,17 @@ export function validateRecipe(recipe: unknown, style: RecipeSchemaStyle = 'A'):
 	const validator = getRecipeValidator(style);
 	const valid = !!validator(recipe);
 	const result = formatResult(valid, validator.errors);
+	const tags = (recipe as { target?: { also_emit?: { tags?: unknown } } } | null)?.target?.also_emit?.tags;
+	if (Array.isArray(tags)) {
+		for (let i = 0; i < tags.length; i++) {
+			if (typeof tags[i] !== 'string') continue;
+			try { validateTagTemplateSyntax(tags[i]); }
+			catch (error) {
+				result.errors.push(`target.also_emit.tags.${i}: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
+	}
+	result.valid = result.errors.length === 0;
 	const layout = (recipe as { target?: { layout?: unknown } } | null)?.target?.layout;
 	if (!Array.isArray(layout)) return result;
 	for (let i = 0; i < layout.length; i++) {

@@ -1,8 +1,8 @@
 /**
  * import-set-recipes.ts — the exact recipe each import ran, kept per import set.
  *
- * Every import that runs a portable recipe writes that recipe's canonical bytes
- * (the same bytes the saved library writes, via `serializeCanonicalRecipe`) to
+ * Every import that runs a portable recipe writes that exact executed recipe
+ * (sorted keys only, without inserting normalized defaults) to
  *
  *   `_crosswalker/import-sets/<import set id>/recipe-<recipe document digest>.json`
  *
@@ -24,7 +24,7 @@
 import type { App } from 'obsidian';
 import type { CrosswalkerImportRecipe } from '../types/generated/recipe';
 import { validateRecipe } from '../validation/validator';
-import { serializeCanonicalRecipe } from './recipe-document';
+import { canonicalStringify } from '../generation/hash';
 import { recipeRunDigest } from './recipe-runs';
 
 /** Vault-relative folder holding one subfolder per import set. Created on first write. */
@@ -87,7 +87,10 @@ export async function keepImportSetRecipe(
 	if (!path) return { ok: true, outcome: 'skipped', reason: 'bad-key' };
 	let text: string;
 	try {
-		text = serializeCanonicalRecipe(recipe);
+		// The document digest normalizes defaults, but the historical target hash
+		// does not. Inserting defaults into the kept copy would change that hash
+		// on replay even though the recipe revision is unchanged.
+		text = `${JSON.stringify(JSON.parse(canonicalStringify(recipe)), null, 2)}\n`;
 	} catch (err) {
 		return { ok: false, path, error: err instanceof Error ? err.message : String(err) };
 	}

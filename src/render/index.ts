@@ -16,7 +16,7 @@
 
 import type { ConceptIdentity, Address, RenderReport, VariadicConfig, LayoutValue } from './types';
 import type { NestedRecordLevel } from '../types/generated/recipe';
-import { renderTemplate, renderTemplateValue, RenderError } from './template';
+import { renderTemplate, renderTagTemplate, renderTemplateValue, RenderError } from './template';
 import { renderBodyProjection, type BodyProjection } from './body';
 import { applyFolder, applyVariadicFolder } from './mechanisms/folder';
 import { applyFile } from './mechanisms/file';
@@ -146,6 +146,8 @@ export interface Recipe {
 
 /** The `target.enrichment` block (see spec/recipe.schema.json $defs/enrichment). */
 export interface RecipeEnrichment {
+	/** Omitted preserves caller-first facet membership; tag_template opts into canonical tag templates. */
+	facet_source?: 'tag_template' | 'caller';
 	parent_links?: boolean;
 	children_lists?: boolean;
 	facet_notes?: 'none' | 'tags-only' | 'notes';
@@ -325,9 +327,11 @@ export function render(
 	const alsoEmit = recipe.target.also_emit;
 	if (alsoEmit) {
 		if (alsoEmit.tags) {
+			const tags = new Set(address.tags);
 			for (const t of alsoEmit.tags) {
-				address.tags.push(renderTemplate(t, identity.scope, report));
+				for (const tag of renderTagTemplate(t, identity.scope, report)) tags.add(tag);
 			}
+			address.tags = [...tags];
 		}
 		if (alsoEmit.aliases) {
 			for (const a of alsoEmit.aliases) {

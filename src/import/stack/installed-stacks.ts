@@ -3,7 +3,7 @@ import { copyTextWithFallback } from '../../utils/clipboard';
 import { App, Modal, Notice, Setting } from 'obsidian';
 import type CrosswalkerPlugin from '../../main';
 import { discoverImportSets, recordCountOf, settleVaultIndex, type DiscoveredImportSet } from '../../generation/import-set';
-import { MAPPING_PRESETS, RECIPE_REGISTRY } from '../recipe-registry';
+import { MAPPING_PRESETS, RECIPE_REGISTRY, recipeChoiceLabel } from '../recipe-registry';
 import { MAPPING_TABLE_SUFFIX } from '../../mappings/mapping-table-reader';
 import { readMappingSet, type MappingSetRecord } from '../../mappings/mapping-set';
 import { StackSetupModal } from './stack-modal';
@@ -20,7 +20,8 @@ import {
 
 function fromSlotText(stack: StackDefinition, from: string): string {
 	const slot = stack.slots.find((item) => RECIPE_REGISTRY.find((entry) => entry.id === item.presetId)?.ontology === from);
-	const label = RECIPE_REGISTRY.find((entry) => entry.id === slot?.presetId)?.label ?? 'its framework';
+	const entry = RECIPE_REGISTRY.find((entry) => entry.id === slot?.presetId);
+	const label = entry ? recipeChoiceLabel(entry, stack.slots.map((item) => item.presetId)) : 'its framework';
 	return `Comes with ${label}. Not tracked separately.`;
 }
 
@@ -76,8 +77,11 @@ export function stackSubtitle(stack: StackDefinition, run: CrosswalkerPlugin['se
 export function stackSlotRows(stack: StackDefinition, run: CrosswalkerPlugin['settings']['stackRuns'][number] | undefined,
 	known: ReadonlyMap<string, DiscoveredImportSet>): Array<{ label: string; state: string; mappingSet?: DiscoveredImportSet }> {
 	return [
-		...stack.slots.map((slot) => ({ label: RECIPE_REGISTRY.find((entry) => entry.id === slot.presetId)?.label ?? slot.presetId,
-			state: installedStackRow(run?.slotSets[slot.presetId], known) })),
+		...stack.slots.map((slot) => {
+			const entry = RECIPE_REGISTRY.find((item) => item.id === slot.presetId);
+			return { label: entry ? recipeChoiceLabel(entry, stack.slots.map((item) => item.presetId)) : slot.presetId,
+				state: installedStackRow(run?.slotSets[slot.presetId], known) };
+		}),
 		...stack.mappings.map((slot) => {
 			const mapping = MAPPING_PRESETS.find((entry) => entry.id === slot.presetId);
 			const fact = slot.kind === 'from-slot' ? undefined : run?.mappingSets[mappingKey({ ...slot, id: slot.presetId })];
