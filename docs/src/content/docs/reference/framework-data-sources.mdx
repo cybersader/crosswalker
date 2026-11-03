@@ -8,7 +8,7 @@ tags: [frameworks, import-transforms, frameworks-nist, frameworks-mitre]
 
 Crosswalker ships recognized-source imports for the framework files below today. This page is the canonical technical reference for obtaining each source, choosing the matching [recipe](/crosswalker/concepts/terminology/#recipe), selecting the exact worksheet and header row, checking the real record count, and avoiding imports that look successful but are wrong.
 
-**Status last verified:** 2026-11-02 — the public demo now uses the linked defaults in `recipes/import/`; ATT&CK technique identities, dotted parents and tactic hub membership verified by `tests/demo-public-sources.test.ts` and a passing real-build `tests/cli/demo-smoke.test.ts`. This re-check covers the demo bindings only. Earlier, 2026-10-30: shared-namespace qualification and endpoint counts checked against `src/generation/import-set.ts`, the identity-planner regression tests and deterministic public demo builds. ATT&CK v16.1 and flat D3FEND source bindings checked against the held workbook/CSVs and demo recipes; crosswalk transformations checked against `tools/lib/demo-public-sources.ts` and `src/import/stack/mapping-readers.ts`. This is scoped verification, not a re-check of other source families. Earlier: the MITRE F3 binding, source bytes and demo links re-checked against the tracked v1.2 workbook, pinned upstream commit `281be11eed4670e763a2ed57dd2274948f54a523`, both demo-only recipes and a validated demo build (sources: `Frameworks/mitre-f3-source.json`, `tests/mitre-f3-demo-recipes.test.ts`, `tests/cli/demo-smoke.test.ts`); other rows unchanged since 2026-09-24, when stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
+**Status last verified:** 2026-11-03 — F3 and CPRT linked defaults checked against their previous recipe bytes, held-source CLI imports and regression tests: F3 retains 138 row identities with 8 tactic hubs, 55 parent links and 191 memberships; CPRT retains 679 concept identities with 17 folder index hubs. The public demo build validates all generated notes. These checks cover the F3 and CPRT bindings only. Earlier, 2026-11-02: the public demo now uses the linked defaults in `recipes/import/`; ATT&CK technique identities, dotted parents and tactic hub membership verified by `tests/demo-public-sources.test.ts` and a passing real-build `tests/cli/demo-smoke.test.ts`. This re-check covers the demo bindings only. Earlier, 2026-10-30: shared-namespace qualification and endpoint counts checked against `src/generation/import-set.ts`, the identity-planner regression tests and deterministic public demo builds. ATT&CK v16.1 and flat D3FEND source bindings checked against the held workbook/CSVs and demo recipes; crosswalk transformations checked against `tools/lib/demo-public-sources.ts` and `src/import/stack/mapping-readers.ts`. This is scoped verification, not a re-check of other source families. Earlier: the MITRE F3 binding, source bytes and demo links re-checked against the tracked v1.2 workbook, pinned upstream commit `281be11eed4670e763a2ed57dd2274948f54a523`, both demo-only recipes and a validated demo build (sources: `Frameworks/mitre-f3-source.json`, `tests/mitre-f3-demo-recipes.test.ts`, `tests/cli/demo-smoke.test.ts`); other rows unchanged since 2026-09-24, when stack mapping sources verified against a local real-file stack run (`tests/e2e/local-real-stack.spec.ts`); nested stack recipe IDs and layouts verified against `recipes/import/nist-800-53-nested.json` and `recipes/import/cri-profile-v2-2-nested.json`; historic source row counts retain their earlier verification.
 
 The bundled recipes live in the [Crosswalker plugin repository](https://github.com/cybersader/crosswalker/tree/main/recipes/import). Community recipes and contribution guidance live in [crosswalker-recipes](https://github.com/cybersader/crosswalker-recipes). Framework content is not bundled in the plugin release: obtain each source from its publisher and confirm that the publisher's terms fit your use. Selected redistributable sources, including F3, are tracked separately in the [repository corpus](/crosswalker/reference/framework-corpus/#tracked-f3-source-files) for offline demo builds.
 
@@ -29,10 +29,10 @@ The bundled recipes live in the [Crosswalker plugin repository](https://github.c
 |---|---|---|---:|---:|---|
 | NIST SP 800-53 Rev. 5 | CSV lineage | CSV header | 0 | **1,189 records** | `nist-800-53-flat` |
 | NIST CSF 2.0 | Core workbook | `CSF 2.0` | **1** | 231 total: **185 subcategory rows** + 46 banner rows | `nist-csf-2-flat` |
-| NIST CSF 2.0 | CPRT JSON | element collection | n/a | **906 total: 679 concept elements** + 227 non-concept (excluded by the recipe) | `nist-csf-2-cprt`, `nist-csf-2-cprt-hierarchical` |
+| NIST CSF 2.0 | CPRT JSON | element collection | n/a | **906 total: 679 concept elements** + 227 non-concept (excluded by the recipe) | `nist-csf-2-cprt-linked` (default), `nist-csf-2-cprt-hierarchical` (previous default), `nist-csf-2-cprt` |
 | NIST CSF 2.0 withdrawal lineage | Derived edge list (`recipes/import/crosswalks/nist-csf-2-withdrawal-lineage.csv`) | CSV header | 0 | 279 total: **127 successor references** + 152 pass-through rows | `nist-csf-2-withdrawal-lineage` |
 | MITRE ATT&CK Enterprise | Excel export | `techniques` | 0 | **656** | `mitre-attack-technique-flat` |
-| MITRE Fight Fraud Framework (F3) | Excel export (`f3-excel-v1.2.xlsx`) | `Techniques` | 0 | **138** | `mitre-f3-technique-flat` |
+| MITRE Fight Fraud Framework (F3) | Excel export (`f3-excel-v1.2.xlsx`) | `Techniques` | 0 | **138** | `mitre-f3-technique-linked` (default), `mitre-f3-technique-flat` (previous default) |
 | CIS Controls v8.1.2 | Controls workbook | `Controls v8.1.2` | 0 | **171**: 153 safeguards + 18 controls | `cis-controls-v8-flat`, `cis-controls-v8-controls` |
 | CRI Profile v2.2 | Profile workbook | `CRI Profile v2.2 Structure` | **2** | **472**: F 7 / C 28 / S 119 / DS 318 | `cri-profile-v2-2-flat` |
 | Secure Controls Framework 2026.1 | SCF workbook | `SCF 2026.1` | 0 | **1,468 × 369 columns** | `scf-2026-flat` |
@@ -263,7 +263,8 @@ Pattern: /^([A-Za-z]+)-0?(\d+)/
 |---|---|---|
 | `nist-csf-2-flat` | Core workbook, sheet `CSF 2.0` | One note per subcategory |
 | `nist-csf-2-cprt` | CPRT JSON | Flat element notes |
-| `nist-csf-2-cprt-hierarchical` | CPRT JSON | Function/category hierarchy |
+| `nist-csf-2-cprt-linked` (default) | CPRT JSON | Function and category folders, an index note per folder, and children lists |
+| `nist-csf-2-cprt-hierarchical` (previous default) | CPRT JSON | Function/category hierarchy |
 | `nist-csf-2-withdrawal-lineage` | Derived edge list from the core workbook | One `superseded_by` crosswalk edge per replacement of a withdrawn subcategory |
 
 ### Exact workbook binding and result
@@ -288,6 +289,8 @@ Identifier pattern: `[A-Z]{2}\.[A-Z]{2}-\d{2}`, for example `GV.OC-01`.
 - **Merged-cell hierarchy columns are empty on subcategory rows.** The bundled flat recipe derives function and category from the subcategory identifier rather than trusting those cells.
 - **Outcome text repeats the identifier.** The bundled flat recipe projects the cell verbatim, prefix included. That is now a deliberate choice rather than a grammar limit: `{Subcategory|regex(:\s*(.+)$)}` recovers everything after the first colon on all 185 rows, but changing the shipped recipe would move its hash and rewrite every already-generated note.
 - **Informative References is intentionally omitted.** It contains newline-separated mappings whose labels and identifiers need per-item cleanup before they can become reliable links.
+
+**Known limits:** CPRT withdrawal (`WR-*`) folders appear as top-level entries, and hosted CPRT notes list implementation examples next to subcategories. The preserved CPRT layout does not create parent properties; its navigation uses folders, an index note per folder, and children lists.
 
 ### Withdrawal lineage
 
@@ -372,7 +375,7 @@ Get the pinned workbook through [MITRE's release spreadsheets](https://attack.mi
 
 **Tracked source:** [`Frameworks/f3-excel-v1.2.xlsx`](https://github.com/cybersader/crosswalker/blob/main/Frameworks/f3-excel-v1.2.xlsx), downloaded 2026-10-29 from upstream commit [`281be11eed4670e763a2ed57dd2274948f54a523`](https://github.com/center-for-threat-informed-defense/fight-fraud-framework/commit/281be11eed4670e763a2ed57dd2274948f54a523). The [source record](https://github.com/cybersader/crosswalker/blob/main/Frameworks/mitre-f3-source.json) pins file digests and counts; the [carried Apache licence](https://github.com/cybersader/crosswalker/blob/main/Frameworks/LICENSES/mitre-f3-LICENSE.txt) permits redistribution with attribution. See the [corpus inventory](/crosswalker/reference/framework-corpus/#tracked-f3-source-files).
 
-**Bundled recipe:** `mitre-f3-technique-flat`, which produces one note per technique or sub-technique.
+**Recommended recipe:** `mitre-f3-technique-linked`, which produces one note per technique or sub-technique, links sub-techniques to their parent, and adds a hub note per tactic listing its techniques. `mitre-f3-technique-flat` remains available as the previous default for existing imports and replay.
 
 ### Published formats
 
@@ -393,13 +396,15 @@ Get the pinned workbook through [MITRE's release spreadsheets](https://attack.mi
 | Columns | 7: Technique ID; Technique; Description; Tactic ID; Tactic Name; Added Date; Modified Date |
 | Second sheet | `Tactics` (Tactic ID; Tactic Name; Tactic Description). It is a different shape and is not matched by the technique recipe |
 
-The recipe emits `tactic_ids` and `tactics` as lists, keeps the description in the note body, and carries MITRE's notice and the Apache licence link into every generated note.
+The previous flat recipe, `mitre-f3-technique-flat` (`recipes/import/mitre-f3-technique.json`), emits `tactic_ids` and `tactics` as lists, keeps the description in the note body, and carries MITRE's notice and the Apache licence link into every generated note.
 
-### Demo-only linked import
+### Shipped linked default
 
-`demo:build` imports the full workbook after the established demo sets with `tools/fixtures/demo/recipes/mitre-f3-demo-linked.json` (`Techniques`) and `mitre-f3-demo-tactics.json` (`Tactics`). This adds technique-to-tactic wikilinks, conditional sub-technique `parent` / `parent_curie` properties, and managed children lists on parent techniques. It produces **138 technique notes + 8 tactic notes, 55 resolved parent links and 191 resolved tactic memberships** (source: the tracked workbook and `tests/cli/demo-smoke.test.ts`). Multi-tactic membership makes this a connected hierarchy, not a strict single-parent tree.
+`demo:build` imports the full `Techniques` sheet with the shipped `recipes/import/mitre-f3-technique-linked.json` recipe. The former demo-only linked and Tactics-sheet recipes are retired: facet hubs replace the separate tactic concepts, so all F3 navigation belongs to one import set. It produces **138 technique notes + 8 tactic hub notes, 55 resolved parent links and 191 tactic memberships** (sources: the pinned workbook, `tests/mitre-f3-demo-recipes.test.ts` and `tests/cli/demo-smoke.test.ts`). Each hub lists its members in identity order; multi-tactic membership makes this a connected graph, not a strict single-parent tree.
 
-No filter is missing: the existing `regex(^([^.]+)[.]|$)` captures the id before a dot, or matches the empty end of a top-level id; `wikilink` and `curie-prefix(mitre-f3)` omit that empty result. The normal bundled recipe and registry are deliberately unchanged, so existing recipe digests stay valid. Tactic descriptions now have real notes in the demo; ordinary recognized import still reads only `Techniques`. Both imports keep `mitre-f3` as their ontology; the second set uses the existing set-qualified identity scheme. The [2026-10-29 follow-up log](/crosswalker/agent-context/zz-log/2026-10-29-f3-real-data-in-demo/) records what this closes from the original F3 delivery and what remains open.
+The shipped default `mitre-f3-technique-linked` is used by recognized imports and `demo:build`. Its dotted-id parent templates omit the empty result for top-level techniques. The previous flat recipe remains byte-identical for existing imports and replay. Tactic hubs list techniques; they do not import the separate Tactics sheet or its tactic descriptions. The [2026-10-29 follow-up log](/crosswalker/agent-context/zz-log/2026-10-29-f3-real-data-in-demo/) records the earlier demo-specific implementation, now superseded by this shipped recipe.
+
+**Known limits:** F3 and ATT&CK tactic hub names can coincide in one vault. Navigation disambiguates duplicate basenames within one import, not across separate imports.
 
 ### Identifier scheme and the ATT&CK overlap
 

@@ -168,7 +168,7 @@ function legacyStack() {
 	const previous: Record<string, string> = {
 		'mitre-attack-technique-linked': 'mitre-attack-technique-flat',
 		'nist-800-53-linked': 'nist-800-53-r5-nested',
-		'nist-csf-2-linked': 'nist-csf-2-cprt-hierarchical',
+		'nist-csf-2-cprt-linked': 'nist-csf-2-cprt-hierarchical',
 	};
 	return { ...current, slots: current.slots.map((slot) => ({ ...slot, presetId: previous[slot.presetId] ?? slot.presetId })) };
 }

@@ -14,7 +14,7 @@ import Ajv2020 from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 
 import presetSchema from '../spec/preset.schema.json';
-import csfRecipe from '../recipes/import/nist-csf-2-cprt-hierarchical.json';
+import csfRecipe from '../recipes/import/nist-csf-2-cprt-linked.json';
 import mitreRecipe from '../recipes/import/mitre-attack-technique.json';
 import cisRecipe from '../recipes/import/cis-controls-v8-controls.json';
 
@@ -1099,7 +1099,7 @@ function assertReSerializesEquivalent(recipe: { target: RecipeRegions }): void {
 }
 
 describe('corpus — real recipes reconstruct + re-serialize equivalently', () => {
-	it('nist-csf-2-cprt-hierarchical (folder / folder / file + merged managed properties)', () => {
+	it('nist-csf-2-cprt-linked (folder / folder / file + merged managed properties)', () => {
 		const mapping = fromRecipe(csfRecipe as unknown as { target: RecipeRegions });
 		// Structural mapping present with three layout-derived levels.
 		const structural = mapping.mappings[0];

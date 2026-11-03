@@ -8,7 +8,7 @@
  */
 
 import { recognizedDestination, resolveDestinationDefault, honestEnrichment, shouldAutoApplyRecognizedMatch } from '../src/import/import-wizard';
-import { RECIPE_REGISTRY, type RecipeRegistryEntry } from '../src/import/recipe-registry';
+import { RECIPE_REGISTRY, libraryRegistryEntry, summarizeRecipeShapes, type RecipeRegistryEntry } from '../src/import/recipe-registry';
 
 function entry(id: string): RecipeRegistryEntry {
 	const e = RECIPE_REGISTRY.find((r) => r.id === id);
@@ -130,6 +130,51 @@ describe('honestEnrichment (spec §7m curated defaults — honest handling)', ()
 		expect(honestEnrichment(fakeEntry({ childrenLists: true, hasParentLink: true }))).toEqual({
 			children_lists: true,
 		});
+	});
+
+	it.each(['mitre-f3-technique-linked', 'nist-csf-2-cprt-linked'])('preserves live enrichment for a saved library copy of %s', (id) => {
+		const builtIn = entry(id);
+		const recipe = JSON.parse(JSON.stringify(builtIn.recipe)) as typeof builtIn.recipe;
+		recipe.recipe = 'team-copy';
+		recipe.metadata = { ...recipe.metadata, based_on: {
+			recipe: id, hash: 'test-hash', spec_version: recipe.spec_version ?? 'https://crosswalker.dev/spec/recipe.schema.json',
+		} };
+		const saved = libraryRegistryEntry(recipe);
+		expect(saved.origin).toBe('user');
+		expect(honestEnrichment(saved)).toEqual(builtIn.recipe.target.enrichment);
+	});
+
+	it('keeps the pre-slice effective enrichment for every previously shipped registry entry', () => {
+		for (const e of RECIPE_REGISTRY.filter((item) => !['mitre-f3-technique-linked', 'nist-csf-2-cprt-linked'].includes(item.id))) {
+			const shapes = summarizeRecipeShapes(e);
+			const implied = e.recipe.target.layout.some((level) => level.mechanism === 'folder' && level.implied_concept);
+			const children = e.recommendedEnrichment.childrenLists && (shapes.includes('links') || implied);
+			const hubs = e.recommendedEnrichment.levelHubs && e.recipe.target.enrichment?.level_hubs === 'notes';
+			const facets = e.recommendedEnrichment.facetNotes === 'notes' && shapes.includes('tags');
+			const previous = !children && !hubs && !facets ? undefined : {
+				...(e.recipe.target.enrichment?.facet_source ? { facet_source: e.recipe.target.enrichment.facet_source } : {}),
+				...(children ? { children_lists: true } : {}),
+				...(hubs ? { level_hubs: 'notes' } : {}),
+				...(facets ? { facet_notes: 'notes' } : {}),
+			};
+			expect({ id: e.id, enrichment: honestEnrichment(e) }).toEqual({ id: e.id, enrichment: previous });
+		}
+	});
+
+	it('gates folder-only children lists on declared folder index notes', () => {
+		const previous = entry('nist-csf-2-cprt-hierarchical');
+		const hinted = { ...previous, recommendedEnrichment: {
+			...previous.recommendedEnrichment, childrenLists: true, levelHubs: true,
+		} };
+		expect(honestEnrichment(hinted)).toBeUndefined();
+		const withHubs = { ...hinted, recipe: { ...hinted.recipe, target: {
+			...hinted.recipe.target, enrichment: { children_lists: true, level_hubs: 'notes' as const },
+		} } };
+		expect(honestEnrichment(withHubs)).toEqual({ children_lists: true, level_hubs: 'notes' });
+		const withoutFolders = { ...withHubs, recipe: { ...withHubs.recipe, target: {
+			...withHubs.recipe.target, layout: withHubs.recipe.target.layout.filter((level) => level.mechanism === 'file'),
+		} } };
+		expect(honestEnrichment(withoutFolders)).toEqual({ level_hubs: 'notes' });
 	});
 
 	it('turns facet_notes "notes" on only when the recipe already emits a tag destination', () => {

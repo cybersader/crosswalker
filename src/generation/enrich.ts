@@ -59,14 +59,10 @@
  *                   entries + level-hub child-link entries (relocations are
  *                   not edges — they don't count).
  *
- * Links are basename-only in this codebase (`[[T1055]]`, never a full-path
- * form — `Address.wikilinkTarget`'s full-path form isn't consumed by anything
- * downstream yet, Pass-2 link minimizer territory per render()'s docstring).
- * That means relocation never needs to rewrite link TEXT anywhere — Obsidian
- * resolves `[[T1055]]` to `T1055/T1055.md` exactly as it resolved `T1055.md`,
- * as long as the basename stays unique. Relocation only ever needs to (a) move
- * the file and (b) make sure every consumer of that note's PATH (the children-
- * list write, generation-engine's re-import lookup) uses the new one.
+ * Generated navigation retains basename-only links when the final import's
+ * basenames are unique. Colliding targets (including synthetic hubs) use their
+ * full vault path with the existing display label as an alias. Link targets
+ * follow post-relocation paths; shortening happens only after all hubs exist.
  *
  * Determinism is a hard constraint: every derived list is sorted by curie,
  * relocations are processed in sorted-curie order, hubs are sorted by path, and
@@ -580,7 +576,7 @@ export function enrich(notes: EnrichNote[], opts: EnrichOptions): EnrichmentResu
 			const parent = byCurie.get(parentCurie);
 			if (!parent) continue;
 			const sorted = [...kids].sort((a, b) => cmp(a.curie, b.curie));
-			const links = sorted.map((k) => `[[${basename(k.path)}]]`);
+			const links = sorted.map((k) => navigationLink(finalPath(k), basename(k.path)));
 			result.childrenByPath.set(finalPath(parent), links);
 			result.edgeCount += links.length;
 		}
@@ -610,7 +606,7 @@ export function enrich(notes: EnrichNote[], opts: EnrichOptions): EnrichmentResu
 		for (const g of groups.values()) {
 			if (g.members.length < HUB_MIN_MEMBERS) continue;
 			const sorted = [...g.members].sort((a, b) => cmp(a.curie, b.curie));
-			const members = sorted.map((m) => `[[${basename(m.path)}]]`);
+			const members = sorted.map((m) => navigationLink(finalPath(m), basename(m.path)));
 			const hubPath = (folder ? `${folder}/` : '') + `${fsSafe(g.value)}.md`;
 			const hub: HubNote = {
 				path: hubPath,
@@ -639,7 +635,39 @@ export function enrich(notes: EnrichNote[], opts: EnrichOptions): EnrichmentResu
 		opts.ownedHubsByFolder, opts.observedHubs, result,
 	);
 
+	shortenNavigationLinks(notes.map(finalPath), opts.rootFolder, result);
 	return result;
+}
+
+/** Keep the exact target until every synthetic note's basename is known. */
+function navigationLink(path: string, label: string): string {
+	return `[[${path.replace(/\.md$/, '')}|${label}]]`;
+}
+
+/** Finalize only enrichment-owned navigation; unique names retain prior bytes. */
+function shortenNavigationLinks(paths: string[], rootFolder: string | undefined, result: EnrichmentResult): void {
+	const allPaths = new Set([
+		...paths,
+		...result.hubs.map((hub) => [stripSlashes(rootFolder ?? ''), hub.path].filter(Boolean).join('/')),
+		...result.impliedConcepts.map((hub) => hub.path),
+		...result.levelHubs.notes.map((hub) => hub.path),
+	]);
+	const counts = new Map<string, number>();
+	for (const path of allPaths) counts.set(basename(path), (counts.get(basename(path)) ?? 0) + 1);
+	const shorten = (text: string): string => text.replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g,
+		(link, target: string, label: string) => (counts.get(basename(target)) ?? 0) < 2 ? `[[${label}]]` : link);
+	for (const map of [result.childrenByPath, result.levelHubs.hostedChildrenByPath]) {
+		for (const [path, links] of map) map.set(path, links.map(shorten));
+	}
+	for (const hub of [...result.hubs, ...result.impliedConcepts, ...result.levelHubs.notes]) {
+		for (const key of ['children', 'members']) {
+			const links = hub.frontmatter[key];
+			if (Array.isArray(links)) hub.frontmatter[key] = links.map((link: string) => shorten(link));
+		}
+		if (hub.childrenLinks) hub.childrenLinks = hub.childrenLinks.map(shorten);
+		if (hub.facetLinks) hub.facetLinks = hub.facetLinks.map(shorten);
+		hub.body = shorten(hub.body);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1694,7 +1722,9 @@ function computeLevelHubs(
 	// `result.edgeCount`: step 4 already counted each hub's own MEMBER edges
 	// when it built `result.hubs`; this is a display grouping on the root
 	// note, not a new graph relationship being introduced.
-	const rootFacetLinks = result.hubs.map((h) => `[[${basename(h.path)}]]`);
+	const rootFacetLinks = result.hubs.map((h) => navigationLink(
+		[stripSlashes(rootFolder ?? ''), h.path].filter(Boolean).join('/'), basename(h.path),
+	));
 
 	// Pass B: direct children (sorted by curie), materialize.
 	const sortedFolders = [...folders].sort(cmp);
@@ -1728,7 +1758,7 @@ function computeLevelHubs(
 		// AM-50. Unreachable behind the refusal above; the belt is here so a folder
 		// this run cannot name can never be written under a name taken from its path.
 		if (!id) continue;
-		const childRefs: { curie: string; label: string }[] = [];
+		const childRefs: { curie: string; label: string; path: string }[] = [];
 		// The parent identity comes from the same folder decision that emits its
 		// concept note. A folder's address supplies placement, never a CURIE.
 		const attachParent = (path: string, childCurie: string, parent: FolderIdentity): void => {
@@ -1737,7 +1767,7 @@ function computeLevelHubs(
 			result.parentByPath.set(path, { curie: parent.curie, label: parent.label });
 		};
 		for (const e of filesOf.get(f) ?? []) {
-			childRefs.push({ curie: e.note.curie, label: basename(e.path) });
+			childRefs.push({ curie: e.note.curie, label: basename(e.path), path: e.path });
 			attachParent(e.path, e.note.curie, id);
 		}
 		for (const g of subfoldersOf.get(f) ?? []) {
@@ -1748,11 +1778,11 @@ function computeLevelHubs(
 			if (refusalFor(g)) continue;
 			const gid = identityOf(g);
 			if (!gid) continue;
-			childRefs.push({ curie: gid.curie, label: gid.label });
+			childRefs.push({ curie: gid.curie, label: gid.label, path: gid.hostedPath ?? joinMd(g, gid.label) });
 			if (gid.hostedPath) attachParent(gid.hostedPath, gid.curie, id);
 		}
 		childRefs.sort((a, b) => cmp(a.curie, b.curie));
-		const links = childRefs.map((c) => `[[${c.label}]]`);
+		const links = childRefs.map((c) => navigationLink(c.path, c.label));
 		result.edgeCount += links.length;
 		const isRoot = rootIsTrackedAncestor && f === root;
 		const facetGroup = isRoot && rootFacetLinks.length > 0 ? [{ label: 'Facets', links: rootFacetLinks }] : [];
@@ -1869,7 +1899,7 @@ function computeLevelHubs(
 	// by the uniform per-folder pass, so this never double-creates a root hub.
 	if (config.level_hubs === 'notes' && root !== undefined && root !== '' && !folders.has(root)) {
 		const label = basename(root);
-		const childRefs: { curie: string; label: string }[] = [];
+		const childRefs: { curie: string; label: string; path: string }[] = [];
 		// Top-level folders first, so their (possibly hosted) labels are known
 		// before filtering top-level files — a folder's HOST note (e.g. sibling
 		// `T1078.md` beside top-level `T1078/`) must be represented ONCE, via
@@ -1881,17 +1911,20 @@ function computeLevelHubs(
 		// folder the run declined to name.
 		const topFolders = sortedFolders
 			.filter((f) => !folders.has(dirOf(f)) && !refusalFor(f))
-			.map((f) => identityOf(f))
-			.filter((id): id is FolderIdentity => id !== null);
+			.map((f) => {
+				const id = identityOf(f);
+				return id ? { ...id, path: id.hostedPath ?? joinMd(f, id.label) } : null;
+			})
+			.filter((id): id is FolderIdentity & { path: string } => id !== null);
 		const topFolderLabels = new Set(topFolders.map((id) => id.label));
 		for (const id of topFolders) {
-			childRefs.push({ curie: id.curie, label: id.label });
+			childRefs.push({ curie: id.curie, label: id.label, path: id.path });
 		}
 		for (const e of entries) {
 			if (dirOf(e.path) !== '') continue;
 			const lbl = basename(e.path);
 			if (topFolderLabels.has(lbl)) continue; // already represented via its folder's identity above
-			childRefs.push({ curie: e.note.curie, label: lbl });
+			childRefs.push({ curie: e.note.curie, label: lbl, path: e.path });
 		}
 		/**
 		 * S9 (2026-09-04). WHICH NOTE HOSTS THE ROOT, decided by PLACEMENT - the same
@@ -1929,7 +1962,7 @@ function computeLevelHubs(
 			);
 		} else if (childRefs.length > 0) {
 			childRefs.sort((a, b) => cmp(a.curie, b.curie));
-			const links = childRefs.map((c) => `[[${c.label}]]`);
+			const links = childRefs.map((c) => navigationLink(c.path, c.label));
 			result.edgeCount += links.length;
 			const facetGroup = rootFacetLinks.length > 0 ? [{ label: 'Facets', links: rootFacetLinks }] : [];
 			const host = rootHostCandidates[0]?.note;

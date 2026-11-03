@@ -168,7 +168,7 @@ separate columns. A CSF subcategory id like `DE.AE-02` decomposes into
 `DE` (function) → `DE.AE` (category) → `DE.AE-02` (subcategory), and the recipe
 turns that into a folder tree.*
 
-The recipe `recipes/import/nist-csf-2-cprt-hierarchical.json` uses the engine's
+The recipe `recipes/import/nist-csf-2-cprt-linked.json` uses the engine's
 template filters on the **single id field**:
 
 ```
@@ -180,7 +180,7 @@ subcategory file = {element_identifier}.md          → DE.AE-02.md
 Regenerate + open it:
 
 ```bash
-bun tools/generate-fixtures.ts   --source "Frameworks/cprt_CSF_2_0_0_06-01-2026.json"   --iterator '$.response.elements.elements[*]' --where 'element_type=subcategory'   --recipe recipes/import/nist-csf-2-cprt-hierarchical.json --id '{element_identifier}'   --target "test-vault/Frameworks/_demo/NIST-CSF-2-tree" --clean
+bun tools/generate-fixtures.ts   --source "Frameworks/cprt_CSF_2_0_0_06-01-2026.json"   --iterator '$.response.elements.elements[*]' --where 'element_type=subcategory'   --recipe recipes/import/nist-csf-2-cprt-linked.json --id '{element_identifier}'   --target "test-vault/Frameworks/_demo/NIST-CSF-2-tree" --clean
 ```
 
 - [ ] Open `Frameworks/_demo/NIST-CSF-2-tree/` in Obsidian → **6 function folders → 34 category folders → 185 subcategory notes**, e.g. `DE/DE.AE/DE.AE-02.md`

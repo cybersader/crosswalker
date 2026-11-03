@@ -52,7 +52,7 @@ describe('recipe-registry — loading + signatures', () => {
 	});
 
 	it('marks structural (folder/file) columns as required for the nested CPRT recipe', () => {
-		const e = entry('nist-csf-2-cprt-hierarchical');
+		const e = entry('nist-csf-2-cprt-linked');
 		expect(e.requiredColumns).toContain('element_identifier');
 	});
 
@@ -130,7 +130,7 @@ describe('recipe-registry — ranking + confident match', () => {
 		// put the nested (folder-producing) recipe first.
 		const cols = ['element_identifier', 'title', 'element_type', 'text'];
 		const ranked = findRecognizedRecipes(cols);
-		expect(ranked[0].entry.id).toBe('nist-csf-2-cprt-hierarchical');
+		expect(ranked[0].entry.id).toBe('nist-csf-2-cprt-linked');
 	});
 
 	it('returns null for an unrelated source', () => {
@@ -148,7 +148,7 @@ describe('recipe-registry — ranking + confident match', () => {
 
 describe('recipe-registry — recipe → mapping + shapes', () => {
 	it('reconstructs a workbench mapping via fromRecipe (round-trip fast path)', () => {
-		const mapping = recipeMapping(entry('nist-csf-2-cprt-hierarchical'));
+		const mapping = recipeMapping(entry('nist-csf-2-cprt-linked'));
 		expect(mapping.mappings.length).toBeGreaterThan(0);
 		// The nested recipe carries folder structure — at least one structural level.
 		const anyFolder = mapping.mappings.some((m) =>
@@ -158,7 +158,7 @@ describe('recipe-registry — recipe → mapping + shapes', () => {
 	});
 
 	it('summarizes the vault shapes a recipe produces', () => {
-		expect(summarizeRecipeShapes(entry('nist-csf-2-cprt-hierarchical'))).toEqual(
+		expect(summarizeRecipeShapes(entry('nist-csf-2-cprt-linked'))).toEqual(
 			expect.arrayContaining(['folders', 'properties']),
 		);
 		// A flat recipe produces properties but no folders.
@@ -174,7 +174,7 @@ describe('recipe-registry — routing kind (crosswalk vs concept)', () => {
 	});
 
 	it('routes ordinary concept recipes as "concept"', () => {
-		expect(entry('nist-csf-2-cprt-hierarchical').routingKind).toBe('concept');
+		expect(entry('nist-csf-2-cprt-linked').routingKind).toBe('concept');
 		expect(entry('cis-controls-v8-controls').routingKind).toBe('concept');
 		expect(entry('mitre-attack-technique-flat').routingKind).toBe('concept');
 	});

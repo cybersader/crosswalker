@@ -62,8 +62,8 @@ const MAPPINGS = [
 
 const EVIDENCE_LINKS = 'tools/fixtures/demo/evidence-links.csv';
 
-/** Both F3 sheets follow the established demo sets, so the set ids above never shift. */
-const F3 = { key: 'f3', label: 'MITRE Fight Fraud Framework (F3)', source: 'Frameworks/f3-excel-v1.2.xlsx', recipe: `${DEMO_RECIPES}/mitre-f3-demo-linked.json`, destination: 'Frameworks/MITRE-F3', levels: 'the full v1.2 catalog, with one note per tactic and technique, links to tactics, and parent links on sub-techniques' };
+/** F3 follows the established demo sets, so the set ids above never shift. */
+const F3 = { key: 'f3', label: 'MITRE Fight Fraud Framework (F3)', source: 'Frameworks/f3-excel-v1.2.xlsx', recipe: 'recipes/import/mitre-f3-technique-linked.json', destination: 'Frameworks/MITRE-F3', levels: 'the full v1.2 technique catalog, parent links on sub-techniques, and a hub note per tactic listing its techniques' };
 
 /** Synthetic evidence documents. Names match the objects in EVIDENCE_LINKS. */
 const EVIDENCE_DOCUMENTS = {
@@ -220,7 +220,7 @@ function startHere(frameworks, mappings) {
 		'2. Open `Frameworks/NIST-CSF-2.0/PR/PR.AA/PR.AA-01.md` and look at its backlinks. Each one is a link note to a SP 800-53 control or a MITRE technique, and both ends open a real note. Its `parent` property opens the PR.AA category.',
 		'3. Open `Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2.md`. Its properties come straight from the NIST catalog spreadsheet, and its enhancements sit next to it in the same folder.',
 		'4. Open `Queries/Approved evidence by control.base`. Three evidence links are approved; two are still waiting for review.',
-		'5. Open `Frameworks/MITRE-F3/F1002.001.md`. Its `parent` opens `F1002`, and its `tactic_notes` open the real tactics from the same workbook.',
+		'5. Open `Frameworks/MITRE-F3/F1002.001.md`. Its `parent` opens `F1002`. Open a tactic hub, such as `Positioning`, to see its techniques.',
 		'6. Open an evidence link in `Evidence/Junctions` and set `status` to `approved`. The query picks it up. Importing the evidence spreadsheet again keeps your review fields.',
 		'',
 		'## Graph colors',
@@ -420,7 +420,6 @@ function main() {
 
 	const f3Source = checkSource(F3.source, sourcesDir);
 	sets[F3.key] = step(out, F3.label, ['import', '--source', f3Source, '--recipe', F3.recipe, '--sheet', 'Techniques', '--destination', F3.destination, '--deterministic']);
-	sets.f3Tactics = step(out, 'F3 tactics', ['import', '--source', f3Source, '--recipe', `${DEMO_RECIPES}/mitre-f3-demo-tactics.json`, '--sheet', 'Tactics', '--destination', F3.destination, '--deterministic']);
 	frameworks.push(F3);
 
 	// The Apache licence travels with the openly licensed F3 source and output.

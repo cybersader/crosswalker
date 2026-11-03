@@ -96,6 +96,7 @@ import { interpolationColumn, parseTemplateSegments } from '../render/template';
 import type { ImportMapping } from './mapping/types';
 
 // Bundled import recipes — esbuild inlines these JSON modules into main.js.
+import nistCsf2CprtLinked from '../../recipes/import/nist-csf-2-cprt-linked.json';
 import nistCsf2CprtHierarchical from '../../recipes/import/nist-csf-2-cprt-hierarchical.json';
 import nistCsf2Cprt from '../../recipes/import/nist-csf-2-cprt.json';
 import nistCsf2Flat from '../../recipes/import/nist-csf-2.json';
@@ -105,6 +106,7 @@ import nist80053Linked from '../../recipes/import/nist-800-53-linked.json';
 import mitreAttackLinked from '../../recipes/import/mitre-attack-technique-linked.json';
 import mitreD3fend from '../../recipes/import/mitre-d3fend.json';
 import mitreD3fendLinked from '../../recipes/import/mitre-d3fend-linked.json';
+import mitreF3Linked from '../../recipes/import/mitre-f3-technique-linked.json';
 import mitreF3Technique from '../../recipes/import/mitre-f3-technique.json';
 import cisControlsV8Controls from '../../recipes/import/cis-controls-v8-controls.json';
 import cisControlsV8Flat from '../../recipes/import/cis-controls-v8.json';
@@ -389,6 +391,7 @@ const DEFAULTS: Record<
 	}
 > = {
 	'nist-csf-2-cprt-hierarchical': {
+		supersededBy: 'nist-csf-2-cprt-linked',
 		label: 'NIST CSF 2.0 (CPRT export, nested)',
 		description: 'Functions and categories become folders; subcategories become notes.',
 		suggestedFolder: 'Frameworks/NIST CSF 2.0',
@@ -444,6 +447,7 @@ const DEFAULTS: Record<
 		},
 	},
 	'mitre-f3-technique-flat': {
+		supersededBy: 'mitre-f3-technique-linked',
 		label: 'MITRE Fight Fraud Framework (F3) techniques',
 		description: 'Each fraud technique becomes a note keyed by its technique id, with its tactics as a list.',
 		suggestedFolder: 'Frameworks/MITRE F3',
@@ -605,6 +609,8 @@ DEFAULTS['mitre-d3fend-flat'] = {
 
 // Successors inherit recognition and download guidance, never the old recipe bytes.
 for (const [id, previous, description, facetField] of [
+	['nist-csf-2-cprt-linked', 'nist-csf-2-cprt-hierarchical', 'Function and category folders, an index note per folder, and children lists.', undefined],
+	['mitre-f3-technique-linked', 'mitre-f3-technique-flat', 'One note per technique, sub-techniques linked to their parent, and a hub note per tactic listing its techniques.', 'tactics'],
 	['nist-csf-2-linked', 'nist-csf-2-flat', 'Function and category folders, an index note per folder, and parent and children links on every note.', undefined],
 	['nist-800-53-linked', 'nist-800-53-r5-nested', 'Family and control folders, an index note per folder, parent and children links, and related control links.', undefined],
 	['mitre-d3fend-linked', 'mitre-d3fend-flat', 'One note per technique and a hub note per tactic listing its techniques. Each technique links to the technique it sits under and lists its children.', 'tactic'],
@@ -727,6 +733,8 @@ const SOURCE_GUIDANCE: Record<
 	},
 };
 
+SOURCE_GUIDANCE['nist-csf-2-cprt-linked'] = SOURCE_GUIDANCE['nist-csf-2-cprt-hierarchical'];
+SOURCE_GUIDANCE['mitre-f3-technique-linked'] = SOURCE_GUIDANCE['mitre-f3-technique-flat'];
 SOURCE_GUIDANCE['nist-csf-2-linked'] = SOURCE_GUIDANCE['nist-csf-2-flat'];
 SOURCE_GUIDANCE['nist-800-53-linked'] = SOURCE_GUIDANCE['nist-800-53-r5-nested'];
 SOURCE_GUIDANCE['mitre-attack-technique-linked'] = SOURCE_GUIDANCE['mitre-attack-technique-flat'];
@@ -851,6 +859,7 @@ export function libraryRegistryEntry(recipe: CrosswalkerImportRecipe): RecipeReg
  * before their flatter siblings.
  */
 const BUNDLED_RECIPES = [
+	nistCsf2CprtLinked,
 	nistCsf2CprtHierarchical,
 	nistCsf2Cprt,
 	nistCsf2Flat,
@@ -860,6 +869,7 @@ const BUNDLED_RECIPES = [
 	mitreAttackLinked,
 	mitreD3fendLinked,
 	mitreD3fend,
+	mitreF3Linked,
 	mitreF3Technique,
 	cisControlsV8Controls,
 	cisControlsV8Flat,

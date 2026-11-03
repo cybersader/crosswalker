@@ -39,7 +39,7 @@ const NESTED_STACK_RECIPES: Readonly<Record<string, string>> = {
 
 const PREFERRED_RECIPES = [
 	'cri-profile-v2-2-flat', 'mitre-attack-technique-linked', 'nist-800-53-linked',
-	'nist-csf-2-cprt-hierarchical', 'cis-controls-v8-controls', 'scf-2026-flat',
+	'nist-csf-2-cprt-linked', 'cis-controls-v8-controls', 'scf-2026-flat',
 ];
 
 export const DEFAULT_STACK_SELECTION: StackSelection = {
@@ -71,7 +71,7 @@ export function frameworkSlots(
 			const role = chosen.has(entry.ontology) ? 'chosen' as const : 'connector' as const;
 			// The connector still consumes the CPRT export, not the CSF reference workbook.
 			const recipeId = selection.recordedRecipes?.[entry.ontology]
-				?? (role === 'connector' ? 'nist-csf-2-cprt-hierarchical' : NESTED_STACK_RECIPES[entry.ontology]);
+				?? (role === 'connector' ? 'nist-csf-2-cprt-linked' : NESTED_STACK_RECIPES[entry.ontology]);
 			return { ontology: entry.ontology, role,
 				entry: registry.find((variant) => variant.id === recipeId && variant.ontology === entry.ontology
 					&& variant.routingKind === 'concept') ?? entry };

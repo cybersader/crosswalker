@@ -35,7 +35,7 @@ const OUT = path.resolve('test-screenshots');
 const GENERATED_DEST = 'Frameworks/NIST-CSF-2.0';
 
 /** A NIST CSF 2.0 CPRT-shaped CSV — matches the bundled
- *  nist-csf-2-cprt-hierarchical recipe (same fixture as visual-workbench.spec.ts),
+ *  nist-csf-2-cprt-linked recipe (same fixture as visual-workbench.spec.ts),
  *  reused here so the recognized-source fast path is exercised through the view. */
 const CPRT_CSV = [
 	'element_identifier,title,element_type,text',

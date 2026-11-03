@@ -1,0 +1,58 @@
+{
+  "$comment": "Recommended default, superseding mitre-f3-technique-flat for a new F3 set. Preserves its ontology, technique filenames, managed fields, user-preserved fields, prose and Apache attribution. Sub-technique parents derive from the dotted Technique ID; top-level techniques emit no parent. One tag per source-asserted Tactic Name creates a hub per multi-member tactic, replacing the separate demo Tactics import. Children lists are sorted by identity. Parent CURIEs use the unqualified mitre-f3 scheme; as with the ATT&CK linked recipe, a second qualified set does not rebase that explicit parent prefix.",
+  "recipe": "mitre-f3-technique-linked",
+  "source": {
+    "ontology": "mitre-f3",
+    "levels": [
+      "technique"
+    ]
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "technique",
+        "mechanism": "file",
+        "template": "{Technique ID|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "frontmatter": {
+        "managed": {
+          "title": "{Technique|trim}",
+          "technique_id": "{Technique ID|trim}",
+          "tactic_ids": "{Tactic ID|optional|split(,)}",
+          "tactics": "{Tactic Name|optional|split(,)}",
+          "parent": "{Technique ID|trim|regex(^([^.]+)[.]|$)|wikilink}",
+          "parent_curie": "{Technique ID|trim|regex(^([^.]+)[.]|$)|curie-prefix(mitre-f3)}"
+        },
+        "user_preserve": [
+          "reviewer",
+          "status",
+          "notes"
+        ]
+      },
+      "body": [
+        {
+          "template": "{Description|trim}",
+          "position": "section",
+          "heading": "Description",
+          "heading_depth": 2,
+          "format": "text"
+        },
+        {
+          "template": "© 2026 MITRE. MITRE Fight Fraud Framework (F3), licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0. Source: https://github.com/center-for-threat-informed-defense/fight-fraud-framework",
+          "position": "append",
+          "format": "quote"
+        }
+      ],
+      "tags": [
+        "mitre-f3/tactic/{Tactic Name|optional|split(,)|tagsafe}"
+      ]
+    },
+    "enrichment": {
+      "facet_source": "tag_template",
+      "children_lists": true,
+      "facet_notes": "notes"
+    }
+  }
+}

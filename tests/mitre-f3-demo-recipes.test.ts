@@ -8,8 +8,7 @@ import { validateRecipe } from '../src/validation/validator';
 const REPO = join(__dirname, '..');
 const load = (file: string) => JSON.parse(readFileSync(join(REPO, file), 'utf8'));
 const shipped = load('recipes/import/mitre-f3-technique.json') as Recipe;
-const techniques = load('tools/fixtures/demo/recipes/mitre-f3-demo-linked.json') as Recipe;
-const tactics = load('tools/fixtures/demo/recipes/mitre-f3-demo-tactics.json') as Recipe;
+const techniques = load('recipes/import/mitre-f3-technique-linked.json') as Recipe;
 const source = load('Frameworks/mitre-f3-source.json');
 const workbook = XLSX.read(readFileSync(join(REPO, 'Frameworks/f3-excel-v1.2.xlsx')), { type: 'buffer' });
 const techniqueRows = XLSX.utils.sheet_to_json<Record<string, string>>(workbook.Sheets.Techniques, { raw: false });
@@ -40,8 +39,8 @@ describe('pinned F3 v1.2 public source', () => {
 	});
 });
 
-describe('demo-only F3 recipes', () => {
-	it.each([techniques, tactics])('validates $recipe against the existing grammar', (recipe) => {
+describe('shipped linked F3 recipe', () => {
+	it.each([techniques])('validates $recipe against the existing grammar', (recipe) => {
 		expect(validateRecipe(recipe)).toMatchObject({ valid: true, errors: [] });
 		expect(recipe.source.ontology).toBe('mitre-f3');
 	});
@@ -68,8 +67,14 @@ describe('demo-only F3 recipes', () => {
 		expect(report.notes).toEqual([]);
 	});
 
-	it('renders every row with matching tactic links and no missing or self-parent links', () => {
+	it('renders every row with matching tactic tags and no missing or self-parent links', () => {
 		const ids = new Set(techniqueRows.map((r) => r['Technique ID']));
+		const tacticTags: Record<string, string> = {
+			TA0043: 'mitre-f3/tactic/reconnaissance', TA0042: 'mitre-f3/tactic/resource-development',
+			TA0001: 'mitre-f3/tactic/initial-access', TA0005: 'mitre-f3/tactic/stealth',
+			TA0112: 'mitre-f3/tactic/defense-impairment', FA0001: 'mitre-f3/tactic/positioning',
+			TA0002: 'mitre-f3/tactic/execution', FA0002: 'mitre-f3/tactic/monetization',
+		};
 		const tacticIds = new Set(tacticRows.map((r) => r['Tactic ID']));
 		for (const row of techniqueRows) {
 			const id = row['Technique ID'];
@@ -77,16 +82,9 @@ describe('demo-only F3 recipes', () => {
 			expect(address.primary.path).toBe(`${id}.md`);
 			expect(report.notes).toEqual([]);
 			const links = row['Tactic ID'].split(',').map((s) => s.trim());
-			expect(address.frontmatter.tactic_notes).toEqual(links.map((s) => `[[${s}]]`));
+			expect([...address.tags].sort()).toEqual(links.map((id) => tacticTags[id]).sort());
 			for (const tactic of links) expect(tacticIds.has(tactic)).toBe(true);
 			if (id.includes('.')) expect(ids.has(id.split('.')[0])).toBe(true);
-		}
-		for (const row of tacticRows) {
-			const result = render(tactics, { curie: `mitre-f3:${row['Tactic ID']}`, scope: row });
-			expect(result.primary.path).toBe(`${row['Tactic ID']}.md`);
-			expect(result.frontmatter.title).toBe(row['Tactic Name']);
-			expect(result.body[0].content).toContain(row['Tactic Description'].trim());
-			expect(result.body.map((b) => b.content).join('\n')).toContain('Apache License');
 		}
 	});
 });
