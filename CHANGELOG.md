@@ -17,6 +17,10 @@ The 0.1 design phase concluded 2026-05-04 and implementation began the same day.
 - Workbench expansion is cached by source and parsed-data identity, keeping the previous preview while replacement rows are prepared. Streamed sources show an actionable preview limitation; malformed rows show a plain cause and a data-row number counted after the header. Outline depth columns never trigger a false implied-concept suggestion.
 - Effective recipe hashes include `source_outline` only when declared; all earlier recipe pins stay unchanged. See the [schema contract](https://cybersader.github.io/crosswalker/agent-context/v0-1-schema-spec/#source-outline) and [hierarchy input guide](https://cybersader.github.io/crosswalker/concepts/etl-and-import/#how-sources-encode-hierarchy).
 
+### Added: developer tooling (2026-11-02)
+
+- `bun run hygiene:branches` reports merged branches, stale unmerged work and worktree state after fetching/pruning origin. Opt-in `--apply` removes only ancestry-merged local branches and clean, unlocked worktrees with known activity at least 24 hours old, honors per-user keep entries and writes a tip-only restore manifest in the primary checkout. Recent or unknown activity, hidden index flags, ignored scratch files and in-progress operations are retained. A weekly read-only CI report and session-end branch/worktree rules prevent another backlog.
+
 ### Added: linked recommended defaults for NIST CSF 2.0, SP 800-53 and ATT&CK (2026-11-02)
 
 - Three new import recipes build each framework as a connected graph rather than a bare folder tree: `nist-csf-2-linked`, `nist-800-53-linked` and `mitre-attack-technique-linked` in `recipes/import/`. Each one writes the hierarchy once, links every note to its parent using the dotted or parent ID, and adds hub notes for shared facets such as ATT&CK tactics. The design spec is `.workspace/2026-11-02-framework-recommended-defaults-spec.md`.

@@ -66,6 +66,9 @@ npm-debug.log*
 .env
 .env.local
 
+# Per-user branch/worktree retention rules (primary checkout)
+.branch-hygiene-keep
+
 # Local personal identifiers used by the personal-data gate
 .personal-data-denylist
 

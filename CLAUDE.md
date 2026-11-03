@@ -265,6 +265,12 @@ Settings types in `src/settings/settings-data.ts`:
 - Config export/import for sharing
 - OSCAL export
 
+## Branch hygiene
+
+- Name backup branches `backup/<topic>-<YYYY-MM-DD>` and delete them once their PR merges.
+- Remove subagent worktrees when their task closes, after preserving any uncommitted work.
+- Run `bun run hygiene:branches` (report only) at session end. `bun run hygiene:branches -- --apply` removes only ancestry-merged local branches and clean, unlocked worktrees with known activity at least 24 hours old. Recent or unknown activity, main, current and keep entries are protected. Use repeatable `--keep <path-or-branch>` or the ignored, per-user `.branch-hygiene-keep` (one entry per line, whole-line `#` comments only) for exceptions. The keep file, relative keep paths and `.workspace/` restore manifests use the primary checkout, even from linked worktrees. Manifests preserve tip SHAs, not branch reflogs. Anything beyond merged+clean requires owner approval and separate deliberate handling; this script never forces removal or deletes unmerged branches. Do not run cleanup concurrently with other branch/worktree maintenance.
+
 ## Documentation update reminders
 
 Static checklist — when you touch certain paths, also update related docs/state. **This is judgment-required cross-doc reminders.** Mechanical patterns (lint must pass, MDX must build, schema must validate, fixtures must match canonical regen) live in CI gates instead, not here.
