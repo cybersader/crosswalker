@@ -43,6 +43,15 @@ const SOURCES = [
 		leaf: 'T9991.001.md', parent: 'T9991.md',
 	},
 	{
+		key: 'd3fend', id: 'mitre-d3fend-linked', root: 'Linked-D3FEND',
+		rows: [
+			{ ID: 'D3-SYNROOT', 'D3FEND Tactic': 'Synthetic tactic', 'D3FEND Technique': 'Invented root', 'D3FEND Technique Level 0': '', 'D3FEND Technique Level 1': '', Definition: 'Synthetic outline root, not publisher content.' },
+			{ ID: 'D3-SYNPARENT', 'D3FEND Tactic': 'Synthetic tactic', 'D3FEND Technique': '', 'D3FEND Technique Level 0': 'Invented parent', 'D3FEND Technique Level 1': '', Definition: 'Synthetic outline parent.' },
+			{ ID: 'D3-SYNCHILD', 'D3FEND Tactic': 'Synthetic tactic', 'D3FEND Technique': '', 'D3FEND Technique Level 0': '', 'D3FEND Technique Level 1': 'Invented child', Definition: 'Synthetic outline child.' },
+		] as Row[],
+		leaf: 'D3-SYNCHILD.md', parent: 'D3-SYNPARENT.md',
+	},
+	{
 		key: 'sp80053', id: 'nist-800-53-linked', root: 'Linked-SP80053',
 		rows: [
 			{ identifier: 'ZZ-1', name: 'Invented control', control_text: 'Synthetic control.', discussion: '', related: 'ZZ-1(1)' },
@@ -92,7 +101,7 @@ describe('Visual: linked recommended defaults, synthetic sources only', function
 	after(async () => { await closeImportWizard(); });
 
 	for (const source of SOURCES) {
-		// The picker check covers CSF and ATT&CK only; SP 800-53 is checked by the
+		// The picker covers CSF, ATT&CK and D3FEND; SP 800-53 is checked by the
 		// import, children and replay cases below, not by this picker case.
 		if (source.key !== 'sp80053') it(`${source.key}: recommended recipe first, previous default still selectable`, async () => {
 			await requireImportWizard();
@@ -134,6 +143,18 @@ describe('Visual: linked recommended defaults, synthetic sources only', function
 			});
 			const selected = await browser.executeObsidian(() => document.querySelector('.crosswalker-recognized-title')?.textContent ?? '');
 			expect(selected).toBe(previous.label);
+			if (source.key === 'd3fend') {
+				await browser.executeObsidian(() => {
+					document.querySelectorAll<HTMLButtonElement>('.crosswalker-recognized-alternatives button')[0]?.click();
+					Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-recognized-actions button'))
+						.find((button) => button.textContent?.trim() === 'Customize')?.click();
+				});
+				await browser.waitUntil(async () => browser.executeObsidian(() =>
+					document.querySelector('.crosswalker-wb-connection-stats')?.textContent?.includes('2 parent links') ?? false,
+				), { timeout: 15_000, timeoutMsg: 'Outline preview must show its two real parent links.' });
+				await browser.executeObsidian(() => document.querySelector('.crosswalker-wb-connection-stats')?.scrollIntoView({ block: 'center' }));
+				await capture('d3fend-preview');
+			}
 			await closeImportWizard();
 		});
 
@@ -178,7 +199,16 @@ describe('Visual: linked recommended defaults, synthetic sources only', function
 				expect(proof.filter((note) => note.kind === 'facet').map((note) => path.basename(note.path)).sort()).toEqual(['Execution.md', 'Persistence.md']);
 				expect(proof.find((note) => note.path === `${source.root}/${source.leaf}`)?.tags)
 					.toEqual(['mitre-attack/tactic/execution', 'mitre-attack/tactic/persistence']);
-			} else if (source.key === 'csf') {
+			} else if (source.key === 'd3fend') {
+					expect(proof.filter((note) => note.kind === 'facet')).toHaveLength(1);
+					expect(leafCurie).toBe('mitre-d3fend:D3-SYNCHILD');
+					const identities = await browser.executeObsidian(({ app }, root) => {
+						const parent = app.metadataCache.getCache(`${root}/D3-SYNPARENT.md`)?.frontmatter;
+						const child = app.metadataCache.getCache(`${root}/D3-SYNCHILD.md`)?.frontmatter;
+						return { parent: parent?.curie, childParent: child?.parent_curie };
+					}, source.root);
+					expect(identities.childParent).toBe(identities.parent);
+				} else if (source.key === 'csf') {
 				expect(proof.some((note) => note.path === `${source.root}/GV/GV.md`)).toBe(true);
 			} else {
 				expect(proof.some((note) => note.path === `${source.root}/ZZ/ZZ.md`)).toBe(true);

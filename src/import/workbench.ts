@@ -24,6 +24,7 @@
 import { setIcon } from 'obsidian';
 import type { ParsedData, ColumnInfo } from '../types/config';
 import { isEagerRows } from '../types/config';
+import { STREAMING_THRESHOLD_BYTES } from './parsers/csv-parser';
 import type { Detection } from './detection';
 import { PACKED_DELIMITERS, detectStructure, defaultDestinationForColumn } from './detection';
 import { splitOnDelimiterSet, parseSetDelimiters } from './detection';
@@ -102,6 +103,7 @@ import {
 } from './mapping/view-model';
 import { explainRecipeError } from './mapping/diagnostics';
 import { expandNestedRows } from '../source/nest';
+import { prepareSourceStage, SourceStageError } from '../source';
 import { renderTemplate } from '../render/template';
 
 /** Render the provenance badge(s) for a preset/config surface (spec §7j #3). */
@@ -170,12 +172,13 @@ const SHAPE_CARD_COPY: Record<ShapeCardId, { icon: string; afford: string; whisp
 
 /** Only claim a level has no own rows when expanded rows carry explicit level evidence. */
 export function impliedConceptControlState(
-	rule: LevelRule, index: number, levelCount: number, expandedRows: readonly Record<string, unknown>[] | null,
+	rule: LevelRule, index: number, levelCount: number, expandedRows: readonly Record<string, unknown>[] | null, outline = false,
 ): { visible: boolean; suggest: boolean } {
 	const visible = index < levelCount - 1
 		&& rule.destinations.some((destination) => destination.primitive === 'folder')
 		&& !rule.destinations.some((destination) => destination.primitive === 'name');
-	const suggest = visible && !!expandedRows?.length && !expandedRows.some((row) => {
+	// Outline lineage names source depth columns, not layout levels, so it cannot prove a layout level has no rows.
+	const suggest = visible && !outline && !!expandedRows?.length && !expandedRows.some((row) => {
 		const lineage = row._cw;
 		return typeof lineage === 'object' && lineage !== null
 			&& (lineage as { level?: unknown }).level === rule.level;
@@ -330,6 +333,9 @@ export class MappingWorkbench {
 	private blockedCard: { mi: number; primitive: DestinationPrimitive; message: string } | null = null;
 	/** Expanded nested rows used by every worked preview once the async source walk lands. */
 	private expandedRows: Record<string, unknown>[] | null = null;
+	private expansionError: string | null = null;
+	private expansionData: ParsedData | null = null;
+	private expansionSourceKey: string | null = null;
 	/** Record totals by nested level, used for the live notes/sections evidence line. */
 	private countsByLevel: Record<string, number> | null = null;
 	/** Section heading fields already chosen in this session, including loaded explicit choices. */
@@ -859,12 +865,44 @@ export class MappingWorkbench {
 	 * the workbench preview has no secondary-source reader.
 	 */
 	private refreshExpandedRows(): void {
-		const version = ++this.expansionVersion;
-		this.expandedRows = null;
-		this.countsByLevel = null;
-		const rows = this.opts.parsedData.rows;
+		const data = this.opts.parsedData;
+		const rows = data.rows;
 		const nest = this.mapping.nest;
-		if (!nest?.length || !isEagerRows(rows) || rows.length === 0) return;
+		const source = this.recipeDocument.original.source;
+		const sourceKey = JSON.stringify({ source, nest });
+		if (this.expansionData === data && this.expansionSourceKey === sourceKey) return;
+		this.expansionData = data;
+		this.expansionSourceKey = sourceKey;
+		const version = ++this.expansionVersion;
+		this.expansionError = null;
+		// Keep the last successful sample visible while a changed source is expanded.
+		if (source.outline && !isEagerRows(rows)) {
+			this.expansionError = `This file is being read as a stream, so its hierarchy preview is not available here. Reopen a smaller copy of the file (${STREAMING_THRESHOLD_BYTES / (1024 * 1024)} MiB or less) to preview it. Importing the full file still checks every row before writing notes.`;
+			return;
+		}
+		if (source.outline && isEagerRows(rows)) {
+			void (async () => {
+				const stage = await prepareSourceStage(data, source);
+				const expanded: Record<string, unknown>[] = [];
+				for await (const row of stage.rows) expanded.push(row);
+				stage.finalize();
+				if (version !== this.expansionVersion) return;
+				this.expandedRows = expanded;
+				this.scheduleRerender();
+			})().catch((error: unknown) => {
+				if (version !== this.expansionVersion) return;
+				this.expansionError = error instanceof SourceStageError
+					? `${error.message.slice(error.declaration.length + 2).split(' | ')[0].split('\n')[0]}${error.row === undefined ? '' : ` Check data row ${error.row}, counting from 1 after the header.`}`
+					: 'The source hierarchy could not be previewed. Check the selected depth columns and identity values, then reopen the source file.';
+				this.scheduleRerender();
+			});
+			return;
+		}
+		if (!nest?.length || !isEagerRows(rows) || rows.length === 0) {
+			this.expandedRows = null;
+			this.countsByLevel = null;
+			return;
+		}
 
 		void expandNestedRows(
 			rows as Record<string, unknown>[],
@@ -2269,7 +2307,7 @@ export class MappingWorkbench {
 				}
 			});
 		}
-		const impliedControl = impliedConceptControlState(rule, li, m.levels.length, this.expandedRows);
+		const impliedControl = impliedConceptControlState(rule, li, m.levels.length, this.expandedRows, !!this.recipeDocument.original.source.outline);
 		if (impliedControl.visible) {
 			const control = lvl.createEl('label', { cls: 'crosswalker-wb-implied-control' });
 			const toggle = control.createEl('input', {
@@ -3010,6 +3048,10 @@ export class MappingWorkbench {
 	 */
 	computePreview(): { addresses: { row: number; address: Address }[]; perRow: PreviewRowNotes[]; total: number } | null {
 		const rows = this.opts.parsedData.rows;
+		if (this.recipeDocument.original.source.outline && (this.expansionError || !this.expandedRows)) {
+			this.previewError = this.expansionError ?? 'Preparing the hierarchy preview. Wait for the source rows to finish processing.';
+			return null;
+		}
 		if (!isEagerRows(rows) || rows.length === 0) {
 			this.previewError = null;
 			return null;
@@ -3026,7 +3068,7 @@ export class MappingWorkbench {
 		this.previewError = null;
 		const addresses: { row: number; address: Address }[] = [];
 		const perRow: PreviewRowNotes[] = [];
-		const previewRows = this.mapping.nest?.length && this.expandedRows ? this.expandedRows : rows;
+		const previewRows = this.expandedRows ?? rows;
 		previewRows.slice(0, PREVIEW_ROW_LIMIT).forEach((row, i) => {
 			const rowNum = i + 1;
 			const report: RenderReport = { notes: [] };
@@ -3038,7 +3080,7 @@ export class MappingWorkbench {
 				// A bad row surfaces at generate time; skip it in the live preview.
 			}
 		});
-		const total = this.mapping.nest?.length && this.expandedRows
+		const total = this.expandedRows
 			? this.expandedRows.length
 			: (this.opts.parsedData.rowCount || rows.length);
 		return { addresses, perRow, total };

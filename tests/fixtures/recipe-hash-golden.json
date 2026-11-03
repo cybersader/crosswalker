@@ -21,5 +21,6 @@
 	"recipes/starter/nist-csf-to-800-53-crosswalk.json": "sha256-0bd6de54fa3a97170425b6cac00c2d19d02233904827cb286205b95187175ee9",
 	"recipes/import/nist-csf-2-linked.json": "sha256-4e310df1f135ac1c34a99463e7d6c85fb61cbb837db0bc4247374dc803880d19",
 	"recipes/import/nist-800-53-linked.json": "sha256-52a3ca4eadd0f29328a248d1173c19f6cf4bc2a209c49e0664902b19d78d13d8",
-	"recipes/import/mitre-attack-technique-linked.json": "sha256-b2b69e6dd66cccb68e2b154489330811dbac85efc51724743e624ca87d3b58bd"
+	"recipes/import/mitre-attack-technique-linked.json": "sha256-b2b69e6dd66cccb68e2b154489330811dbac85efc51724743e624ca87d3b58bd",
+	"recipes/import/mitre-d3fend-linked.json": "sha256-6682763c52bb58e6b42f713e532a1f5a49308bb6c7df98870ae422301b764516"
 }

@@ -289,14 +289,14 @@ This closes **in-memory workbench fidelity**. It does not yet add durable save/o
 
 [Hierarchy primitives](/crosswalker/concepts/hierarchy-primitives/) describe the **output** side: how a vault can express a hierarchy, using folder, file, heading, tag, or wikilink. This section describes the **input** side: how a source states its hierarchy in the first place. A recipe first has to recognize which encoding the source uses, and only then pick output mechanisms. Most "how do I get the parent links right" questions are encoding questions.
 
-**Status last verified:** 2026-11-02. Checked against `spec/recipe.schema.json` (SchemaVer 1.21.0), `src/render/template.ts`, `src/source/nest.ts`, and the shipped `recipes/import/*-linked.json`.
+**Status last verified:** 2026-11-02. Checked against `spec/recipe.schema.json` (SchemaVer 1.23.0), `src/render/template.ts`, `src/source/nest.ts`, `src/source/outline.ts`, and the shipped `recipes/import/*-linked.json`.
 
 | Encoding (the input lineage form) | What it looks like in the source | Example | How a recipe handles it |
 |---|---|---|---|
 | **The ID carries the path** | Each row's identifier spells out its ancestors | CSF `PR.AA-01`, ATT&CK `T1059.001`, 800-53 `AC-2(1)` | [Templates](/crosswalker/agent-context/v0-1-schema-spec/) split the ID into levels (`{Subcategory\|split(.,0)}`). Parent links come from the same split, so the hierarchy is derived from what the source asserts |
 | **Parent column** (adjacency list) | Each row names its parent's ID | A `parent_id` or "sub-technique of" column | A parent template on the row, or a join to the parent row. Use it only when the held file actually contains the column |
 | **Nested records** | Children sit inside their parent in the file | OSCAL catalogs, nested JSON | `source.nest` walks the levels and turns each one into rows. See [schema spec](/crosswalker/agent-context/v0-1-schema-spec/) § `source.nest` |
-| **Outline** (sparse depth columns) | One column per depth; a row fills only the column for its own depth, and its parent is the nearest row above it at a shallower depth | D3FEND's tabular export | **Gap.** Planned as `source.outline`, which streams with a stack bounded by the depth count. Until then, outline sources import flat |
+| **Outline** (sparse depth columns) | One column per depth; a row fills only the column for its own depth, and its parent is the nearest row above it at a shallower depth | D3FEND's tabular export | The engine reads it through [`source.outline`](/crosswalker/agent-context/v0-1-schema-spec/#source-outline), streaming with a stack bounded by the declared depth. Parent links assert outline containment, not subclass semantics |
 | **Multi-value facet cells** | One cell lists several values that cut across the hierarchy | ATT&CK tactics on a technique | A list-valued tag template fans out into one tag per value (SchemaVer 1.21.0). Facet notes give each value a hub note |
 | **External class hierarchy** | The tree lives in a separate ontology file, not the rows | OWL `subClassOf` | **Deferred.** Not in v0.1 |
 

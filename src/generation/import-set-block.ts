@@ -55,6 +55,11 @@ export function readProvenanceString(value: unknown): string | null {
 	return trimmed.length > 0 ? trimmed : null;
 }
 
+export interface OutlineIdentityPin {
+	id: string;
+	levels: readonly string[];
+}
+
 export interface ImportSetBlockFacts {
 	id: string;
 	scheme: string | null;
@@ -64,6 +69,7 @@ export interface ImportSetBlockFacts {
 	ontology: string | null;
 	parentSet: string | null;
 	nestIdentity: Record<string, 'global' | 'path'> | null;
+	outlineIdentity: OutlineIdentityPin | null;
 }
 
 export interface ValidateImportSetBlockOptions {
@@ -131,7 +137,24 @@ export function validateImportSetBlock(
 		ontology: readProvenanceString(raw.ontology),
 		parentSet: readProvenanceString(raw.parent_set),
 		nestIdentity: readNestIdentity(raw.nest_identity, where),
+		outlineIdentity: readOutlineIdentity(raw.outline_identity, where),
 	};
+}
+
+function readOutlineIdentity(value: unknown, path: string): OutlineIdentityPin | null {
+	if (value === undefined) return null;
+	const pin = value && typeof value === 'object' && !Array.isArray(value)
+		? value as Record<string, unknown> : null;
+	if (!pin || typeof pin.id !== 'string' || !pin.id.trim()
+		|| !Array.isArray(pin.levels) || pin.levels.length === 0
+		|| !pin.levels.every((level: unknown) => typeof level === 'string' && level.trim().length > 0)
+		|| new Set(pin.levels).size !== pin.levels.length
+		|| Object.keys(pin).some((key) => key !== 'id' && key !== 'levels')) {
+		throw new ImportSetProvenanceError(
+			`The outline settings recorded in ${path} are damaged. Restore that note from a backup, or move it out of this folder, then run the import again.`, [path],
+		);
+	}
+	return { id: pin.id, levels: [...pin.levels] as string[] };
 }
 
 function readNestIdentity(value: unknown, path: string): Record<string, 'global' | 'path'> | null {

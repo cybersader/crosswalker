@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: sparse-depth outlines and the linked D3FEND default (2026-11-02)
+
+- **Recipe SchemaVer 1.23.0** adds optional `source.outline: { levels, id }`, mutually exclusive with `source.nest`. Row-ordered sparse-depth tables now stream through a depth-bounded ancestor stack before row filtering and joins, with row-numbered corrective errors for ambiguous depth, missing parents, or empty identity.
+- Outline lineage uses the existing `_cw` shape. A filtered parent does not remove its descendants: their parent links reconnect to the nearest admitted ancestor. Both wizard and `cw` generation use the declared outline id, including uppercase `ID`, and the workbench previews that same source stage. Canonical workbench edits preserve the outline declaration.
+- `mitre-d3fend-linked` adds outline parent links, sorted children lists and tactic hub notes without changing the old flat recipe or its hash. The picker retains `mitre-d3fend-flat` as the previous default. Outline containment is not `rdfs:subClassOf`; the recipe documents that distinction and its known hardcoded-prefix limit for a second qualified set.
+- Both write routes validate the entire outline and reject duplicate identities before creating folders or notes. **Tier 1 SchemaVer 1.9.0** adds the optional `import_set.outline_identity` pin: a refresh cannot change the original depth columns or identity template, and inconsistent provenance refuses discovery.
+- Workbench expansion is cached by source and parsed-data identity, keeping the previous preview while replacement rows are prepared. Streamed sources show an actionable preview limitation; malformed rows show a plain cause and a data-row number counted after the header. Outline depth columns never trigger a false implied-concept suggestion.
+- Effective recipe hashes include `source_outline` only when declared; all earlier recipe pins stay unchanged. See the [schema contract](https://cybersader.github.io/crosswalker/agent-context/v0-1-schema-spec/#source-outline) and [hierarchy input guide](https://cybersader.github.io/crosswalker/concepts/etl-and-import/#how-sources-encode-hierarchy).
+
 ### Added: linked recommended defaults for NIST CSF 2.0, SP 800-53 and ATT&CK (2026-11-02)
 
 - Three new import recipes build each framework as a connected graph rather than a bare folder tree: `nist-csf-2-linked`, `nist-800-53-linked` and `mitre-attack-technique-linked` in `recipes/import/`. Each one writes the hierarchy once, links every note to its parent using the dotted or parent ID, and adds hub notes for shared facets such as ATT&CK tactics. The design spec is `.workspace/2026-11-02-framework-recommended-defaults-spec.md`.

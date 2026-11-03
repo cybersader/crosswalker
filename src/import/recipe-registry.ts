@@ -104,6 +104,7 @@ import nistCsf2Linked from '../../recipes/import/nist-csf-2-linked.json';
 import nist80053Linked from '../../recipes/import/nist-800-53-linked.json';
 import mitreAttackLinked from '../../recipes/import/mitre-attack-technique-linked.json';
 import mitreD3fend from '../../recipes/import/mitre-d3fend.json';
+import mitreD3fendLinked from '../../recipes/import/mitre-d3fend-linked.json';
 import mitreF3Technique from '../../recipes/import/mitre-f3-technique.json';
 import cisControlsV8Controls from '../../recipes/import/cis-controls-v8-controls.json';
 import cisControlsV8Flat from '../../recipes/import/cis-controls-v8.json';
@@ -343,6 +344,16 @@ function deriveSignature(raw: RawRecipe): { signature: string[]; required: strin
 		}
 	}
 
+	if (raw.source.outline) {
+		// Lineage is supplied by the source stage, not a literal CSV column.
+		for (const column of signature) {
+			if (column === '_cw' || column.startsWith('_cw.')) signature.delete(column);
+		}
+		for (const column of [...raw.source.outline.levels, ...templateColumns(raw.source.outline.id)]) {
+			signature.add(column);
+			required.add(column);
+		}
+	}
 	return { signature: [...signature], required: [...required] };
 }
 
@@ -583,10 +594,20 @@ const DEFAULTS: Record<
 	},
 };
 
+DEFAULTS['mitre-d3fend-flat'] = {
+	label: 'MITRE D3FEND techniques',
+	supersededBy: 'mitre-d3fend-linked',
+	description: 'One note per defensive technique, with tactic tags.',
+	suggestedFolder: 'Frameworks/MITRE D3FEND',
+	ontologyAliases: ['D3FEND'], idPattern: '^D3-[A-Z0-9]+$',
+	recommendedEnrichment: NO_ENRICHMENT,
+};
+
 // Successors inherit recognition and download guidance, never the old recipe bytes.
 for (const [id, previous, description, facetField] of [
 	['nist-csf-2-linked', 'nist-csf-2-flat', 'Function and category folders, an index note per folder, and parent and children links on every note.', undefined],
 	['nist-800-53-linked', 'nist-800-53-r5-nested', 'Family and control folders, an index note per folder, parent and children links, and related control links.', undefined],
+	['mitre-d3fend-linked', 'mitre-d3fend-flat', 'One note per technique and a hub note per tactic listing its techniques. Each technique links to the technique it sits under and lists its children.', 'tactic'],
 	['mitre-attack-technique-linked', 'mitre-attack-technique-flat', 'One note per technique, sub-techniques linked to their parent, and a hub note per tactic listing its techniques.', 'tactics'],
 ] as const) {
 	DEFAULTS[id] = {
@@ -598,13 +619,6 @@ for (const [id, previous, description, facetField] of [
 		},
 	};
 }
-DEFAULTS['mitre-d3fend-flat'] = {
-	label: 'MITRE D3FEND techniques',
-	description: 'One note per defensive technique, with tactic tags.',
-	suggestedFolder: 'Frameworks/MITRE D3FEND',
-	ontologyAliases: ['D3FEND'], idPattern: '^D3-[A-Z0-9]+$',
-	recommendedEnrichment: NO_ENRICHMENT,
-};
 
 const FRAMEWORK_DATA_SOURCES_URL =
 	'https://cybersader.github.io/crosswalker/reference/framework-data-sources/';
@@ -720,6 +734,7 @@ SOURCE_GUIDANCE['mitre-d3fend-flat'] = {
 	sourceLink: { label: 'Get the D3FEND catalog from MITRE', url: 'https://d3fend.mitre.org/' },
 	docsUrl: FRAMEWORK_DATA_SOURCES_URL,
 };
+SOURCE_GUIDANCE['mitre-d3fend-linked'] = SOURCE_GUIDANCE['mitre-d3fend-flat'];
 
 /** NIST catalog workbook display headers mapped to the recipe's canonical source keys. */
 export const NIST_CATALOG_HEADER_ALIASES: Record<string, string[]> = {
@@ -843,6 +858,7 @@ const BUNDLED_RECIPES = [
 	nistCsf2Linked,
 	nist80053Linked,
 	mitreAttackLinked,
+	mitreD3fendLinked,
 	mitreD3fend,
 	mitreF3Technique,
 	cisControlsV8Controls,

@@ -4,7 +4,7 @@
  * Ch 46 source contract §2. Fixed, spec-owned pipeline order:
  *
  *   parse
- *     -> [0] source.nest      depth-first row emission with lineage
+ *     -> [0] source.nest / source.outline   row lineage
  *     -> [1] source.where     row predicate, over each emitted row
  *     -> [2] source.joins     keyed lookup enrichment, over surviving rows
  *   identity -> curie mint -> concept_cid -> render() -> Tier 1 validate -> write
@@ -33,6 +33,7 @@ import type { NestedRecordLevel } from '../types/generated/recipe';
 import { renderTemplate } from '../render/template';
 import { SourceStageError } from './errors';
 import { expandNestedRows, type LineageObject } from './nest';
+import { expandOutlineRows, type OutlineDeclaration } from './outline';
 import {
 	assertReferencesExist,
 	compileSourceExpression,
@@ -75,6 +76,7 @@ export {
 	RESERVED_ALIASES,
 } from './joins';
 export { expandNestedRows } from './nest';
+export { expandOutlineRows, type OutlineDeclaration } from './outline';
 export type { LineageObject, NestExpansion } from './nest';
 export type {
 	JoinDeclaration,
@@ -101,6 +103,7 @@ export const STREAM_KEY_UNIVERSE_SAMPLE = 200;
  */
 export interface SourceStageDeclaration {
 	nest?: NestedRecordLevel[];
+	outline?: OutlineDeclaration;
 	where?: string;
 	joins?: JoinsDeclaration;
 }
@@ -187,13 +190,17 @@ export async function prepareSourceStage(
 	options: { budget?: SourceStageBudget } = {},
 ): Promise<SourceStage> {
 	const nest = source?.nest;
+	const outline = source?.outline;
+	if (nest !== undefined && outline !== undefined) {
+		throw new SourceStageError('Choose either nested records or an outline, not both. Remove one source declaration.', { declaration: 'source.outline' });
+	}
 	const whereText = source?.where;
 	const joinsDeclaration = hasJoins(source?.joins) ? (source!.joins as JoinsDeclaration) : undefined;
 
 	// The additive path. No expression is constructed, jsonata is never entered,
 	// no container handle is ever called, and the caller's rows reference is
 	// passed straight through.
-	if (nest === undefined && (whereText === undefined || whereText === null) && joinsDeclaration === undefined) {
+	if (nest === undefined && outline === undefined && (whereText === undefined || whereText === null) && joinsDeclaration === undefined) {
 		return {
 			active: false,
 			rows: parsedData.rows as Iterable<Row> | AsyncIterable<Row>,
@@ -242,10 +249,22 @@ export async function prepareSourceStage(
 		stageData = { ...parsedData, rows: expansion.rows, rowCount: expansion.rows.length, columns };
 	}
 
+	// [0] outline lineage is lazy for eager and streamed sources alike. Leave
+	// unpublished columns empty so G2 still samples a bounded stream prefix.
+	if (outline !== undefined) {
+		stageData = {
+			...parsedData,
+			rows: expandOutlineRows(parsedData.rows, outline, renderTemplate),
+			columns: parsedData.columns.length ? [...parsedData.columns, '_cw'] : [],
+		};
+	}
+
 	// G2 preflight needs the primary collection's key universe, and so does the
 	// alias-collision check. Buffers a bounded prefix when the parser has not
 	// published columns yet (streaming CSV publishes them lazily, as rows arrive).
-	const { universe, names, buffered, iterator } = await resolveKeyUniverse(stageData);
+	const { universe: discovered, names: discoveredNames, buffered, iterator } = await resolveKeyUniverse(stageData);
+	const names = outline ? [...new Set([...discoveredNames, '_cw'])] : discoveredNames;
+	const universe = outline ? new Set(names) : discovered;
 
 	let compiled: CompiledSourceExpression | undefined;
 	if (whereText !== undefined && whereText !== null) {
@@ -270,7 +289,7 @@ export async function prepareSourceStage(
 	const tally: WhereTally = { examined: 0, admitted: 0, excluded: 0 };
 	const rowNumbers = new WeakMap<object, number>();
 
-	const rows = shapeRows(compiled, joins, tally, rowNumbers, buffered, iterator);
+	const rows = shapeRows(compiled, joins, tally, rowNumbers, buffered, iterator, outline !== undefined);
 
 	return {
 		active: true,
@@ -328,14 +347,20 @@ async function* shapeRows(
 	rowNumbers: WeakMap<object, number>,
 	buffered: Row[],
 	iterator: Iterator<Row> | AsyncIterator<Row> | null,
+	reparentOutline: boolean,
 ): AsyncIterable<Row> {
-	const excludedAncestors: Array<{ level: string; path: string[] }> = [];
+	let excludedAncestors: Array<{ level: string; path: string[] }> = [];
 	const shape = async function* (row: Row, sourceRowNumber: number) {
 		tally.examined += 1;
+		if (reparentOutline) {
+			const path = lineageOf(row)?.path ?? [];
+			// Retain only excluded ancestors on the active branch, bounded by depth.
+			excludedAncestors = excludedAncestors.filter((candidate) => candidate.path.length < path.length
+				&& candidate.path.every((part, index) => path[index] === part));
+		}
 
-		// [0] nest expansion already produced this depth-first row and attached
-		// lineage during preflight. This is the first shaping step; no later step
-		// creates rows.
+		// [0] nest or outline already attached this row's lineage. This is the
+		// first shaping step; no later step creates rows.
 
 		// [1] where — over the emitted row, before any alias exists.
 		if (compiled) {
@@ -349,11 +374,10 @@ async function* shapeRows(
 		}
 		tally.admitted += 1;
 
-		// A filtered parent does not cascade to its descendants. Its identity stays
-		// in `_cw.parent` and `_cw.path`, while its carried folder values are blanked
-		// so render records the existing folder-level-skipped deviation and places
-		// the descendant one level up.
-		const admitted = omitExcludedAncestorValues(row, excludedAncestors);
+		// A filtered parent does not cascade to its descendants. Blank its carried
+		// values while preserving the original path. Nest keeps its historical
+		// parent identity; outline reconnects to the nearest admitted ancestor.
+		const admitted = omitExcludedAncestorValues(row, excludedAncestors, reparentOutline);
 
 		// [2] joins — over the surviving row only.
 		const shaped = joins.length > 0 ? await applyJoins(admitted, joins, sourceRowNumber) : admitted;
@@ -391,6 +415,7 @@ function lineageOf(row: Row): LineageObject | null {
 function omitExcludedAncestorValues(
 	row: Row,
 	excluded: readonly { level: string; path: string[] }[],
+	reparentOutline: boolean,
 ): Row {
 	const lineage = lineageOf(row);
 	if (!lineage) return row;
@@ -407,7 +432,10 @@ function omitExcludedAncestorValues(
 				: { ...values },
 		]),
 	);
-	return { ...row, _cw: { ...lineage, ancestors } };
+	const parent = reparentOutline
+		? lineage.path.slice(0, -1).filter((_id, index) => !excluded.some((candidate) => candidate.path.length === index + 1)).at(-1) ?? ''
+		: lineage.parent;
+	return { ...row, _cw: { ...lineage, parent, ancestors } };
 }
 
 interface KeyUniverse {

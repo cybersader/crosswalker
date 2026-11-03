@@ -129,15 +129,9 @@ export type ShapeDispatchA =
  */
 export type OntologyRef = string;
 /**
- * A filter predicate — JSONata expression string OR a structured AND/OR/NOT tree. Per Ch 31a + Ch 36: JSONata is the only allowed string-expression slot in the schema.
+ * Optional JSONata predicate over one source row. A row for which it is false never becomes a note. MUST evaluate to a boolean; anything else is an error naming the row and the expression, never a silent skip. Every field name it references must exist in the source collection, and a predicate that admits zero rows from a non-empty source is an error. Restricted subset: field references, string/number/true/false/null literals, array literals, the operators = != < <= > >= in and or &, and the functions $not $exists $trim $lowercase $uppercase $string $number $contains(value, 'literal'). The second $contains argument must be a string literal; a missing or non-string first argument evaluates to false, and regex and dynamic patterns are forbidden. Regular expressions, lambdas and dynamic field access are rejected, so an external producer in another language can reimplement the same predicate exactly. Values are compared as the parser produced them (spreadsheet cells are strings), so numeric intent must be explicit: $number(count) > 5. Runs BEFORE identity, CURIE minting, concept_cid and render(). Participates in the recipe hash because it changes which notes exist. Absent means every row becomes a note (behaviour before SchemaVer 1.9.0).
  */
-export type QueryFilter =
-	| string
-	| {
-			and?: QueryFilter[];
-			or?: QueryFilter[];
-			not?: QueryFilter[];
-	  };
+export type RowPredicate1 = string;
 /**
  * Dotted property path against the in-memory model (e.g. 'concept.label', 'edge.weight', 'note.frontmatter.status').
  */
@@ -148,6 +142,16 @@ export type GroupBy = FieldSelector | [FieldSelector, ...FieldSelector[]];
  */
 export type AggregationOp =
 	('count' | 'count_distinct' | 'sum' | 'avg' | 'min' | 'max' | 'density' | 'first' | 'last') | string;
+/**
+ * A filter predicate — JSONata expression string OR a structured AND/OR/NOT tree. Per Ch 31a + Ch 36: JSONata is the only allowed string-expression slot in the schema.
+ */
+export type QueryFilter =
+	| string
+	| {
+			and?: QueryFilter[];
+			or?: QueryFilter[];
+			not?: QueryFilter[];
+	  };
 /**
  * A CURIE for a concept node (e.g. 'csf:GV.OC-01') OR a wildcard '*'.
  */
@@ -242,6 +246,7 @@ export interface SourceDeclaration {
 	 * @minItems 1
 	 */
 	nest?: [NestedRecordLevel, ...NestedRecordLevel[]];
+	outline?: SparseDepthOutline;
 	where?: RowPredicate;
 	joins?: KeyedLookupEnrichment;
 }
@@ -323,6 +328,21 @@ export interface SecondaryIterator {
 	 * Optional JSONata predicate over the SECONDARY rows, with exactly the contract of source.where: same restricted subset, must return a boolean, every referenced field must exist in the secondary collection, and admitting zero rows is an error. This is how one shared relationship table is narrowed to a single predicate before it is indexed. Fixed depth: there is no nested joins here.
 	 */
 	where?: string;
+}
+/**
+ * Row-ordered outline containment, not a subclass assertion. Stage [0], mutually exclusive with nest, runs before where and joins over every parsed row. Exactly one declared level column must be filled per row; its index is the depth. A row cannot skip a parent depth. Streams with an ancestor stack bounded by levels. Adds the same reserved _cw lineage as nest: level is the filled column name, path includes self, parent is the immediate ancestor id (empty at root), and ancestors carries each level's rendered id. The id template declares this row's identity independently of layout. When where excludes a parent, descendants remain admitted independently: excluded ancestor fields are blanked and parent becomes the nearest admitted ancestor, or empty. Invalid rows fail with their source row number and a corrective action. Participates in the effective recipe hash; absence preserves earlier hashes.
+ */
+export interface SparseDepthOutline {
+	/**
+	 * Depth columns in shallowest-to-deepest order, independent of source.levels and target layout levels.
+	 *
+	 * @minItems 1
+	 */
+	levels: [string, ...string[]];
+	/**
+	 * R2RML-style template with {var} interpolation. Variables come from the source level scope (e.g., {control.id}, {family.title}, {col}). PATHS: a path is a sequence of segments separated by '.'. A segment is bare (dotted traversal into nested source data, e.g. {external_references.0.external_id}) or QUOTED for a literal key, written ['segment'] (SchemaVer 1.7.0). Quoting is per segment, so it composes with traversal at any depth: {['CRI Profile v2.2 Diagnostic Statement']}, {objects.0.['external-id']}, {['weird.parent'].child.['odd.leaf']}. Inside a quoted segment \' is a literal quote and \\ a backslash. As a compatibility affordance, an all-bare dotted path whose whole raw text is an own key of the row (a dotted CSV/XLSX header) resolves to that column; the quoted form is the normative way to say so, and a competing nested reading is reported rather than silently preferred. FILTERS: lower, upper, title, slug, tagsafe, fs-safe, name-safe, hash(N), default(text), truncate(N), trim, trim(chars), number, split(delimiter,index), split(delimiter), part(delimiters,index), part(delimiters), prefix(delimiters,index), regex(pattern), reject(pattern), join(separator), wikilink, curie-prefix(prefix), plus first-position optional as a missing-value control. part(delimiters,index) returns the 0-based piece of the trimmed value after splitting on ANY single character of the delimiter set, dropping empty pieces; an index past the last piece yields an empty value with a render note. part(delimiters) produces the list of non-empty trimmed pieces, like split(delimiter). prefix(delimiters,index) returns the original value truncated right after the end of the indexed piece, keeping the original delimiters in the prefix (GV.OC-01.01 with delimiters '.-' and index 2 gives GV.OC-01). {var|optional} resolves a missing/null path to an empty value AT ANY SEGMENT (SchemaVer 1.7.0); ordinary missing variables still fail. {var|optional|curie-prefix(nist)} omits an absent identity and prefixes a present local value. LISTS (SchemaVer 1.7.0): a value may be a list, and every filter maps over it automatically, so {related|optional|split(,)|trim(.)|reject(^\[None\]$)|curie-prefix(nist-800-53)} cleans, drops and prefixes each item. split(delimiter) produces a list; join(separator) consumes one; reject(pattern) drops items; wikilink wraps each item in [[...]]. Items that a filter blanks are elided. A list may land in also_emit.frontmatter.managed (YAML array), managed_links (link array) or a body projection with format 'list'; reaching any text template it is an error naming join. Filter arguments are lexed with balanced parentheses and backslash escapes, so regex(:\s*(.+)$) and regex(A|B) are written as one would write the regex; \) \( \| \, \\ emit the single character and any other backslash pair is passed through intact. Computation beyond filters escapes into the Function primitive (Ch 20). SchemaVer 1.20.0 adds hash(N), default(text), and name-safe as general filters that map over lists using the existing per-item rules. hash(N) returns the first N lowercase hexadecimal characters of SHA-256 of the exact UTF-8 string value; N must be an integer from 4 to 64. default(text) replaces an empty or whitespace-only value with the supplied text; a missing variable still requires optional. name-safe replaces runs of whitespace, control characters, filesystem-reserved characters (backslash, slash, colon, asterisk, question mark, double quote, angle brackets, pipe), and Obsidian link-breaking characters (#, ^, [, ]) with one space, also removes invisible formatting characters (zero-width, bidirectional controls, BOM) and lone surrogate halves, then removes leading/trailing dots and whitespace; percent and ampersand are preserved. fs-safe and truncate(N) retain their historical behavior, including UTF-16 slicing in truncate; trim(.) after truncation removes any newly exposed outer dots and whitespace.
+	 */
+	id: string;
 }
 /**
  * Optional named secondary collections, each indexed by a key expression, whose matched rows become addressable on the primary row under the alias. The object key IS the alias. An alias never merges into the row's own namespace and never shadows a source column: the row gains exactly one new key, so a joined field is reached by the dotted traversal and ['literal key'] quoting that already exist and the template grammar needs no change. Runs AFTER source.where and BEFORE identity, CURIE minting, concept_cid and render(). Participates in the recipe hash because it changes what a row is and therefore what the notes assert. The primary collection is still consumed row by row; only the secondary collection is held in memory. Absent means no secondary collections (behaviour before SchemaVer 1.9.0).
@@ -758,7 +778,7 @@ export interface BatchEnrichmentPass15 {
 }
 export interface TablePrimitives {
 	from: OntologyRef;
-	where?: QueryFilter;
+	where?: RowPredicate1;
 	join?: Join[];
 	/**
 	 * @minItems 1

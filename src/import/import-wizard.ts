@@ -2743,7 +2743,7 @@ export class ImportFlow {
 			this.identityCandidateSignature = signature;
 			this.identityCandidateRows = rows;
 		}
-		const key = importSet ? JSON.stringify([importSet.scheme === 'set-qualified-v1' ? importSet.id : '', importSet.scheme, importSet.ontology, importSet.derivation, importSet.nest_identity]) : 'new';
+		const key = importSet ? JSON.stringify([importSet.scheme === 'set-qualified-v1' ? importSet.id : '', importSet.scheme, importSet.ontology, importSet.derivation, importSet.nest_identity, importSet.outline_identity]) : 'new';
 		const cached = this.identityCandidateCache.get(key);
 		if (cached) return cached;
 		try {

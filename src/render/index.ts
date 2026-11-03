@@ -66,6 +66,7 @@ export interface Recipe {
 		version?: string;
 		levels?: string[];
 		nest?: NestedRecordLevel[];
+		outline?: import('../source/outline').OutlineDeclaration;
 		/**
 		 * Optional JSONata row predicate (schema SchemaVer 1.9.0, Ch 46 source
 		 * contract §3). A row for which it is false never becomes a note. Runs
