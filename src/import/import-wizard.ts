@@ -191,8 +191,9 @@ export function honestEnrichment(entry: RecipeRegistryEntry): Enrichment | undef
 	const shapes = summarizeRecipeShapes(entry);
 	const hint = entry.recommendedEnrichment;
 	const impliedLevel = entry.recipe.target.layout?.some((level) => level.mechanism === 'folder' && level.implied_concept);
-	const childrenLive = hint.childrenLists && (shapes.includes('links') || impliedLevel);
 	const levelHubsLive = hint.levelHubs && entry.recipe.target.enrichment?.level_hubs === 'notes';
+	// Folder indexes also supply parents without promoting folder levels to concepts.
+	const childrenLive = hint.childrenLists && (shapes.includes('links') || impliedLevel || (levelHubsLive && shapes.includes('folders')));
 	const facetLive = hint.facetNotes === 'notes' && shapes.includes('tags');
 	if (!childrenLive && !facetLive && !levelHubsLive) return undefined;
 	const out: Enrichment = {};

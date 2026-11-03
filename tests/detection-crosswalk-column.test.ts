@@ -141,6 +141,7 @@ describe('crosswalk recognition data and atomization', () => {
 	it('groups recipes that share one ontology', () => {
 		const grouped = entriesByOntology(RECIPE_REGISTRY);
 		expect(grouped.get('nist-csf-2')?.map((entry) => entry.id)).toEqual([
+			'nist-csf-2-cprt-linked',
 			'nist-csf-2-cprt-hierarchical',
 			'nist-csf-2-cprt',
 			'nist-csf-2-flat',

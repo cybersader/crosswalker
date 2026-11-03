@@ -1151,14 +1151,14 @@ describe('buildParentPlacementPreview / toFolderNotePaths (variadic-split design
 
 describe('findRecipeForOntologyName', () => {
 	const registry = [
-		{ id: 'nist-csf-2-cprt-hierarchical', label: 'NIST CSF 2.0 (CPRT export, nested)', ontology: 'nist-csf-2' },
+		{ id: 'nist-csf-2-cprt-linked', label: 'NIST CSF 2.0 (CPRT export, nested)', ontology: 'nist-csf-2' },
 		{ id: 'mitre-attack-technique-flat', label: 'MITRE ATT&CK techniques', ontology: 'mitre-attack' },
 		{ id: 'cis-controls-v8-controls', label: 'CIS Controls v8 (controls)', ontology: 'cis-v8' },
 	];
 
 	it('matches a punctuated folder name against a normalized ontology id', () => {
 		const match = findRecipeForOntologyName('NIST-CSF-2.0', registry);
-		expect(match?.id).toBe('nist-csf-2-cprt-hierarchical');
+		expect(match?.id).toBe('nist-csf-2-cprt-linked');
 	});
 
 	it('matches regardless of extra folder-name words', () => {

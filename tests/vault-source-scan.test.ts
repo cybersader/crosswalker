@@ -113,7 +113,7 @@ describe('peekJSON', () => {
 		expect(peeks).toEqual([{ table: '$.response.elements.elements[*]', rows: [[
 			'element_identifier', 'title', 'element_type', 'text',
 		]] }]);
-		const recipe = registryEntry('nist-csf-2-cprt-hierarchical');
+		const recipe = registryEntry('nist-csf-2-cprt-linked');
 		expect(scoreFilePeeks('Sources/synthetic.json', 'synthetic.json', peeks, [recipe])).toMatchObject({
 			entryId: recipe.id, table: '$.response.elements.elements[*]', score: 100,
 		});

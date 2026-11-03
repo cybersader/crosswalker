@@ -159,7 +159,7 @@ describe('demo:build', () => {
 			return yaml.load(text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)![1]) as Record<string, any>;
 		});
 		const techniques = notes.filter((n) => n.technique_id);
-		const tactics = notes.filter((n) => n.tactic_id);
+		const tactics = notes.filter((n) => n.kind === 'facet');
 		expect(techniques).toHaveLength(138);
 		expect(tactics).toHaveLength(8);
 		expect(techniques.filter((n) => n.tactic_ids.length > 1)).toHaveLength(41);
@@ -180,16 +180,22 @@ describe('demo:build', () => {
 				expect(note.parent).toBeUndefined();
 				expect(note.parent_curie).toBeUndefined();
 			}
-			expect(note.tactic_notes).toEqual(note.tactic_ids.map((id: string) => `[[${id}]]`));
-			for (const id of note.tactic_ids) {
+			for (const tactic of note.tactics) {
 				tacticLinks++;
-				expect(tactics.some((n) => n.tactic_id === id)).toBe(true);
-				expect(fs.existsSync(path.join(folder, `${id}.md`))).toBe(true);
+				const text = fs.readFileSync(path.join(folder, `${tactic}.md`), 'utf8');
+				const hub = yaml.load(text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)![1]) as Record<string, any>;
+				expect(hub.kind).toBe('facet');
+				expect(hub?.members).toContain(`[[${note.technique_id}]]`);
+				expect(fs.existsSync(path.join(folder, `${tactic}.md`))).toBe(true);
 			}
 		}
 		expect(parents).toBe(55);
 		expect(tacticLinks).toBe(191);
-		for (const note of tactics) expect(note._crosswalker.import_set.ontology).toBe('mitre-f3');
+		for (const note of tactics) {
+			expect(note._crosswalker.import_set.ontology).toBe('mitre-f3');
+			expect(note._crosswalker.import_set.id).toBe(techniques[0]._crosswalker.import_set.id);
+			expect(note.members).toEqual([...note.members].sort((a, b) => a.slice(2, -2).localeCompare(b.slice(2, -2))));
+		}
 		const license = fs.readFileSync(path.join(REPO, 'Frameworks/LICENSES/mitre-f3-LICENSE.txt'), 'utf8');
 		expect(fs.readFileSync(path.join(folder, 'LICENSE.txt'), 'utf8')).toBe(license);
 		// Markdown copy for hosts that refuse .txt: upstream text unchanged inside one fence.
@@ -198,8 +204,8 @@ describe('demo:build', () => {
 		expect(licenseMd).toContain(`\n\`\`\`text\n${license.replace(/\n$/, '')}\n\`\`\`\n`);
 		expect(licenseMd).not.toMatch(/^---/);
 		// IDs follow the deterministic random stream and occupied-id collision retries,
-		// not recipe hashes. Linked recipes keep the import order and set count.
-		expect(result.stdout).toContain('csf=iset-a0f1e2, sp80053=iset-0f6ht0, attack=iset-xskeb8, csfTo80053=iset-7z4lxm, csfToAttack=iset-if5214, evidence=iset-g3sec8, f3=iset-xfkz1i, f3Tactics=iset-juu0p7');
+		// not recipe hashes. The single F3 set now owns its tactic hubs, replacing the old companion set.
+		expect(result.stdout).toContain('csf=iset-a0f1e2, sp80053=iset-0f6ht0, attack=iset-xskeb8, csfTo80053=iset-7z4lxm, csfToAttack=iset-if5214, evidence=iset-g3sec8, f3=iset-xfkz1i');
 		const start = fs.readFileSync(path.join(out, 'Start here.md'), 'utf8');
 		expect(start).toContain('Frameworks/MITRE-F3/F1002.001.md');
 		expect(start).not.toContain('Fight Fraud Framework (sample');

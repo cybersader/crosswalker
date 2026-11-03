@@ -43,16 +43,16 @@ const WIZARD = '.crosswalker-wizard-modal';
 // that take no params inline the same literal (a serialized renderer callback
 // cannot close over an outer const).
 
-/** Capture the current focused state in dark mode, then restore the prior theme. */
-async function saveDarkScreenshot(fileName: string): Promise<void> {
+/** Capture the current focused state in one theme, then restore the prior theme. */
+async function saveThemeScreenshot(fileName: string, theme: 'dark' | 'light' = 'dark'): Promise<void> {
 	const previous = await browser.executeObsidian(() => ({
 		dark: document.body.classList.contains('theme-dark'),
 		light: document.body.classList.contains('theme-light'),
 	}));
-	await browser.executeObsidian(() => {
-		document.body.classList.remove('theme-light');
-		document.body.classList.add('theme-dark');
-	});
+	await browser.executeObsidian((_obs, value: unknown) => {
+		document.body.classList.remove('theme-light', 'theme-dark');
+		document.body.classList.add(`theme-${value as string}`);
+	}, theme);
 	await browser.pause(200);
 	await browser.saveScreenshot(path.join(OUT, fileName));
 	await browser.executeObsidian((_a, value: unknown) => {
@@ -140,7 +140,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 
 	it('recognizes a bundled-recipe source and leads with the trust card (spec §7m)', async () => {
 		// A NIST CSF 2.0 CPRT-shaped CSV — its columns match the bundled
-		// nist-csf-2-cprt-hierarchical recipe, so the wizard should hold on Step 1
+		// nist-csf-2-cprt-linked recipe, so the wizard should hold on Step 1
 		// and lead with the recognized-source card.
 		const CPRT_CSV = [
 			'element_identifier,title,element_type,text',
@@ -204,7 +204,11 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 			};
 		}, { csv: CPRT_CSV, wizard: WIZARD });
 		console.log('[recognized] card → ' + JSON.stringify(info));
-		await browser.saveScreenshot(path.join(OUT, 'wb-08-recognized.png'));
+		await browser.executeObsidian(() => {
+			document.querySelector('.crosswalker-recognized-card')?.scrollIntoView({ block: 'start' });
+		});
+		await saveThemeScreenshot('wb-08-recognized.png', 'light');
+		await saveThemeScreenshot('wb-08-recognized-dark.png');
 		expect(info.ok).toBe(true);
 		if (info.ok) {
 			expect(info.title).toContain('NIST CSF');
@@ -256,7 +260,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 			expect(review.hasRecap).toBe(true);
 			expect(review.badge).toContain('Built-in');
 			expect(review.provText.toLowerCase()).toContain('built-in configuration');
-			expect(review.recipeId).toBe('nist-csf-2-cprt-hierarchical');
+			expect(review.recipeId).toBe('nist-csf-2-cprt-linked');
 			expect(review.recipeBasedOn).toBe('');
 			expect(review.workbenchPresent).toBe(false);
 		}
@@ -298,8 +302,8 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 		await browser.saveScreenshot(path.join(OUT, 'wb-10-recognized-custom.png'));
 		expect(customized.ok).toBe(true);
 		if (customized.ok) {
-			expect(customized.recipeId).toBe('nist-csf-2-cprt-hierarchical-custom');
-			expect(customized.recipeBasedOn).toBe('nist-csf-2-cprt-hierarchical');
+			expect(customized.recipeId).toBe('nist-csf-2-cprt-linked-custom');
+			expect(customized.recipeBasedOn).toBe('nist-csf-2-cprt-linked');
 			expect(customized.badge).toContain('Custom');
 		}
 
@@ -646,7 +650,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 		});
 		await browser.pause(250);
 		await browser.saveScreenshot(path.join(OUT, 'wb-02c-connections.png'));
-		await saveDarkScreenshot('wb-02c-connections-dark.png');
+		await saveThemeScreenshot('wb-02c-connections-dark.png');
 		expect(connections.ok).toBe(true);
 		if (connections.ok) {
 			expect(connections.keys).toEqual(['children_lists', 'facet_notes', 'level_hubs']);
@@ -819,7 +823,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 		});
 		await browser.pause(250);
 		await browser.saveScreenshot(path.join(OUT, 'wb-02-evidence-card.png'));
-		await saveDarkScreenshot('wb-02-evidence-card-dark.png');
+		await saveThemeScreenshot('wb-02-evidence-card-dark.png');
 		expect(evidence.ok).toBe(true);
 		if (evidence.ok) {
 			expect(evidence.key).toContain('level-column-chain:');
@@ -1046,7 +1050,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 		});
 		await browser.pause(250);
 		await browser.saveScreenshot(path.join(OUT, 'wb-02b-column-chooser.png'));
-		await saveDarkScreenshot('wb-02b-column-chooser-dark.png');
+		await saveThemeScreenshot('wb-02b-column-chooser-dark.png');
 		await browser.executeObsidian(() => {
 			(document.querySelector('.crosswalker-wb-chooser-close') as HTMLButtonElement | null)?.click();
 		});
@@ -1061,7 +1065,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 		});
 		await browser.pause(250);
 		await browser.saveScreenshot(path.join(OUT, 'wb-03-shape-cards.png'));
-		await saveDarkScreenshot('wb-03-shape-cards-dark.png');
+		await saveThemeScreenshot('wb-03-shape-cards-dark.png');
 		await browser.executeObsidian(() => {
 			(document.querySelector('.crosswalker-wb-mapcard-toggle') as HTMLButtonElement | null)?.click();
 		});

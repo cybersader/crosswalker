@@ -1,0 +1,60 @@
+{
+  "$comment": "Recommended default, superseding nist-csf-2-cprt-hierarchical for a new CPRT CSF 2.0 set. Preserves the previous source predicate, ontology, full layout, row identity, managed properties and Description body. Adds sorted children lists and folder index notes, without hierarchy tags. The previous layout intentionally remains unchanged, including its repeated function folder for function rows and standalone implementation examples. See the previous recipe for source, rights and relationship-join limitations.",
+  "recipe": "nist-csf-2-cprt-linked",
+  "source": {
+    "ontology": "nist-csf-2",
+    "levels": [
+      "function",
+      "category",
+      "subcategory"
+    ],
+    "where": "$not(element_type in ['sort', 'party'])"
+  },
+  "target": {
+    "layout": [
+      {
+        "level": "function",
+        "mechanism": "folder",
+        "template": "{element_identifier|split(.,0)}"
+      },
+      {
+        "level": "category",
+        "mechanism": "folder",
+        "template": "{element_identifier|split(-,0)}"
+      },
+      {
+        "level": "subcategory",
+        "mechanism": "file",
+        "template": "{element_identifier|fs-safe}.md"
+      }
+    ],
+    "also_emit": {
+      "frontmatter": {
+        "managed": {
+          "csf_id": "{element_identifier}",
+          "function": "{element_identifier|split(.,0)}",
+          "category": "{element_identifier|split(-,0)}",
+          "level": "{element_type}"
+        },
+        "user_preserve": [
+          "reviewer",
+          "status",
+          "notes"
+        ]
+      },
+      "body": [
+        {
+          "template": "{text|trim}",
+          "position": "section",
+          "heading": "Description",
+          "heading_depth": 2,
+          "format": "text"
+        }
+      ]
+    },
+    "enrichment": {
+      "children_lists": true,
+      "level_hubs": "notes"
+    }
+  }
+}

@@ -150,10 +150,10 @@ describe('framework stack setup model', () => {
 it('keeps CSF stack slots on their CPRT source instead of retargeting them to the reference workbook', () => {
 	const connector = frameworkSlots(selection()).find((slot) => slot.ontology === CONNECTOR_ONTOLOGY)!;
 	const chosen = frameworkSlots(selection({ chosen: ['nist-csf-2'] }))[0];
-	expect(connector.entry.id).toBe('nist-csf-2-cprt-hierarchical');
+	expect(connector.entry.id).toBe('nist-csf-2-cprt-linked');
 	expect(connector.entry.signatureColumns).toContain('element_identifier');
 	expect(connector.entry.sourceLink?.url).toContain('cprt');
-	expect(chosen.entry.id).toBe('nist-csf-2-cprt-hierarchical');
+	expect(chosen.entry.id).toBe('nist-csf-2-cprt-linked');
 	const linkedWorkbook = RECIPE_REGISTRY.find((entry) => entry.id === 'nist-csf-2-linked')!;
 	expect(linkedWorkbook.signatureColumns).toContain('Subcategory');
 	expect(linkedWorkbook.signatureColumns).not.toContain('element_identifier');

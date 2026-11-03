@@ -25,6 +25,15 @@ const SET = 'iset-a0f1e2';
 const DEST = 'Frameworks/Synthetic';
 const entry = (id: string): RecipeRegistryEntry => RECIPE_REGISTRY.find((item) => item.id === id)!;
 const ROWS = {
+	'nist-csf-2-cprt-linked': [
+		{ element_identifier: 'GV.OC-01', element_type: 'subcategory', text: 'Synthetic first outcome' },
+		{ element_identifier: 'GV.OC-02', element_type: 'subcategory', text: 'Synthetic second outcome' },
+	],
+	'mitre-f3-technique-linked': [
+		{ 'Technique ID': 'F1001', Technique: 'Synthetic technique', Description: 'Synthetic prose', 'Tactic ID': 'FA0001, FA0002', 'Tactic Name': 'Synthetic tactic, Singleton tactic' },
+		{ 'Technique ID': 'F1001.002', Technique: 'Synthetic child two', Description: 'Synthetic prose', 'Tactic ID': 'FA0001', 'Tactic Name': 'Synthetic tactic' },
+		{ 'Technique ID': 'F1001.001', Technique: 'Synthetic child one', Description: 'Synthetic prose', 'Tactic ID': 'FA0001', 'Tactic Name': 'Synthetic tactic' },
+	],
 	'nist-csf-2-linked': [
 		{ Subcategory: 'GV.OC-01: Synthetic first outcome', 'Implementation Examples': 'Synthetic example' },
 		{ Subcategory: 'GV.OC-02: Synthetic second outcome', 'Implementation Examples': '' },
@@ -40,6 +49,8 @@ const ROWS = {
 	],
 };
 const PREVIOUS = {
+	'nist-csf-2-cprt-linked': 'nist-csf-2-cprt-hierarchical',
+	'mitre-f3-technique-linked': 'mitre-f3-technique-flat',
 	'nist-csf-2-linked': 'nist-csf-2-flat',
 	'nist-800-53-linked': 'nist-800-53-r5-nested',
 	'mitre-attack-technique-linked': 'mitre-attack-technique-flat',
@@ -94,7 +105,8 @@ describe.each(IDS)('%s', (id) => {
 		}
 		const extras = linkedNotes.filter((note) => !oldNotes.some((old) => old.curie === note.curie));
 		if (id === 'nist-csf-2-linked') expect(extras.map((note) => note.curie).sort()).toEqual(['nist-csf-2:GV', 'nist-csf-2:GV.OC', 'nist-csf-2:hub/_root']);
-		else if (id === 'mitre-attack-technique-linked') expect(extras.map((note) => note.kind)).toEqual(['facet']);
+		else if (id === 'mitre-attack-technique-linked' || id === 'mitre-f3-technique-linked') expect(extras.map((note) => note.kind)).toEqual(['facet']);
+		else if (id === 'nist-csf-2-cprt-linked') expect(extras.every((note) => note.kind === 'hub')).toBe(true);
 		else expect(extras.map((note) => note.curie)).toEqual(['nist-800-53:hub/_root']);
 	});
 
@@ -183,6 +195,36 @@ describe.each(['wizard', 'headless'] as const)('historical normalized added rows
 });
 
 describe('linked navigation', () => {
+	it('preserves the CPRT layout and selection, adding sorted children and folder indexes without tags', async () => {
+		const current = entry('nist-csf-2-cprt-linked').recipe;
+		const previous = entry('nist-csf-2-cprt-hierarchical').recipe;
+		expect(current.source).toEqual(previous.source);
+		expect(current.target.layout).toEqual(previous.target.layout);
+		expect(current.target.also_emit).toEqual(previous.target.also_emit);
+		const vault = await imported('nist-csf-2-cprt-linked', source('nist-csf-2-cprt-linked'));
+		const all = notes(vault);
+		expect(all.get(`${DEST}/GV/GV.OC/GV.OC.md`)!.children).toEqual(['[[GV.OC-01]]', '[[GV.OC-02]]']);
+		for (const hub of ['GV/GV.md', 'GV/GV.OC/GV.OC.md']) {
+			expect(fs.readFileSync(path.join(vault, DEST, hub), 'utf8')).toContain('## Contents');
+		}
+		for (const note of all.values()) expect(note).not.toHaveProperty('tags');
+	});
+
+	it('derives F3 parents from dotted IDs and lists techniques on raw-named tactic hubs', async () => {
+		const vault = await imported('mitre-f3-technique-linked', source('mitre-f3-technique-linked'));
+		const all = notes(vault);
+		const parent = all.get(`${DEST}/F1001.md`)!;
+		expect(parent).not.toHaveProperty('parent');
+		expect(parent.children).toEqual(['[[F1001.001]]', '[[F1001.002]]']);
+		const child = all.get(`${DEST}/F1001.001.md`)!;
+		expect(child.parent).toBe('[[F1001]]');
+		expect(child.parent_curie).toBe(parent.curie);
+		const hubs = [...all].filter(([, note]) => note.kind === 'facet');
+		expect(hubs).toHaveLength(1);
+		expect(hubs[0][0]).toBe(`${DEST}/Synthetic tactic.md`);
+		expect(hubs[0][1].members).toEqual(['[[F1001]]', '[[F1001.001]]', '[[F1001.002]]']);
+	});
+
 	it('intentionally retains the existing hub/_root CURIE for level indexes', async () => {
 		for (const id of ['nist-csf-2-linked', 'nist-800-53-linked'] as const) {
 			const all = [...notes(await imported(id, source(id))).values()];
@@ -249,12 +291,14 @@ describe('linked navigation', () => {
 			.toEqual([`${DEST}/A.md`, `${DEST}/B.md`]);
 	});
 
-	it('uses the same raw facet membership authority on the wizard and CLI paths', async () => {
-		const id = 'mitre-attack-technique-linked';
+	it.each(['mitre-attack-technique-linked', 'mitre-f3-technique-linked'] as const)('uses the same raw facet membership authority on the wizard and CLI paths: %s', async (id) => {
 		const recipe = entry(id).recipe as unknown as Recipe;
-		expect(deriveRecipeFacetMemberships(recipe, ROWS[id][0])).toEqual([
+		expect(deriveRecipeFacetMemberships(recipe, ROWS[id][0])).toEqual(id === 'mitre-attack-technique-linked' ? [
 			{ namespace: 'mitre-attack/tactic', value: 'Command and Control' },
 			{ namespace: 'mitre-attack/tactic', value: 'Discovery' },
+		] : [
+			{ namespace: 'mitre-f3/tactic', value: 'Synthetic tactic' },
+			{ namespace: 'mitre-f3/tactic', value: 'Singleton tactic' },
 		]);
 		const cliVault = await imported(id, source(id));
 		const uiVault = tempDir('linked-ui');
@@ -312,7 +356,7 @@ describe('linked navigation', () => {
 
 describe('recommended selection is additive', () => {
 	it('ranks successors first, labels previous defaults, and auto-applies only the recommendation', () => {
-		for (const id of ['nist-csf-2-linked', 'mitre-attack-technique-linked']) {
+		for (const id of ['nist-csf-2-linked', 'mitre-attack-technique-linked', 'nist-csf-2-cprt-linked', 'mitre-f3-technique-linked']) {
 			const previous = entry(PREVIOUS[id as Linked]);
 			const columns = [...new Set([...entry(id).signatureColumns, ...previous.signatureColumns])];
 			const ranked = findRecognizedRecipes(columns);
@@ -356,8 +400,8 @@ describe('recommended selection is additive', () => {
 
 	it('uses linked stack defaults, but generic 800-53 discovery remains flat only', () => {
 		const slots = frameworkSlots(DEFAULT_STACK_SELECTION);
-		for (const id of IDS.filter((id) => id !== 'nist-csf-2-linked')) expect(slots.some((slot) => slot.entry.id === id)).toBe(true);
-		expect(slots.find((slot) => slot.role === 'connector')?.entry.id).toBe('nist-csf-2-cprt-hierarchical');
+		for (const id of ['nist-800-53-linked', 'mitre-attack-technique-linked']) expect(slots.some((slot) => slot.entry.id === id)).toBe(true);
+		expect(slots.find((slot) => slot.role === 'connector')?.entry.id).toBe('nist-csf-2-cprt-linked');
 		const ids = findRecognizedRecipes(entry('nist-800-53-linked').signatureColumns).map((match) => match.entry.id);
 		expect(ids).toContain('nist-800-53-r5-flat');
 		expect(ids).not.toContain('nist-800-53-linked');
@@ -369,6 +413,18 @@ describe('recommended selection is additive', () => {
 	it('does not guess another ontology or show a duplicate-set notice for previous defaults', () => {
 		expect(existingFrameworkNotice(entry('nist-csf-2-linked'), [{ ontology: 'other' }])).toBeNull();
 		expect(existingFrameworkNotice(entry('nist-csf-2-flat'), [{ ontology: 'nist-csf-2' }])).toBeNull();
+	});
+
+	it.each(['mitre-f3-technique-linked', 'nist-csf-2-cprt-linked'])('%s adds no score-100 match on unrelated fixture sheets', (id) => {
+		const candidate = entry(id);
+		const previous = entry(PREVIOUS[id as Linked]);
+		expect(matchScore(candidate, previous.signatureColumns)).toBe(100);
+		// Identical recognition inputs prove equal scores on every sheet, not only this corpus.
+		expect([...candidate.signatureColumns].sort()).toEqual([...previous.signatureColumns].sort());
+		expect([...candidate.requiredColumns].sort()).toEqual([...previous.requiredColumns].sort());
+		for (const other of RECIPE_REGISTRY.filter((item) => item.ontology !== candidate.ontology)) {
+			expect(matchScore(candidate, other.signatureColumns)).toBeLessThan(100);
+		}
 	});
 
 	it('D3FEND has no score-100 collision across existing held-sheet signature fixtures', () => {

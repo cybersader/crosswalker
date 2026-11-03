@@ -3,9 +3,9 @@
  *
  *   CW_CH46=1 DISPLAY=:0 bun run e2e -- --spec tests/e2e/ch46-unfiltered-cprt.spec.ts
  *
- * Separate from ch46-unfiltered-source.spec.ts so the two CPRT imports (679
- * notes each) get their own Obsidian session rather than piling onto the XLSX
- * cases in one renderer. No screenshots here either.
+ * Separate from ch46-unfiltered-source.spec.ts so the three CPRT imports (679
+ * concepts each, plus linked indexes) get their own Obsidian session rather than
+ * piling onto the XLSX cases in one renderer. No screenshots here either.
  *
  * The CPRT export is the widest of the five: 906 elements of seven kinds, of
  * which 225 `sort` and 2 `party` are navigation scaffolding rather than
@@ -27,12 +27,13 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import cprtRecipe from '../../recipes/import/nist-csf-2-cprt.json';
 import cprtHierarchicalRecipe from '../../recipes/import/nist-csf-2-cprt-hierarchical.json';
+import cprtLinkedRecipe from '../../recipes/import/nist-csf-2-cprt-linked.json';
 import { requireFrontmatterIndexed } from './helpers/vault-readiness';
 
 const RUN = process.env.CW_CH46 === '1';
 const describeCh46 = RUN ? describe : describe.skip;
 
-const CORPUS = path.resolve(__dirname, '..', '..', 'Frameworks', 'cprt_CSF_2_0_0_06-01-2026.json');
+const CORPUS = process.env.CW_CH46_CPRT_SOURCE ?? path.resolve(__dirname, '..', '..', 'Frameworks', 'cprt_CSF_2_0_0_06-01-2026.json');
 const SOURCE_FILE_NAME = 'cprt_CSF_2_0_0_06-01-2026.json';
 const ITERATOR = '$.response.elements.elements[*]';
 
@@ -106,7 +107,9 @@ describeCh46('Ch 46 — a recipe points at its own unfiltered source (CPRT JSON)
 		expect(sortAndPartyIds.length).toBe(EXPECTED_EXCLUDED);
 		expect(conceptIds.length).toBe(EXPECTED_KEPT);
 		expect((cprtRecipe as any).source.where).toBe("$not(element_type in ['sort', 'party'])");
-		expect((cprtHierarchicalRecipe as any).source.where).toBe("$not(element_type in ['sort', 'party'])");
+		for (const recipe of [cprtHierarchicalRecipe, cprtLinkedRecipe]) {
+			expect(recipe.source.where).toBe("$not(element_type in ['sort', 'party'])");
+		}
 	});
 
 	it('flat CPRT: all 906 elements in, exactly the 679 concept notes out', async () => {
@@ -154,39 +157,61 @@ describeCh46('Ch 46 — a recipe points at its own unfiltered source (CPRT JSON)
 		expect(written).toEqual([...conceptIds].sort());
 	});
 
-	it('hierarchical CPRT, via the native recipe entry point: same 906 in, same 679 out', async () => {
-		const destination = 'Frameworks/ch46-cprt-hierarchical-unfiltered';
-		expect(await clearDestination(destination)).toBe(true);
+	for (const [variant, recipe, hubCount] of [
+		['hierarchical', cprtHierarchicalRecipe, 0], ['linked', cprtLinkedRecipe, 17],
+	] as const) {
+		it(`${variant} CPRT via native recipe: 906 in, 679 concepts and ${hubCount} indexes out`, async () => {
+			// Reuse a cleared destination so independent native cases cannot collide
+			// with the preceding case's fallback row identities.
+			const destination = 'Frameworks/ch46-cprt-native-unfiltered';
+			expect(await clearDestination(destination)).toBe(true);
 
-		// runImportFromRecipe → generateFromRecipe: the OTHER entry point the
-		// source stage was wired into.
-		const generation = await browser.executeObsidian(async ({ app }, args) => {
-			// @ts-expect-error - Crosswalker E2E API
-			const plugin = app.plugins.plugins['crosswalker'];
-			return plugin.runImportFromRecipe(
-				{
-					columns: args.columns, rows: args.rows, rowCount: args.rows.length,
-					source: { type: 'json' }, iterator: args.iterator,
-				},
-				args.recipe,
-				{
-					basePath: args.destination, overwriteMode: 'replace', createFolders: true,
-					strictValidation: true, sourceFileName: args.sourceFileName,
-				},
-			);
-		}, { columns, rows, recipe: cprtHierarchicalRecipe, destination, sourceFileName: SOURCE_FILE_NAME, iterator: ITERATOR });
+			// runImportFromRecipe → generateFromRecipe: the OTHER entry point the
+			// source stage was wired into.
+			const generation = await browser.executeObsidian(async ({ app }, args) => {
+				// @ts-expect-error - Crosswalker E2E API
+				const plugin = app.plugins.plugins['crosswalker'];
+				return plugin.runImportFromRecipe(
+					{
+						columns: args.columns, rows: args.rows, rowCount: args.rows.length,
+						source: { type: 'json' }, iterator: args.iterator,
+					},
+					args.recipe,
+					{
+						basePath: args.destination, overwriteMode: 'replace', createFolders: true,
+						strictValidation: true, sourceFileName: args.sourceFileName,
+					},
+				);
+			}, { columns, rows, recipe, destination, sourceFileName: SOURCE_FILE_NAME, iterator: ITERATOR });
 
-		expect(generation.errors ?? []).toEqual([]);
-		expect(generation.success).toBe(true);
-		expect(generation.created.length).toBe(EXPECTED_KEPT);
+			expect(generation.errors ?? []).toEqual([]);
+			expect(generation.success).toBe(true);
+			expect(generation.created.length).toBe(EXPECTED_KEPT + hubCount);
 
-		await requireFrontmatterIndexed({
-			pathPrefixes: destination, expectedCount: EXPECTED_KEPT,
-			requireKeys: ['curie', '_crosswalker'], timeoutMs: 300_000, pollMs: 200,
+			await requireFrontmatterIndexed({
+				pathPrefixes: destination, expectedCount: EXPECTED_KEPT + hubCount,
+				requireKeys: ['curie', '_crosswalker'], timeoutMs: 300_000, pollMs: 200,
+			});
+
+			const written = await basenamesUnder(destination);
+			expect(written.length).toBe(EXPECTED_KEPT + hubCount);
+			expect(written.filter((name) => sortAndPartyIds.includes(name))).toEqual([]);
+			const navigation = await browser.executeObsidian(({ app }, root) => {
+				const records = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(`${root}/`))
+					.map((f) => app.metadataCache.getFileCache(f)?.frontmatter);
+				const gvHub = app.vault.getFileByPath(`${root}/GV/GV.md`);
+				return {
+					concepts: records.filter((fm) => fm?.csf_id).map((fm) => fm!.csf_id).sort(),
+					hubs: records.filter((fm) => fm?.kind === 'hub').length,
+					gvChildren: gvHub ? app.metadataCache.getFileCache(gvHub)?.frontmatter?.children ?? [] : [],
+				};
+			}, destination);
+			expect(navigation.concepts).toEqual([...conceptIds].sort());
+			expect(navigation.hubs).toBe(hubCount);
+			expect([...navigation.gvChildren].sort()).toEqual((variant === 'linked' ? [
+				`[[${destination}/GV/GV/GV|GV]]`,
+				'[[GV.OC]]', '[[GV.OV]]', '[[GV.PO]]', '[[GV.RM]]', '[[GV.RR]]', '[[GV.SC]]',
+			] : []).sort());
 		});
-
-		const written = await basenamesUnder(destination);
-		expect(written.length).toBe(EXPECTED_KEPT);
-		expect(written.filter((name) => sortAndPartyIds.includes(name))).toEqual([]);
-	});
+	}
 });

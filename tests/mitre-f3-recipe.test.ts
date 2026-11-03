@@ -78,7 +78,7 @@ describe('recognition', () => {
 	it('recognizes the F3 techniques shape confidently as F3', () => {
 		expect(matchScore(entry('mitre-f3-technique-flat'), parsed.columns)).toBe(100);
 		const best = bestRecognizedRecipe(parsed.columns);
-		expect(best?.entry.id).toBe('mitre-f3-technique-flat');
+		expect(best?.entry.id).toBe('mitre-f3-technique-linked');
 		expect(best!.score).toBeGreaterThanOrEqual(CONFIDENT_MATCH_THRESHOLD);
 	});
 
