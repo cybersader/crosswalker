@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: developer tooling (2026-11-02)
+
+- `bun run hygiene:branches` reports merged branches, stale unmerged work and worktree state after fetching/pruning origin. Opt-in `--apply` removes only ancestry-merged local branches and clean, unlocked worktrees with known activity at least 24 hours old, honors per-user keep entries and writes a tip-only restore manifest in the primary checkout. Recent or unknown activity, hidden index flags, ignored scratch files and in-progress operations are retained. A weekly read-only CI report and session-end branch/worktree rules prevent another backlog.
+
 ### Added: linked recommended defaults for NIST CSF 2.0, SP 800-53 and ATT&CK (2026-11-02)
 
 - Three new import recipes build each framework as a connected graph rather than a bare folder tree: `nist-csf-2-linked`, `nist-800-53-linked` and `mitre-attack-technique-linked` in `recipes/import/`. Each one writes the hierarchy once, links every note to its parent using the dotted or parent ID, and adds hub notes for shared facets such as ATT&CK tactics. The design spec is `.workspace/2026-11-02-framework-recommended-defaults-spec.md`.
