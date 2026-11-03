@@ -1,0 +1,32 @@
+name: Branch hygiene report
+
+on:
+  schedule:
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Report mode fetches/prunes remote-tracking refs, but never removes a
+      # local branch/worktree, pushes, or writes a restore manifest.
+      # Credential-less fetch relies on this repository being public.
+      - name: Report merged branches and worktree state
+        shell: bash
+        run: |
+          set +e
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          node scripts/branch-hygiene.mjs 2>&1 | tr -d '`' >> "$GITHUB_STEP_SUMMARY"
+          result=${PIPESTATUS[0]}
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit "$result"
