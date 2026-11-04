@@ -5,7 +5,7 @@
 <h1 align="center">Crosswalker</h1>
 
 <p align="center">
-  <strong>Turn your Obsidian vault into an operational GRC knowledge graph.</strong>
+  <strong>Your frameworks, connected and usable in Obsidian.</strong>
 </p>
 
 <p align="center">
@@ -15,181 +15,91 @@
   <a href="https://obsidian.md"><img src="https://img.shields.io/badge/Obsidian-plugin-7c3aed?style=flat-square" alt="Obsidian" /></a>
 </p>
 
----
+Import whole frameworks as plain Markdown notes. Open the Obsidian graph to explore their hierarchies as connected clusters, with crosswalk mappings linking controls across frameworks.
 
-Crosswalker helps GRC teams bring frameworks into [Obsidian](https://obsidian.md), shape them into useful notes, connect controls and evidence, and understand coverage in plain Markdown. Portable import rules, crosswalk mappings, and saved queries keep the work reusable by people and automation. It's built for GRC first and works for any structured framework or taxonomy: the one-click imports that ship today are all compliance sources, but nothing in the note format is compliance-specific, so a standards catalog, skills matrix, or product hierarchy goes through the same guided import ([why the core stays domain-neutral](https://cybersader.github.io/crosswalker/concepts/what-makes-crosswalker-unique/#5-domain-neutral-core-grc-first-launch-surfaces)).
+**The connections are not just for looks.** Browse which controls map to each other, link your evidence, and use Obsidian Bases views and coverage reports to see what is connected and where evidence is missing. Save the import setup, refresh it when the source changes, and use scripts or agents to manage repeatable work.
 
-> Today, Crosswalker focuses on guided import, flexible note layouts, connected controls, and queryable output. Comprehensive community sharing and long-term framework update workflows are [roadmap direction](https://cybersader.github.io/crosswalker/reference/roadmap/), not shipped features.
+Built for compliance and GRC teams working with NIST, MITRE ATT&CK, CIS and other frameworks. Built-in recipes handle recognized publisher exports; guided import handles your own structured sources, including licensed ISO material you are entitled to use.
 
-## How it works
+[Documentation](https://cybersader.github.io/crosswalker/) · [Quick start](#quick-start) · [Framework downloads](https://cybersader.github.io/crosswalker/reference/framework-data-sources/)
 
-```
-  ┌─ 1. IMPORT ───────────────────────────────────────────┐
-  │                                                       │
-  │   CSV, XLSX, JSON, and structured framework exports   │
-  │   from NIST, ISO, CIS, MITRE, or your own sources.    │
-  │                                                       │
-  │     ▼                                                 │
-  │   Import workspace: choose which columns become       │
-  │   folders / headings / tags / wikilinks / properties. │
-  │   Save the setup and reuse it with similar files.     │
-  └────────────────────────┬──────────────────────────────┘
-                           ▼
-  ┌─ 2. VAULT ────────────────────────────────────────────┐
-  │                                                       │
-  │   Ontologies/Frameworks/                              │
-  │     NIST 800-53 r5/                                   │
-  │       AC/                                             │
-  │         AC-2.md  ─── crosswalk ───┐                   │
-  │     ISO 27001/                    │ typed link        │
-  │       A.9.2.1.md  ◄───────────────┘ + edge metadata   │
-  │                                     (predicate,       │
-  │   Evidence/                          coverage,        │
-  │     MFA-Policy.md ─ covers ──► AC-2, A.9.2.1, …       │
-  │                                                       │
-  │   Plain markdown · YAML frontmatter · git-friendly    │
-  └────────────────────────┬──────────────────────────────┘
-                           ▼
-  ┌─ 3. USE ──────────────────────────────────────────────┐
-  │                                                       │
-  │   Bases, Obsidian search, AI agents:                  │
-  │                                                       │
-  │     "Show all evidence covering AC-2"                 │
-  │     "Which ISO controls map to NIST AC family?"       │
-  │     "Coverage gaps across our frameworks"             │
-  │                                                       │
-  └───────────────────────────────────────────────────────┘
-```
+> **Prerelease.** This README describes the current `main` branch, including work newer than the downloadable release. See [Status](#status) before choosing a build. Try it in a test vault first.
 
-The same source can land as a deep folder tree, a single document with nested headings, a flat tag-indexed collection, or a hybrid. Pick the shape your team works in. Each note gets YAML properties, WikiLinks for cross-references, and, where configured, typed relationships for crosswalks and evidence.
+## What you can do
 
-## Features
+| Goal | What Crosswalker provides |
+|---|---|
+| **Bring frameworks together** | Import CSV, Excel and JSON files individually, or use **Set up a framework stack** to bring in several frameworks and their available mappings in one guided run. |
+| **Make the graph useful** | Linked recipes create parent/child navigation and shared hub notes. Color the graph by framework, then use **Explore framework connections** to inspect recorded mappings between selected frameworks. |
+| **Choose your note layout** | Preview folders, notes, headings, tags, properties and links before writing. Use a built-in recipe or customize how your source becomes a vault. |
+| **Find coverage and gaps** | Create saved Bases views and cross-framework pivot tables. Link evidence to controls and generate an evidence coverage report that includes controls without valid evidence. |
+| **Keep large mapping sets manageable** | Store mappings as individual notes or one compact table. Review table rows individually or in bulk, and convert between the two storage choices. |
+| **Refresh without starting over** | Explicitly choose the existing import to refresh. Update imported fields while keeping your own properties and text outside generated sections. |
+| **Reuse and share the setup** | Save an import as a recipe, export it for a teammate, or choose **Run again** and supply the source file. Recipes do not include your source data. |
+| **Take your work elsewhere** | Keep editable Markdown files, export framework data as CSV, and export crosswalk mappings as tables. CSV export uses the import recipe and reports columns it cannot reconstruct. |
 
-| | Feature | Details |
-|---|---|---|
-| :zap: | **Import workspace** | A dedicated workspace tab walks you from file to review screen; recognized sources get a one-click fast path — NIST CSF 2.0, NIST SP 800-53 Rev 5, CIS Controls v8, MITRE ATT&CK techniques, MITRE Fight Fraud Framework (F3) techniques, CRI Profile 2.2, SCF 2026, and OLIR-style crosswalk files — and everything else goes through guided column mapping or a live shape-mapping workbench (beta) |
-| :bar_chart: | **Smart parsing** | CSV, XLSX, and JSON sources — CSV streaming for files over 5 MB, column type auto-detection |
-| :file_folder: | **Flexible layouts** | Combine folders, headings, tags, and WikiLinks in one set of import rules. The same source can produce a deep folder tree, a flat tag-indexed collection, or a hybrid |
-| :link: | **Typed links** | WikiLinks with metadata for crosswalk relationships and evidence links. Capture not just "AC-2 maps to ISO A.9.2.1" but how, by whom, and how complete |
-| :gear: | **Saved setups** | Save, load, and auto-match source-bound setups for similar files |
-| :mag: | **Queryable output** | Works with [Obsidian Bases](https://cybersader.github.io/crosswalker/concepts/metadata-ecosystem/) or plain search — plain-text frontmatter means no lock-in |
-| :test_tube: | **Debug logging** | Toggle logging to a vault file for troubleshooting |
+**Graph or fewer files?** Choose mapping **Notes** for native graph connections, backlinks and Bases views. Choose **Table** for fewer files and a searchable review grid; its individual mappings do not appear in those native views. Crosswalker reads existing mappings, not proof that two controls are equivalent or that your organization is compliant.
 
 ## Quick start
 
-### Install (manual — community plugins coming soon)
+### Install
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/cybersader/crosswalker/releases)
-2. Create `your-vault/.obsidian/plugins/crosswalker/`
-3. Copy the three files in
-4. Enable in **Settings > Community plugins**
+Requires **Obsidian 1.10.0 or newer**. Enable the built-in **Bases** plugin for query views. Desktop is the current testing focus; mobile use is not yet verified.
 
-### Import a framework
+1. Download `main.js`, `manifest.json` and `styles.css` from a [GitHub release](https://github.com/cybersader/crosswalker/releases).
+2. Put them in your vault's `.obsidian/plugins/crosswalker/` folder.
+3. Reload Obsidian and enable **Crosswalker** under **Settings > Community plugins**.
 
-1. Open the **Crosswalker workspace tab** (ribbon icon, status bar, or `Ctrl/Cmd + P` > **Crosswalker: Start here: open workspace**)
-2. Select your CSV, XLSX, or JSON file — recognized sources offer a one-click fast path
-3. Map columns: hierarchy levels, frontmatter properties, links, body
-4. Review the destination, shape map, and stats
-5. Generate
+Crosswalker is not yet in the community plugin directory. See the [installation guide](https://cybersader.github.io/crosswalker/getting-started/installation/) for BRAT and manual installation, or [development setup](https://cybersader.github.io/crosswalker/development/setup/) to build current `main`.
 
-### What you get
+### Start with a connected stack
 
-A note like `AC-2.md`:
+1. Open the command palette and run **Crosswalker: Set up a framework stack**.
+2. Pick the frameworks you need. Keep the **Standard** profile for every available framework level as notes and one note per mapping.
+3. Follow the publisher download checklist, then add the files. The wizard shows which mappings connect your selections; you supply any required licensed files.
+4. Review the destinations and file counts, then import. Frameworks are created before their mappings.
+5. On current `main`, run **Crosswalker: Configure framework graph**, follow its preview and apply instructions, then open Graph view. Use **Crosswalker: Explore framework connections** to inspect the links, not just their appearance.
 
-```yaml
----
-curie: "nist-800-53:AC-2"
-title: Account Management
-aliases:
-  - AC-2
-tags:
-  - framework/nist-800-53/ac
-family: AC
-family_name: Access Control
-control_id: AC-2
-parent: "[[AC]]"
-_crosswalker:
-  spec_version: "https://crosswalker.dev/spec/tier1.schema.json"
-  source_ref:
-    file: nist-800-53.csv
-  produced_at: "2026-07-25T00:00:00.000Z"
-  producer:
-    kind: plugin-engine
-    name: crosswalker
----
+**Only importing one file?** Run **Crosswalker: Start here: import structured data**, pick your CSV, Excel or JSON file, and accept a recognized configuration or map the columns yourself. Preview the output before generating. Choose **Save as recipe** to reuse your setup.
+
+[Full walkthrough](https://cybersader.github.io/crosswalker/getting-started/quick-start/) · [Publisher files and supported formats](https://cybersader.github.io/crosswalker/reference/framework-data-sources/)
+
+## How it works
+
+1. **Source files + a recipe.** Your framework export supplies the content; the recipe says how it becomes notes, properties and links.
+2. **A connected vault.** Framework notes retain their source identity. Mapping notes connect controls across frameworks; evidence links connect your documents to controls.
+3. **Views and repeatable updates.** Explore the graph, query with Bases, review coverage, or rerun an import against the same set of notes.
+
+Your notes remain ordinary files you can read, edit, back up and version with Git. You decide when to refresh and which import to update; Crosswalker does not silently replace an existing framework with a newly selected source.
+
+## CLI and agents
+
+The `cw` command-line tool runs against a vault folder **without opening Obsidian**, using the plugin's import and export code. It supports imports, refreshes, replay with the kept recipe revision, validation, exports and inspection of framework connections.
+
+From a clone of this repository, install dependencies with `bun install`. Example commands, with your own vault, source and exported recipe paths:
+
+```sh
+bun run cw -- recipes
+bun run cw -- import --vault ./my-vault --source ./controls.csv --recipe ./recipe.json
+bun run cw -- validate --vault ./my-vault
+bun run cw -- help
 ```
 
-All configuration (output path, key naming, array handling, link syntax, matching sensitivity) lives in **Settings > Crosswalker**.
+Scripts and agents can work with explicit files and recipes; CI can check the generated notes using validation exit codes. No agent service is required. **Not every UI action has a CLI equivalent yet**: stack setup, saved-query creation and recipe-library management still use the plugin. See the [UI and CLI coverage table](https://cybersader.github.io/crosswalker/reference/ui-cli-parity/) for supported commands and tracked gaps.
 
-## Framework files and recipes
+## Status
 
-Need a NIST, CIS, MITRE, CRI, or SCF source file? Start with the [framework data sources guide](https://cybersader.github.io/crosswalker/reference/framework-data-sources/) for publisher links, licence cautions, and import gotchas. The [Crosswalker recipes repository](https://github.com/cybersader/crosswalker-recipes) is where contributors can propose recipes for additional structured sources; the recipes shipped with the plugin remain in [`recipes/import/`](https://github.com/cybersader/crosswalker/tree/main/recipes/import).
+**Status last verified: 2026-11-04**, against the code and [CHANGELOG](CHANGELOG.md). The latest published prerelease is **0.1.6**; current `main` also includes newer linked framework defaults, graph tools, recipe reuse and command-line workflows. A release download does not necessarily include everything described above.
 
-## Roadmap
+Active development continues toward v0.1. Broader framework-version migration and a community sharing registry are **planned**, not current promises. See the [roadmap](https://cybersader.github.io/crosswalker/reference/roadmap/) for direction and [CHANGELOG](CHANGELOG.md) for delivered changes.
 
-Architecture decisions come first, features are built on that foundation. Full roadmap with linked rationale: **[docs/roadmap](https://cybersader.github.io/crosswalker/reference/roadmap/)**
+## Documentation and contributing
 
-| Phase | Focus | Status |
-|---|---|---|
-| **v0.1** | Import wizard (CSV/XLSX/JSON), config system, generation engine, fast embedded-SQLite query cache, docs site | 🚧 In progress |
-| **v0.2** | Additional starter configurations, tag-based and wikilink-based layouts | Planned |
-| **v0.5** | Optional external Python helper for messy spreadsheets and large datasets (desktop only) | Planned |
-| **v1.0** | Shareable framework registry, OSCAL export, crosswalk dashboards, framework version tracking | Planned |
-
-## Python tool
-
-The original Python CLI (`frameworks_to_obsidian.py`) is also included for batch-importing cybersecurity frameworks (NIST 800-53, CSF v2, CIS v8, MITRE ATT&CK/D3FEND/ENGAGE, CRI Profile) with crosswalk linking.
-
-```bash
-pip install -r requirements.txt
-python frameworks_to_obsidian.py
-```
-
-## Related projects
-
-Crosswalker fits alongside a few other tools that all aim at making Obsidian a serious knowledge platform:
-
-| Project | Role | Link |
-|---|---|---|
-| **SEACOW** | Meta-framework for organizing knowledge inside Obsidian — folder + parallel tag hierarchies, naming conventions, and curation patterns. Crosswalker import rules can default to the SEACOW dual-emit pattern (folders for canonical path, tags for cross-cutting facets). | [cybersader/seacowr-knowledge-platform-meta-framework](https://github.com/cybersader/seacowr-knowledge-platform-meta-framework) |
-| **folder-tag-sync** | Obsidian plugin that bidirectionally synchronizes folder hierarchy with tag hierarchy via regex rules. Pairs naturally with Crosswalker's dual-output import rules. Crosswalker generates the initial folder + tag layout; folder-tag-sync keeps them in sync as you refactor by hand. | [cybersader/obsidian-folder-tag-sync](https://github.com/cybersader/obsidian-folder-tag-sync) |
-
-## Documentation
-
-**https://cybersader.github.io/crosswalker/** — 100+ pages covering features, GRC use cases, design decisions, reference material, and development logs.
-
-Found an error? Click **Edit page** on any docs page, or see the [contributing guide](https://cybersader.github.io/crosswalker/development/contributing/).
-
-```bash
-# Run docs locally
-cd docs && bun install && bun run dev
-```
-
-## Development
-
-From the repo root, use the **local dev orchestrator** — an interactive menu wrapping every workflow (docs dev, plugin watch, Tailscale/Cloudflare sharing, Playwright tests):
-
-```bash
-bun install              # Install plugin dependencies
-bun run serve            # Interactive menu (docs dev, plugin watch, etc.)
-bun run serve:docs       # Docs dev server on :14321
-bun run serve:plugin     # Plugin watch build → test-vault
-bun run serve:both       # Both in parallel
-```
-
-Or raw commands:
-
-```bash
-bun run dev              # Plugin watch mode (outputs to test-vault)
-bun run build            # Plugin production build (type-check + bundle)
-bun run test             # Plugin unit tests
-bun run lint             # Plugin lint (required for community plugin submission)
-
-cd docs && bun run test:local   # Docs Playwright E2E tests
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions (including the MDX inline-SVG kebab-case gotcha) and the [docs contributing page](https://cybersader.github.io/crosswalker/development/contributing/) for the log / challenge / roadmap / decision lifecycle that new research follows.
+- [Documentation](https://cybersader.github.io/crosswalker/): walkthroughs, framework source guides and reference material.
+- [Contributing](CONTRIBUTING.md) and [development guide](https://cybersader.github.io/crosswalker/development/contributing/): fixes, tests, documentation and recipes are welcome.
+- [Built-in recipes](recipes/import/) and [community recipes repository](https://github.com/cybersader/crosswalker-recipes): inspect existing setups or propose another source.
+- Related projects: [SEACOW](https://github.com/cybersader/seacowr-knowledge-platform-meta-framework) for vault organization and [folder-tag-sync](https://github.com/cybersader/obsidian-folder-tag-sync) for keeping folders and tags aligned.
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+Crosswalker is [MIT licensed](LICENSE). Frameworks and mapping files retain their publishers' licenses; a supported import does not grant redistribution rights.
