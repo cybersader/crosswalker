@@ -17,9 +17,12 @@ import remarkObsidianCallout from 'remark-obsidian-callout';
 import remarkWikiLink from 'remark-wiki-link';
 import rehypeExternalLinks from 'rehype-external-links';
 
+import { BASE, SITE, sitePath } from './site-urls.mjs';
+import { canonicalWebsite, legacyWebsite } from './website-compat.mjs';
+
 export default defineConfig({
-  site: 'https://cybersader.github.io',
-  base: '/crosswalker',
+  site: SITE,
+  base: BASE,
   // Pinned off Astro's 4321 default to avoid cross-project port collisions
   // (multiple Astro sites on this machine). Applies to dev AND preview.
   server: { port: 14321 },
@@ -79,6 +82,7 @@ export default defineConfig({
     ],
   },
   integrations: [
+    canonicalWebsite(),
     starlight({
       title: 'Crosswalker',
       logo: {
@@ -99,15 +103,15 @@ export default defineConfig({
           announcements: [{
             id: 'early-alpha',
             content: '🚧 Early alpha — building the foundation.',
-            link: { text: 'See the roadmap →', href: '/crosswalker/reference/roadmap/' },
+            link: { text: 'See the roadmap →', href: sitePath('/reference/roadmap/') },
             variant: 'caution',
             dismissible: true,
           }],
         }),
         nova({
           nav: [
-            { label: 'Docs', href: '/crosswalker/getting-started/installation/' },
-            { label: 'Blog', href: '/crosswalker/blog/' },
+            { label: 'Docs', href: sitePath('/getting-started/installation/') },
+            { label: 'Blog', href: sitePath('/blog/') },
           ],
         }),
         starlightSiteGraph(),
@@ -161,5 +165,6 @@ export default defineConfig({
         },
       ],
     }),
+    legacyWebsite(),
   ],
 });

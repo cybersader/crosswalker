@@ -92,7 +92,7 @@ From `docs/`:
 ```bash
 cd docs
 
-bun run test:local       # Run all tests — auto-builds + previews + runs Chromium
+bun run test:local       # Run all tests — previews the existing build + runs Chromium
 bun run test:deploy      # Deployment-only subset (faster)
 bun run test:e2e         # Headed mode — watch the browser
 bun run test:e2e:ui      # Playwright UI mode — interactive debugging
@@ -110,7 +110,7 @@ Point Playwright at the production deployment instead of local preview:
 
 ```bash
 cd docs
-TEST_URL=https://cybersader.github.io bun run test:deploy
+TEST_URL=https://crosswalker.io bun run test:deploy
 ```
 
 ### Prerequisites (first time only)
@@ -124,9 +124,11 @@ bun run build                          # Preview server serves from dist/
 
 ### Configuration
 
+**Status last verified:** 2026-11-13 — docs URL and preview settings checked against `docs/playwright.config.ts` and `docs/site-urls.mjs`; other test-surface descriptions are not re-verified. Build once before running Playwright. The [website compatibility contract](/development/setup/#docs-site-development-workflow) describes legacy prefixes and indexing.
+
 - **Config file**: `docs/playwright.config.ts`
-- **Base path**: `/crosswalker` (matches `base` in `astro.config.mjs`). All `page.goto()` calls must prefix this
-- **Preview server**: auto-starts `bun run preview` on port 14321
+- **Base path**: `/` (source: `docs/site-urls.mjs`). Tests navigate directly to root routes
+- **Preview server**: auto-starts `astro preview` on port 14325, with at most 2 workers and no existing-server reuse (source: `docs/playwright.config.ts`)
 - **Browser**: Chromium only (sufficient for docs coverage)
 - **Screenshots on failure**: automatically captured to `docs/test-results/`
 
@@ -135,7 +137,7 @@ bun run build                          # Preview server serves from dist/
 ```typescript
 import { test, expect } from '@playwright/test';
 
-const BASE = '/crosswalker';
+const BASE = '';
 
 test('my new page loads', async ({ page }) => {
   await page.goto(`${BASE}/my-section/my-page/`);
@@ -150,7 +152,7 @@ test('my new page loads', async ({ page }) => {
 | 404 on all pages | Forgot `bun run build` — preview serves from `dist/` |
 | Chromium not found | `bun x playwright install chromium` |
 | Tailwind classes missing | Check `docs/src/styles/global.css` has `@source` directives |
-| Base path 404s | Prefix every `page.goto()` with `${BASE}/` |
+| Base path 404s | Use root routes; legacy prefixes are tested only for compatibility |
 | Page renders but elements missing | Check the browser console in headed mode — MDX compilation errors show up as console warnings |
 
 ### When to add tests here

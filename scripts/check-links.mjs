@@ -49,10 +49,9 @@ const repoRoot = resolve(__dirname, '..');
 const docsRoot = resolve(repoRoot, 'docs/src/content/docs');
 const publicRoot = resolve(repoRoot, 'docs/public');
 
-/** Must match `base` in docs/astro.config.mjs. */
-const BASE = '/crosswalker';
-/** Must match `site` in docs/astro.config.mjs. */
-const SITE = 'https://cybersader.github.io';
+// Shared website normalization recognizes root routes and both legacy prefixes.
+import { sitePath } from '../docs/site-urls.mjs';
+const BASE = '';
 
 /**
  * Routes that exist at build time but have no file on disk, because a
@@ -126,7 +125,7 @@ function routeForPage(absPath) {
   if (basename(withoutExt) === 'index') {
     withoutExt = withoutExt.slice(0, Math.max(0, withoutExt.length - 'index'.length - 1));
   }
-  return withoutExt ? `${BASE}/${withoutExt}` : BASE;
+  return withoutExt ? `${BASE}/${withoutExt}` : '/';
 }
 
 /**
@@ -153,8 +152,8 @@ function extractLinks(lines) {
   const patterns = [
     /\]\(\s*([^)\s]+)/g,          // [text](target) — stops at space so titles are excluded
     /^\s*\[[^\]]+\]:\s*(\S+)/g,   // [ref]: target
-    /href\s*=\s*"([^"]+)"/g,      // <a href="target">
-    /href\s*=\s*'([^']+)'/g,
+    /(?:href|src)\s*=\s*"([^"]+)"/g,      // <a href="target">
+    /(?:href|src)\s*=\s*'([^']+)'/g,
   ];
   lines.forEach((line, i) => {
     for (const re of patterns) {
@@ -171,13 +170,10 @@ function extractLinks(lines) {
  * internal page link this gate is responsible for.
  */
 function toInternalRoute(raw) {
-  let target = raw.trim();
-  if (target.startsWith(SITE)) target = target.slice(SITE.length);
-  // Anything still absolute is a genuinely external host — not ours to verify.
-  if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('//')) return null;
-  if (!target.startsWith(BASE)) return null;              // relative/other: out of scope
+  let target = sitePath(raw.trim());
+  if (!target.startsWith('/') || target.startsWith('//')) return null;
   target = target.split('#')[0].split('?')[0];
-  if (target.length > BASE.length && target.endsWith('/')) target = target.slice(0, -1);
+  if (target.length > 1 && target.endsWith('/')) target = target.slice(0, -1);
   try {
     target = decodeURIComponent(target);
   } catch {

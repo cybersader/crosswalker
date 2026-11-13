@@ -93,7 +93,7 @@ title: "v0.2.0 — Feature name"
 date: 2026-05-01
 ---
 ```
-3. Post appears at `/Crosswalker/blog/<slug>/`
+3. Post appears at `/blog/<slug>/`
 
 ## Obsidian-Flavored Markdown
 
@@ -149,11 +149,11 @@ Add inline badges to headings:
 - **Auto-deploys** on push to `main` when `docs/**` changes
 - **Workflow**: `.github/workflows/deploy-docs.yml`
 - **Requires**: Node.js 22+ (Astro 6 requirement)
-- **URL**: https://cybersader.github.io/Crosswalker/
+- **URL**: https://crosswalker.io/
 
 ### Verify deployment
 ```bash
-cd docs && TEST_URL=https://cybersader.github.io bun run test:deploy
+cd docs && TEST_URL=https://crosswalker.io bun run test:deploy
 ```
 
 ## Troubleshooting
@@ -162,6 +162,12 @@ cd docs && TEST_URL=https://cybersader.github.io bun run test:deploy
 |-------|-----|
 | `z.url is not a function` | Zod version mismatch — check Astro/Starlight versions are compatible |
 | Tailwind classes not applied | Ensure `@source` in `global.css` points to Nova component dirs |
-| 404 on GitHub Pages | Check `base: '/Crosswalker'` in astro.config.mjs |
+| 404 on GitHub Pages | Check root `base: '/'` and `site: 'https://crosswalker.io'` via docs/site-urls.mjs |
 | Mermaid not rendering | Check `starlightClientMermaid()` is in plugins array |
 | Build needs Node 22+ | Astro 6 requires Node.js >= 22.12.0 |
+
+## Website path compatibility
+
+Verified URL configuration: 2026-11-13. Canonical site `https://crosswalker.io/`, root base `/`. `docs/site-urls.mjs` centralizes website URLs; render middleware normalizes legacy link/image/SVG attributes and CSS URLs without changing examples or historical source prose. `docs/website-compat.mjs` creates inventory-based `/crosswalker/` and `/Crosswalker/` HTML/client aliases after indexing (not HTTP 301), preserving query/hash with JavaScript; public assets are byte copies. Search/sitemap remain canonical and graph URL slots are normalized. Old GitHub origin redirects and TLS need post-deployment checks, not local assumptions.
+
+Build once, then test the same `docs/dist`: `cd docs && bun run build`, followed by `cd docs && bun run test:local` (no automatic rebuild). URL/alias unit tests: `node --test docs/tests/site-urls.unit.mjs` from the repository root. Migration browser coverage lives in `docs/tests/website-migration.spec.ts` and checks HTTP asset statuses, metadata, aliases, search, navigation and generated routes.

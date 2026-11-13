@@ -65,7 +65,7 @@ Four `.bat` files at the repo root, for when you'd rather double-click than open
 | File | Runs | Use |
 |---|---|---|
 | `serve.bat` | `bun run serve` | Interactive menu (docs / plugin / both / tunnel / tests) |
-| `serve-docs.bat` | `bun run serve:docs` | Docs dev server only → http://localhost:14321/crosswalker/ |
+| `serve-docs.bat` | `bun run serve:docs` | Docs dev server only → http://localhost:14321/ |
 | `dev.bat` | `bun run serve:plugin` | Plugin watch build only, skipping the menu |
 | `reset.bat` | `node scripts/reset-test-vault.mjs` | Clears ad-hoc test imports from `test-vault/` — previews what would be deleted, then waits for a keypress to confirm |
 
@@ -89,11 +89,21 @@ Then:
 
 ## Docs site development workflow
 
+**Status last verified:** 2026-11-13 — website location and compatibility implementation checked against `docs/astro.config.mjs`, `docs/site-urls.mjs`, `docs/website-compat.mjs` and `docs/playwright.config.ts`. This marker covers website paths, not unrelated setup commands.
+
+The canonical website is [crosswalker.io](https://crosswalker.io/), served at `/` (`site` and `base` come from `docs/site-urls.mjs`). New links should use root routes such as `/getting-started/installation/`; Astro generates canonical and Open Graph URLs on the new origin.
+
+The render middleware normalizes old website URLs in actual link, image and SVG attributes and CSS `url()` values, without rewriting code examples, recipe documents, schema identities or historical source prose. After canonical search, graph and sitemap generation, the build creates compatibility pages for both `/crosswalker/` and `/Crosswalker/` from Astro's published route inventory, including generated blog and tag listings. These are **HTTP 200 HTML/client redirects, not HTTP 301**; JavaScript retains the incoming query and fragment. With JavaScript disabled, the page offers a canonical fallback link. Public assets are copied byte-for-byte under both prefixes, rather than redirected as HTML. Current hashed bundles are referenced directly at `/_astro/`; obsolete hashes from earlier builds are not retained.
+
+Search and sitemap exclude compatibility copies; the graph's URL slots are normalized after its Markdown/HTML merge. Historical GitHub Pages origin redirects, DNS, certificate issuance and remote hosting behavior require separate post-deployment verification; a local preview cannot prove them.
+
+Build once with `cd docs && bun run build`, then run `cd docs && bun run test:local` against that same output. The dedicated test preview uses port **14325**, at most **2 workers** (source: `docs/playwright.config.ts`), and refuses to reuse an unrelated server. Deterministic URL/alias tests run from the repository root with `node --test docs/tests/site-urls.unit.mjs`. See [docs testing](/development/testing/#docs-site-e2e-tests-playwright) for the full harness.
+
 ```bash
 bun run serve:docs
 ```
 
-Opens the Astro dev server at `http://localhost:14321/crosswalker/`. HMR is active — edits to `.mdx` files hot-reload in the browser (with the exception of inline `<style>` blocks in MDX files, which sometimes require a full page refresh).
+Opens the Astro dev server at `http://localhost:14321/`. HMR is active — edits to `.mdx` files hot-reload in the browser (with the exception of inline `<style>` blocks in MDX files, which sometimes require a full page refresh).
 
 **Do not** open `docs/` as an Obsidian vault — content files are `.mdx`, not `.md`. Use VS Code with the [MDX extension](https://marketplace.visualstudio.com/items?itemName=unifiedjs.vscode-mdx) for rich editing.
 
@@ -237,7 +247,7 @@ bun run lint
 
 # Docs dev server starts
 bun run serve:docs
-# Open http://localhost:14321/crosswalker/ and check the homepage loads
+# Open http://localhost:14321/ and check the homepage loads
 ```
 
 If the plugin build or docs dev server fails with a rollup native-binary error (e.g. `Cannot find module @rollup/rollup-<platform>`), just re-run `bun run serve` — the orchestrator auto-detects the contamination and reinstalls `docs/node_modules` with the correct platform binaries.

@@ -18,17 +18,16 @@
  */
 
 import { getCollection } from 'astro:content';
+import { sitePath } from '../../site-urls.mjs';
 
 interface Props {
   /** How many entries to render. Default 8. */
   limit?: number;
-  /** Site base path; URLs are built as `${base}/${entry.id}/`. Default '/crosswalker'. */
-  base?: string;
   /** Optional collection-id prefix filter (e.g., 'agent-context/zz-log' to limit to logs). */
   prefix?: string;
 }
 
-const { limit = 8, base = '/crosswalker', prefix } = Astro.props;
+const { limit = 8, prefix } = Astro.props;
 
 const allDocs = await getCollection('docs');
 
@@ -134,7 +133,7 @@ function truncate(s: string, n = TRUNC): string {
       <li class="cw-recent-updates-item">
         <time class="cw-recent-updates-date" datetime={entry.dateIso}>{entry.dateIso}</time>
         <div class="cw-recent-updates-body">
-          <a href={`${base}/${entry.id}/`}>{entry.title}</a>
+          <a href={sitePath(`/${entry.id}/`)}>{entry.title}</a>
           {entry.description && (
             <span class="cw-recent-updates-snippet">{truncate(entry.description)}</span>
           )}

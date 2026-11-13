@@ -1288,7 +1288,7 @@ export class ImportFlow {
 			help.appendText('Need a source file, or not sure which export to use? ');
 			help.createEl('a', {
 				text: 'Framework data sources',
-				href: 'https://cybersader.github.io/crosswalker/reference/framework-data-sources/',
+				href: 'https://crosswalker.io/reference/framework-data-sources/',
 			});
 			help.appendText(' lists where to get each framework, which sheet to use, and the import gotchas.');
 

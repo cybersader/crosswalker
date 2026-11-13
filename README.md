@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/cybersader/crosswalker/blob/main/LICENSE"><img src="https://img.shields.io/github/license/cybersader/Crosswalker?style=flat-square" alt="License" /></a>
-  <a href="https://cybersader.github.io/crosswalker/"><img src="https://img.shields.io/badge/docs-live-00d4aa?style=flat-square" alt="Docs" /></a>
+  <a href="https://crosswalker.io/"><img src="https://img.shields.io/badge/docs-live-00d4aa?style=flat-square" alt="Docs" /></a>
   <a href="https://github.com/cybersader/crosswalker/releases"><img src="https://img.shields.io/github/v/release/cybersader/crosswalker?style=flat-square&include_prereleases&label=version" alt="Version" /></a>
   <a href="https://obsidian.md"><img src="https://img.shields.io/badge/Obsidian-plugin-7c3aed?style=flat-square" alt="Obsidian" /></a>
 </p>
@@ -21,7 +21,7 @@ Import whole frameworks as plain Markdown notes. Open the Obsidian graph to expl
 
 Built for compliance and GRC teams working with NIST, MITRE ATT&CK, CIS and other frameworks. Built-in recipes handle recognized publisher exports; guided import handles your own structured sources, including licensed ISO material you are entitled to use.
 
-[Documentation](https://cybersader.github.io/crosswalker/) · [Quick start](#quick-start) · [Framework downloads](https://cybersader.github.io/crosswalker/reference/framework-data-sources/)
+[Documentation](https://crosswalker.io/) · [Quick start](#quick-start) · [Framework downloads](https://crosswalker.io/reference/framework-data-sources/)
 
 > **Prerelease.** This README describes the current `main` branch, including work newer than the downloadable release. See [Status](#status) before choosing a build. Try it in a test vault first.
 
@@ -50,7 +50,7 @@ Requires **Obsidian 1.10.0 or newer**. Enable the built-in **Bases** plugin for 
 2. Put them in your vault's `.obsidian/plugins/crosswalker/` folder.
 3. Reload Obsidian and enable **Crosswalker** under **Settings > Community plugins**.
 
-Crosswalker is not yet in the community plugin directory. See the [installation guide](https://cybersader.github.io/crosswalker/getting-started/installation/) for BRAT and manual installation, or [development setup](https://cybersader.github.io/crosswalker/development/setup/) to build current `main`.
+Crosswalker is not yet in the community plugin directory. See the [installation guide](https://crosswalker.io/getting-started/installation/) for BRAT and manual installation, or [development setup](https://crosswalker.io/development/setup/) to build current `main`.
 
 ### Start with a connected stack
 
@@ -62,7 +62,7 @@ Crosswalker is not yet in the community plugin directory. See the [installation 
 
 **Only importing one file?** Run **Crosswalker: Start here: import structured data**, pick your CSV, Excel or JSON file, and accept a recognized configuration or map the columns yourself. Preview the output before generating. Choose **Save as recipe** to reuse your setup.
 
-[Full walkthrough](https://cybersader.github.io/crosswalker/getting-started/quick-start/) · [Publisher files and supported formats](https://cybersader.github.io/crosswalker/reference/framework-data-sources/)
+[Full walkthrough](https://crosswalker.io/getting-started/quick-start/) · [Publisher files and supported formats](https://crosswalker.io/reference/framework-data-sources/)
 
 ## How it works
 
@@ -85,18 +85,18 @@ bun run cw -- validate --vault ./my-vault
 bun run cw -- help
 ```
 
-Scripts and agents can work with explicit files and recipes; CI can check the generated notes using validation exit codes. No agent service is required. **Not every UI action has a CLI equivalent yet**: stack setup, saved-query creation and recipe-library management still use the plugin. See the [UI and CLI coverage table](https://cybersader.github.io/crosswalker/reference/ui-cli-parity/) for supported commands and tracked gaps.
+Scripts and agents can work with explicit files and recipes; CI can check the generated notes using validation exit codes. No agent service is required. **Not every UI action has a CLI equivalent yet**: stack setup, saved-query creation and recipe-library management still use the plugin. See the [UI and CLI coverage table](https://crosswalker.io/reference/ui-cli-parity/) for supported commands and tracked gaps.
 
 ## Status
 
 **Status last verified: 2026-11-04**, against the code and [CHANGELOG](CHANGELOG.md). The latest published prerelease is **0.1.6**; current `main` also includes newer linked framework defaults, graph tools, recipe reuse and command-line workflows. A release download does not necessarily include everything described above.
 
-Active development continues toward v0.1. Broader framework-version migration and a community sharing registry are **planned**, not current promises. See the [roadmap](https://cybersader.github.io/crosswalker/reference/roadmap/) for direction and [CHANGELOG](CHANGELOG.md) for delivered changes.
+Active development continues toward v0.1. Broader framework-version migration and a community sharing registry are **planned**, not current promises. See the [roadmap](https://crosswalker.io/reference/roadmap/) for direction and [CHANGELOG](CHANGELOG.md) for delivered changes.
 
 ## Documentation and contributing
 
-- [Documentation](https://cybersader.github.io/crosswalker/): walkthroughs, framework source guides and reference material.
-- [Contributing](CONTRIBUTING.md) and [development guide](https://cybersader.github.io/crosswalker/development/contributing/): fixes, tests, documentation and recipes are welcome.
+- [Documentation](https://crosswalker.io/): walkthroughs, framework source guides and reference material.
+- [Contributing](CONTRIBUTING.md) and [development guide](https://crosswalker.io/development/contributing/): fixes, tests, documentation and recipes are welcome.
 - [Built-in recipes](recipes/import/) and [community recipes repository](https://github.com/cybersader/crosswalker-recipes): inspect existing setups or propose another source.
 - Related projects: [SEACOW](https://github.com/cybersader/seacowr-knowledge-platform-meta-framework) for vault organization and [folder-tag-sync](https://github.com/cybersader/obsidian-folder-tag-sync) for keeping folders and tags aligned.
 

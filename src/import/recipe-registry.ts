@@ -627,7 +627,7 @@ for (const [id, previous, description, facetField] of [
 }
 
 const FRAMEWORK_DATA_SOURCES_URL =
-	'https://cybersader.github.io/crosswalker/reference/framework-data-sources/';
+	'https://crosswalker.io/reference/framework-data-sources/';
 
 /** Publisher-download and import-instruction links shown by the shared preset guide. */
 const SOURCE_GUIDANCE: Record<

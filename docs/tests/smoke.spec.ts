@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const BASE = '/crosswalker';
+const BASE = '';
 
 test.describe('Smoke tests', () => {
   test('homepage loads', async ({ page }) => {

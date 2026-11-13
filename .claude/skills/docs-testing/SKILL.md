@@ -18,7 +18,7 @@ Run Playwright tests against the Crosswalker documentation site (Astro Starlight
 
 ### Test against live site
 ```bash
-cd docs && TEST_URL=https://cybersader.github.io bun run test:deploy
+cd docs && TEST_URL=https://crosswalker.io bun run test:deploy
 ```
 
 ## Prerequisites
@@ -78,8 +78,8 @@ await page.screenshot({ path: 'docs/test-results/my-screenshot.png' });
 ## Configuration
 
 - **Config**: `docs/playwright.config.ts`
-- **Base path**: All test URLs use `/Crosswalker` prefix (Astro base path)
-- **Preview server**: Auto-starts `bun run preview` on port 14321
+- **Base path**: Use root routes, with no project prefix (source: docs/site-urls.mjs)
+- **Preview server**: Auto-starts `astro preview` on port 14325; at most 2 workers, no existing-server reuse (source: docs/playwright.config.ts)
 - **Browser**: Chromium only (sufficient for docs)
 
 ## Adding New Tests
@@ -87,7 +87,7 @@ await page.screenshot({ path: 'docs/test-results/my-screenshot.png' });
 ```typescript
 import { test, expect } from '@playwright/test';
 
-const BASE = '/Crosswalker';
+const BASE = '';
 
 test('my new page loads', async ({ page }) => {
   await page.goto(`${BASE}/my-section/my-page/`);
@@ -102,4 +102,10 @@ test('my new page loads', async ({ page }) => {
 | 404 on all pages | Did you `bun run build` first? Preview serves from `dist/` |
 | Chromium not found | Run `npx playwright install chromium` |
 | Tailwind classes not applied | Check `docs/src/styles/global.css` has `@source` directives |
-| Base path 404s | All `page.goto()` must use `${BASE}/path/` prefix |
+| Base path 404s | Use canonical root `/path/`; old prefixes belong only in compatibility tests |
+
+## Website path compatibility
+
+Verified URL configuration: 2026-11-13. Canonical site `https://crosswalker.io/`, root base `/`. `docs/site-urls.mjs` centralizes website URLs; render middleware normalizes legacy link/image/SVG attributes and CSS URLs without changing examples or historical source prose. `docs/website-compat.mjs` creates inventory-based `/crosswalker/` and `/Crosswalker/` HTML/client aliases after indexing (not HTTP 301), preserving query/hash with JavaScript; public assets are byte copies. Search/sitemap remain canonical and graph URL slots are normalized. Old GitHub origin redirects and TLS need post-deployment checks, not local assumptions.
+
+Build once, then test the same `docs/dist`: `cd docs && bun run build`, followed by `cd docs && bun run test:local` (no automatic rebuild). URL/alias unit tests: `node --test docs/tests/site-urls.unit.mjs` from the repository root. Migration browser coverage lives in `docs/tests/website-migration.spec.ts` and checks HTTP asset statuses, metadata, aliases, search, navigation and generated routes.

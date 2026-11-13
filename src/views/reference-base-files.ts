@@ -294,7 +294,7 @@ Key fields per the v0.1.6 schema:
 
 - [Obsidian Bases plugin docs](https://help.obsidian.md/Plugins/Bases)
 - [Crosswalker repo](https://github.com/cybersader/Crosswalker)
-- [Crosswalker docs](https://cybersader.github.io/crosswalker/)
+- [Crosswalker docs](https://crosswalker.io/)
 - [SSSOM (Simple Standard for Sharing Ontological Mappings)](https://w3id.org/sssom/)
 `;
 

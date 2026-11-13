@@ -16,7 +16,7 @@ describe('import preset guide', () => {
 
 		for (const candidate of entries) {
 			expect(candidate.docsUrl).toMatch(
-				/^https:\/\/cybersader\.github\.io\/crosswalker\/reference\/framework-data-sources\//,
+				/^https:\/\/crosswalker\.io\/reference\/framework-data-sources\//,
 			);
 			if (candidate.sourceLink) expect(candidate.sourceLink.url).toMatch(/^https:\/\//);
 		}

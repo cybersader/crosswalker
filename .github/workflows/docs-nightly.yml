@@ -45,5 +45,5 @@ jobs:
       - name: Run deployment checks against the live site
         working-directory: docs
         env:
-          TEST_URL: https://cybersader.github.io
+          TEST_URL: https://crosswalker.io
         run: bun run test:deploy

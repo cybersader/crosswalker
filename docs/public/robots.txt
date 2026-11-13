@@ -1,9 +1,4 @@
-# NOTE: per RFC 9309, crawlers fetch robots.txt only from the domain root —
-# the canonical robots.txt for this site is at
-# https://cybersader.github.io/robots.txt (in the cybersader/cybersader.github.io
-# repo). This subpath copy exists for documentation-of-intent and for any
-# non-standard crawler that consults subpath robots.txt.
-
+# Canonical root-site crawler policy.
 User-agent: *
 Allow: /
 
@@ -19,4 +14,4 @@ Allow: /
 User-agent: anthropic-ai
 Allow: /
 
-Sitemap: https://cybersader.github.io/crosswalker/sitemap-index.xml
+Sitemap: https://crosswalker.io/sitemap-index.xml

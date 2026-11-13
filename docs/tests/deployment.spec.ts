@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-const BASE = '/crosswalker';
+const BASE = '';
 
 /**
  * Deployment verification tests
- * Run against live site: TEST_URL=https://cybersader.github.io bun run test:deploy
+ * Run against live site: TEST_URL=https://crosswalker.io bun run test:deploy
  */
 
 test.describe('Deployment verification', () => {
@@ -30,6 +30,10 @@ test.describe('Deployment verification', () => {
 
   test('critical assets load', async ({ page }) => {
     const failedRequests: string[] = [];
+
+    page.on('response', response => {
+      if (response.status() >= 400) failedRequests.push(`${response.status()} ${response.url()}`);
+    });
 
     page.on('requestfailed', request => {
       failedRequests.push(request.url());

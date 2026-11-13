@@ -12,8 +12,8 @@ import { test, expect } from '@playwright/test';
  * strm; zz-log/2026-04-10-*; zz-challenges/06-synthetic-spine).
  */
 
-// Lowercase matches astro.config.mjs `base: '/crosswalker'`
-const BASE = '/crosswalker';
+// Canonical custom-domain site is served at the root.
+const BASE = '';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Q3 — elastic content width

@@ -29,8 +29,8 @@ export default defineConfig({
     // Dedicated test port: the dev server owns 14321, and reuseExistingServer
     // would otherwise latch onto it and time out against dev-mode rendering.
     command: 'bun x astro preview --port 14325',
-    url: 'http://localhost:14325/crosswalker/',
-    reuseExistingServer: !process.env.CI,
+    url: 'http://localhost:14325/',
+    reuseExistingServer: false,
     timeout: 120000,
   },
 });

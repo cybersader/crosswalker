@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Changed: canonical website and legacy documentation paths (2026-11-13)
+
+- Website configuration now targets `https://crosswalker.io/` at the root. Navigation, recent updates, README links, plugin source-download help, crawler metadata and scheduled monitoring use the new location.
+- Rendered legacy website links and HTML/SVG/CSS asset URLs normalize centrally, without changing preserved research/decision prose, code examples, canonical recipes or schema/data identities. The production build creates both legacy-prefix page aliases from the actual route inventory, including generated blog/tag listings, and byte-identical copies of public assets.
+- Legacy page responses are HTTP 200 HTML/client redirects, not HTTP 301. JavaScript preserves incoming query strings and fragments; canonical links and noindex metadata keep aliases out of search/sitemaps. Graph URL slots normalize after source merging. Old GitHub-origin redirect behavior and remote TLS are separate hosting checks, not established by local tests.
+- Added deterministic URL/alias tests and browser coverage for root/deep pages, HTTP asset statuses, canonical/Open Graph metadata, navigation, search and legacy compatibility. No new plugin interaction or schema behavior is introduced; affected living setup/testing guidance records the website-only scope.
+
 ### Added: sparse-depth outlines and the linked D3FEND default (2026-11-02)
 
 - **Recipe SchemaVer 1.23.0** adds optional `source.outline: { levels, id }`, mutually exclusive with `source.nest`. Row-ordered sparse-depth tables now stream through a depth-bounded ancestor stack before row filtering and joins, with row-numbered corrective errors for ambiguous depth, missing parents, or empty identity.
