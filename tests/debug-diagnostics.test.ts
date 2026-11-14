@@ -4,14 +4,14 @@
  * minLevel filtering, and the redacted "Copy diagnostics" bundle.
  *
  * Complements debug-log.test.ts (NDJSON schema, severity, trace/span,
- * category filtering) which is left untouched — every test there still
- * passes unmodified against this file's changes.
+ * category filtering, and clipboard-export redaction).
  */
 
 import {
 	DebugLog,
 	type DebugEvent,
 	redactPathsAndFilenames,
+	redactSecrets,
 	redactSettingsSnapshot,
 	redactEvent,
 	findLastEvent,
@@ -82,6 +82,28 @@ async function flushQueue(d: DebugLog) {
 // ---------------------------------------------------------------------------
 // Ring buffer
 // ---------------------------------------------------------------------------
+
+describe('redactSecrets()', () => {
+	it.each(['sk-', 'ghp_', 'ghs_', 'gho_', 'github_pat_', 'pat-', 'xoxb-', 'AKIA', 'AIza'])('redacts recognized %s tokens embedded in filenames', (prefix) => {
+		const token = `${prefix}${'a'.repeat(36)}`;
+		for (const leading of ['', 'backup_', 'backup']) {
+			expect(redactSecrets(`Mappings/${leading}${token}.md`)).toBe(`Mappings/${leading}[REDACTED].md`);
+		}
+	});
+
+	it('preserves conservative path redaction and is idempotent', () => {
+		const token = `ghp_${'a'.repeat(36)}`;
+		const redacted = redactSecrets(`Mappings/${token}/record.md`);
+		expect(redacted).toBe('Mappings/[REDACTED].md');
+		expect(redactSecrets(redacted)).toBe(redacted);
+	});
+
+	it('preserves ordinary relative paths without credential-shaped substrings', () => {
+		for (const path of ['Frameworks/reference.md', 'Mappings/backup_record.md', 'Frameworks/AKIA-Control.md']) {
+			expect(redactSecrets(path)).toBe(path);
+		}
+	});
+});
 
 describe('DebugLog — in-memory ring buffer', () => {
 	it('captures events even when file logging is disabled', async () => {

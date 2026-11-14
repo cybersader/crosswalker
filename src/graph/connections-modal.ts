@@ -2,7 +2,9 @@ import { Modal, Notice, TFile, type App } from 'obsidian';
 import { VaultStillIndexingError } from '../generation/import-set';
 import { ConnectionsError, loadConnectionsSnapshot, selectConnections, CONNECTIONS_MEMBERSHIP_TEXT, CONNECTIONS_NATIVE_LIMIT, type ConnectionsSnapshot, type ConnectionRow, type ConnectionEndpoint } from './connections-query';
 
-export interface ConnectionsHost { openMappingReview(path: string): Promise<unknown> }
+import type { DebugLog } from '../utils/debug';
+
+export interface ConnectionsHost { openMappingReview(path: string): Promise<unknown>; debug?: Pick<DebugLog, 'error'> }
 /** One ephemeral snapshot per refresh. Filters/pages never rescan canonical files. */
 export class ConnectionsModal extends Modal {
 	private lifetime = new AbortController();
@@ -28,7 +30,7 @@ export class ConnectionsModal extends Modal {
 		this.contentEl.empty();
 		this.contentEl.createEl('p', { text: 'Reading imported sets and recorded assertions…' });
 		try {
-			const snapshot = await loadConnectionsSnapshot(this.app, this.lifetime.signal);
+			const snapshot = await loadConnectionsSnapshot(this.app, this.lifetime.signal, this.host.debug);
 			if (this.lifetime.signal.aborted) return;
 			this.snapshot = snapshot;
 			this.controls();

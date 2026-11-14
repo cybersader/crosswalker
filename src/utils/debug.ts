@@ -86,11 +86,14 @@ const RING_BUFFER_CAP = 500;
 // ---------------------------------------------------------------------------
 
 const SECRET_PATTERNS: RegExp[] = [
-	/\b(sk-|ghp_|ghs_|gho_|github_pat_|pat-|xox[abps]-|AKIA|AIza)[A-Za-z0-9_/+-]{10,}\b/g,
+	// Recognized prefixes can be embedded in filenames, including after underscores.
+	// A leading word boundary would miss those credentials in local diagnostics.
+	/(sk-|ghp_|ghs_|gho_|github_pat_|pat-|xox[abps]-|AKIA|AIza)[A-Za-z0-9_/+-]{10,}\b/g,
 	/\b[A-Za-z0-9_-]{60,}\b/g, // long opaque tokens (JWT-like)
 ];
 
-function redactSecrets(s: string): string {
+/** Reuse the same credential-pattern scrubber before emitting safe local context. */
+export function redactSecrets(s: string): string {
 	let out = s;
 	for (const re of SECRET_PATTERNS) {
 		out = out.replace(re, '[REDACTED]');

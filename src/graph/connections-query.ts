@@ -10,11 +10,41 @@ import { importSetIdOf } from '../mappings/conversion-marker';
 import { classifyImportSet } from '../views/import-set-options';
 import { normalizeVaultPath } from '../render/vault-path';
 import { wikilinkPath } from '../views/mapping-review-helpers';
+import { redactSecrets, type DebugLog } from '../utils/debug';
 import { CROSSWALK_PREDICATE_LABELS, type CrosswalkPredicate } from '../import/mapping/types';
 
 export class ConnectionsError extends Error {
-	constructor(message: string, public readonly details?: { cause: string; paths: string[]; action: string }) { super(message); }
+	/** Original exception is inspectable locally, never part of serialized details or diagnostics. */
+	declare readonly cause: unknown;
+	constructor(message: string, public readonly details?: { cause: string; paths: string[]; action: string }, cause?: unknown) {
+		super(message);
+		Object.defineProperty(this, 'cause', { value: cause, enumerable: false });
+	}
 }
+
+/** Validate before normalizing: normalization alone would turn absolute paths into relative ones. */
+function affectedPaths(paths: string[]): string[] {
+	return paths.filter((p) => typeof p === 'string' && p.length > 0 && p.length <= 512
+		&& !p.startsWith('/') && !p.startsWith('\\') && !/[:\u0000-\u001f\u007f]/.test(p)
+		&& !p.split(/[\\/]/).some((piece) => piece === '..' || piece === '.'))
+		.map(normalizeVaultPath).filter((p) => p !== '/').map(redactSecrets);
+}
+
+type ConnectionsReadOperation = 'check-vault-readiness' | 'discover-import-sets' | 'read-vault-tree';
+/** One best-effort event at the wrapping boundary. Never pass raw exceptions to DebugLog. */
+function reportReadFailure(debug: Pick<DebugLog, 'error'> | undefined, operation: ConnectionsReadOperation, error: ConnectionsError): void {
+	try {
+		const original = error.cause;
+		const errorKind = original instanceof ImportSetProvenanceError ? 'import-set-provenance'
+			: original instanceof TypeError ? 'type-error' : original instanceof RangeError ? 'range-error'
+				: original instanceof SyntaxError ? 'syntax-error' : original instanceof Error ? 'error' : 'non-error';
+		const paths = error.details?.paths ?? [];
+		debug?.error('view', 'connections-read-failed', 'Connections snapshot could not be read.', {
+			operation, error_kind: errorKind, affected_paths: paths.slice(0, 20), affected_path_count: paths.length,
+		});
+	} catch { /* Diagnostics must never replace the original actionable UI failure. */ }
+}
+
 function unavailable(error: unknown): ConnectionsError {
 	const known = error instanceof ImportSetProvenanceError;
 	const message = known ? error.message : '';
@@ -27,8 +57,8 @@ function unavailable(error: unknown): ConnectionsError {
 		else if (/YAML|frontmatter/.test(message)) { cause = 'An imported file has invalid frontmatter.'; action = 'Repair the YAML frontmatter in the affected file or restore it from backup, then try again.'; }
 		else if (/mapping tables/.test(message)) { cause = 'More than one table claims the same imported set.'; action = 'Keep the authoritative table for this set and move duplicate copies outside the vault, then try again.'; }
 	}
-	const paths = known ? error.paths.filter((p) => !p.startsWith('/') && !p.startsWith('\\') && !/^[A-Za-z]:/.test(p) && !p.split(/[\\/]/).includes('..')) : [];
-	return new ConnectionsError('Connections are unavailable. An imported set could not be read. No results are available, and nothing was changed. Try again. If it still fails, open Error details to identify the affected file.', { cause, paths, action });
+	const paths = known ? affectedPaths(error.paths) : [];
+	return new ConnectionsError('Connections are unavailable. An imported set could not be read. No results are available, and nothing was changed. Try again. If it still fails, open Error details to identify the affected file.', { cause, paths, action }, error);
 }
 export interface ConnectionsSelection {
 	sourceSet: string; targetSet: string; focusCurie?: string; focusSet?: string;
@@ -77,19 +107,24 @@ export function connectionPredicateGloss(predicate: string): string {
 		: 'Relationship wording not recorded in this vocabulary';
 }
 
-export async function loadConnectionsSnapshot(app: App, signal?: AbortSignal): Promise<ConnectionsSnapshot> {
+export async function loadConnectionsSnapshot(app: App, signal?: AbortSignal, debug?: Pick<DebugLog, 'error'>): Promise<ConnectionsSnapshot> {
 	check(signal);
 	try { await requireVaultIndexed(app); }
 	catch (error) {
 		if (error instanceof VaultStillIndexingError) throw error;
-		throw new ConnectionsError('Vault readiness could not be checked. Try again after checking that this vault is accessible.', { cause: 'The vault readiness check failed.', paths: [], action: 'Reopen the vault, then try again. This failure does not establish whether indexing is complete.' });
+		const failure = new ConnectionsError('Vault readiness could not be checked. Try again after checking that this vault is accessible.', { cause: 'The vault readiness check failed.', paths: [], action: 'Reopen the vault, then try again. This failure does not establish whether indexing is complete.' }, error);
+		reportReadFailure(debug, 'check-vault-readiness', failure);
+		throw failure;
 	}
 	let sets: DiscoveredImportSet[];
 	let tree: ReadVaultTreeResult;
-	try { sets = await discoverImportSets(app); check(signal); tree = await readVaultTree(app, ''); }
+	let operation: ConnectionsReadOperation = 'discover-import-sets';
+	try { sets = await discoverImportSets(app); check(signal); operation = 'read-vault-tree'; tree = await readVaultTree(app, ''); }
 	catch (error) {
 		if (error instanceof ConnectionsError) throw error;
-		throw unavailable(error);
+		const failure = unavailable(error);
+		reportReadFailure(debug, operation, failure);
+		throw failure;
 	}
 	check(signal);
 	const byPath = new Map([...tree.concepts, ...tree.crosswalkEdges, ...tree.junctionNotes, ...tree.hubs].map((r) => [r.path, r]));

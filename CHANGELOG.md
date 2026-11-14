@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: Connections read failures reach existing diagnostics (2026-11-13)
+
+- Connections now emits one structured local diagnostic when its vault-readiness check, imported-set discovery or canonical vault read unexpectedly fails, including with debug-file logging off. Expected indexing and cancellation remain distinct; failed ownership discovery still blocks results instead of hiding the affected set.
+- Local console and the existing memory buffer include the operation, a closed error kind and bounded, vetted vault-relative affected paths. Recognized credential patterns, including prefixes embedded in filenames, are scrubbed; note contents, arbitrary exception messages/stacks and absolute host paths are excluded. Clipboard exports retain filename/path redaction. The original exception remains a non-enumerable internal cause; logger failure cannot replace the actionable UI error. No new retrieval interface or automatic file persistence is introduced.
+
 ### Changed: canonical website and legacy documentation paths (2026-11-13)
 
 - Website configuration now targets `https://crosswalker.io/` at the root. Navigation, recent updates, README links, plugin source-download help, crawler metadata and scheduled monitoring use the new location.

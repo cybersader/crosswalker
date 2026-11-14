@@ -117,6 +117,10 @@ Earlier releases documented "Custom transforms" and "Custom transforms path" set
 
 Renamed from "Debug"; now a full logging console, not just an on/off switch:
 
+**Diagnostics status last verified:** 2026-11-13 — source review of `src/utils/debug.ts`, `src/graph/connections-query.ts` and `src/graph/connections-modal.ts`, plus headless regression tests in `tests/connections-diagnostics.test.ts`, `tests/debug-diagnostics.test.ts` and `tests/debug-log.test.ts`. Live Obsidian/OpenClast verification remains pending.
+
+Connections read failures reach the existing local developer console and bounded in-memory event buffer even when **Write a debug log** is off (buffer limit source: `src/utils/debug.ts`, `RING_BUFFER_CAP`). Each unexpected readiness, imported-set discovery or canonical-read failure emits one event, with a machine-readable operation and error kind. Known affected paths stay vault-relative and useful locally, with credential patterns scrubbed; arbitrary exception messages, stacks and note contents are not emitted. **Copy diagnostics** keeps the existing filename/path redaction when sharing the buffer. File logging stays opt-in, and logger failures cannot replace the actionable error shown in Connections. Expected indexing and cancellation do not become failed-read events; a discovery failure never silently removes the failed set or returns an empty result. See [readable connections and coverage](/crosswalker/concepts/producing-vaults-outside-obsidian/#readable-connections-between-chosen-sets).
+
 | Setting | Default | Description |
 |---|---|---|
 | Write a debug log | Off | Record structured events to a log note in your vault root (`crosswalker-debug.log`). Helpful when reporting an issue. |
