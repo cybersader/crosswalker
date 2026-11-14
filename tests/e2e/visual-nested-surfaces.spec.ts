@@ -232,7 +232,7 @@ async function reachWorkbench(): Promise<void> {
 	const nextClicked = await browser.executeObsidian((_obs, wizard) => {
 		const root = document.querySelector(wizard);
 		const next = Array.from(root?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-			.find((button) => button.textContent?.includes('Next'));
+			.find((button) => button.classList.contains('crosswalker-step-continue'));
 		next?.click();
 		return Boolean(next);
 	}, WIZARD);
@@ -254,7 +254,7 @@ async function reachWorkbench(): Promise<void> {
 		const customized = await browser.executeObsidian((_obs, wizard) => {
 			const root = document.querySelector(wizard);
 			const button = Array.from(root?.querySelectorAll<HTMLButtonElement>('.crosswalker-recognized-actions button') ?? [])
-				.find((candidate) => candidate.textContent?.trim() === 'Customize');
+				.find((candidate) => candidate.textContent?.trim() === 'Adjust layout');
 			button?.click();
 			return Boolean(button);
 		}, WIZARD);

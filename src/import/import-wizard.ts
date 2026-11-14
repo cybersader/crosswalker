@@ -574,6 +574,15 @@ export class ImportFlow {
 		return !this.discoveredSets.some((set) => set.id === run.importSetId);
 	}
 
+	/** Refresh promises follow the chosen target, not retained source/recipe history. */
+	private runAgainTargetsRecordedSet(): boolean {
+		const run = this.runAgain;
+		if (!run || this.runAgainSetMissing()) return false;
+		const choice = this.importSetChoice;
+		if (choice === null) return !this.runAgainSetOverridden;
+		return typeof choice !== 'string' && choice.id === run.importSetId;
+	}
+
 	/** The current recipe revision, when it is the recipe being run again. */
 	private runAgainRecipeChanged(): boolean {
 		const run = this.runAgain;
@@ -593,7 +602,9 @@ export class ImportFlow {
 		if (!run || !context) return;
 		const wrap = container.createDiv({ cls: 'crosswalker-run-again-lead' });
 		wrap.createEl('p', {
-			text: runAgainLeadLine(context.recipeName, context.setName, context.noteCount, this.overwriteMode),
+			text: this.runAgainTargetsRecordedSet()
+				? runAgainLeadLine(context.recipeName, context.setName, context.noteCount, this.overwriteMode)
+				: `Using recipe "${context.recipeName}". Review your chosen import set before generating notes.`,
 			cls: 'crosswalker-run-again-lead-line',
 		});
 		wrap.createEl('p', { text: chooseFileLine(run), cls: 'setting-item-description' });
@@ -613,7 +624,7 @@ export class ImportFlow {
 		const currentDigest = this.parsedData?.sourceByteDigest ?? this.pickedSourceDigest;
 		if (currentDigest) {
 			const status = sourceRunStatus(run, currentDigest);
-			const line = sourceStatusLine(run, status, this.sourceType === 'xlsx', recipeChanged, this.runAgainSetName(), this.overwriteMode);
+			const line = sourceStatusLine(run, status, this.sourceType === 'xlsx', recipeChanged, this.runAgainSetName(), this.overwriteMode, this.runAgainTargetsRecordedSet());
 			if (line) wrap.createEl('p', { text: line, cls: `setting-item-description crosswalker-run-again-${status}` });
 		}
 		if (recipeChanged) wrap.createEl('p', { text: RECIPE_CHANGED_LINE, cls: 'setting-item-description crosswalker-run-again-recipe-changed' });
@@ -1199,6 +1210,9 @@ export class ImportFlow {
 		this.workbench = null;
 		// The curated per-import root comes from the recognized recipe cleared above.
 		this.curatedDestination = null;
+		// Update both actions in place: rebuilding Step 1 would steal input focus.
+		this.host.containerEl.querySelectorAll<HTMLButtonElement>('button.crosswalker-step-continue')
+			.forEach(button => button.setText(this.continuationLabel()));
 	}
 
 	/** Step-1 sheet choice. Assignment plus invalidation, never one without the other. */
@@ -1275,26 +1289,6 @@ export class ImportFlow {
 		}
 		this.renderRunAgainLead(container);
 
-		// "I do not have the file yet" is the first place a new user stops, and the
-		// answer is not in the vault: which publisher page, which of several exports,
-		// which sheet. Several sources also fail SILENTLY when imported raw (a
-		// spreadsheet coerces safeguard 4.10 to 4.1 and one note vanishes with no
-		// error), so the moment before choosing a file is the only place a warning
-		// can still change what the user does.
-		// Run again already has the recipe and knows the file, so the first-import
-		// help and the presets would only compete with the one action left.
-		if (!this.runAgain) {
-			const help = container.createEl('p', { cls: 'setting-item-description' });
-			help.appendText('Need a source file, or not sure which export to use? ');
-			help.createEl('a', {
-				text: 'Framework data sources',
-				href: 'https://crosswalker.io/reference/framework-data-sources/',
-			});
-			help.appendText(' lists where to get each framework, which sheet to use, and the import gotchas.');
-
-			renderPresetGuide(container);
-		}
-
 		// Primary: pick from the vault. Obsidian's explorer hides csv/xlsx/json
 		// unless "Detect all file extensions" is on, so the vault picker must
 		// not depend on the explorer at all.
@@ -1313,19 +1307,6 @@ export class ImportFlow {
 			text: 'Finds CSV, XLSX, and JSON files even when the file explorer hides them.',
 			cls: 'setting-item-description',
 		});
-		const savedRow = container.createEl('div', { cls: 'crosswalker-saved-recipe-row' });
-		if (this.runAgain) {
-			// The one way out of Run again, and it is a real exit: no set choice,
-			// write policy or recipe from the old run survives it.
-			const exit = savedRow.createEl('button', { text: START_NEW_IMPORT_LABEL, cls: 'mod-muted crosswalker-run-again-exit' });
-			exit.addEventListener('click', () => {
-				this.exitRunAgain();
-				this.renderStep();
-			});
-		} else {
-			this.renderSavedRecipeRow(savedRow);
-		}
-
 		// Secondary: a file from outside the vault via the OS picker.
 		const fileInputContainer = container.createEl('div', { cls: 'crosswalker-file-input' });
 		fileInputContainer.createEl('div', {
@@ -1336,7 +1317,8 @@ export class ImportFlow {
 		const fileInput = fileInputContainer.createEl('input', {
 			type: 'file',
 			attr: {
-				accept: '.csv,.xlsx,.xls,.json'
+				accept: '.csv,.xlsx,.xls,.json',
+				'aria-label': 'Pick a file from your computer'
 			}
 		});
 
@@ -1384,6 +1366,39 @@ export class ImportFlow {
 				this.renderStep(); // Re-render to show file info
 			}
 		});
+
+		const savedRow = container.createEl('div', { cls: 'crosswalker-saved-recipe-row' });
+		if (this.runAgain) {
+			// The one way out of Run again, and it is a real exit: no set choice,
+			// write policy or recipe from the old run survives it.
+			const exit = savedRow.createEl('button', { text: START_NEW_IMPORT_LABEL, cls: 'mod-muted crosswalker-run-again-exit' });
+			exit.addEventListener('click', () => {
+				this.exitRunAgain();
+				this.renderStep();
+			});
+		} else {
+			this.renderSavedRecipeRow(savedRow);
+		}
+
+		// "I do not have the file yet" is the first place a new user stops, and the
+		// answer is not in the vault: which publisher page, which of several exports,
+		// which sheet. Several sources also fail SILENTLY when imported raw (a
+		// spreadsheet coerces safeguard 4.10 to 4.1 and one note vanishes with no
+		// error), so the moment before choosing a file is the only place a warning
+		// can still change what the user does.
+		// Run again already has the recipe and knows the file, so the first-import
+		// help and the presets would only compete with the one action left.
+		if (!this.runAgain) {
+			const help = container.createEl('p', { cls: 'setting-item-description' });
+			help.appendText('Need a source file, or not sure which export to use? ');
+			help.createEl('a', {
+				text: 'Framework data sources',
+				href: 'https://crosswalker.io/reference/framework-data-sources/',
+			});
+			help.appendText(' lists where to get each framework, which sheet to use, and the import gotchas.');
+
+			renderPresetGuide(container);
+		}
 
 		// Show selected file info — a card that says how Crosswalker reads this
 		// file type, not just bare metadata.
@@ -1933,9 +1948,9 @@ export class ImportFlow {
 
 		// Actions — one confident primary, escape hatches beside it.
 		const actions = card.createEl('div', { cls: 'crosswalker-recognized-actions' });
-		const importBtn = actions.createEl('button', { cls: 'mod-cta', text: yours ? 'Use this recipe' : 'Import with this configuration' });
+		const importBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Review with this recipe' });
 		importBtn.addEventListener('click', () => { void this.startRecognizedRecipe(3); });
-		const customizeBtn = actions.createEl('button', { text: 'Customize' });
+		const customizeBtn = actions.createEl('button', { text: 'Adjust layout' });
 		customizeBtn.addEventListener('click', () => { void this.startRecognizedRecipe(2); });
 		const scratchBtn = actions.createEl('button', { cls: 'crosswalker-recognized-quiet', text: 'Start from scratch' });
 		scratchBtn.addEventListener('click', () => {
@@ -4292,16 +4307,22 @@ export class ImportFlow {
 		this.createPrimaryButton(footer);
 	}
 
+	private continuationLabel(): string {
+		if (this.isParsing) return 'Parsing...';
+		if (this.currentStep === 1) return this.parsedData ? 'Choose layout' : 'Read source';
+		return this.currentStep === 2 ? 'Review import' : 'Continue to generation';
+	}
+
 	/**
-	 * Build the step's primary action button (Next on steps 1–3, Generate on the
+	 * Build the step's primary action button (continue on steps 1–3, Generate on the
 	 * last step) with its handler. Rendered in both the sticky top nav bar and the
 	 * footer, so navigation is always visible whatever the content height.
 	 */
 	private createPrimaryButton(container: HTMLElement): void {
 		if (this.currentStep < this.totalSteps) {
 			const nextBtn = container.createEl('button', {
-				text: this.isParsing ? 'Parsing...' : 'Next →',
-				cls: 'mod-cta'
+				text: this.continuationLabel(),
+				cls: 'mod-cta crosswalker-step-continue'
 			});
 			const setGone = this.runAgainSetMissing();
 			nextBtn.disabled = this.isParsing || setGone;
@@ -4381,6 +4402,7 @@ export class ImportFlow {
 	private renderJsonNestChoice(
 		parent: HTMLElement,
 		candidate: JsonStructure['candidates'][number],
+		onSelectionChange: () => void,
 	): void {
 		const chain = candidate.nested;
 		if (!chain?.length) return;
@@ -4409,6 +4431,7 @@ export class ImportFlow {
 				this.jsonNest = option.value === 'nested' ? candidate.iterator : null;
 				this.workbench = null;
 				this.scheduleDraftSave();
+				onSelectionChange();
 			});
 			label.createSpan({ text: option.label });
 		}
@@ -4416,6 +4439,19 @@ export class ImportFlow {
 
 	private renderJsonRecordPicker(container: HTMLElement) {
 		const st = this.jsonStructure;
+		const picks: { card: HTMLElement; indicator: HTMLElement; iterator: string }[] = [];
+		// One selection, two views. Update in place so focus, caret and disclosure survive.
+		const syncSelection = (updatePath: boolean) => {
+			if (updatePath) pathInput.value = this.jsonIterator;
+			for (const { card, indicator, iterator } of picks) {
+				const selected = this.jsonIterator === iterator;
+				card.classList.toggle('crosswalker-json-pick-selected', selected);
+				indicator.textContent = selected ? '●' : '○';
+				card.querySelectorAll<HTMLInputElement>('.crosswalker-json-nest-choices input[type=radio]').forEach(radio => {
+					radio.checked = radio.value === 'nested' ? this.jsonNest === iterator : this.jsonNest !== iterator;
+				});
+			}
+		};
 
 		if (st?.parseError) {
 			const warn = container.createEl('div', { cls: 'crosswalker-json-warning' });
@@ -4426,14 +4462,19 @@ export class ImportFlow {
 			const c = st.candidates[0];
 			const card = container.createEl('div', { cls: 'crosswalker-json-pick crosswalker-json-pick-selected' });
 			const head = card.createEl('div', { cls: 'crosswalker-json-pick-head' });
-			head.createEl('span', { text: '●', cls: 'crosswalker-json-radio' });
+			const indicator = head.createEl('span', { text: '●', cls: 'crosswalker-json-radio' });
+			picks.push({ card, indicator, iterator: c?.iterator ?? '' });
+			card.addEventListener('click', () => {
+				this.setJsonIterator(c?.iterator ?? '');
+				syncSelection(true);
+			});
 			const body = head.createEl('div', { cls: 'crosswalker-json-pick-body' });
 			const titleLine = body.createEl('div', { cls: 'crosswalker-json-pick-title' });
 			titleLine.createEl('span', { text: 'This whole file is your list of records', cls: 'crosswalker-json-pick-label' });
 			titleLine.createEl('span', { text: this.recordsLabel(st.rootCount), cls: 'crosswalker-json-count' });
 			if (c) {
 				this.renderSamplePreview(body, c.sample, c.sampleKeys, c.fieldCount);
-				this.renderJsonNestChoice(body, c);
+				this.renderJsonNestChoice(body, c, () => syncSelection(true));
 			}
 		} else if (st && st.candidates.length > 0) {
 			const intro = container.createEl('div', { cls: 'crosswalker-json-intro' });
@@ -4443,30 +4484,27 @@ export class ImportFlow {
 				cls: 'setting-item-description'
 			});
 			const pickList = container.createEl('div', { cls: 'crosswalker-json-picklist' });
-			const renderPicks = () => {
-				pickList.empty();
-				const nestRoot = st.candidates.find((candidate) => candidate.nested?.length);
-				for (const c of st.candidates.slice(0, 6)) {
-					const selected = this.jsonIterator === c.iterator;
-					const card = pickList.createEl('div', {
-						cls: 'crosswalker-json-pick' + (selected ? ' crosswalker-json-pick-selected' : '')
-					});
-					const head = card.createEl('div', { cls: 'crosswalker-json-pick-head' });
-					head.createEl('span', { text: selected ? '●' : '○', cls: 'crosswalker-json-radio' });
-					const body = head.createEl('div', { cls: 'crosswalker-json-pick-body' });
-					const titleLine = body.createEl('div', { cls: 'crosswalker-json-pick-title' });
-					titleLine.createEl('span', { text: c.name, cls: 'crosswalker-json-pick-label' });
-					titleLine.createEl('span', { text: this.recordsLabel(c.count), cls: 'crosswalker-json-count' });
-					this.renderSamplePreview(body, c.sample, c.sampleKeys, c.fieldCount);
-					if (c.label !== c.name) this.renderPathHint(body, c.label);
-					if (c === nestRoot) this.renderJsonNestChoice(body, c);
-					card.addEventListener('click', () => {
-						this.setJsonIterator(c.iterator);
-						renderPicks();
-					});
-				}
-			};
-			renderPicks();
+			const nestRoot = st.candidates.find((candidate) => candidate.nested?.length);
+			for (const c of st.candidates.slice(0, 6)) {
+				const selected = this.jsonIterator === c.iterator;
+				const card = pickList.createEl('div', {
+					cls: 'crosswalker-json-pick' + (selected ? ' crosswalker-json-pick-selected' : '')
+				});
+				const head = card.createEl('div', { cls: 'crosswalker-json-pick-head' });
+				const indicator = head.createEl('span', { text: selected ? '●' : '○', cls: 'crosswalker-json-radio' });
+				picks.push({ card, indicator, iterator: c.iterator });
+				const body = head.createEl('div', { cls: 'crosswalker-json-pick-body' });
+				const titleLine = body.createEl('div', { cls: 'crosswalker-json-pick-title' });
+				titleLine.createEl('span', { text: c.name, cls: 'crosswalker-json-pick-label' });
+				titleLine.createEl('span', { text: this.recordsLabel(c.count), cls: 'crosswalker-json-count' });
+				this.renderSamplePreview(body, c.sample, c.sampleKeys, c.fieldCount);
+				if (c.label !== c.name) this.renderPathHint(body, c.label);
+				if (c === nestRoot) this.renderJsonNestChoice(body, c, () => syncSelection(true));
+				card.addEventListener('click', () => {
+					this.setJsonIterator(c.iterator);
+					syncSelection(true);
+				});
+			}
 		} else if (st) {
 			const warn = container.createEl('div', { cls: 'crosswalker-json-warning' });
 			warn.createEl('div', { text: 'No record lists found in this file', cls: 'crosswalker-json-warning-title' });
@@ -4500,7 +4538,11 @@ export class ImportFlow {
 		const pathInput = advBlock.createEl('input', { type: 'text', cls: 'crosswalker-field-input' });
 		pathInput.placeholder = '$.objects[*]';
 		pathInput.value = this.jsonIterator;
-		pathInput.addEventListener('input', () => { this.setJsonIterator(pathInput.value.trim()); });
+		pathInput.addEventListener('input', () => {
+			this.setJsonIterator(pathInput.value.trim());
+			syncSelection(false);
+		});
+		syncSelection(false);
 	}
 
 	/**

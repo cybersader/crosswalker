@@ -64,12 +64,12 @@ describe('Visual: collision-based new-set review', function () {
 			input.dispatchEvent(new Event('change'));
 		});
 		await browser.waitUntil(async () => browser.execute(() => {
-			const next = [...document.querySelectorAll<HTMLButtonElement>('.crosswalker-wizard-modal button')].find((b) => b.textContent?.includes('Next'));
+			const next = [...document.querySelectorAll<HTMLButtonElement>('.crosswalker-wizard-modal button')].find((b) => b.classList.contains('crosswalker-step-continue'));
 			return !!next && !next.disabled;
 		}));
-		await browser.execute(() => [...document.querySelectorAll<HTMLButtonElement>('.crosswalker-wizard-modal button')].find((b) => b.textContent?.includes('Next'))!.click());
+		await browser.execute(() => [...document.querySelectorAll<HTMLButtonElement>('.crosswalker-wizard-modal button')].find((b) => b.classList.contains('crosswalker-step-continue'))!.click());
 		await browser.$('.crosswalker-workbench').waitForExist();
-		await browser.execute(() => [...document.querySelectorAll<HTMLButtonElement>('.crosswalker-wizard-modal button')].find((b) => b.textContent?.includes('Next'))!.click());
+		await browser.execute(() => [...document.querySelectorAll<HTMLButtonElement>('.crosswalker-wizard-modal button')].find((b) => b.classList.contains('crosswalker-step-continue'))!.click());
 		await browser.waitUntil(async () => (await browser.$('.crosswalker-wizard-modal').getText()).includes('Plain identifiers: none overlap an existing set.'));
 		expect(await browser.$('.crosswalker-wizard-modal').getText()).toContain('Plain identifiers: none overlap an existing set.');
 		for (const value of ['light', 'dark'] as const) {

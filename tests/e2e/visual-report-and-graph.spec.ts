@@ -166,7 +166,7 @@ describe('Visual — the furnished vault: review-screen plan line, home note, fo
 			input.dispatchEvent(new Event('change'));
 			await sleep(700);
 
-			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (!next) return { ok: false as const, reason: 'NO_NEXT_BUTTON' };
 			(next as HTMLButtonElement).click();
 
@@ -222,7 +222,7 @@ describe('Visual — the furnished vault: review-screen plan line, home note, fo
 			};
 			const modal = document.querySelector('.modal');
 			if (!modal) return { ok: false as const, reason: 'NO_MODAL' };
-			const next1 = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next1 = Array.from(modal.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (!next1) return { ok: false as const, reason: 'NO_NEXT_STEP2' };
 			(next1 as HTMLButtonElement).click();
 			await sleep(600);
@@ -260,7 +260,7 @@ describe('Visual — the furnished vault: review-screen plan line, home note, fo
 			const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 			const modal = document.querySelector('.modal');
 			if (!modal) return { ok: false as const, reason: 'NO_MODAL' };
-			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (next) { (next as HTMLButtonElement).click(); await sleep(600); }
 			const gen = Array.from(document.querySelectorAll('.modal button')).find((b) => b.textContent?.trim() === 'Generate');
 			if (!gen) return { ok: false as const, reason: 'NO_GENERATE' };

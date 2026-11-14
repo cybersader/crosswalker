@@ -31,6 +31,7 @@ import {
 	openImportWizard,
 } from './helpers/wizard-modal';
 import { waitForVaultIndexed } from './helpers/vault-readiness';
+import { isGenericRecipe, RECIPE_REGISTRY } from '../../src/import/recipe-registry';
 
 const OUT = path.resolve('test-screenshots');
 const MODE = process.env.CW_VISUAL_MODE === 'before' ? 'before' : 'after';
@@ -400,10 +401,11 @@ function assertGuide(observation: JsonRecord): void {
 	expect(recipeIds.every((id) => id.length > 0)).toBe(true);
 	expect(new Set(recipeIds).size).toBe(recipeIds.length);
 	expect(count).toBe(before.itemCount);
-	if (typeof before.exposedRegistryCount === 'number') {
-		expect(count).toBe(before.exposedRegistryCount);
-	} else {
-		expect(count).toBeGreaterThanOrEqual(12);
+	const expectedIds = RECIPE_REGISTRY.filter(isGenericRecipe).map((entry) => entry.id);
+	expect(recipeIds).toEqual(expectedIds);
+	expect(count).toBe(expectedIds.length);
+	for (const entry of RECIPE_REGISTRY.filter((candidate) => !isGenericRecipe(candidate))) {
+		expect(recipeIds).not.toContain(entry.id);
 	}
 }
 

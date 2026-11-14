@@ -87,7 +87,8 @@ async function clickButton(label: string, exact = false): Promise<boolean> {
 		const modal = document.querySelector(a.wizard);
 		const button = Array.from(modal?.querySelectorAll('button') ?? []).find((b) => {
 			const text = b.textContent?.trim() ?? '';
-			return a.exact ? text === a.label : text.includes(a.label);
+			return a.label === 'Next' ? b.classList.contains('crosswalker-step-continue')
+				: a.exact ? text === a.label : text.includes(a.label);
 		}) as HTMLButtonElement | undefined;
 		if (!button || button.disabled) return false;
 		button.click();
@@ -407,7 +408,7 @@ describe('Visual: saved import recipes', function () {
 		expect(card.yours).toBe(true);
 		expect(card.text).toContain('Your recipe');
 		expect(card.title).toBe(`Looks like your recipe "${RECIPE_NAME}". Use it?`);
-		expect(card.buttons).toContain('Use this recipe');
+		expect(card.buttons).toContain('Review with this recipe');
 		expect(card.text).not.toContain('—');
 		// Offered, not applied: the wizard is still on Step 1.
 		expect(await step()).toBe(1);
@@ -417,7 +418,7 @@ describe('Visual: saved import recipes', function () {
 		await bothThemes('rl-04-step1-offer');
 
 		// Accept the offer, then open the save dialog: it names where the setup came from.
-		expect(await clickButton('Use this recipe', true)).toBe(true);
+		expect(await clickButton('Review with this recipe', true)).toBe(true);
 		await until(async () => (await step()) >= 2, 15_000, 'workbench from recipe');
 		if ((await step()) === 2) expect(await clickButton('Next')).toBe(true);
 		await until(async () => (await step()) >= 3, 15_000, 'review step from recipe');

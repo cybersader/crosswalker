@@ -78,7 +78,8 @@ async function clickButton(label: string, exact = false, scope = WIZARD): Promis
 		const modal = document.querySelector(a.scope);
 		const button = Array.from(modal?.querySelectorAll('button') ?? []).find((b) => {
 			const text = b.textContent?.trim() ?? '';
-			return a.exact ? text === a.label : text.includes(a.label);
+			return a.label === 'Next' ? b.classList.contains('crosswalker-step-continue')
+				: a.exact ? text === a.label : text.includes(a.label);
 		}) as HTMLButtonElement | undefined;
 		if (!button || button.disabled) return false;
 		button.click();
@@ -325,7 +326,7 @@ describeScale('Replay proof: full NIST sources through the UI', function () {
 				return modal?.querySelector('.crosswalker-recognized-actions') ? title || 'untitled' : null;
 			}, WIZARD), 60_000, 'recognized recipe card');
 			console.log(`[replay-proof] ${source.label} recognized as: ${recognized}`);
-			expect(await clickButton('Import with this configuration', false, '.crosswalker-recognized-actions')).toBe(true);
+			expect(await clickButton('Review with this recipe', false, '.crosswalker-recognized-actions')).toBe(true);
 			await until(async () => (await step()) >= 3, 30_000, 'review step');
 
 			const libraryBefore = new Set(await libraryFiles());

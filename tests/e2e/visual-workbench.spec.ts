@@ -180,13 +180,13 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 			await sleep(700);
 
 			// Click Next → parse → the wizard should HOLD on Step 1 with the card.
-			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (!next) return { ok: false as const, reason: 'NO_NEXT' };
 			(next as HTMLButtonElement).click();
 
 			const card = await waitFor('.crosswalker-recognized-card', 8000);
 			const primary = Array.from(modal.querySelectorAll('.crosswalker-recognized-actions button')).find(
-				(b) => b.textContent?.includes('Import with this configuration'),
+				(b) => b.textContent?.includes('Review with this recipe'),
 			);
 			return {
 				ok: !!card,
@@ -195,7 +195,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 				badge: modal.querySelector('.crosswalker-recognized-card .crosswalker-prov-badge')?.textContent ?? '',
 				hasPrimary: !!primary,
 				hasCustomize: Array.from(modal.querySelectorAll('.crosswalker-recognized-actions button')).some(
-					(b) => b.textContent?.trim() === 'Customize',
+					(b) => b.textContent?.trim() === 'Adjust layout',
 				),
 				hasScratch: Array.from(modal.querySelectorAll('.crosswalker-recognized-actions button')).some(
 					(b) => b.textContent?.includes('Start from scratch'),
@@ -226,7 +226,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 			const modal = document.querySelector('.crosswalker-wizard-modal');
 			if (!modal) return { ok: false as const };
 			const primary = Array.from(modal.querySelectorAll('.crosswalker-recognized-actions button')).find(
-				(b) => b.textContent?.includes('Import with this configuration'),
+				(b) => b.textContent?.includes('Review with this recipe'),
 			) as HTMLButtonElement | undefined;
 			if (!primary) return { ok: false as const, reason: 'NO_PRIMARY' };
 			primary.click();
@@ -285,7 +285,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 			children.dispatchEvent(new Event('change', { bubbles: true }));
 			await sleep(500);
 			const next = Array.from(modal.querySelectorAll('button')).find(
-				(button) => button.textContent?.includes('Next'),
+				(button) => button.classList.contains('crosswalker-step-continue'),
 			) as HTMLButtonElement | undefined;
 			if (!next) return { ok: false as const, reason: 'NO_NEXT' };
 			next.click();
@@ -340,14 +340,14 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 			input.dispatchEvent(new Event('change'));
 			await sleep(700);
 			const next = Array.from(modal.querySelectorAll('button')).find(
-				(button) => button.textContent?.includes('Next'),
+				(button) => button.classList.contains('crosswalker-step-continue'),
 			) as HTMLButtonElement | undefined;
 			if (!next) return { ok: false as const, reason: 'NO_NEXT' };
 			next.click();
 			await waitFor('.crosswalker-recognized-card', 8000);
 			const recognizedTitle = modal.querySelector('.crosswalker-recognized-title')?.textContent?.trim() ?? '';
 			const primary = Array.from(modal.querySelectorAll('.crosswalker-recognized-actions button')).find(
-				(button) => button.textContent?.includes('Import with this configuration'),
+				(button) => button.textContent?.includes('Review with this recipe'),
 			) as HTMLButtonElement | undefined;
 			if (!primary) return { ok: false as const, reason: 'NOT_RECOGNIZED' };
 			primary.click();
@@ -357,7 +357,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 			const destination = modal.querySelector('.crosswalker-dest-crumb')?.textContent?.trim() ?? '';
 			for (let step = 0; step < 2; step += 1) {
 				const advance = Array.from(modal.querySelectorAll('button')).find(
-					(button) => button.textContent?.includes('Next'),
+					(button) => button.classList.contains('crosswalker-step-continue'),
 				) as HTMLButtonElement | undefined;
 				if (advance) {
 					advance.click();
@@ -452,7 +452,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 			input.dispatchEvent(new Event('change'));
 			await sleep(700);
 
-			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (!next) return { stage: 'open', ok: false, cmdExists, reason: 'NO_NEXT_BUTTON' };
 			(next as HTMLButtonElement).click();
 
@@ -1180,7 +1180,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 			const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 			const modal = document.querySelector('.crosswalker-wizard-modal');
 			if (!modal) return { ok: false as const };
-			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (!next) return { ok: false as const, reason: 'NO_NEXT' };
 			(next as HTMLButtonElement).click();
 			await sleep(800);
@@ -1220,7 +1220,7 @@ describe('Visual — Shape workbench (beta) in wizard Step 2', function () {
 			const modal = document.querySelector('.crosswalker-wizard-modal');
 			if (!modal) return { ok: false as const, reason: 'NO_MODAL' };
 			// Step 3 → Step 4 (Generate screen).
-			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (next) { (next as HTMLButtonElement).click(); await sleep(600); }
 			// Click Generate.
 			const gen = Array.from(document.querySelectorAll('.crosswalker-wizard-modal button')).find((b) => b.textContent?.trim() === 'Generate');
