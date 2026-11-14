@@ -103,13 +103,13 @@ async function reachNestedWorkbench(): Promise<void> {
 
 	await browser.executeObsidian((_obs, wizard) => {
 		const next = Array.from(document.querySelector(wizard)?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-			.find((button) => button.textContent?.includes('Next'));
+			.find((button) => button.classList.contains('crosswalker-step-continue'));
 		next?.click();
 	}, WIZARD);
 	expect(await waitFor(`${WIZARD} .crosswalker-recognized-card, ${WIZARD} .crosswalker-wb-mapcard`, 15_000)).toBe(true);
 	await browser.executeObsidian((_obs, wizard) => {
 		const button = Array.from(document.querySelector(wizard)?.querySelectorAll<HTMLButtonElement>('.crosswalker-recognized-actions button') ?? [])
-			.find((candidate) => candidate.textContent?.trim() === 'Customize');
+			.find((candidate) => candidate.textContent?.trim() === 'Adjust layout');
 		button?.click();
 	}, WIZARD);
 	expect(await waitFor(`${WIZARD} .crosswalker-wb-mapcard`)).toBe(true);

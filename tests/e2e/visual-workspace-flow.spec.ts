@@ -226,7 +226,7 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 			input.files = dt.files;
 			input.dispatchEvent(new Event('change'));
 			await sleep(700);
-			const next = Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(root.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (!next) return { ok: false as const, reason: 'NO_NEXT' };
 			(next as HTMLButtonElement).click();
 			const card = await waitFor('.crosswalker-recognized-card', 8000);
@@ -235,7 +235,7 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 				title: root.querySelector('.crosswalker-recognized-title')?.textContent ?? '',
 				badge: root.querySelector('.crosswalker-prov-badge')?.textContent ?? '',
 				hasCustomize: Array.from(root.querySelectorAll('.crosswalker-recognized-actions button')).some(
-					(b) => b.textContent?.trim() === 'Customize',
+					(b) => b.textContent?.trim() === 'Adjust layout',
 				),
 			};
 		}, CPRT_CSV);
@@ -267,7 +267,7 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 			const root = document.querySelector('.crosswalker-workspace-flow');
 			if (!root) return { ok: false as const, reason: 'NO_ROOT' };
 			const customize = Array.from(root.querySelectorAll('.crosswalker-recognized-actions button')).find(
-				(b) => b.textContent?.trim() === 'Customize',
+				(b) => b.textContent?.trim() === 'Adjust layout',
 			) as HTMLButtonElement | undefined;
 			if (!customize) return { ok: false as const, reason: 'NO_CUSTOMIZE' };
 			customize.click();
@@ -418,7 +418,7 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 			};
 			const root = document.querySelector('.crosswalker-workspace-flow');
 			if (!root) return { ok: false as const, reason: 'NO_ROOT' };
-			const next = Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(root.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (!next) return { ok: false as const, reason: 'NO_NEXT' };
 			(next as HTMLButtonElement).click();
 			const dest = await waitFor('.crosswalker-dest-block', 8000);
@@ -466,7 +466,7 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 			};
 			const root = document.querySelector('.crosswalker-workspace-flow');
 			if (!root) return { ok: false as const, reason: 'NO_ROOT' };
-			const next = Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(root.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (next) { (next as HTMLButtonElement).click(); await sleep(500); }
 			const gen = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Generate');
 			if (!gen) return { ok: false as const, reason: 'NO_GENERATE' };
@@ -608,7 +608,7 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 			input.files = dt.files;
 			input.dispatchEvent(new Event('change'));
 			await sleep(700);
-			const next = Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(root.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (!next) return { ok: false as const, reason: 'NO_NEXT' };
 			(next as HTMLButtonElement).click();
 			const card = await waitFor('.crosswalker-recognized-card', 8000);
@@ -652,7 +652,7 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 			const root = document.querySelector('.crosswalker-workspace-flow');
 			if (!root) return { ok: false as const, reason: 'NO_ROOT' };
 			const customize = Array.from(root.querySelectorAll('.crosswalker-recognized-actions button')).find(
-				(b) => b.textContent?.trim() === 'Customize',
+				(b) => b.textContent?.trim() === 'Adjust layout',
 			) as HTMLButtonElement | undefined;
 			if (!customize) return { ok: false as const, reason: 'NO_CUSTOMIZE' };
 			customize.click();

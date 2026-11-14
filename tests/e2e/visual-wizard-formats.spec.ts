@@ -11,9 +11,11 @@
  */
 
 import { browser } from '@wdio/globals';
+import { expect } from 'expect';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { installWizardObservation, readWizardObservation, stopWizardObservation } from './helpers/wizard-observation';
 import * as XLSX from 'xlsx';
 import { closeImportWizard, requireImportWizard, clearAllDrafts } from './helpers/wizard-modal';
 import { readFrontmatterMatching, waitForVaultIndexed } from './helpers/vault-readiness';
@@ -148,7 +150,7 @@ async function driveWizard(args: {
       }
     }
 
-    const next = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+    const next = Array.from(modal.querySelectorAll('button')).find((b) => (b.classList.contains('crosswalker-step-continue') || b.textContent?.trim() === 'Next →'));
     if (!next) return 'NO_NEXT_BUTTON';
     (next as HTMLButtonElement).click();
 
@@ -235,8 +237,11 @@ async function clickWizardButton(label: 'Next' | 'Generate'): Promise<{ ok: bool
     const modal = document.querySelector(a.wizard);
     if (!modal) return { ok: false, detail: 'Owned wizard modal is not present.' };
     const button = Array.from(modal.querySelectorAll('button'))
-      .find((candidate) => candidate.textContent?.includes(a.label));
+      .find((candidate) => a.label === 'Next' ? (candidate.classList.contains('crosswalker-step-continue') || candidate.textContent?.trim() === 'Next →') : candidate.textContent?.includes(a.label));
     if (!button) return { ok: false, detail: `${a.label} button is not present.` };
+    const state = { text: button.textContent, disabled: (button as HTMLButtonElement).disabled };
+    (window as any).__cwObservation?.record('button-click', state);
+    if (state.disabled) return { ok: false, detail: `Button disabled: ${state.text}` };
     (button as HTMLButtonElement).click();
     return { ok: true };
   }, { label, wizard: WIZARD });
@@ -350,7 +355,315 @@ describe('Visual — import wizard XLSX + JSON paths', function () {
   afterEach(async () => {
     // Never hand the next declaration an open modal — that is exactly how the
     // first-generic-`.modal` failures compounded down the file.
+    await stopWizardObservation();
     await closeImportWizard();
+  });
+
+  for (const control of ['json-list', 'json-path', 'json-root', 'xlsx-sheet', 'xlsx-header']) {
+    it(`mounted continuation transition: ${control} after parse and Back`, async () => {
+      const recipeName = `Transition ${control}`;
+      const recipePath = `_crosswalker/import-recipes/transition-${control}.json`;
+      const json = control.startsWith('json');
+      const rows = [{ sample_key: 'A', caption: 'Invented alpha', zone: 'North' }, { sample_key: 'B', caption: 'Invented beta', zone: 'South' }];
+      const wb = XLSX.utils.book_new();
+      for (const sheet of ['First', 'Second']) {
+        const sheetRows = sheet === 'First' ? rows : rows.map(r => ({ ...r, sample_key: `S2-${r.sample_key}`, caption: `Second ${r.caption}`, zone: 'East' }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+          ['sample_key', 'caption', 'zone'], ['sample_key', 'caption', 'zone'], ...sheetRows.map(r => Object.values(r)),
+        ]), sheet);
+      }
+      const settings = await browser.executeObsidian(async ({ app }) => {
+        const plugin = (app as any).plugins.plugins.crosswalker;
+        const prior = { enableShapeWorkbench: plugin.settings.enableShapeWorkbench, enableConfigSuggestions: plugin.settings.enableConfigSuggestions };
+        plugin.settings.enableShapeWorkbench = true; plugin.settings.enableConfigSuggestions = false;
+        await plugin.saveSettings();
+        return prior;
+      });
+      const managed = () => browser.executeObsidian(async ({ app }) => {
+        const notes: Record<string, string> = {};
+        for (const file of app.vault.getMarkdownFiles()) {
+          const text = await app.vault.read(file);
+          if (text.includes('_crosswalker:')) notes[file.path] = text;
+        }
+        return notes;
+      });
+      const readStep = () => browser.executeObsidian(() => (window as any).__cwObservation.flow.currentStep);
+      const click = async (text: string) => {
+        const clicked = await browser.executeObsidian((_o, a) => {
+          const button = Array.from(document.querySelector(a.wizard)!.querySelectorAll<HTMLButtonElement>('button')).find(b => b.textContent?.trim() === a.text);
+          if (!button || button.disabled) return false;
+          button.click(); return true;
+        }, { wizard: WIZARD, text });
+        expect(clicked).toBe(true);
+      };
+      const ownerPath = 'E2E-Transition-Owner.md';
+      await browser.executeObsidian(async ({ app }, p) => {
+        if (await app.vault.adapter.exists(p)) throw new Error('Synthetic owner fixture already exists');
+        await app.vault.create(p, '---\ncurie: transition:owned\n_crosswalker:\n  import_set:\n    id: iset-tran01\n    scheme: endpoint-v1\n    ontology: transition\n    destination: E2E-Transition\n---\nSynthetic ownership sentinel.\n');
+      }, ownerPath);
+      await waitForVaultIndexed();
+      const notesBefore = await managed();
+      try {
+        expect(await browser.executeObsidian(async ({ app }, p) => app.vault.adapter.exists(p), recipePath)).toBe(false);
+        await installWizardObservation();
+        const result = await driveWizard(json
+          ? { text: JSON.stringify(control === 'json-root' ? rows : { first: rows, second: rows.slice(0, 1) }), fileName: `${control}.json`, iterator: control === 'json-root' ? '' : '$.first[*]' }
+          : { b64: XLSX.write(wb, { type: 'base64', bookType: 'xlsx' }) as string, fileName: `${control}.xlsx`, sheet: 'First' });
+        expect(result).toMatch(/^STEP 2/);
+        await click('Review import');
+        await browser.waitUntil(async () => (await readStep()) === 3, { timeout: 15_000 });
+        await click('Save as recipe');
+        await browser.waitUntil(async () => browser.executeObsidian(() => !!document.querySelector('.crosswalker-save-recipe-name')), { timeout: 5_000 });
+        await browser.executeObsidian((_o, name) => {
+          const dialog = document.querySelector('.crosswalker-save-recipe-modal')!;
+          const input = dialog.querySelector<HTMLInputElement>('.crosswalker-save-recipe-name')!;
+          input.value = name; input.dispatchEvent(new Event('input'));
+          Array.from(dialog.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Save')!.click();
+        }, recipeName);
+        await browser.waitUntil(async () => browser.executeObsidian(() => !document.querySelector('.crosswalker-save-recipe-modal') && !!(window as any).__cwObservation.flow.savedRecipeName), { timeout: 5_000 });
+        const storedRecipe = await browser.executeObsidian(async ({ app }, p) => app.vault.adapter.read(p), recipePath);
+        // Saving changed the recipe digest. Finish that review recomputation first.
+        await click('Back');
+        await browser.waitUntil(async () => (await readStep()) === 2, { timeout: 5_000 });
+        await click('Review import');
+        await browser.waitUntil(async () => browser.executeObsidian(() => {
+          const flow = (window as any).__cwObservation.flow;
+          return flow.currentStep === 3 && !flow.step3InFlight;
+        }), { timeout: 15_000 });
+        // A same-value select event is intentionally ignored by Obsidian. Make a
+        // real alternate choice before explicitly choosing a new set.
+        for (const value of ['iset-tran01', '__new__']) {
+          await browser.executeObsidian((_o, a) => {
+            const select = document.querySelector<HTMLSelectElement>(`${a.wizard} .crosswalker-import-set-review select`);
+            if (!select) throw new Error('Expected ownership selector beside synthetic existing set');
+            select.value = a.value; select.dispatchEvent(new Event('change'));
+          }, { wizard: WIZARD, value });
+          await browser.waitUntil(async () => browser.executeObsidian((_o, value) => {
+            const flow = (window as any).__cwObservation.flow;
+            return !flow.step3InFlight && (value === '__new__' ? flow.importSetChoice === 'new' : flow.importSetChoice?.id === value);
+          }, value), { timeout: 5_000 });
+        }
+        for (const n of [2, 1]) {
+          await click('Back');
+          await browser.waitUntil(async () => (await readStep()) === n, { timeout: 5_000 });
+        }
+        const changed = await browser.executeObsidian((_o, a) => {
+          const root = document.querySelector(a.wizard)!;
+          const flow = (window as any).__cwObservation.flow;
+          const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('.crosswalker-step-continue'));
+          const selector = a.control === 'json-root' ? '.crosswalker-json-pick' : a.control === 'json-list' ? '.crosswalker-json-pick:not(.crosswalker-json-pick-selected)'
+            : a.control === 'json-path' ? '.crosswalker-advanced input' : a.control === 'xlsx-sheet' ? 'select' : 'input[type=number]';
+          const input = root.querySelector<HTMLElement>(selector)!;
+          if (!input) throw new Error(`Missing ${a.control} control`);
+          // Cards, sibling inputs and the step shell all stay mounted during synchronization.
+          const cards = Array.from(root.querySelectorAll('.crosswalker-json-pick'));
+          const stableInput = ['json-list', 'json-root'].includes(a.control) ? root.querySelector<HTMLInputElement>('.crosswalker-advanced input')! : input;
+          const advanced = stableInput.closest('details'); if (advanced) advanced.open = true;
+          const content = root.querySelector('.crosswalker-wizard-content');
+          input.scrollIntoView({ block: 'center' });
+          const binding = () => JSON.stringify({ choice: flow.importSetChoice, preset: flow.presetLibraryRecipeId, saved: flow.savedRecipeName, file: flow.sourceFile.name, type: flow.sourceType });
+          const beforeBinding = binding();
+          const beforeLabels = buttons.map(b => b.textContent);
+          const oldParsed = flow.parsedData;
+          if (!oldParsed) throw new Error('Back lost the valid parse');
+          const oldDisabled = buttons.map(b => b.disabled);
+          // Re-entering the same value must not discard a valid parse.
+          input.dispatchEvent(new Event(a.control === 'xlsx-sheet' ? 'change' : ['json-list', 'json-root'].includes(a.control) ? 'focus' : 'input'));
+          const sameValuePreserved = flow.parsedData === oldParsed;
+          stableInput.focus();
+          let unmatched: { selected: number; value: string; caret: number | null; iterator: string } | null = null;
+          if (a.control === 'json-path' || a.control === 'json-root') {
+            const path = stableInput as HTMLInputElement;
+            path.value = '  $.unmatched[*]  '; path.setSelectionRange(4, 4);
+            path.dispatchEvent(new Event('input'));
+            unmatched = { selected: root.querySelectorAll('.crosswalker-json-pick-selected').length,
+              value: path.value, caret: path.selectionStart, iterator: flow.jsonIterator };
+          }
+          if (a.control === 'json-list' || a.control === 'json-root') input.click();
+          else {
+            (input as HTMLInputElement).value = a.control === 'json-path' ? '$.second[*]' : a.control === 'xlsx-sheet' ? 'Second' : '2';
+            if (a.control === 'json-path') (input as HTMLInputElement).setSelectionRange(4, 4);
+            input.dispatchEvent(new Event(a.control === 'xlsx-sheet' ? 'change' : 'input'));
+          }
+          const afterButtons = Array.from(root.querySelectorAll('.crosswalker-step-continue'));
+          return { beforeLabels, afterLabels: buttons.map(b => b.textContent), sameValuePreserved,
+            invalidated: flow.parsedData === null, sameButtons: buttons.every((b, i) => b === afterButtons[i]),
+            inputConnected: stableInput.isConnected, focused: document.activeElement === stableInput,
+            sameContent: content === root.querySelector('.crosswalker-wizard-content'),
+            sameCards: cards.every((card, i) => card === root.querySelectorAll('.crosswalker-json-pick')[i]),
+            selectedList: root.querySelector('.crosswalker-json-pick-selected .crosswalker-json-pick-label')?.textContent,
+            indicators: cards.map(card => card.querySelector('.crosswalker-json-radio')?.textContent),
+            displayedPath: root.querySelector<HTMLInputElement>('.crosswalker-advanced input')?.value,
+            advancedOpen: advanced?.open, caret: (stableInput as HTMLInputElement).selectionStart, unmatched,
+            choice: flow.importSetChoice,
+            value: ['json-list', 'json-root'].includes(a.control) ? flow.jsonIterator : (input as HTMLInputElement).value,
+            beforeBinding, afterBinding: binding(), oldDisabled, disabled: buttons.map(b => b.disabled),
+            saved: flow.savedRecipeName };
+        }, { control, wizard: WIZARD });
+        console.log('[transition] ' + JSON.stringify({ control, ...changed }));
+        expect(changed.beforeLabels).toEqual(['Choose layout', 'Choose layout']);
+        expect(changed.afterLabels).toEqual(['Read source', 'Read source']);
+        expect(changed.sameValuePreserved).toBe(true);
+        expect(changed.invalidated).toBe(true);
+        expect(changed.sameButtons).toBe(true);
+        expect(changed.inputConnected).toBe(true);
+        expect(changed.focused).toBe(true);
+        expect(changed.sameContent).toBe(true);
+        expect(changed.sameCards).toBe(true);
+        expect(changed.choice).toBe('new');
+        if (json) {
+          expect(changed.selectedList).toBe(control === 'json-root' ? 'This whole file is your list of records' : 'second');
+          expect(changed.displayedPath).toBe(control === 'json-root' ? '' : '$.second[*]');
+          if (control === 'json-root') expect(changed.indicators).toEqual(['●']);
+          expect(changed.advancedOpen).toBe(true);
+        }
+        if (control === 'json-path') {
+          expect(changed.caret).toBe(4);
+          expect(changed.unmatched).toEqual({ selected: 0, value: '  $.unmatched[*]  ', caret: 4, iterator: '$.unmatched[*]' });
+        }
+        if (control === 'json-root') expect(changed.unmatched).toEqual({ selected: 0, value: '  $.unmatched[*]  ', caret: 4, iterator: '$.unmatched[*]' });
+        expect(changed.value).toBe(control === 'json-root' ? '' : json ? '$.second[*]' : control === 'xlsx-sheet' ? 'Second' : '2');
+        expect(changed.afterBinding).toBe(changed.beforeBinding);
+        expect(changed.saved).toBe(recipeName);
+        expect(changed.disabled).toEqual(changed.oldDisabled);
+        expect(changed.disabled).toEqual([false, false]);
+        await browser.executeObsidian(() => document.querySelectorAll<HTMLElement>('.notice').forEach(n => n.click()));
+        await browser.waitUntil(async () => browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLElement>('.notice')).every(n => n.getClientRects().length === 0 || getComputedStyle(n).visibility === 'hidden')), { timeout: 5_000 });
+        for (const captureState of control === 'json-path' ? ['unmatched', 'selected'] : ['selected']) {
+          if (json) {
+            const visibleSelection = await browser.executeObsidian((_o, a) => {
+              const root = document.querySelector(a.wizard)!;
+              const input = root.querySelector<HTMLInputElement>('.crosswalker-advanced input')!;
+              if (a.control === 'json-path') {
+                input.value = a.captureState === 'unmatched' ? '  $.unmatched[*]  ' : '$.second[*]';
+                input.setSelectionRange(4, 4);
+                input.dispatchEvent(new Event('input'));
+              }
+              (root.querySelector('.crosswalker-json-picklist') ?? root.querySelector('.crosswalker-json-pick'))?.scrollIntoView({ block: 'start' });
+              return { selected: root.querySelectorAll('.crosswalker-json-pick-selected').length,
+                value: input.value, caret: input.selectionStart, open: input.closest('details')?.open };
+            }, { wizard: WIZARD, control, captureState });
+            expect(visibleSelection.selected).toBe(captureState === 'unmatched' ? 0 : 1);
+            expect(visibleSelection.value).toBe(captureState === 'unmatched' ? '  $.unmatched[*]  ' : control === 'json-root' ? '' : '$.second[*]');
+            expect(visibleSelection.open).toBe(true);
+            if (control === 'json-path') expect(visibleSelection.caret).toBe(4);
+          }
+          for (const theme of ['light', 'dark']) {
+            await browser.executeObsidian(({ app }, theme) => {
+              (app as any).changeTheme(theme === 'dark' ? 'obsidian' : 'moonstone');
+              document.body.classList.toggle('theme-light', theme === 'light'); document.body.classList.toggle('theme-dark', theme === 'dark');
+              app.workspace.trigger('css-change');
+            }, theme);
+            await browser.pause(200);
+            const prefix = captureState === 'unmatched' ? 'transition-json-unmatched' : `transition-${control}`;
+            await browser.saveScreenshot(path.join(OUT, `${prefix}-${theme}.png`));
+          }
+        }
+        await click('Read source');
+        await browser.waitUntil(async () => browser.executeObsidian(() => {
+          const flow = (window as any).__cwObservation.flow;
+          return !!flow.parsedData && !flow.isParsing;
+        }), { timeout: 15_000 });
+        const parsed = await browser.executeObsidian(() => {
+          const flow = (window as any).__cwObservation.flow;
+          return { step: flow.currentStep, rows: flow.parsedData.rowCount, columns: flow.parsedData.columns,
+            sheetName: flow.parsedData.sheetName, lastRow: flow.parsedData.rows.at(-1), recognized: !!flow.recognizedMatch };
+        });
+        console.log('[transition-parse] ' + JSON.stringify({ control, ...parsed }));
+        expect(parsed.rows).toBe(control === 'json-root' ? 2 : json ? 1 : control === 'xlsx-header' ? 2 : 3);
+        if (control === 'json-root') expect(parsed.lastRow).toEqual(rows[1]);
+        expect(parsed.columns).toEqual(['sample_key', 'caption', 'zone']);
+        if (!json) {
+          expect(parsed.sheetName).toBe(control === 'xlsx-sheet' ? 'Second' : 'First');
+          expect(parsed.lastRow).toEqual(control === 'xlsx-sheet'
+            ? { sample_key: 'S2-B', caption: 'Second Invented beta', zone: 'East' }
+            : rows[1]);
+        }
+        expect(parsed.step === 2 || (parsed.step === 1 && parsed.recognized)).toBe(true);
+        expect(await browser.executeObsidian(async ({ app }, p) => app.vault.adapter.read(p), recipePath)).toBe(storedRecipe);
+        expect(await managed()).toEqual(notesBefore);
+        const observed = await readWizardObservation();
+        expect(observed.events.some((e: { kind: string }) => e.kind === 'generate-entry' || e.kind === 'generation-write-phase-entry')).toBe(false);
+      } finally {
+        await closeImportWizard();
+        await browser.executeObsidian(async ({ app }, a) => {
+          const file = app.vault.getAbstractFileByPath(a.recipePath); if (file) await app.vault.delete(file, true);
+          const owner = app.vault.getAbstractFileByPath(a.ownerPath); if (owner) await app.vault.delete(owner, true);
+          const plugin = (app as any).plugins.plugins.crosswalker; Object.assign(plugin.settings, a.settings); await plugin.saveSettings();
+        }, { recipePath, ownerPath, settings });
+      }
+    });
+  }
+
+  it('JSON nested radio propagates selection to the existing card and path', async () => {
+    await installWizardObservation();
+    const snapshot = () => browser.executeObsidian(async ({ app }) => {
+      const result: Record<string, string> = {};
+      for (const file of app.vault.getMarkdownFiles()) {
+        const text = await app.vault.read(file);
+        if (text.includes('_crosswalker:')) result[file.path] = text;
+      }
+      return result;
+    });
+    const before = await snapshot();
+    const result = await driveWizard({ fileName: 'nested-propagation.json', iterator: '$.groups[*]', text: JSON.stringify({
+      groups: [{ id: 'G1', title: 'Invented group', children: [{ id: 'C1', title: 'Invented child' }] }],
+      other: [{ id: 'O1', title: 'Invented other' }],
+    }) });
+    expect(result).toMatch(/^STEP 2/);
+    const observed = await browser.executeObsidian((_o, wizard) => {
+      const root = document.querySelector(wizard)!;
+      const flow = (window as any).__cwObservation.flow;
+      Array.from(root.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Back')!.click();
+      if (flow.currentStep !== 1 || !flow.parsedData) throw new Error('Expected valid parse after Back');
+      const content = root.querySelector('.crosswalker-wizard-content');
+      const cards = Array.from(root.querySelectorAll<HTMLElement>('.crosswalker-json-pick'));
+      const card = cards.find(c => c.querySelector('.crosswalker-json-pick-label')?.textContent === 'groups')!;
+      const nested = card.querySelector<HTMLInputElement>('input[value=nested]')!;
+      const flat = card.querySelector<HTMLInputElement>('input[value=flat]')!;
+      if (!nested || !flat) throw new Error('Expected native nested/flat radio fixture');
+      const input = root.querySelector<HTMLInputElement>('.crosswalker-advanced input')!;
+      const disclosure = input.closest('details')!; disclosure.open = true;
+      const binding = () => JSON.stringify({ source: flow.sourceFile.name, choice: flow.importSetChoice, preset: flow.presetLibraryRecipeId, config: flow.appliedConfig });
+      const beforeBinding = binding();
+      input.focus(); input.value = '$.other[*]'; input.dispatchEvent(new Event('input'));
+      const other = { iterator: flow.jsonIterator, nest: flow.jsonNest, flat: flat.checked, nested: nested.checked,
+        selected: root.querySelector('.crosswalker-json-pick-selected .crosswalker-json-pick-label')?.textContent };
+      nested.click();
+      const nestedResult = { iterator: flow.jsonIterator, nest: flow.jsonNest, path: input.value,
+        flat: flat.checked, nested: nested.checked,
+        selected: root.querySelector('.crosswalker-json-pick-selected .crosswalker-json-pick-label')?.textContent };
+      flat.click();
+      const flatResult = { iterator: flow.jsonIterator, nest: flow.jsonNest, path: input.value, flat: flat.checked, nested: nested.checked };
+      nested.click();
+      card.scrollIntoView({ block: 'start' });
+      return { other, nestedResult, flatResult, beforeBinding, afterBinding: binding(), open: disclosure.open,
+        sameInput: input === root.querySelector('.crosswalker-advanced input'),
+        sameContent: content === root.querySelector('.crosswalker-wizard-content'),
+        sameCards: cards.every((c, i) => c === root.querySelectorAll('.crosswalker-json-pick')[i]),
+        sameRadios: nested === card.querySelector('input[value=nested]') && flat === card.querySelector('input[value=flat]'),
+        labels: Array.from(root.querySelectorAll('.crosswalker-step-continue')).map(b => b.textContent) };
+    }, WIZARD);
+    console.log('[nested-propagation] ' + JSON.stringify(observed));
+    expect(observed.other).toEqual({ iterator: '$.other[*]', nest: null, flat: true, nested: false, selected: 'other' });
+    expect(observed.nestedResult).toEqual({ iterator: '$.groups[*]', nest: '$.groups[*]', path: '$.groups[*]', flat: false, nested: true, selected: 'groups' });
+    expect(observed.flatResult).toEqual({ iterator: '$.groups[*]', nest: null, path: '$.groups[*]', flat: true, nested: false });
+    expect(observed.afterBinding).toBe(observed.beforeBinding);
+    for (const same of [observed.sameInput, observed.sameContent, observed.sameCards, observed.sameRadios, observed.open]) expect(same).toBe(true);
+    expect(observed.labels).toEqual(['Read source', 'Read source']);
+    await browser.executeObsidian(() => document.querySelectorAll<HTMLElement>('.notice').forEach(n => n.click()));
+    await browser.waitUntil(async () => browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLElement>('.notice')).every(n => n.getClientRects().length === 0 || getComputedStyle(n).visibility === 'hidden')), { timeout: 5_000 });
+    for (const theme of ['light', 'dark']) {
+      await browser.executeObsidian(({ app }, theme) => {
+        (app as any).changeTheme(theme === 'dark' ? 'obsidian' : 'moonstone');
+        document.body.classList.toggle('theme-light', theme === 'light'); document.body.classList.toggle('theme-dark', theme === 'dark');
+        app.workspace.trigger('css-change');
+      }, theme);
+      await browser.pause(200);
+      await browser.saveScreenshot(path.join(OUT, `json-nested-propagation-${theme}.png`));
+    }
+    expect(await snapshot()).toEqual(before);
+    expect((await readWizardObservation()).events.some((e: { kind: string }) => e.kind === 'generate-entry' || e.kind === 'generation-write-phase-entry')).toBe(false);
   });
 
   it('JSON record picker — nested lists render as cards, primary list ranked first', async () => {
@@ -500,10 +813,11 @@ describe('Visual — import wizard XLSX + JSON paths', function () {
     }
   });
 
-  it('JSON unknown filter field: results name the field and create no notes', async () => {
+  it('JSON unknown filter field: preflight refusal names the field and creates no notes', async () => {
     const target = 'E2E-Wizard-Test/Unknown-Filter-Field';
     const unknownField = 'unknown_filter_field';
     await requireAbsentFolder(target);
+    await installWizardObservation();
     try {
       const r = await driveWizard({
         text: STIX_JSON,
@@ -512,18 +826,42 @@ describe('Visual — import wizard XLSX + JSON paths', function () {
         where: `${unknownField}=value`,
       });
       if (!r.startsWith('STEP')) throw new Error('Unknown-field JSON drive failed: ' + r);
-      const g = await finishWizard(target, 0);
-      console.log('[wizard] json unknown-field evidence → ' + JSON.stringify(g));
+      // This refusal happens before the write phase, so do not wait for a
+      // results screen that neither the baseline nor candidate produces.
+      for (const expectedStep of [3, 4]) {
+        const action = await clickWizardButton('Next');
+        if (!action.ok) throw new Error(action.detail);
+        await browser.waitUntil(async () => (await readWizardGeneration(target)).step === expectedStep, { timeout: 15_000 });
+      }
+      const setOutput = await setWizardOutputPath(target);
+      if (!setOutput.ok) throw new Error(setOutput.detail);
+      const click = await clickWizardButton('Generate');
+      if (!click.ok) throw new Error(click.detail);
+      await browser.waitUntil(async () => (await readWizardObservation()).events.some((event: any) => event.kind === 'generate-return'),
+        { timeout: 5_000, timeoutMsg: 'Generate did not return from bounded preflight' });
+      const observation = await readWizardObservation();
+      const output = await readWizardGeneration(target);
+      console.log('[wizard] json unknown-field timeline → ' + JSON.stringify(observation));
+      console.log('[wizard] json unknown-field output → ' + JSON.stringify(output));
       await browser.saveScreenshot(path.join(OUT, 'wizard-json-unknown-filter-field.png'));
+      const errors = observation.events.filter((event: any) => ['generate-exception', 'window-error', 'unhandled-rejection'].includes(event.kind));
+      if (errors.length) throw new Error('Unexpected exception: ' + JSON.stringify(errors));
+      if (observation.events.filter((event: any) => event.kind === 'generate-entry').length !== 1
+          || observation.events.some((event: any) => event.kind === 'generation-write-phase-entry')) {
+        throw new Error('Expected exactly one real Generate entry and no write-phase entry: ' + JSON.stringify(observation));
+      }
+      const refusal = observation.state.discoveryError;
+      if (typeof refusal !== 'string' || !refusal.includes(`unknown field "${unknownField}"`)
+          || !refusal.includes('The source has no such column') || !refusal.includes('Available: type, name')
+          || !observation.warnings.includes(refusal)
+          || !observation.events.some((event: any) => event.kind === 'notice' && event.value === refusal)) {
+        throw new Error('Missing persistent, field-naming actionable refusal plus notice: ' + JSON.stringify(observation));
+      }
+      if (observation.state.generating || observation.state.step !== 4 || observation.result !== '' || output.createdFiles.length !== 0) {
+        throw new Error('Preflight refusal entered generation or created notes: ' + JSON.stringify({ observation, output }));
+      }
+      await requireAbsentFolder(target);
       await closeModal();
-
-      const errorText = g.last.errors.join('\n');
-      if (g.kind !== 'error' || !errorText.includes('unknown field') || !errorText.includes(unknownField)) {
-        throw new Error('Unknown-field filter did not surface an actionable results error: ' + JSON.stringify(g));
-      }
-      if (g.last.createdFiles.length !== 0) {
-        throw new Error('Unknown-field filter created notes: ' + JSON.stringify(g.last.createdFiles));
-      }
     } finally {
       await cleanupFolder(target);
     }

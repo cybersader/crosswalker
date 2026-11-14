@@ -26,7 +26,7 @@ Click **"Import structured data"** and the flow below takes over the tab, wide, 
 
 ## Selecting a source
 
-Step 1 opens with **Browse built-in import presets**, a collapsible list sitting above the file picker. It names every source Crosswalker recognizes on sight and, for each one, links to the publisher's download page and to the matching import instructions, so you can go and fetch the right file without losing your place. The same guide is on the [settings launchpad](/crosswalker/reference/settings/#launchpad) and the workspace tab's launchpad.
+Step 1 starts with the vault and computer file pickers, followed by the saved-recipe control and source-file help. **Browse built-in import presets** is a closed, expandable list below those controls. It names every source Crosswalker recognizes on sight and, for each one, links to the publisher's download page and to the matching import instructions, so you can go and fetch the right file without losing your place. The same guide is on the [settings launchpad](/crosswalker/reference/settings/#launchpad) and the workspace tab's launchpad.
 
 If source files already sit in the vault, **Find sources in this vault** opens from the workspace launchpad, the settings mirror, or `Crosswalker: Find framework sources in this vault`. The scan is the way into deeper [reification](/crosswalker/concepts/terminology/#reification), and the wizard is where the user decides, column by column, what becomes real. Each row shows the matched source and score, its worksheet and header row when relevant, and whether its byte digest is not imported, imported unchanged, imported with changed source bytes, or still checking the vault index. From the results, **Import selected** creates new sets in order, **Create drafts for selected** saves offer-only resume points, and the row action opens the source in the wizard or offers **Refresh** without preselecting a set. An unchanged import uses **Open** instead. Recognition only offers a source and binding; it never auto-imports, auto-refreshes, or chooses a recipe for the user.
 
@@ -50,17 +50,17 @@ When a file's columns closely match one of Crosswalker's **[built-in configurati
 For a recognized workbook, the wizard suggests the worksheet and zero-based header row from the observed columns. The line beneath the controls names the source, sheet, and row, both controls stay editable, and changing either switches the line to **Using your choice** with **Use suggestion** to restore the pair. A suggestion never advances the wizard or selects a recipe.
 
 The card shows what it recognized, how many rows become how many notes, which shapes it produces (folders, tags, links, properties), and where it would land. Three choices:
-- **"Import with this configuration"** — jumps straight to the [review screen](#review-and-confirm).
-- **"Customize"** — opens the same configuration in [map the shapes](#map-the-shapes) so you can adjust anything before generating.
+- **"Review with this recipe"** — jumps straight to the [review screen](#review-and-confirm).
+- **"Adjust layout"** — opens the same configuration in [map the shapes](#map-the-shapes) so you can adjust anything before generating.
 - **"Start from scratch"** — dismisses the card for this file and falls back to ordinary detection.
 
-An unedited recognized source is labeled **Built-in**; the moment you change something after Customize, it honestly relabels as **Custom (based on the source)**.
+An unedited recognized source is labeled **Built-in**; the moment you change something after Adjust layout, it honestly relabels as **Custom (based on the source)**.
 
 {/* FIGURE: test-screenshots/wb-08-recognized.png — Recognized-source card: badge-check icon, Built-in + Recommended badges, row/shape/destination summary, three actions */}
 
 ## Map the shapes
 
-When there's no confident match, or you chose Customize, you land on the mapping screen. Two modes exist today:
+When there's no confident match, or you chose Adjust layout, you land on the mapping screen. Two modes exist today:
 
 - **The classic column table** (the default): every column listed with its detected type, sample values, and a "Use as" role — frontmatter property, hierarchy level, folder tree from an id, note title, a crosswalk link, body content, or skip — plus a live "in the vault" preview per row. A filter box and a collapsible tail keep very wide sources manageable.
 - **Live mapping workbench** (beta — turn it on under **Settings → Import behavior**): one screen, three zones, updating together as you work.
@@ -106,7 +106,7 @@ If you close the tab mid-import, Crosswalker auto-saves a **draft** (toggle in s
 ## Escape hatches
 
 - **[Saved configurations](/crosswalker/features/config-system/)** — after you've mapped a source once, save it. The config browser lets you browse, preview mappings, duplicate, delete, and export or import configurations as JSON files to share with a teammate or another vault.
-- **Customize** on any recognized-source card, whenever you don't want the built-in default.
+- **Adjust layout** on any recognized-source card, whenever you don't want the built-in default.
 - **The classic column table**, whenever you'd rather not turn on the beta workbench.
 
 {/* FIGURE: test-screenshots/settings-01-overview.png — Settings hub: Import behavior card, where the live mapping workbench toggle lives */}

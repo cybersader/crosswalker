@@ -300,7 +300,7 @@ describe('First run — empty vault walkthrough', function () {
 		await capture('first-run-07-recognized-source.png', '.crosswalker-workspace-flow');
 
 		// 08 — take the visible escape hatch so the complete Step 2 is observed.
-		expect(await clickVisibleButton('.crosswalker-workspace-flow', 'Customize')).toBe(true);
+		expect(await clickVisibleButton('.crosswalker-workspace-flow', 'Adjust layout')).toBe(true);
 		expect(await waitForDom('.crosswalker-workbench', 12_000)).toBe(true);
 		await browser.pause(250);
 		await capture('first-run-08-import-step-2-workbench.png', '.crosswalker-workspace-flow');

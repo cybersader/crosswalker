@@ -269,10 +269,15 @@ export function chooseFileLine(run: RecipeRunRecord): string {
 }
 
 /**
- * The Step 1 / review status line, or null when the status is unknown. The
- * second sentence says what the run does to the vault, under the write policy
- * in force. When the recipe itself changed (R7), the "matches" promise is not
- * true, so it is left off and the recipe-changed line carries the news.
+ * The Step 1 / review source comparison, or null when the status is unknown.
+ * Source comparison remains useful after choosing a different import target.
+ * `refreshingRecordedSet` gates only promises about effects on the recorded
+ * set; callers pass false for new, different, explicitly unset, or missing
+ * targets. Its default preserves existing callers' recorded-set semantics.
+ * Source equality says nothing about vault completeness: missing notes may be
+ * recreated even when the file matches. Effect wording follows the write policy,
+ * never promising a no-op. When the recipe changed (R7), same-source effects are
+ * omitted; the recipe-changed line carries that news.
  */
 export function sourceStatusLine(
 	run: RecipeRunRecord,
@@ -281,18 +286,19 @@ export function sourceStatusLine(
 	recipeChanged = false,
 	setName: string | null = null,
 	mode: RecipeRunOverwriteMode = 'replace',
+	refreshingRecordedSet = true,
 ): string | null {
 	const date = formatRunDate(run.finishedAt);
 	if (status === 'same') {
 		let effect = '';
-		if (!recipeChanged && mode === 'replace') effect = ' Running again adds nothing new; it only puts back fields this recipe fills if someone edited them.';
-		if (!recipeChanged && mode === 'skip') effect = ' Running again will not change your notes.';
+		if (refreshingRecordedSet && !recipeChanged && mode === 'replace') effect = ' Running again may restore missing notes or update fields this recipe fills.';
+		if (refreshingRecordedSet && !recipeChanged && mode === 'skip') effect = ' Existing notes are kept; missing notes may be created.';
 		return `This file matches the last run on ${date}.${effect}`;
 	}
 	if (status === 'changed') {
 		let effect = '';
-		if (setName && mode === 'replace') effect = ` Notes in ${setName} will be updated to match it.`;
-		if (setName && mode === 'skip') effect = ` New rows are added to ${setName}; notes it already owns are kept.`;
+		if (refreshingRecordedSet && setName && mode === 'replace') effect = ` Notes in ${setName} will be updated to match it.`;
+		if (refreshingRecordedSet && setName && mode === 'skip') effect = ` New rows are added to ${setName}; notes it already owns are kept.`;
 		return `This file changed since the last run on ${date}.${effect}${isWorkbook ? ' Any sheet counts, not only the one you import.' : ''}`;
 	}
 	return null;

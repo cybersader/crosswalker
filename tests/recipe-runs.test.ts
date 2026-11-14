@@ -211,7 +211,7 @@ describe('change detection (R7) and copy', () => {
 			START_NEW_IMPORT_LABEL,
 		];
 		expect(lines[0]).toBe('Choose the source file for this run. Last time it was widgets.csv. Crosswalker does not keep a copy of your source.');
-		expect(lines[1]).toBe(`This file matches the last run on ${date}. Running again adds nothing new; it only puts back fields this recipe fills if someone edited them.`);
+		expect(lines[1]).toBe(`This file matches the last run on ${date}. Running again may restore missing notes or update fields this recipe fills.`);
 		expect(lines[2]).toBe(`This file matches the last run on ${date}.`);
 		expect(lines[3]).toBe(`This file changed since the last run on ${date}. Notes in Widgets will be updated to match it. Any sheet counts, not only the one you import.`);
 		expect(sourceStatusLine(record, 'changed', false)).toBe(`This file changed since the last run on ${date}.`);
@@ -228,10 +228,23 @@ describe('change detection (R7) and copy', () => {
 		}
 	});
 
+	it.each(['replace', 'skip', 'error'] as const)('source equality never promises a vault no-op (%s)', mode => {
+		const record = run();
+		for (const recipeChanged of [false, true]) {
+			for (const recordedTarget of [false, true]) {
+				// No completeness information is available here: some owned notes may be gone.
+				const line = sourceStatusLine(record, 'same', false, recipeChanged, 'Widgets', mode, recordedTarget)!;
+				expect(line).toContain('This file matches the last run');
+				expect(line).not.toMatch(/adds nothing new|will not change your notes/);
+				if (!recordedTarget || recipeChanged) expect(line).not.toContain('missing notes');
+			}
+		}
+	});
+
 	it('never promises an update the write policy will not make', () => {
 		const record = run();
 		const date = new Date(record.finishedAt).toLocaleDateString();
-		expect(sourceStatusLine(record, 'same', false, false, 'Widgets', 'skip')).toBe(`This file matches the last run on ${date}. Running again will not change your notes.`);
+		expect(sourceStatusLine(record, 'same', false, false, 'Widgets', 'skip')).toBe(`This file matches the last run on ${date}. Existing notes are kept; missing notes may be created.`);
 		expect(sourceStatusLine(record, 'same', false, false, 'Widgets', 'error')).toBe(`This file matches the last run on ${date}.`);
 		expect(sourceStatusLine(record, 'changed', false, false, 'Widgets', 'skip')).toBe(`This file changed since the last run on ${date}. New rows are added to Widgets; notes it already owns are kept.`);
 		expect(runAgainLeadLine('Widget recipe', 'Widgets', undefined, 'skip')).toBe('Running "Widget recipe" again into Widgets. Notes it already owns are kept as they are. New rows become new notes.');

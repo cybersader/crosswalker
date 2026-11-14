@@ -89,7 +89,7 @@ describe('Visual — two-structural preview-error banner (B2)', function () {
 			input.files = dt.files;
 			input.dispatchEvent(new Event('change'));
 			await sleep(700);
-			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent?.includes('Next'));
+			const next = Array.from(modal.querySelectorAll('button')).find((b) => b.classList.contains('crosswalker-step-continue'));
 			if (!next) return { ok: false as const, reason: 'NO_NEXT' };
 			(next as HTMLButtonElement).click();
 			const bench = await waitFor('.crosswalker-workbench', 8000);

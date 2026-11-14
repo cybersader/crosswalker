@@ -29,7 +29,7 @@ export function renderPresetGuide(parent: HTMLElement): HTMLDetailsElement {
 
 	const intro = document.createElement('p');
 	intro.className = 'crosswalker-preset-guide-intro';
-	intro.textContent = 'Crosswalker recognizes these publisher files automatically. Download the file from the publisher, then choose it below. Some publishers ask you to register before downloading.';
+	intro.textContent = 'Crosswalker recognizes these publisher files automatically. Download the file from the publisher, then choose it with a file picker. Some publishers ask you to register before downloading.';
 	details.append(intro);
 
 	const list = document.createElement('ul');

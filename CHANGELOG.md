@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Changed: source-first import navigation (2026-11-13)
+
+- The vault and computer file pickers now precede saved recipes and the closed publisher/preset guide. Guidance, registration cautions and export warnings remain available before choosing a file; Run again retains its separate exit and source binding.
+- Import navigation names its next action: Read source, Choose layout, Review import, and Continue to generation. Recognized recipes offer Review with this recipe or Adjust layout; generation still requires the separate Generate action. Existing draft saves, parsing, saved recipes and chosen refresh targets are unchanged. The computer file input has an accessible name.
+- Both navigation labels switch back to Read source when a worksheet, header row or JSON record path changes. The controls stay in place so typing keeps its focus; parsing and stale-set guards are unchanged.
+- JSON record-list cards, nested-record choices and the advanced record path now show the same selection without rebuilding the controls. Editing a path keeps typing position and disclosure state; a path without a matching card clears the card selection.
+- Run again keeps the source comparison when a different import target is chosen, but no longer promises to update the original set. Matching source bytes no longer imply a no-op: missing notes may be restored. Recipe and source bindings remain intact; chosen ownership and generation behavior are unchanged.
+- Existing UI/CLI action parity is unchanged: this is presentation of existing actions, not a new import capability.
+
 ### Fixed: Connections read failures reach existing diagnostics (2026-11-13)
 
 - Connections now emits one structured local diagnostic when its vault-readiness check, imported-set discovery or canonical vault read unexpectedly fails, including with debug-file logging off. Expected indexing and cancellation remain distinct; failed ownership discovery still blocks results instead of hiding the affected set.

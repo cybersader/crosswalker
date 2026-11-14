@@ -122,10 +122,10 @@ describe('Visual: linked recommended defaults, synthetic sources only', function
 			}, { csv, key: source.key });
 			await browser.waitUntil(async () => browser.executeObsidian(() =>
 				!!Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-wizard-modal button'))
-					.find((button) => button.textContent?.includes('Next') && !button.disabled)), { timeout: 15_000 });
+					.find((button) => button.classList.contains('crosswalker-step-continue') && !button.disabled)), { timeout: 15_000 });
 			await browser.executeObsidian(() => {
 				Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-wizard-modal button'))
-					.find((button) => button.textContent?.includes('Next') && !button.disabled)?.click();
+					.find((button) => button.classList.contains('crosswalker-step-continue') && !button.disabled)?.click();
 			});
 			await browser.$(`${WIZARD} .crosswalker-recognized-card`).waitForDisplayed({ timeout: 20_000 });
 			const choices = await browser.executeObsidian(() => Array.from(document.querySelectorAll<HTMLButtonElement>(
@@ -147,7 +147,7 @@ describe('Visual: linked recommended defaults, synthetic sources only', function
 				await browser.executeObsidian(() => {
 					document.querySelectorAll<HTMLButtonElement>('.crosswalker-recognized-alternatives button')[0]?.click();
 					Array.from(document.querySelectorAll<HTMLButtonElement>('.crosswalker-recognized-actions button'))
-						.find((button) => button.textContent?.trim() === 'Customize')?.click();
+						.find((button) => button.textContent?.trim() === 'Adjust layout')?.click();
 				});
 				await browser.waitUntil(async () => browser.executeObsidian(() =>
 					document.querySelector('.crosswalker-wb-connection-stats')?.textContent?.includes('2 parent links') ?? false,

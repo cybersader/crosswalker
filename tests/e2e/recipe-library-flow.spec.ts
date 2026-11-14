@@ -56,7 +56,8 @@ async function clickButton(label: string, exact = false): Promise<boolean> {
 	return browser.executeObsidian((_o, a) => {
 		const modal = document.querySelector(a.wizard);
 		const button = Array.from(modal?.querySelectorAll('button') ?? []).find((b) =>
-			a.exact ? b.textContent?.trim() === a.label : b.textContent?.includes(a.label),
+			a.label === 'Next' ? b.classList.contains('crosswalker-step-continue')
+				: a.exact ? b.textContent?.trim() === a.label : b.textContent?.includes(a.label),
 		) as HTMLButtonElement | undefined;
 		if (!button || button.disabled) return false;
 		button.click();

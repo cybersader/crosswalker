@@ -25,6 +25,7 @@ import { closeImportWizard, requireImportWizard, clearAllDrafts } from './helper
 import { waitForVaultIndexed } from './helpers/vault-readiness';
 import { managedContentEquivalent } from '../../src/generation/managed-equivalence';
 import { splitNoteText } from '../../src/generation/note-text';
+import { installWizardObservation, readWizardObservation, stopWizardObservation } from './helpers/wizard-observation';
 
 const OUT = path.resolve('test-screenshots');
 const WIZARD = '.crosswalker-wizard-modal';
@@ -69,7 +70,8 @@ async function clickButton(label: string, exact = false): Promise<boolean> {
 		const modal = document.querySelector(a.wizard);
 		const button = Array.from(modal?.querySelectorAll('button') ?? []).find((b) => {
 			const text = b.textContent?.trim() ?? '';
-			return a.exact ? text === a.label : text.includes(a.label);
+			return a.label === 'Next' ? b.classList.contains('crosswalker-step-continue')
+				: a.exact ? text === a.label : text.includes(a.label);
 		}) as HTMLButtonElement | undefined;
 		if (!button || button.disabled) return false;
 		button.click();
@@ -111,7 +113,7 @@ async function wizardText(selector: string): Promise<string> {
 /** Every Next button in the wizard (top nav and footer), with its state. */
 async function nextButtons(): Promise<Array<{ disabled: boolean; title: string }>> {
 	return browser.executeObsidian((_o, wizard) => Array.from(document.querySelector(wizard)?.querySelectorAll('button') ?? [])
-		.filter((b) => (b.textContent ?? '').includes('Next'))
+		.filter((b) => b.classList.contains('crosswalker-step-continue'))
 		.map((b) => ({ disabled: (b as HTMLButtonElement).disabled, title: b.getAttribute('title') ?? '' })), WIZARD);
 }
 
@@ -167,6 +169,47 @@ async function yamlParser(notes: Array<Record<string, string>>): Promise<(text: 
 		if (!table.has(text)) throw new Error('frontmatter block was not pre-parsed');
 		return table.get(text);
 	};
+}
+
+/** Capture the unchanged binding alongside copy-only ownership transitions. */
+async function sourceBinding(): Promise<unknown> {
+	return browser.executeObsidian(() => {
+		const flow = (window as any).__cwObservation.flow;
+		return {
+			run: flow.runAgain,
+			sourceName: flow.sourceFile?.name,
+			sourceDigest: flow.parsedData?.sourceByteDigest,
+			sourceType: flow.sourceType,
+			sheet: flow.selectedSheet,
+			header: flow.xlsxHeaderRow,
+			iterator: flow.jsonIterator,
+			recipe: flow.workbench?.getRecipeDocument().original,
+		};
+	});
+}
+
+async function captureOwnershipCopy(stage: 'review' | 'source', survivor: boolean, prefix = `ownership-copy-${survivor ? 'survivor' : 'last'}-${stage}`): Promise<void> {
+	await browser.executeObsidian(() => {
+		document.querySelectorAll<HTMLElement>('.notice').forEach(notice => notice.click());
+	});
+	await browser.waitUntil(async () => browser.executeObsidian(() =>
+		Array.from(document.querySelectorAll<HTMLElement>('.notice')).every(notice => {
+			const rect = notice.getBoundingClientRect();
+			return rect.width === 0 || rect.height === 0 || getComputedStyle(notice).visibility === 'hidden';
+		})), { timeout: 5_000, timeoutMsg: 'Notices still obscure ownership-copy capture' });
+	for (const theme of ['light', 'dark']) {
+		await browser.executeObsidian(({ app }, args) => {
+			(app as unknown as { changeTheme(name: string): void }).changeTheme(args.theme === 'dark' ? 'obsidian' : 'moonstone');
+			document.body.classList.toggle('theme-light', args.theme === 'light');
+			document.body.classList.toggle('theme-dark', args.theme === 'dark');
+			const root = document.querySelector(args.wizard);
+			const content = root?.querySelector<HTMLElement>('.crosswalker-wizard-content');
+			if (content) content.scrollTop = 0;
+			app.workspace.trigger('css-change');
+		}, { theme, wizard: WIZARD });
+		await browser.pause(250);
+		await browser.saveScreenshot(path.join(OUT, `${prefix}-${theme}.png`));
+	}
 }
 
 async function importSetIds(root: string): Promise<string[]> {
@@ -382,7 +425,7 @@ describe('Recipe library: Run again', function () {
 			return s.classes.some((c) => c.includes('crosswalker-run-again-same')) ? s : null;
 		}, 10_000, 'matches line on Step 1');
 		const date = new Date(firstRecord.finishedAt as string).toLocaleDateString();
-		expect(status.text).toContain(`This file matches the last run on ${date}. Running again adds nothing new; it only puts back fields this recipe fills if someone edited them.`);
+		expect(status.text).toContain(`This file matches the last run on ${date}. Running again may restore missing notes or update fields this recipe fills.`);
 		// The file card says which recipe reads the file, not the generic "how".
 		expect(await wizardText('.crosswalker-file-card-how')).toBe(`Read with your recipe "${RECIPE_NAME}".`);
 		expect(await step()).toBe(1);
@@ -454,6 +497,71 @@ describe('Recipe library: Run again', function () {
 		await closeImportWizard();
 	});
 
+	for (const mode of ['skip', 'replace']) {
+		it(`same source recreates one missing owned note (${mode})`, async () => {
+			const before = await readNotes(root!);
+			const missing = Object.keys(before).find(file => before[file].includes('Invented text for widget two.'));
+			expect(missing).toBeDefined();
+			expect(Object.keys(before).length).toBeGreaterThan(1);
+			try {
+				await removePath(missing!);
+				await waitForVaultIndexed();
+				expect((await readNotes(root!))[missing!]).toBeUndefined();
+				expect(await importSetIds(root!)).toEqual([setId]);
+				await openLibraryCard();
+				await runAgainFromLibrary();
+				await injectSource(CSV_V2);
+				await until(async () => (await runAgainStatus()).classes.some(c => c.includes('crosswalker-run-again-same')), 10_000, 'same source after deleting one note');
+				expect(await clickButton('Next')).toBe(true);
+				await until(async () => (await step()) === 3, 15_000, 'review');
+				expect(await chosenSet()).toBe(setId);
+				expect(await clickButton('Next')).toBe(true);
+				await until(async () => (await step()) === 4, 15_000, 'generation settings');
+				expect(await overwriteSelect(mode)).toBe(mode);
+				for (const previous of [3, 2, 1]) {
+					expect(await clickButton('Back', true)).toBe(true);
+					await until(async () => (await step()) === previous, 5_000, 'Back for policy copy');
+				}
+				const copy = (await runAgainStatus()).text;
+				expect(copy).toContain('This file matches the last run');
+				expect(copy).toContain(mode === 'skip' ? 'Existing notes are kept; missing notes may be created.' : 'Running again may restore missing notes or update fields this recipe fills.');
+				expect(copy).not.toMatch(/adds nothing new|will not change your notes/);
+				await captureOwnershipCopy('source', false, `same-source-missing-${mode}`);
+				expect((await readNotes(root!))[missing!]).toBeUndefined();
+				expect(await clickButton('Next')).toBe(true);
+				await until(async () => (await step()) === 2, 15_000, 'layout after Back');
+				expect(await clickButton('Next')).toBe(true);
+				await until(async () => (await step()) === 3, 15_000, 'review after layout');
+				expect(await chosenSet()).toBe(setId);
+				expect(await clickButton('Next')).toBe(true);
+				await until(async () => (await step()) === 4, 15_000, 'generation after Back');
+				expect(await overwriteSelect()).toBe(mode);
+				console.log('[run-again] missing-note recreation ' + JSON.stringify({ mode, missing, copy, summary: await generateFromStep4() }));
+				await waitForVaultIndexed();
+				const after = await readNotes(root!);
+				expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+				const parseYaml = await yamlParser([before, after]);
+				for (const file of Object.keys(before)) {
+					expect(managedContentEquivalent(before[file], after[file], { parseYaml }).equal).toBe(true);
+				}
+				if (mode === 'skip') {
+					// Auxiliary facet/index notes can refresh produced_at. The three
+					// surviving source-row notes themselves must remain byte-identical.
+					const keptRows = Object.keys(before).filter(file => file !== missing && before[file].includes('Invented text for widget'));
+					expect(keptRows).toHaveLength(3);
+					for (const file of keptRows) expect(after[file]).toBe(before[file]);
+				}
+				expect(await importSetIds(root!)).toEqual([setId]);
+			} finally {
+				await closeImportWizard();
+				await browser.executeObsidian(async ({ app }, a) => {
+					if (!app.vault.getAbstractFileByPath(a.path)) await app.vault.create(a.path, a.text);
+				}, { path: missing!, text: before[missing!] });
+			}
+		});
+	}
+
+
 	it('leaves Run again completely when the user starts a new import instead', async () => {
 		await openLibraryCard();
 		await runAgainFromLibrary();
@@ -471,9 +579,9 @@ describe('Recipe library: Run again', function () {
 		// run survives: the review defaults to a new set, and the old run's write
 		// policy is gone.
 		expect(await clickButton('Next')).toBe(true);
-		await until(async () => (await wizardText('.crosswalker-recognized-actions')).includes('Use this recipe'), 15_000, 'recipe offered');
+		await until(async () => (await wizardText('.crosswalker-recognized-actions')).includes('Review with this recipe'), 15_000, 'recipe offered');
 		expect(await step()).toBe(1);
-		expect(await clickButton('Use this recipe', true)).toBe(true);
+		expect(await clickButton('Review with this recipe', true)).toBe(true);
 		await until(async () => (await step()) >= 3, 15_000, 'review step');
 		await until(async () => (await chosenSet()) !== 'NO_SELECT', 10_000, 'set dropdown');
 		expect(await chosenSet()).toBe('__new__');
@@ -487,58 +595,145 @@ describe('Recipe library: Run again', function () {
 		expect(await importSetIds(root!)).toEqual([setId]);
 	});
 
-	it('blocks a stale Run again, then drops the run from the card (case 6)', async () => {
-		await openLibraryCard();
-		await runAgainFromLibrary();
-		await injectSource(CSV_V1);
-		await until(async () => (await runAgainStatus()).classes.length > 0, 10_000, 'status after parse');
 
-		// The set is deleted between the click and generation.
-		await removePath(root);
-		await waitForVaultIndexed();
-		expect(await clickButton('Next')).toBe(true);
-		await until(async () => (await step()) >= 3, 15_000, 'review step');
-		const review = await until(async () => browser.executeObsidian((_o, wizard) => {
-			const wrap = document.querySelector(wizard)?.querySelector('.crosswalker-import-set-review');
-			if (!wrap) return null;
-			return {
-				warning: wrap.querySelector('.crosswalker-warning')?.textContent ?? '',
-				buttons: Array.from(wrap.querySelectorAll('button')).map((b) => b.textContent?.trim() ?? ''),
-			};
-		}, WIZARD), 10_000, 'stale review');
-		console.log('[run-again] stale review → ' + JSON.stringify(review));
-		expect(review.warning).toBe(STALE);
-		expect(review.buttons).toContain('Import as a new set');
-		// The warning leads: no "file changed" line describes a refresh that cannot happen.
-		expect((await runAgainStatus()).text).toBe('');
-		// The dropdown agrees with the warning: it does not read "new set".
-		expect(await chosenSet()).toBe('__missing__');
-		// Next is disabled, and says why, in the button and in the footer.
-		const blockedNext = await nextButtons();
-		expect(blockedNext.length).toBeGreaterThan(0);
-		expect(blockedNext.every((b) => b.disabled && b.title === STALE_HINT)).toBe(true);
-		expect(await wizardText('.crosswalker-footer-hint')).toBe(STALE_HINT);
-		await browser.executeObsidian((_o, wizard) => {
-			document.querySelector(wizard)?.querySelector('.crosswalker-import-set-review')?.scrollIntoView({ block: 'center' });
-		}, WIZARD);
-		await browser.saveScreenshot(path.join(OUT, 'rra-03-review-stale.png'));
+	let recoveryNotes: Record<string, string>;
+	let recoveryRuns: Array<Record<string, unknown>>;
+	async function managedNotes(): Promise<Record<string, string>> {
+		return browser.executeObsidian(async ({ app }) => {
+			const result: Record<string, string> = {};
+			for (const file of app.vault.getMarkdownFiles()) {
+				const text = await app.vault.read(file);
+				if (text.includes('_crosswalker:')) result[file.path] = text;
+			}
+			return result;
+		});
+	}
+	for (const survivor of [false, true]) it(`stale recovery: removed ${survivor ? 'one of two sets' : 'last set'}`, async () => {
+		if (!survivor) { recoveryNotes = await readNotes(root!); recoveryRuns = await settingsRuns(); }
+		else {
+			await browser.executeObsidian(async ({ app, obsidian }, args) => {
+				const write = async (filePath: string, content: string) => {
+					const parts = filePath.split('/');
+					for (let i = 1; i < parts.length; i++) {
+						const folder = parts.slice(0, i).join('/');
+						if (!app.vault.getAbstractFileByPath(folder)) await app.vault.createFolder(folder);
+					}
+					await app.vault.create(filePath, content);
+				};
+				for (const [filePath, content] of Object.entries(args.notes)) await write(filePath, content);
+				const text = Object.values(args.notes)[0];
+				const frontmatter = obsidian.parseYaml(text.split('---')[1]);
+				frontmatter.curie = 'synthetic-survivor:one';
+				Object.assign(frontmatter._crosswalker.import_set, { id: 'iset-surv01', ontology: 'synthetic-survivor', destination: 'E2E-Recovery-Survivor' });
+				await write('E2E-Recovery-Survivor/one.md', '---\n' + obsidian.stringifyYaml(frontmatter) + '---\nSynthetic survivor.\n');
+				// @ts-expect-error -- internal plugin registry, isolated synthetic fixture
+				const plugin = app.plugins.plugins.crosswalker;
+				plugin.settings.recipeRuns = args.runs;
+				await plugin.saveSettings();
+			}, { notes: recoveryNotes, runs: recoveryRuns });
+			await waitForVaultIndexed();
+		}
+		try {
+			await installWizardObservation();
+			await openLibraryCard();
+			await runAgainFromLibrary();
+			await injectSource(CSV_V1);
+			await until(async () => (await runAgainStatus()).classes.length > 0, 10_000, 'status after parse');
 
-		// Generation must not write anything into a set that is gone.
-		expect(await clickButton('Next')).toBe(false);
-		expect(await step()).toBe(3);
-		expect(Object.keys(await readNotes(root!))).toEqual([]);
+			// The set is deleted between the click and generation.
+			await removePath(root);
+			await waitForVaultIndexed();
+			expect(await clickButton('Next')).toBe(true);
+			await until(async () => (await step()) >= 3, 15_000, 'review step');
+			const review = await until(async () => browser.executeObsidian((_o, wizard) => {
+				const wrap = document.querySelector(wizard)?.querySelector('.crosswalker-import-set-review');
+				if (!wrap) return null;
+				return {
+					warning: wrap.querySelector('.crosswalker-warning')?.textContent ?? '',
+					buttons: Array.from(wrap.querySelectorAll('button')).map((b) => b.textContent?.trim() ?? ''),
+				};
+			}, WIZARD), 10_000, 'stale review');
+			console.log('[run-again] stale review → ' + JSON.stringify(review));
+			expect(review.warning).toBe(STALE);
+			expect(review.buttons).toContain('Import as a new set');
+			// The warning leads: no "file changed" line describes a refresh that cannot happen.
+			expect((await runAgainStatus()).text).toBe('');
+			// The dropdown agrees with the warning: it does not read "new set".
+			expect(await chosenSet()).toBe('__missing__');
+			// Next is disabled, and says why, in the button and in the footer.
+			const blockedNext = await nextButtons();
+			expect(blockedNext).toHaveLength(2);
+			expect(blockedNext.every((b) => b.disabled && b.title === STALE_HINT)).toBe(true);
+			expect(await wizardText('.crosswalker-footer-hint')).toBe(STALE_HINT);
+			await browser.executeObsidian((_o, wizard) => {
+				document.querySelector(wizard)?.querySelector('.crosswalker-import-set-review')?.scrollIntoView({ block: 'center' });
+			}, WIZARD);
+			await browser.saveScreenshot(path.join(OUT, `rra-03-review-stale-${survivor ? 'survivor' : 'last'}.png`));
 
-		// Choosing a new set is the way forward, and it unblocks Next.
-		expect(await clickButton('Import as a new set', true)).toBe(true);
-		await until(async () => (await chosenSet()) === '__new__', 5_000, 'new set chosen');
-		expect((await nextButtons()).every((b) => !b.disabled)).toBe(true);
-		expect(await wizardText('.crosswalker-footer-hint')).toBe('');
-		await closeImportWizard();
+			// Generation must not write anything into a set that is gone.
+			expect(await clickButton('Next')).toBe(false);
+			expect(await step()).toBe(3);
+			expect(Object.keys(await readNotes(root!))).toEqual([]);
 
-		const card = await openLibraryCard();
-		expect(card.lastRun).toBe('');
-		expect(card.actions).not.toContain('Run again');
-		await until(async () => (await settingsRuns()).length === 0, 10_000, 'record pruned');
-		await closeLibrary();
+			// Choosing a new set is the way forward, and it unblocks Next.
+			const notesBeforeRecovery = await managedNotes();
+			console.log('[run-again] before recovery ' + JSON.stringify(await readWizardObservation()));
+			expect(await clickButton('Import as a new set', true)).toBe(true);
+			await until(async () => (await readWizardObservation()).state.choice === 'new', 5_000, 'explicit new ownership state');
+			const recovered = await readWizardObservation();
+			console.log('[run-again] recovered ' + JSON.stringify({ survivor, ...recovered }));
+			expect(recovered.state.choice).toBe('new');
+			expect(recovered.state.runAgain).toBe(setId);
+			expect(recovered.state.runAgainOverridden).toBe(true);
+			expect(recovered.state.discoveredCount).toBe(survivor ? 1 : 0);
+			expect(recovered.state.discoveredIds).toEqual(survivor ? ['iset-surv01'] : []);
+			expect(recovered.state.discoveryError).toBeNull();
+			expect(recovered.state.planningProblem).toBeNull();
+			expect(recovered.warnings).not.toContain(STALE);
+			expect(recovered.text).not.toContain(STALE);
+			const sourceStatus = (await runAgainStatus()).text;
+			expect(sourceStatus).toMatch(/^This file (changed since|matches) the last run/);
+			for (const staleClaim of [setName, 'will be updated', 'adds nothing new', 'will not change your notes', 'New rows are added', 'may restore missing notes', 'missing notes may be created']) {
+				expect(sourceStatus).not.toContain(staleClaim);
+			}
+			expect(recovered.text).toContain('Plain identifiers: none overlap an existing set.');
+			if (survivor) expect(recovered.dropdown?.value).toBe('__new__');
+			else expect(recovered.dropdown).toBeNull();
+			const enabled = await nextButtons();
+			expect(enabled).toHaveLength(2);
+			expect(enabled.every((b) => !b.disabled)).toBe(true);
+			expect(await managedNotes()).toEqual(notesBeforeRecovery);
+			expect(await wizardText('.crosswalker-footer-hint')).toBe('');
+			await captureOwnershipCopy('review', survivor);
+			const bindingBeforeBack = await sourceBinding();
+			for (const previousStep of [2, 1]) {
+				expect(await clickButton('Back', true)).toBe(true);
+				await until(async () => (await step()) === previousStep, 5_000, `Back to step ${previousStep}`);
+			}
+			const lead = await wizardText('.crosswalker-run-again-lead-line');
+			expect(lead).toBe(`Using recipe "${RECIPE_NAME}". Review your chosen import set before generating notes.`);
+			expect(await wizardText('.crosswalker-run-again-lead .setting-item-description')).toContain(SOURCE_NAME);
+			for (const staleClaim of [setName, 'again into', 'updated to match', 'New rows become', 'kept as they are']) expect(lead).not.toContain(staleClaim);
+			const sourceAfterBack = (await runAgainStatus()).text;
+			expect(sourceAfterBack).toBe(sourceStatus);
+			const backState = await readWizardObservation();
+			expect(backState.state.choice).toBe('new');
+			expect(backState.state.runAgainOverridden).toBe(true);
+			expect(await sourceBinding()).toEqual(bindingBeforeBack);
+			expect(await managedNotes()).toEqual(notesBeforeRecovery);
+			console.log('[run-again] Back-to-source copy ' + JSON.stringify({ survivor, lead, sourceAfterBack, state: backState.state }));
+			await captureOwnershipCopy('source', survivor);
+			await closeImportWizard();
+
+			const card = await openLibraryCard();
+			expect(card.lastRun).toBe('');
+			expect(card.actions).not.toContain('Run again');
+			await until(async () => (await settingsRuns()).length === 0, 10_000, 'record pruned');
+			await closeLibrary();
+		} finally {
+			await stopWizardObservation();
+			await closeImportWizard();
+			if (survivor) await removePath('E2E-Recovery-Survivor');
+		}
 	});
 });
