@@ -288,6 +288,17 @@ describe('DebugLog — export to clipboard', () => {
 		expect(out).not.toContain('sk-abcdefghijklmnopqrstuvwxyz');
 	});
 
+	it('readForExport() redacts recognized tokens embedded after an underscore', async () => {
+		const state: MockVaultState = { lines: [], files: new Map() };
+		const d = new DebugLog(createMockApp(state), true);
+		const token = `ghp_${'a'.repeat(36)}`;
+		d.info('test', 'op', 'Synthetic export regression', { reference: `backup_${token}` });
+		await flushQueue(d);
+		const out = await d.readForExport();
+		expect(out).not.toContain(token);
+		expect(out).toContain('backup_[REDACTED]');
+	});
+
 	// B4 (2026-07-12 pre-merge review): readForExport() previously ONLY ran
 	// redactSecrets() (API-key/JWT patterns) — vault-relative paths and file
 	// names (which can carry sensitive compliance-framework/document names)
