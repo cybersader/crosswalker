@@ -404,6 +404,76 @@ export async function settleVaultIndex(app: App, timeoutMs = 4000): Promise<numb
 	});
 }
 
+export interface VaultIndexWaitOptions {
+	/** Stops the wait; the result then reports `cancelled`. */
+	signal?: AbortSignal;
+	/** Polled at every wake; true stops the wait as cancelled. */
+	shouldCancel?: () => boolean;
+	/** First fallback poll delay. Default 1,000 ms. */
+	initialDelayMs?: number;
+	/** Backoff ceiling for the fallback poll. Default 15,000 ms. */
+	maxDelayMs?: number;
+	/** Called with the remaining count after every check that is not ready yet. */
+	onProgress?: (pending: number) => void;
+}
+
+export interface VaultIndexWaitResult {
+	pending: number;
+	cancelled: boolean;
+}
+
+/**
+ * Wait, with no deadline, until every Markdown file has a metadata cache entry.
+ *
+ * For work that must not run on a half-read vault but also must not give up
+ * just because indexing is slow (a 60,000-note vault takes minutes). Each
+ * `resolved` event triggers a fresh count, and a backoff poll covers hosts that
+ * never emit it; neither is ever treated as proof on its own. Cheap while
+ * waiting: one cache lookup per file per wake, nothing logged.
+ */
+export function waitForVaultIndexed(app: App, options: VaultIndexWaitOptions = {}): Promise<VaultIndexWaitResult> {
+	const maxDelay = Math.max(1, options.maxDelayMs ?? 15_000);
+	let delay = Math.min(maxDelay, Math.max(1, options.initialDelayMs ?? 1_000));
+	const on = app.metadataCache?.on?.bind(app.metadataCache);
+	const offref = app.metadataCache?.offref?.bind(app.metadataCache);
+	const cancelled = () => options.signal?.aborted === true || options.shouldCancel?.() === true;
+	return new Promise<VaultIndexWaitResult>((resolve, reject) => {
+		let done = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let ref: ReturnType<NonNullable<typeof on>> | undefined;
+		let pending = 0;
+		const finish = (result: VaultIndexWaitResult | null, error?: unknown) => {
+			if (done) return;
+			done = true;
+			if (timer !== undefined) clearTimeout(timer);
+			options.signal?.removeEventListener('abort', onAbort);
+			if (ref && offref) {
+				try { offref(ref); } catch { /* optional host subscription cleanup */ }
+			}
+			if (result) resolve(result);
+			else reject(error);
+		};
+		const onAbort = () => finish({ pending, cancelled: true });
+		const check = (fromTimer: boolean) => {
+			if (done) return;
+			if (cancelled()) { finish({ pending, cancelled: true }); return; }
+			try { pending = countUnindexedMarkdownFiles(app); }
+			catch (error) { finish(null, error); return; }
+			if (pending === 0) { finish({ pending: 0, cancelled: false }); return; }
+			try { options.onProgress?.(pending); } catch { /* progress display must not end the wait */ }
+			if (fromTimer || timer === undefined) {
+				if (timer !== undefined) clearTimeout(timer);
+				timer = setTimeout(() => { timer = undefined; check(true); }, delay);
+				delay = Math.min(maxDelay, delay * 2);
+			}
+		};
+		options.signal?.addEventListener('abort', onAbort);
+		try { if (on && offref) ref = on('resolved', () => check(false)); }
+		catch (error) { finish(null, error); return; }
+		check(true);
+	});
+}
+
 /**
  * AM-24. Refuse to answer at all while the vault is half-read.
  *

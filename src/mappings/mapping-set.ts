@@ -363,8 +363,89 @@ export async function findMappingSetNotes(
 	app: App,
 	setId: string,
 	scope: { folder?: string | null; paths?: readonly string[] } = {},
+	index?: SetNoteIndex,
 ): Promise<MappingSetNote[]> {
-	return findSetNotesOfKind(app, setId, MAPPING_SET_KIND, scope);
+	return findSetNotesOfKind(app, setId, MAPPING_SET_KIND, scope, index);
+}
+
+/**
+ * One pass over the vault's Markdown files, shared by every set-note lookup in
+ * one read. Cached notes are bucketed by kind and owning import set (the minted
+ * id stamped in their properties). A note goes to `pending` only when the cache
+ * cannot answer for its properties yet: no cache entry at all, or a properties
+ * block whose parsed value is not available. An ordinary note without a
+ * properties block is answered by the cache and never revisited.
+ *
+ * `pending` is sorted by path so a lookup visits only the pending notes inside
+ * its own scope (a folder prefix range, plus listed paths). Paths only narrow
+ * which files are read; ownership is still decided by the stamped id. Raw reads
+ * are memoized, so overlapping scopes never read a file twice.
+ *
+ * Failure mode prevented: a Connections snapshot on a 61,000-note vault sorted
+ * and scanned every file once per mapping set, 82 times over, without yielding.
+ */
+export interface SetNoteIndex {
+	readonly byKindAndSet: ReadonlyMap<string, MappingSetNote[]>;
+	/** Notes the cache cannot answer for yet, in code-unit path order. */
+	readonly pending: readonly TFile[];
+	readonly pendingByPath: ReadonlyMap<string, TFile>;
+	readonly rawReads: Map<string, Promise<Record<string, unknown> | null>>;
+	/** Work counter: pending notes visited by lookups. Diagnostics only. */
+	candidateVisits: number;
+	/** Mapping table headers, read at most once per index. */
+	tables?: ReturnType<typeof readMappingTables>;
+}
+
+const INDEX_YIELD_EVERY = 2000;
+const setNoteKey = (kind: string, setId: string): string => JSON.stringify([kind, setId]);
+const byCodeUnit = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
+const yieldToHost = (): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/** Build the set-note index in one pass, yielding to the event loop on large vaults. */
+export async function buildSetNoteIndex(app: App): Promise<SetNoteIndex> {
+	const byKindAndSet = new Map<string, MappingSetNote[]>();
+	const pending: TFile[] = [];
+	let seen = 0;
+	for (const file of app.vault.getMarkdownFiles()) {
+		seen += 1;
+		if (seen % INDEX_YIELD_EVERY === 0) await yieldToHost();
+		const entry = app.metadataCache.getFileCache(file) as { frontmatter?: unknown; frontmatterPosition?: unknown } | null;
+		if (!entry) { pending.push(file); continue; }
+		const fm = entry.frontmatter && typeof entry.frontmatter === 'object' ? entry.frontmatter as Record<string, unknown> : undefined;
+		if (!fm || Object.keys(fm).length === 0) {
+			// A properties block the cache has not parsed yet is cache lag, not absence.
+			if (entry.frontmatterPosition) pending.push(file);
+			continue;
+		}
+		const setId = importSetIdOf(fm._crosswalker);
+		if (typeof fm.kind !== 'string' || !setId) continue;
+		const key = setNoteKey(fm.kind, setId);
+		const bucket = byKindAndSet.get(key);
+		if (bucket) bucket.push({ file, frontmatter: fm });
+		else byKindAndSet.set(key, [{ file, frontmatter: fm }]);
+	}
+	pending.sort((a, b) => byCodeUnit(a.path, b.path));
+	return { byKindAndSet, pending, pendingByPath: new Map(pending.map((file) => [file.path, file])), rawReads: new Map(), candidateVisits: 0 };
+}
+
+/** The pending notes inside `scope`: listed paths, then the folder's prefix range. */
+function pendingInScope(index: SetNoteIndex, scope: { folder?: string | null; paths?: readonly string[] }): TFile[] {
+	const out = new Map<string, TFile>();
+	for (const path of scope.paths ?? []) {
+		const file = index.pendingByPath.get(path);
+		if (file) out.set(path, file);
+	}
+	const base = scope.folder ? normalizeFolderSetting(scope.folder) : '';
+	if (base) {
+		const prefix = `${base}/`;
+		let lo = 0, hi = index.pending.length;
+		while (lo < hi) {
+			const mid = (lo + hi) >>> 1;
+			if (index.pending[mid].path < prefix) lo = mid + 1; else hi = mid;
+		}
+		for (let i = lo; i < index.pending.length && index.pending[i].path.startsWith(prefix); i++) out.set(index.pending[i].path, index.pending[i]);
+	}
+	return [...out.values()];
 }
 
 /** The notes of `setId` whose `kind` is `kind`, found the way `findMappingSetNotes` finds set notes. */
@@ -373,30 +454,30 @@ async function findSetNotesOfKind(
 	setId: string,
 	kind: string,
 	scope: { folder?: string | null; paths?: readonly string[] },
+	index?: SetNoteIndex,
 ): Promise<MappingSetNote[]> {
-	const base = scope.folder ? normalizeFolderSetting(scope.folder) : '';
-	const listed = new Set(scope.paths ?? []);
-	const inScope = (path: string) => listed.has(path) || (!!base && path.startsWith(`${base}/`));
-	const found: MappingSetNote[] = [];
-	const files = [...app.vault.getMarkdownFiles()].sort((a, b) => a.path.localeCompare(b.path));
-	for (const file of files) {
-		let fm = app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-		if (!fm || Object.keys(fm).length === 0) {
-			if (!inScope(file.path)) continue;
-			const read = await readNoteFrontmatterState(app, file);
-			if (read.state !== 'ok') continue;
-			fm = read.frontmatter;
+	const notes = index ?? await buildSetNoteIndex(app);
+	const found: MappingSetNote[] = [...(notes.byKindAndSet.get(setNoteKey(kind, setId)) ?? [])];
+	let visited = 0;
+	for (const file of pendingInScope(notes, scope)) {
+		visited += 1;
+		notes.candidateVisits += 1;
+		if (visited % INDEX_YIELD_EVERY === 0) await yieldToHost();
+		let read = notes.rawReads.get(file.path);
+		if (!read) {
+			read = readNoteFrontmatterState(app, file).then((state) => state.state === 'ok' ? state.frontmatter : null);
+			notes.rawReads.set(file.path, read);
 		}
-		if (fm.kind !== kind) continue;
-		if (importSetIdOf(fm._crosswalker) !== setId) continue;
+		const fm = await read;
+		if (!fm || fm.kind !== kind || importSetIdOf(fm._crosswalker) !== setId) continue;
 		found.push({ file, frontmatter: fm });
 	}
-	return found;
+	return found.sort((a, b) => a.file.path.localeCompare(b.file.path));
 }
 
 /** The one set note of `setId` as a record, or undefined; two notes that disagree are refused. */
-async function recordFromNotes(app: App, setId: string, scope: { folder?: string | null; paths?: readonly string[] }): Promise<MappingSetRecord | undefined> {
-	const notes = await findMappingSetNotes(app, setId, scope);
+async function recordFromNotes(app: App, setId: string, scope: { folder?: string | null; paths?: readonly string[] }, index?: SetNoteIndex): Promise<MappingSetRecord | undefined> {
+	const notes = await findSetNotesOfKind(app, setId, MAPPING_SET_KIND, scope, index);
 	if (notes.length === 0) return undefined;
 	const records = notes.map((note) => mappingSetFromStored(note.frontmatter, setId, note.file.path));
 	const first = JSON.stringify(storedMappingSet(records[0]));
@@ -418,13 +499,16 @@ export function mappingSetFromTableHeader(header: MappingTableHeader, setId: str
  * undefined for a set that has none (a set imported before records existed).
  * Never derives a record from rows.
  */
-export async function readMappingSet(app: App, importSet: DiscoveredImportSet): Promise<MappingSetRecord | undefined> {
+export async function readMappingSet(app: App, importSet: DiscoveredImportSet, index?: SetNoteIndex): Promise<MappingSetRecord | undefined> {
 	if (importSet.mapping_form === 'table') {
-		const owned = (await readMappingTables(app)).filter((table) => importSetIdOf(table.header.crosswalker_provenance) === importSet.id);
+		let tables: Awaited<ReturnType<typeof readMappingTables>>;
+		if (index) { index.tables ??= readMappingTables(app); tables = await index.tables; }
+		else tables = await readMappingTables(app);
+		const owned = tables.filter((table) => importSetIdOf(table.header.crosswalker_provenance) === importSet.id);
 		if (owned.length !== 1) return undefined;
 		return mappingSetFromTableHeader(owned[0].header, importSet.id, owned[0].path);
 	}
-	return recordFromNotes(app, importSet.id, { folder: importSet.root, paths: importSet.paths });
+	return recordFromNotes(app, importSet.id, { folder: importSet.root, paths: importSet.paths }, index);
 }
 
 /**

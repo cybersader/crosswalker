@@ -14,7 +14,7 @@ import { SssomImportModal } from './import/sssom-import-modal';
 import { importSssom, type SssomImportOptions } from './import/sssom-importer';
 import { StackSetupModal } from './import/stack/stack-modal';
 import { announceInterruptedConversions, finishInterruptedConversions } from './import/stack/mapping-conversion-ui';
-import { settleVaultIndex } from './generation/import-set';
+import { countUnindexedMarkdownFiles, settleVaultIndex, waitForVaultIndexed } from './generation/import-set';
 import { normalizeStacks, normalizeStackRuns } from './import/stack/stack-persistence';
 import { normalizeRecipeRuns } from './import/recipe-runs';
 import { MAPPING_FORMS } from './generation/import-set-block';
@@ -97,6 +97,42 @@ export function diagnosticsPlatformLabel(): string {
 	if (Platform.isLinux) return 'desktop-linux';
 	return 'desktop';
 }
+
+/**
+ * Notice for a background index update that failed. Plain cause and action;
+ * the raw error stays in the troubleshooting log.
+ */
+function tier2RecoveryFailureNotice(willRetry: boolean): string {
+	return willRetry
+		? 'Crosswalker could not finish updating its fast query index. Your notes remain available. It will try again in a few minutes. If this keeps happening, reload Obsidian.'
+		: 'Crosswalker could not finish updating its fast query index after several tries. Your notes remain available. Reload Obsidian. '
+			+ 'If it fails again, run "Developer tools: copy troubleshooting details to clipboard" and include the result in a bug report.';
+}
+
+/** One armed recovery: its `resolved` subscription and its two timers. */
+interface Tier2RecoveryTrigger {
+	ref: unknown;
+	quiet: ReturnType<typeof setTimeout> | null;
+	poll: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * How many times automatic startup projection waits for indexing and reruns
+ * before it stops. Each wait has no deadline of its own; this only bounds
+ * reruns when notes keep arriving while a pass runs.
+ */
+const MAX_STARTUP_PROJECTION_DEFERRALS = 5;
+/** Quiet time after the last `resolved` event before a recovery pass runs. */
+const TIER2_RECOVERY_QUIET_MS = 3_000;
+/**
+ * Fallback recovery check interval. Runs on its own schedule, never reset by
+ * `resolved` events, so a steady stream of events cannot starve recovery.
+ */
+const TIER2_RECOVERY_POLL_MS = 60_000;
+/** Consecutive failed recovery passes after which recovery stops. */
+const MAX_TIER2_RECOVERY_FAILURES = 3;
+/** Delay before re-arming after the first failed recovery pass; doubles after each. */
+const TIER2_RECOVERY_RETRY_BASE_MS = 30_000;
 
 /**
  * Crosswalker - Import structured ontologies into Obsidian
@@ -262,6 +298,26 @@ export default class CrosswalkerPlugin extends Plugin {
 	private tier2TeardownInProgress = false;
 	/** Permanently set when this plugin instance begins unloading. */
 	private tier2Unloaded = false;
+	/**
+	 * Aborted when this plugin instance unloads. Long-lived waits that a window
+	 * or command started (Connections waiting for indexing) listen to it, so
+	 * nothing keeps running for an unloaded plugin.
+	 */
+	readonly lifetimeController = new AbortController();
+	get lifetimeSignal(): AbortSignal { return this.lifetimeController.signal; }
+	/**
+	 * The single armed recovery for an incomplete startup pass, if any. See
+	 * `armTier2ProjectionRecovery`.
+	 */
+	private tier2Recovery: Tier2RecoveryTrigger | null = null;
+	/** Pending re-arm after a failed recovery pass. Cleared by disarm. */
+	private tier2RecoveryRetryTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Consecutive failed recovery passes; reset by any pass that finishes. */
+	private tier2RecoveryFailures = 0;
+	/** Test seams for the recovery trigger timing. */
+	private tier2RecoveryQuietMs = TIER2_RECOVERY_QUIET_MS;
+	private tier2RecoveryPollMs = TIER2_RECOVERY_POLL_MS;
+	private tier2RecoveryRetryBaseMs = TIER2_RECOVERY_RETRY_BASE_MS;
 
 	runProjection = async (): Promise<ProjectionResult> => {
 		if (this.tier2TeardownInProgress || this.tier2Unloaded) {
@@ -292,7 +348,15 @@ export default class CrosswalkerPlugin extends Plugin {
 		// slower run cannot wipe a newer one out of the slot.
 		this.tier2InFlightProjection = run;
 		try {
-			return await run;
+			const result = await run;
+			// Recovery bookkeeping lives here so any caller's completed pass counts,
+			// not only the recovery trigger's. A finished pass ends the failure
+			// streak; a complete one makes armed recovery and a pending retry moot.
+			if (!result.aborted) {
+				this.tier2RecoveryFailures = 0;
+				if ((result.notIndexed ?? 0) === 0) this.disarmTier2ProjectionRecovery();
+			}
+			return result;
 		} finally {
 			if (this.tier2InFlightProjection === run) this.tier2InFlightProjection = null;
 		}
@@ -958,64 +1022,7 @@ export default class CrosswalkerPlugin extends Plugin {
 		this.addCommand({
 			id: 'clear-tier-2-sidecar',
 			name: 'Maintenance: reset search data',
-			callback: async () => {
-				// Signal before anything else, then wait. A projection holds the
-				// database across many cooperative yields, so without this the
-				// reset could close and delete the file mid-run and the projector
-				// would resume against a dead handle -- surfacing an error next to
-				// the reset's own success notice, for a user who did nothing
-				// wrong. Signalling without waiting would only narrow the window;
-				// awaiting closes it. The wait is bounded by one yield interval.
-				this.tier2TeardownInProgress = true;
-				try {
-					if (this.tier2InFlightProjection) {
-						// Its failure, if any, belongs to whoever started it.
-						await this.tier2InFlightProjection.catch(() => undefined);
-					}
-					// Close and drop the handle BEFORE deleting. Unlinking a file
-					// that still has an open sahpool access handle is undefined
-					// behavior, and a surviving handle would keep answering queries
-					// out of the rows the user just asked us to destroy.
-					if (this.tier2Handle) {
-						const closed = await this.tier2Handle.close();
-						this.tier2Handle = null;
-						if (!closed) {
-							// Deleting a pool file whose access handle is still
-							// open recycles that handle under a live file. Stop
-							// here: a confusing error beats silent corruption.
-							throw new Error('the query index could not be closed, so it was not cleared. Reload Obsidian and try again.');
-						}
-					}
-					// S10. The same accessor the open path reads. A clear that keys the
-					// pool differently from the open finds no files, deletes nothing, and
-					// reports the index as already empty.
-					const result = await clearSidecar(this, tier2SidecarPath(this.settings));
-					// clearSidecar throws when it cannot verify the file is gone, so
-					// reaching here means the reset actually happened. Each outcome
-					// gets its own wording: announcing a deletion that did not occur
-					// is the bug this command shipped with.
-					if (!result.hadPersistentStore) {
-						new Notice('Fast query index was held in memory only. It has been discarded and rebuilds automatically.');
-					} else if (result.removed.length === 0) {
-						new Notice('Fast query index was already empty. There was nothing to clear.');
-					} else {
-						new Notice('Fast query index cleared. It rebuilds automatically.');
-					}
-					this.debug?.info('tier2', 'clear-ok', 'Tier 2 sidecar cleared', {
-						hadPersistentStore: result.hadPersistentStore,
-						removed: result.removed,
-					});
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
-					new Notice(`Failed to clear the fast query index: ${msg}`);
-					this.debug?.error('tier2', 'clear-failed', 'Tier 2 sidecar clear failed', { error: msg });
-				} finally {
-					// Must run on every path. Leaving this set would make the
-					// plugin refuse to project for the rest of the session, and
-					// the index would silently never rebuild.
-					this.tier2TeardownInProgress = false;
-				}
-			},
+			callback: async () => { await this.resetSearchData(); },
 		});
 
 		// v0.1.6 Phase 3.5: debug log commands — open / export / clear
@@ -1439,14 +1446,25 @@ export default class CrosswalkerPlugin extends Plugin {
 				const shouldCancel = () => !this.settings.enableTier2Projection
 					|| this.tier2TeardownInProgress
 					|| this.tier2Unloaded;
-				const readiness = await waitForTier2StartupReadiness(this.app, shouldCancel);
-				if (readiness.cancelled || shouldCancel()) {
+				const cancelledBeforeAccess = (readiness: unknown) => {
 					this.debug.info('tier2', 'auto-projection-cancelled', 'Tier 2 auto-projection cancelled before database access', {
 						readiness,
 					});
+				};
+				let readiness = await waitForTier2StartupReadiness(this.app, shouldCancel);
+				if (readiness.cancelled || shouldCancel()) {
+					cancelledBeforeAccess(readiness);
 					return;
 				}
-				if (readiness.timedOut && readiness.pending > 0) {
+				// Cache lag is not absence. Notes Obsidian has not indexed yet would
+				// make the strict full pass incomplete, so on a large vault the
+				// deadline defers the pass until indexing finishes instead of
+				// running it early. Only notes whose properties are present but
+				// unreadable (malformed YAML) still go to the strict pass, which
+				// reports them by name.
+				let deferrals = 0;
+				let unindexed = readiness.timedOut ? countUnindexedMarkdownFiles(this.app) : 0;
+				if (readiness.timedOut && readiness.pending > 0 && unindexed === 0) {
 					this.debug.warn('tier2', 'auto-projection-readiness-timeout', 'Tier 2 startup readiness deadline reached; running the strict projector', {
 						pending: readiness.pending,
 						checks: readiness.checks,
@@ -1454,7 +1472,47 @@ export default class CrosswalkerPlugin extends Plugin {
 						timedOut: true,
 					});
 				}
-				const result = await this.runProjection();
+				let result: ProjectionResult | null = null;
+				while (true) {
+					if (unindexed > 0) {
+						if (deferrals >= MAX_STARTUP_PROJECTION_DEFERRALS) {
+							// Notes keep arriving while passes run. Stop rerunning back to
+							// back, but never abandon recovery: an incomplete pass prunes
+							// nothing, so rows for deleted notes would otherwise persist.
+							this.debug.warn('tier2', 'auto-projection-recovery-armed', 'Tier 2 auto-projection will rerun once indexing is quiet', {
+								deferrals,
+								unindexed,
+							});
+							this.armTier2ProjectionRecovery();
+							break;
+						}
+						deferrals += 1;
+						this.debug.info('tier2', 'auto-projection-deferred', 'Tier 2 auto-projection deferred until vault indexing finishes', {
+							unindexed,
+							deferrals,
+							readiness,
+						});
+						const indexed = await waitForVaultIndexed(this.app, { shouldCancel });
+						if (indexed.cancelled || shouldCancel()) {
+							cancelledBeforeAccess(readiness);
+							return;
+						}
+						// The cache now has an entry per note; give parsed properties the
+						// same short settle window a normal startup gets.
+						readiness = await waitForTier2StartupReadiness(this.app, shouldCancel);
+						if (readiness.cancelled || shouldCancel()) {
+							cancelledBeforeAccess(readiness);
+							return;
+						}
+					}
+					result = await this.runProjection();
+					// Notes created or reindexed during the pass: wait again, then rerun.
+					unindexed = !result.aborted && (result.notIndexed ?? 0) > 0
+						? Math.max(1, countUnindexedMarkdownFiles(this.app))
+						: 0;
+					if (unindexed === 0) break;
+				}
+				if (!result) return;
 				const errorDiagnostics = projectionErrorDiagnostics(result.errors);
 				this.debug.info('tier2', 'auto-projection-complete', 'Tier 2 auto-projection: complete', {
 					success: result.success,
@@ -1465,6 +1523,8 @@ export default class CrosswalkerPlugin extends Plugin {
 					counts: result.counts,
 					durationMs: result.durationMs,
 					readiness,
+					deferrals,
+					notIndexed: result.notIndexed ?? 0,
 					...errorDiagnostics,
 				});
 				if (!result.aborted && !result.success && result.errors.length > 0) {
@@ -1482,6 +1542,171 @@ export default class CrosswalkerPlugin extends Plugin {
 					+ 'and include the result in a bug report.',
 					10000,
 				);
+			}
+		});
+	}
+
+	/**
+	 * "Maintenance: reset search data". Signals teardown, waits for any running
+	 * pass, closes and deletes the fast query index, and reports what happened.
+	 */
+	async resetSearchData(): Promise<void> {
+		// Signal before anything else, then wait. A projection holds the
+		// database across many cooperative yields, so without this the
+		// reset could close and delete the file mid-run and the projector
+		// would resume against a dead handle -- surfacing an error next to
+		// the reset's own success notice, for a user who did nothing
+		// wrong. Signalling without waiting would only narrow the window;
+		// awaiting closes it. The wait is bounded by one yield interval.
+		this.tier2TeardownInProgress = true;
+		// Teardown begins: no armed recovery may start a pass against the
+		// database being deleted.
+		this.disarmTier2ProjectionRecovery();
+		try {
+			if (this.tier2InFlightProjection) {
+				// Its failure, if any, belongs to whoever started it.
+				await this.tier2InFlightProjection.catch(() => undefined);
+			}
+			// Close and drop the handle BEFORE deleting. Unlinking a file
+			// that still has an open sahpool access handle is undefined
+			// behavior, and a surviving handle would keep answering queries
+			// out of the rows the user just asked us to destroy.
+			if (this.tier2Handle) {
+				const closed = await this.tier2Handle.close();
+				this.tier2Handle = null;
+				if (!closed) {
+					// Deleting a pool file whose access handle is still
+					// open recycles that handle under a live file. Stop
+					// here: a confusing error beats silent corruption.
+					throw new Error('the query index could not be closed, so it was not cleared. Reload Obsidian and try again.');
+				}
+			}
+			// S10. The same accessor the open path reads. A clear that keys the
+			// pool differently from the open finds no files, deletes nothing, and
+			// reports the index as already empty.
+			const result = await clearSidecar(this, tier2SidecarPath(this.settings));
+			// clearSidecar throws when it cannot verify the file is gone, so
+			// reaching here means the reset actually happened. Each outcome
+			// gets its own wording: announcing a deletion that did not occur
+			// is the bug this command shipped with.
+			if (!result.hadPersistentStore) {
+				new Notice('Fast query index was held in memory only. It has been discarded and rebuilds automatically.');
+			} else if (result.removed.length === 0) {
+				new Notice('Fast query index was already empty. There was nothing to clear.');
+			} else {
+				new Notice('Fast query index cleared. It rebuilds automatically.');
+			}
+			this.debug?.info('tier2', 'clear-ok', 'Tier 2 sidecar cleared', {
+				hadPersistentStore: result.hadPersistentStore,
+				removed: result.removed,
+			});
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			new Notice(`Failed to clear the fast query index: ${msg}`);
+			this.debug?.error('tier2', 'clear-failed', 'Tier 2 sidecar clear failed', { error: msg });
+		} finally {
+			// Must run on every path. Leaving this set would make the
+			// plugin refuse to project for the rest of the session, and
+			// the index would silently never rebuild.
+			this.tier2TeardownInProgress = false;
+		}
+	}
+
+	/**
+	 * Arm one recovery trigger for an incomplete automatic pass. Each metadata
+	 * cache `resolved` event restarts a quiet timer; when it expires (or the slow
+	 * poll fires on a host without the event) and every note is indexed, the
+	 * trigger disarms itself and runs one full pass. A pass that is still
+	 * incomplete arms it again, so recovery is never abandoned. Only one trigger
+	 * exists at a time; unload, teardown or turning automatic projection off
+	 * disarms it.
+	 */
+	private armTier2ProjectionRecovery(): void {
+		if (this.tier2Recovery || this.tier2RecoveryCancelled()) return;
+		const recovery: Tier2RecoveryTrigger = { ref: null, quiet: null, poll: null };
+		this.tier2Recovery = recovery;
+		const live = () => this.tier2Recovery === recovery;
+		// Shared by both timers. The identity check is the single-run guard: the
+		// first timer to find the vault indexed disarms, so the other cannot run.
+		const fire = () => {
+			if (!live()) return;
+			if (this.tier2RecoveryCancelled()) { this.disarmTier2ProjectionRecovery(); return; }
+			if (countUnindexedMarkdownFiles(this.app) > 0) return;
+			this.disarmTier2ProjectionRecovery();
+			void this.runTier2RecoveryPass();
+		};
+		// Fallback poll: its own fixed schedule, never reset by events.
+		const poll = () => {
+			recovery.poll = null;
+			fire();
+			if (live()) recovery.poll = setTimeout(poll, this.tier2RecoveryPollMs);
+		};
+		recovery.poll = setTimeout(poll, this.tier2RecoveryPollMs);
+		const on = this.app.metadataCache?.on?.bind(this.app.metadataCache);
+		if (on) {
+			recovery.ref = on('resolved', () => {
+				if (!live()) return;
+				if (this.tier2RecoveryCancelled()) { this.disarmTier2ProjectionRecovery(); return; }
+				if (recovery.quiet !== null) clearTimeout(recovery.quiet);
+				recovery.quiet = setTimeout(() => { recovery.quiet = null; fire(); }, this.tier2RecoveryQuietMs);
+			});
+		}
+	}
+
+	private tier2RecoveryCancelled(): boolean {
+		return !this.settings.enableTier2Projection || this.tier2TeardownInProgress || this.tier2Unloaded;
+	}
+
+	/** Remove the armed trigger, its listener and every recovery timer, including a pending retry. */
+	private disarmTier2ProjectionRecovery(): void {
+		if (this.tier2RecoveryRetryTimer !== null) {
+			clearTimeout(this.tier2RecoveryRetryTimer);
+			this.tier2RecoveryRetryTimer = null;
+		}
+		const recovery = this.tier2Recovery;
+		if (!recovery) return;
+		this.tier2Recovery = null;
+		if (recovery.quiet !== null) clearTimeout(recovery.quiet);
+		if (recovery.poll !== null) clearTimeout(recovery.poll);
+		if (recovery.ref) {
+			try { this.app.metadataCache?.offref?.(recovery.ref as never); } catch { /* optional host cleanup */ }
+		}
+	}
+
+	private async runTier2RecoveryPass(): Promise<void> {
+		if (this.tier2RecoveryCancelled()) return;
+		await this.debug.withTrace(this.debug.newTraceId(), async () => {
+			try {
+				const result = await this.runProjection();
+				this.tier2RecoveryFailures = 0;
+				const incomplete = !result.aborted && (result.notIndexed ?? 0) > 0;
+				this.debug.info('tier2', 'auto-projection-recovery-complete', 'Tier 2 recovery pass: complete', {
+					success: result.success,
+					aborted: result.aborted === true,
+					counts: result.counts,
+					notIndexed: result.notIndexed ?? 0,
+					...projectionErrorDiagnostics(result.errors),
+				});
+				if (incomplete) this.armTier2ProjectionRecovery();
+				else if (!result.aborted && !result.success && result.errors.length > 0) {
+					new Notice(projectionErrorNotice(result.errors), 9000);
+				}
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				this.tier2RecoveryFailures += 1;
+				const failures = this.tier2RecoveryFailures;
+				const retry = failures < MAX_TIER2_RECOVERY_FAILURES && !this.tier2RecoveryCancelled();
+				this.debug.error('tier2', 'auto-projection-recovery-failed', 'Tier 2 recovery pass failed', { error: msg, failures, retry });
+				new Notice(tier2RecoveryFailureNotice(retry), 10000);
+				if (retry) {
+					// Backed off, never an immediate loop; disarm clears it.
+					const delay = this.tier2RecoveryRetryBaseMs * 2 ** (failures - 1);
+					if (this.tier2RecoveryRetryTimer !== null) clearTimeout(this.tier2RecoveryRetryTimer);
+					this.tier2RecoveryRetryTimer = setTimeout(() => {
+						this.tier2RecoveryRetryTimer = null;
+						this.armTier2ProjectionRecovery();
+					}, delay);
+				}
 			}
 		});
 	}
@@ -1592,6 +1817,8 @@ export default class CrosswalkerPlugin extends Plugin {
 		// cooperative yield before this instance closes its database handle.
 		this.tier2Unloaded = true;
 		this.tier2TeardownInProgress = true;
+		this.disarmTier2ProjectionRecovery();
+		this.lifetimeController.abort();
 		// Deliberately does NOT detachLeavesOfType(VIEW_TYPE_CROSSWALKER_WORKSPACE):
 		// the official plugin guidelines say "Don't detach leaves in onunload" —
 		// Obsidian reinitializes open leaves in place on plugin update/reload.
@@ -1716,6 +1943,8 @@ export default class CrosswalkerPlugin extends Plugin {
 	}
 
 	async saveSettings() {
+		// Turning automatic indexing off ends any armed recovery right away.
+		if (!this.settings.enableTier2Projection) this.disarmTier2ProjectionRecovery();
 		await this.saveData(this.settings);
 	}
 }

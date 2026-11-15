@@ -59,6 +59,13 @@ export interface ProjectionResult {
 	 * records itself as `partial` coverage.
 	 */
 	aborted?: boolean;
+	/**
+	 * Notes a full pass met before Obsidian had indexed them. Cache lag is not
+	 * absence and not a per-note error: the pass is incomplete (`success` is
+	 * false and nothing is pruned), no entry is added to `errors`, and the
+	 * caller should run the pass again once indexing finishes.
+	 */
+	notIndexed?: number;
 }
 
 export interface ProjectionOptions {
@@ -272,6 +279,12 @@ export async function projectFromTier1(
 	const files = app.vault.getMarkdownFiles();
 	const filtered = options.pathFilter ? files.filter((f) => options.pathFilter!(f.path)) : files;
 
+	// Cache lag is not absence: a note Obsidian has not indexed yet is counted,
+	// not reported one by one. A flood of per-note warnings on a large vault
+	// starved Obsidian's own indexer, so the pass never caught up.
+	let notIndexed = 0;
+	const notIndexedSamples: string[] = [];
+
 	let i = 0;
 	for (const file of filtered) {
 		i += 1;
@@ -293,7 +306,9 @@ export async function projectFromTier1(
 		try {
 			const cacheEntry = app.metadataCache.getFileCache(file);
 			if (fullProjection && !cacheEntry) {
-				throw new Error(`metadata cache unavailable during full projection`);
+				notIndexed += 1;
+				if (notIndexedSamples.length < 5) notIndexedSamples.push(file.path);
+				continue;
 			}
 			const fm = readFrontmatter(app, file);
 			if (!fm) {
@@ -377,6 +392,14 @@ export async function projectFromTier1(
 	// Rows processed before an abort were written before it, as they always were.
 	await writer.flush();
 
+	if (notIndexed > 0) {
+		result.notIndexed = notIndexed;
+		options.debug?.warn('tier2', 'projection-not-indexed', `${notIndexed} notes were not indexed yet; the pass is incomplete and pruned nothing`, {
+			not_indexed: notIndexed,
+			samples: notIndexedSamples,
+		});
+	}
+
 	if (!result.aborted) {
 		await projectMappingTables(app, writer, options, fullProjection, ontologiesSeen, result, reads);
 	}
@@ -387,7 +410,7 @@ export async function projectFromTier1(
 	// is what licenses a prune: a full run that stopped early is a partial run.
 	if (fullProjection && !result.aborted) {
 		try {
-			if (result.errors.length === 0) {
+			if (result.errors.length === 0 && notIndexed === 0) {
 				await db.execBatch([...ontologiesSeen].map((ontologyId) => markOntologySeenStatement(ontologyId)));
 				prunedRows = await pruneUnseenRows(db);
 			}
@@ -411,7 +434,7 @@ export async function projectFromTier1(
 	// Final ontology count is from the seen-set
 	result.counts.ontologies = ontologiesSeen.size;
 
-	if (result.errors.length > 0) {
+	if (result.errors.length > 0 || notIndexed > 0) {
 		result.success = false;
 	}
 
@@ -437,6 +460,7 @@ export async function projectFromTier1(
 		counts: result.counts,
 		duration_ms: result.durationMs,
 		pruned_rows: prunedRows,
+		not_indexed: notIndexed,
 	});
 
 	return result;
