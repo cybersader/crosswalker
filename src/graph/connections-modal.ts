@@ -1,14 +1,27 @@
 import { Modal, Notice, TFile, type App } from 'obsidian';
-import { VaultStillIndexingError } from '../generation/import-set';
+import { VaultStillIndexingError, waitForVaultIndexed } from '../generation/import-set';
 import { ConnectionsError, loadConnectionsSnapshot, selectConnections, CONNECTIONS_MEMBERSHIP_TEXT, CONNECTIONS_NATIVE_LIMIT, type ConnectionsSnapshot, type ConnectionRow, type ConnectionEndpoint } from './connections-query';
 
 import type { DebugLog } from '../utils/debug';
 
-export interface ConnectionsHost { openMappingReview(path: string): Promise<unknown>; debug?: Pick<DebugLog, 'error'> }
+export interface ConnectionsHost {
+	openMappingReview(path: string): Promise<unknown>;
+	debug?: Pick<DebugLog, 'error'>;
+	/** Aborted when the plugin unloads; ends every wait and load this window started. */
+	lifetimeSignal?: AbortSignal;
+}
+
+export const CONNECTIONS_INDEXING_TEXT = 'Obsidian is still indexing this vault, so connections cannot be read yet. They load automatically when indexing finishes. To check sooner, use the button below.';
+/** Plain progress line for the indexing state. */
+export function connectionsIndexingProgress(pending: number): string {
+	return `${pending.toLocaleString('en-US')} ${pending === 1 ? 'note' : 'notes'} left to index.`;
+}
 /** One ephemeral snapshot per refresh. Filters/pages never rescan canonical files. */
 export class ConnectionsModal extends Modal {
 	private lifetime = new AbortController();
 	private request?: AbortController;
+	/** The pending wait for indexing, replaced by each load. */
+	private indexWait?: AbortController;
 	private snapshot?: ConnectionsSnapshot;
 	private source = '';
 	private target = '';
@@ -18,15 +31,23 @@ export class ConnectionsModal extends Modal {
 	private offset = 0;
 	private focusSelect!: HTMLSelectElement;
 	private output!: HTMLDivElement;
-	constructor(app: App, private host: ConnectionsHost) { super(app); }
+	constructor(app: App, private host: ConnectionsHost) {
+		super(app);
+		const plugin = host.lifetimeSignal;
+		if (plugin) {
+			const end = () => { this.lifetime.abort(); this.request?.abort(); this.indexWait?.abort(); this.close(); };
+			if (plugin.aborted) end(); else plugin.addEventListener('abort', end, { once: true, signal: this.lifetime.signal });
+		}
+	}
 	onOpen(): void {
 		this.setTitle('Explore framework connections');
 		this.modalEl.addClass('crosswalker-connections-modal');
 		void this.load();
 	}
-	onClose(): void { this.lifetime.abort(); this.request?.abort(); this.contentEl.empty(); }
+	onClose(): void { this.lifetime.abort(); this.request?.abort(); this.indexWait?.abort(); this.contentEl.empty(); }
 	private async load(): Promise<void> {
 		this.request?.abort();
+		this.indexWait?.abort();
 		this.contentEl.empty();
 		this.contentEl.createEl('p', { text: 'Reading imported sets and recorded assertions…' });
 		try {
@@ -37,7 +58,8 @@ export class ConnectionsModal extends Modal {
 		} catch (error) {
 			if (this.lifetime.signal.aborted) return;
 			this.contentEl.empty();
-			this.contentEl.createEl('p', { text: error instanceof VaultStillIndexingError ? 'Obsidian is still indexing this vault. Wait for indexing to finish, then try again.' : error instanceof ConnectionsError ? error.message : 'Connections are unavailable. A vault record could not be read. Check that the vault is accessible, then try again.' });
+			if (error instanceof VaultStillIndexingError) { this.waitForIndexing(); return; }
+			this.contentEl.createEl('p', { text: error instanceof ConnectionsError ? error.message : 'Connections are unavailable. A vault record could not be read. Check that the vault is accessible, then try again.' });
 			if (error instanceof ConnectionsError && error.details) {
 				const details = this.contentEl.createEl('details'); details.createEl('summary', { text: 'Error details' });
 				details.createEl('p', { text: error.details.cause });
@@ -46,6 +68,29 @@ export class ConnectionsModal extends Modal {
 			}
 			this.button(this.contentEl, 'Try again', () => { void this.load(); });
 		}
+	}
+	/**
+	 * Cache lag is not absence: while Obsidian indexes, say so with the count
+	 * left, and load on our own once every note is indexed. The wait has no
+	 * deadline because a large vault can take minutes; closing the window or
+	 * choosing Try again ends it, so it never holds anything.
+	 */
+	private waitForIndexing(): void {
+		const wait = new AbortController(); this.indexWait = wait;
+		this.contentEl.createEl('p', { cls: 'cw-connections-indexing', text: CONNECTIONS_INDEXING_TEXT });
+		const progress = this.contentEl.createEl('p', { cls: 'cw-connections-indexing-progress', attr: { 'aria-live': 'polite' } });
+		this.button(this.contentEl, 'Try again', () => { void this.load(); });
+		void waitForVaultIndexed(this.app, {
+			signal: wait.signal,
+			shouldCancel: () => this.lifetime.signal.aborted,
+			initialDelayMs: 500,
+			maxDelayMs: 5000,
+			onProgress: (pending) => progress.setText(connectionsIndexingProgress(pending)),
+		}).then((outcome) => {
+			if (!outcome.cancelled && this.indexWait === wait && !this.lifetime.signal.aborted) void this.load();
+		}, () => {
+			if (this.indexWait === wait && !this.lifetime.signal.aborted) progress.setText('Indexing progress could not be checked. When Obsidian finishes indexing, use the button below to load connections.');
+		});
 	}
 	private controls(): void {
 		const el = this.contentEl; el.empty(); el.addClass('crosswalker-connections');

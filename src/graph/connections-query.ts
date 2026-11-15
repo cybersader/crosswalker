@@ -5,7 +5,7 @@ import { buildIdentityIndex, type IdentityIndex } from '../generation/identity-i
 import { discoverImportSets, requireVaultIndexed, VaultStillIndexingError, ImportSetProvenanceError, type DiscoveredImportSet } from '../generation/import-set';
 import { readImportSetRecipe } from '../import/import-set-recipes';
 import { recipeStampOf } from '../export/recipe-for-note';
-import { readMappingSet, type MappingSetRecord } from '../mappings/mapping-set';
+import { buildSetNoteIndex, readMappingSet, type MappingSetRecord, type SetNoteIndex } from '../mappings/mapping-set';
 import { importSetIdOf } from '../mappings/conversion-marker';
 import { classifyImportSet } from '../views/import-set-options';
 import { normalizeVaultPath } from '../render/vault-path';
@@ -142,13 +142,29 @@ export async function loadConnectionsSnapshot(app: App, signal?: AbortSignal, de
 	};
 	const releases = new Map<string, MappingSetRecord | undefined>();
 	// Cache one metadata read per owner, not one read per assertion. Metadata never adds rows.
+	// One vault index serves every owner's lookup; per-owner full scans made this quadratic on large vaults.
 	const owners = new Set(tree.crosswalkEdges.map((r) => importSetIdOf(r.frontmatter._crosswalker)).filter((id): id is string => !!id));
+	const setsById = new Map(sets.map((s) => [s.id, s]));
+	let setNotes: Promise<SetNoteIndex> | undefined;
 	for (const owner of owners) {
 		check(signal);
-		const set = sets.find((s) => s.id === owner);
+		const set = setsById.get(owner);
 		if (!set) continue;
-		try { releases.set(owner, await readMappingSet(app, set)); }
+		await yieldTurn();
+		try { setNotes ??= buildSetNoteIndex(app); releases.set(owner, await readMappingSet(app, set, await setNotes)); }
 		catch { coverage.metadataWarnings.push(`Release metadata for ${owner} could not be read. Inspect that set's release record, then refresh.`); }
+	}
+	// One pass over concepts: each set's distinct recipe revisions in first-seen
+	// order, with the recipe id first stamped for each. Scanning every concept
+	// once per set was quadratic on large vaults.
+	const revisionsBySet = new Map<string, Map<string, string>>();
+	for (let i = 0; i < tree.concepts.length; i++) {
+		if (i > 0 && i % 2000 === 0) { await yieldTurn(); check(signal); }
+		const stamp = recipeStampOf(tree.concepts[i].frontmatter);
+		if (!stamp.setId || !stamp.id || !stamp.digest) continue;
+		let revisions = revisionsBySet.get(stamp.setId);
+		if (!revisions) { revisions = new Map(); revisionsBySet.set(stamp.setId, revisions); }
+		if (!revisions.has(stamp.digest)) revisions.set(stamp.digest, stamp.id);
 	}
 	const choices: ConnectionSetChoice[] = [];
 	for (const set of sets) {
@@ -156,13 +172,11 @@ export async function loadConnectionsSnapshot(app: App, signal?: AbortSignal, de
 		const kind = classifyImportSet(set, kinds);
 		const release = releases.get(set.id);
 		// Presentation only: read verified recipe revisions actually stamped on owned concepts.
-		const titles = new Set<string>(), sourceTypes = new Set<string>(), revisions = new Set<string>();
-		for (const row of tree.concepts) {
-			const stamp = recipeStampOf(row.frontmatter);
-			if (stamp.setId !== set.id || !stamp.id || !stamp.digest || revisions.has(stamp.digest)) continue;
-			revisions.add(stamp.digest); check(signal);
-			const recipe = await readImportSetRecipe(app.vault.adapter, set.id, stamp.digest);
-			if (!recipe || recipe.recipe !== stamp.id) continue;
+		const titles = new Set<string>(), sourceTypes = new Set<string>();
+		for (const [digest, recipeId] of revisionsBySet.get(set.id) ?? []) {
+			check(signal);
+			const recipe = await readImportSetRecipe(app.vault.adapter, set.id, digest);
+			if (!recipe || recipe.recipe !== recipeId) continue;
 			if (text(recipe.metadata?.title)) titles.add(recipe.metadata!.title!);
 			for (const level of recipe.source.levels) if (text(level)) sourceTypes.add(level);
 		}

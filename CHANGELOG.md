@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Fixed: large vaults finish indexing and Connections loads (2026-11-14)
+
+- On a vault with tens of thousands of notes, Crosswalker no longer builds its reporting database while Obsidian is still indexing. It waits for indexing to finish, however long that takes, then builds the database once. Before, it started after 12 seconds and logged one warning per note Obsidian had not reached yet. On a slow host those warnings slowed indexing almost to a stop, and the database was left nearly empty.
+- Notes Obsidian has not indexed yet are no longer reported as errors. A build that meets them keeps every existing result and runs again once indexing finishes, writing at most one summary line to the debug log.
+- "Explore framework connections" now shows how many notes are left to index and loads by itself when indexing finishes. You can still check sooner or close the window at any time. Before, it gave up after 4 seconds, and on a large vault it showed "still indexing" every time.
+- Opening Connections on a vault with many mapping sets reads the vault once, not once per mapping set.
+
 ### Changed: source-first import navigation (2026-11-13)
 
 - The vault and computer file pickers now precede saved recipes and the closed publisher/preset guide. Guidance, registration cautions and export warnings remain available before choosing a file; Run again retains its separate exit and source binding.
