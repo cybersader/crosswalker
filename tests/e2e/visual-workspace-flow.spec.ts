@@ -548,6 +548,40 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 		}, prevTheme);
 		await browser.pause(200);
 
+		// -- Stage H2: hovering an installed framework reveals the copy-summary
+		//    button, and the row counts crosswalks. Captured in both themes.
+		const firstItem = await browser.$('.crosswalker-workspace-ontology-item');
+		await firstItem.moveTo();
+		await browser.pause(300);
+		const hover = await browser.executeObsidian(() => {
+			const item = document.querySelector('.crosswalker-workspace-ontology-item');
+			const copy = item?.querySelector('.crosswalker-workspace-ontology-copy');
+			return {
+				hasCopy: !!copy,
+				copyOpacity: copy ? getComputedStyle(copy).opacity : '',
+				label: copy?.getAttribute('aria-label') ?? '',
+				count: item?.querySelector('.crosswalker-workspace-ontology-count')?.textContent ?? '',
+			};
+		});
+		console.log('[view] hover copy → ' + JSON.stringify(hover));
+		for (const theme of ['dark', 'light'] as const) {
+			await browser.executeObsidian((_a, t: unknown) => {
+				document.body.classList.toggle('theme-dark', t === 'dark');
+				document.body.classList.toggle('theme-light', t !== 'dark');
+			}, theme);
+			await firstItem.moveTo();
+			await browser.pause(300);
+			await browser.saveScreenshot(path.join(OUT, `view-09-hover-copy-${theme}.png`));
+		}
+		await browser.executeObsidian((_a, wasDark: unknown) => {
+			document.body.classList.toggle('theme-dark', wasDark === 'dark');
+			document.body.classList.toggle('theme-light', wasDark !== 'dark');
+		}, prevTheme);
+		expect(hover.hasCopy).toBe(true);
+		expect(hover.copyOpacity).toBe('1');
+		expect(hover.label).toMatch(/^Copy a summary of /);
+		expect(hover.count).toMatch(/crosswalks?$/);
+
 		// -- Stage I: "Import again" re-mounts the flow in-view (not a modal),
 		//    pre-armed with the matched recipe (spec §7n item 3).
 		const reimport = await browser.executeObsidian(async () => {
