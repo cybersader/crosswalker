@@ -104,7 +104,7 @@ describe('writeReferenceBaseFiles — idempotency', () => {
 		// of the mock. The real behavior is verified manually.
 		expect(created).toContain(COVERAGE_MATRIX_BASE_PATH); // mock behavior: writes anyway
 		// Documented limitation: full TFile-instance check requires Obsidian
-		// runtime; manual test scenario in TEST_PHASE3_PIVOT_VIEW.md verifies
+		// runtime; manual test scenario in tests/manual/TEST_PHASE3_PIVOT_VIEW.md verifies
 		// idempotency end-to-end.
 	});
 });

@@ -263,7 +263,7 @@ describe('Recipe query: block — style A and B produce identical verdicts', () 
 });
 
 // ---------------------------------------------------------------------------
-// Edge cases worth checking (per TEST_PHASE1_QUERY_SCHEMA.md)
+// Edge cases worth checking (per tests/manual/TEST_PHASE1_QUERY_SCHEMA.md)
 // ---------------------------------------------------------------------------
 
 describe('Recipe schema — Phase 1 edge cases', () => {

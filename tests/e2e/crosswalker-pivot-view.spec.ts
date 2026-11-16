@@ -17,7 +17,7 @@
  * E2E because Bases instantiates the view through its own lifecycle. The
  * pivot grid data shaping is fully covered by `tests/pivot-grid.test.ts`
  * (31 unit tests). End-to-end view rendering is verified manually via
- * TEST_PHASE3_PIVOT_VIEW.md scenarios.
+ * tests/manual/TEST_PHASE3_PIVOT_VIEW.md scenarios.
  */
 
 import { browser } from '@wdio/globals';
