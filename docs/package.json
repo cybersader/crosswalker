@@ -26,7 +26,7 @@
     "remark-wiki-link": "^2.0.1",
     "sharp": "^0.33.0",
     "starlight-announcement": "^0.1.1",
-    "starlight-blog": "^0.26.1",
+    "starlight-blog": "^0.30.2",
     "starlight-heading-badges": "^0.7.0",
     "starlight-image-zoom": "^0.14.1",
     "starlight-sidebar-topics": "^0.7.1",
