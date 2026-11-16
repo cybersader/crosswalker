@@ -46,7 +46,7 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: >-
-          .github/scripts/changed-paths.sh
+          bash .github/scripts/changed-paths.sh
           '^(src/|tests/e2e/|recipes/|spec/|manifest\.json$|esbuild\.config\.mjs$|scripts/sqlite-inline-build\.mjs$|scripts/verify-inline-sqlite-assets\.mjs$|wdio(\.first-run)?\.conf\.mts$|package\.json$|bun\.lock$|\.github/workflows/plugin-e2e\.yml$|\.github/scripts/changed-paths\.sh$)'
 
   smoke:

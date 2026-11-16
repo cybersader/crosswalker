@@ -40,7 +40,7 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: >-
-          .github/scripts/changed-paths.sh
+          bash .github/scripts/changed-paths.sh
           '^(docs/|\.github/workflows/deploy-docs\.yml$|\.github/scripts/changed-paths\.sh$)'
 
   test:
