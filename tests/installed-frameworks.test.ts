@@ -9,7 +9,7 @@
  */
 
 import { discoverFrameworksFromCache, type DiscoveryCacheEntry } from '../src/discovery/installed-frameworks';
-import { identityFactsFromFrontmatter, deriveInstalledOntologiesFromNotes } from '../src/views/workspace-view-helpers';
+import { identityFactsFromFrontmatter, deriveInstalledOntologiesFromNotes, frameworkSummaryText } from '../src/views/workspace-view-helpers';
 
 type File = { path: string; name: string };
 
@@ -99,5 +99,35 @@ describe('deriveInstalledOntologiesFromNotes', () => {
 		], []);
 		expect(out).toHaveLength(1);
 		expect(out[0]).toMatchObject({ id: 'zeta', noteCount: 2 });
+	});
+});
+
+describe('copy summary facts', () => {
+	it('counts crosswalks on both sides, parents, properties and the shared folder', () => {
+		const edge = (s: string, o: string): DiscoveryCacheEntry => ({
+			frontmatter: { kind: 'crosswalk-edge', subject_id: s, object_id: o, _crosswalker: { producer: { kind: 'cli' } } },
+		});
+		const result = discover([
+			['Frameworks/CSF/GV/GV.OC.md', concept('nist-csf-2:GV.OC', { parent_curie: 'nist-csf-2:GV' }, 1)],
+			['Frameworks/CSF/ID/ID.AM.md', concept('nist-csf-2:ID.AM')],
+			['Frameworks/Ref/PCI/1.1.md', concept('pci:1.1')],
+			['_crosswalker/edges/a.md', edge('nist-csf-2:GV.OC', 'pci:1.1')],
+			['_crosswalker/edges/b.md', edge('nist-csf-2:GV.OC', 'nist-csf-2:ID.AM')],
+		]);
+		if (result.state !== 'ready') throw new Error('expected ready');
+		const byId = Object.fromEntries(result.frameworks.map((f) => [f.id, f]));
+		expect(byId['nist-csf-2']).toMatchObject({
+			noteCount: 2, notesWithParent: 1, crosswalkCount: 2, folder: 'Frameworks/CSF',
+			sampleIds: ['nist-csf-2:GV.OC', 'nist-csf-2:ID.AM'],
+		});
+		expect(byId['nist-csf-2'].propertyKeys?.[0]).toEqual({ key: '_crosswalker', count: 2 });
+		expect(byId.pci).toMatchObject({ noteCount: 1, notesWithParent: 0, crosswalkCount: 1, folder: 'Frameworks/Ref/PCI' });
+
+		const text = frameworkSummaryText(byId['nist-csf-2']);
+		expect(text).toContain('Notes: 2\n');
+		expect(text).toContain('Notes with a parent: 1\n');
+		expect(text).toContain('Crosswalks to or from this framework: 2\n');
+		expect(text).toContain('- parent_curie: 1\n');
+		expect(text).toContain('Folder: Frameworks/CSF\n');
 	});
 });

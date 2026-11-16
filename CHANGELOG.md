@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: copy a framework summary from the installed list (2026-11-16)
+
+- Hovering a framework in the workspace view's "Installed frameworks" list shows a copy button. It copies a plain-text summary: notes, notes with a parent, links in note properties, crosswalks to or from the framework, the folder that holds it, each property with how many notes use it, and three example ids. No note content is copied.
+- Each row's count now includes crosswalks, for example "802 notes · 0 links · 1,203 crosswalks". Before, frameworks that are connected only through crosswalks read as "0 links".
 ### Changed: one quality gate for every change, and attested draft releases (2026-11-16)
 
 - `bun run check` runs lint, unit tests, version consistency and the production build. CI runs the same command on every pull request and push to `main`, with no path filters; before, lint never ran in CI and unit tests skipped changes outside `src/` and `tests/`.

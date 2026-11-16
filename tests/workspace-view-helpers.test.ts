@@ -39,6 +39,10 @@ describe('deriveInstalledOntologies', () => {
 			noteCount: 2,
 			linkCount: 3,
 			recipeId: 'nist-flat',
+			notesWithParent: 0,
+			propertyKeys: [],
+			folder: 'Ontologies',
+			sampleIds: [],
 		}]);
 	});
 
@@ -62,6 +66,10 @@ describe('deriveInstalledOntologies', () => {
 			noteCount: 2,
 			linkCount: 0,
 			recipeId: 'mitre',
+			notesWithParent: 0,
+			propertyKeys: [],
+			folder: 'Ontologies',
+			sampleIds: [],
 		}]);
 	});
 
