@@ -26,7 +26,7 @@ jobs:
   # Runs on every PR and main push, then skips the docs build visibly (job shown
   # as skipped, with a notice) when nothing under docs/ changed.
   changes:
-    runs-on: ${{ fromJSON(vars.RUNS_ON_LIGHT || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
@@ -48,7 +48,7 @@ jobs:
     if: needs.changes.outputs.relevant == 'true'
     # Pinned: Playwright 1.60 cannot install Chromium on ubuntu-latest (26.04).
     # Return to ubuntu-latest once Playwright supports that image.
-    runs-on: ${{ fromJSON(vars.RUNS_ON_LIGHT || '"ubuntu-24.04"') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -100,7 +100,7 @@ jobs:
   deploy:
     needs: test
     if: github.event_name != 'pull_request'
-    runs-on: ${{ fromJSON(vars.RUNS_ON_LIGHT || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       pages: write

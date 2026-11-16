@@ -32,7 +32,7 @@ jobs:
   # Runs on every PR and main push, then skips the smoke run visibly (job shown
   # as skipped, with a notice) when nothing that reaches the plugin changed.
   changes:
-    runs-on: ${{ fromJSON(vars.RUNS_ON_LIGHT || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
@@ -52,7 +52,7 @@ jobs:
   smoke:
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
-    runs-on: ${{ fromJSON(vars.RUNS_ON_LIGHT || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
