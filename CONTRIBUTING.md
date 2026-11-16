@@ -4,7 +4,7 @@ Welcome! Crosswalker is an Obsidian plugin that turns your vault into an operati
 
 - **Plugin** (TypeScript / Bun, this repo root) — the Obsidian plugin itself
 - **Docs site** (`docs/`, Astro Starlight) — concepts, architecture, research logs, terminology, registry, roadmap
-- **Python CLI** (`frameworks_to_obsidian.py`) — the original batch importer, still shipped as a secondary tool
+- **Command line** (`cli/`, run with `bun run cw`) — import, validate, export and replay against a plain folder, without Obsidian
 
 The **authoritative current-state reference is the [docs site](https://cybersader.github.io/crosswalker/)**, not this file. If anything here contradicts the docs, the docs win.
 

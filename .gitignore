@@ -36,7 +36,7 @@ tests/e2e/first-run-vault/.obsidian/plugins/
 # Runtime state written by the plugin's first-run hook
 test-vault/_crosswalker/
 
-# In-vault copies of TEST_*.md guides (canonical lives at repo root)
+# In-vault copies of TEST_*.md guides (canonical copies live in tests/manual/)
 test-vault/_test-guides/
 
 # On-demand visual verification screenshots from wdio runs

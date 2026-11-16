@@ -6,7 +6,7 @@ tags: [crosswalker, control-lens, coverage]
 # Control lens — "implement once, satisfy many"
 
 > [!note] These views need local data
-> The `.base` files are pure query configs (commit-safe), but they read gitignored local data: edge notes under `_crosswalker/mappings/` and concept notes under `Frameworks/_licensed/` (CRI is copyrighted). On a fresh clone the views render empty until you regenerate per `TEST_CROSSWALK_PIVOT.md` step 1.
+> The `.base` files are pure query configs (commit-safe), but they read gitignored local data: edge notes under `_crosswalker/mappings/` and concept notes under `Frameworks/_licensed/` (CRI is copyrighted). On a fresh clone the views render empty until you regenerate per `tests/manual/TEST_CROSSWALK_PIVOT.md` step 1.
 
 The first of the Unified Risk Model's three lenses, realized on the live crosswalk corpus. The Control lens reads one slice of the graph — the **crosswalk subgraph** (concept ↔ concept across frameworks) — and asks: *if I implement one control, how many separate framework requirements does it satisfy?*
 

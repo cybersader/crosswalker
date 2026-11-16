@@ -6,7 +6,7 @@ tags: [crosswalker, crosswalk-coverage, heatmap]
 # Crosswalk coverage — where do frameworks overlap, and how densely?
 
 > [!note] These views need local data
-> The `.base` files here are pure query configs (commit-safe), but they read edge notes under `_crosswalker/mappings/` and concept notes under `Frameworks/_licensed/` — both **gitignored** (CRI/CIS/SCF are licensed). On a fresh clone the views render empty until you regenerate per `TEST_CROSSWALK_PIVOT.md` step 1 + step 5.
+> The `.base` files here are pure query configs (commit-safe), but they read edge notes under `_crosswalker/mappings/` and concept notes under `Frameworks/_licensed/` — both **gitignored** (CRI/CIS/SCF are licensed). On a fresh clone the views render empty until you regenerate per `tests/manual/TEST_CROSSWALK_PIVOT.md` step 1 + step 5.
 
 The coverage lens reads the **crosswalk subgraph** (concept ↔ concept edges across frameworks) and asks density questions: which functions/families overlap, how much, and what does one concept touch everywhere?
 

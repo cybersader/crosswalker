@@ -6,7 +6,7 @@ tags: [crosswalker, framework-adoption, cis, scf]
 # Framework adoption — what does adopting a framework actually ask of you?
 
 > [!note] These views need local data
-> The `.base` files here are pure query configs (commit-safe), but they read `Frameworks/_licensed/` — which is **gitignored** (CIS is CC BY-NC-SA, SCF is CC BY-ND). On a fresh clone the views render empty until you regenerate the licensed imports locally; see `TEST_CROSSWALK_PIVOT.md` step 1 + the CIS/SCF recipes in `recipes/import/`.
+> The `.base` files here are pure query configs (commit-safe), but they read `Frameworks/_licensed/` — which is **gitignored** (CIS is CC BY-NC-SA, SCF is CC BY-ND). On a fresh clone the views render empty until you regenerate the licensed imports locally; see `tests/manual/TEST_CROSSWALK_PIVOT.md` step 1 + the CIS/SCF recipes in `recipes/import/`.
 
 A second analysis lens on the live corpus (companion to [[Control lens]]): instead of asking how frameworks overlap, this asks what one framework demands at each maturity tier — the **scoping** question every GRC program starts with.
 

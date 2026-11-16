@@ -15,12 +15,12 @@ what only your hands can judge.
 
 ## 0. Setup
 
-- [ ] **Lazy path (double-click, no terminal):** `dev.bat` at the repo root starts the watch build via WSL; `serve.bat` opens the full interactive menu via Windows bun. Both **self-heal** the WSL↔Windows `node_modules` mismatch (the orchestrator detects the wrong-platform esbuild/rollup binary and reinstalls) — so the first launch after switching sides pauses ~30–60s for a reinstall, then runs. That ping-pong is inherent to sharing the repo across both OSes
+- [ ] **Menu path:** `bun run serve` opens the interactive menu (plugin watch, docs, both, tests)
 - [ ] Terminal equivalent: `bun run build` (or `bun run dev` for watch) — outputs to `test-vault/.obsidian/plugins/crosswalker/`
 - [ ] Open `test-vault/` in Obsidian; enable **Crosswalker** + the **Bases** core plugin
 - [ ] First open after corpus regen: wait for the "Indexing vault..." toast to finish (~10k notes) — pivots render "No data" pre-index
 - [ ] Regenerate the local licensed corpus: run every block in `TEST_CROSSWALK_PIVOT.md` § 1 + § 5 (concepts, hierarchy back-fills, OLIR edges, SCF melt). Expect: **~7.4k concept notes + ~7.9k edge notes**, all gitignored
-- [ ] **Reset between test runs** — after doing ad-hoc imports, clear them for a clean slate: **in Obsidian** run the command **"Crosswalker: Reset imported notes (dev)"** (groups generated notes by folder, protects the corpus, per-folder + delete-all buttons), or **outside Obsidian** double-click `reset.bat` (preview then keypress-to-delete) / run `bun run reset` (dry-run) / `bun run reset -- --yes` (delete). It removes only Crosswalker-generated notes **outside** the protected corpus — `Frameworks/_licensed/`, `Frameworks/NIST-mini/`, `_crosswalker/`, `GRC analysis/`, and `PROVENANCE.md` are never touched. Hand-written notes are never touched
+- [ ] **Reset between test runs** — after doing ad-hoc imports, clear them for a clean slate: **in Obsidian** run the command **"Crosswalker: Reset imported notes (dev)"** (groups generated notes by folder, protects the corpus, per-folder + delete-all buttons), or **outside Obsidian** run `bun run reset` (dry-run) / `bun run reset -- --yes` (delete). It removes only Crosswalker-generated notes **outside** the protected corpus — `Frameworks/_licensed/`, `Frameworks/NIST-mini/`, `_crosswalker/`, `GRC analysis/`, and `PROVENANCE.md` are never touched. Hand-written notes are never touched
 
 ## Readable framework connections (2026-10-30)
 
@@ -155,7 +155,7 @@ error quality.*
 - [ ] Smart defaults here (2026-06-13): `element_identifier` → **Folder tree (from id) ✨** — NOT flat. The wizard detects the `.`/`-` delimiters and the "In the vault" preview shows `📁 DE/DE.AE/DE.AE-02.md`; `text` → Body ✨. Generate → notes nest by function/category automatically (the §3.5 showcase, now point-and-click)
 - [ ] To see it flat instead, change that column's role from "Folder tree (from id)" to "Note title" 
 - [ ] **JSON record picker (UX iteration 2):** instead of typing `$.…` paths, Step 1 shows "Where are your records?" with the nested lists as **selectable cards** — radio dot, bold list name + path breadcrumb, a purple record-count badge, and field-name chips. The primary-record list is pre-selected even when a relationship/mapping list is larger (CPRT: `elements` selected, not the bigger `relationships`). Path syntax is under "Advanced." Root-array files show one "this whole file is your list" card
-- [ ] **If it looks like an unstyled wall of text:** the CSS didn't deploy — reload the plugin; if still plain, the watch predates the styles.css-copy fix, so re-run `dev.bat`/`serve.bat` (or `cp styles.css test-vault/.obsidian/plugins/crosswalker/`)
+- [ ] **If it looks like an unstyled wall of text:** the CSS didn't deploy — reload the plugin; if still plain, the watch predates the styles.css-copy fix, so re-run `bun run dev` (or `cp styles.css test-vault/.obsidian/plugins/crosswalker/`)
 - [ ] **Loud failures:** a generation that creates 0 notes (or has row errors) now raises a warning notice with the first cause — never a silent zero
 - [ ] **Error-quality check**: re-select the file, enter iterator `$.objects[*]` → the error must **list the keys that DO exist** (`response`, …), not just "not found"
 - [ ] Empty iterator on a root-array file: make a tiny `[{"a":1}]` .json and confirm it parses with no iterator

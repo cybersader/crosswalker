@@ -25,9 +25,9 @@ Crosswalker has **three contribution surfaces**, each with its own conventions:
 |---|---|---|---|
 | **Plugin code** | `src/` | TypeScript + Bun + esbuild | Jest unit tests, WebdriverIO E2E |
 | **Docs site** | `docs/src/content/docs/` | Astro Starlight, MDX | Playwright E2E |
-| **Python CLI** | `frameworks_to_obsidian.py` | Python + Pandas | manual |
+| **Command line** | `cli/` (`bun run cw`) | TypeScript on Bun, shares the plugin engine | Jest |
 
-Most contributions touch the plugin or docs. The Python CLI is the original batch importer and still shipped as a secondary tool, but new capability work happens in the plugin.
+Most contributions touch the plugin or docs. The command line reuses the plugin's engine, so a capability added to the plugin usually reaches `cw` through the same code. The original Python batch importer was removed on 2026-11-16 after `cw import` and the shipped recipes covered it.
 
 ## Local dev orchestrator — `bun run serve`
 
