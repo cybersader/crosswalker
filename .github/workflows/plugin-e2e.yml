@@ -11,6 +11,12 @@ name: Plugin E2E smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      spec:
+        description: 'Spec to run instead of the smoke journey, e.g. tests/e2e/visual-workspace-flow.spec.ts. Screenshots are uploaded.'
+        required: false
+        default: ''
+        type: string
   pull_request:
   push:
     branches: [main]
@@ -97,10 +103,27 @@ jobs:
       # sandbox. tee keeps a diagnostic log while pipefail preserves WDIO's exit.
       - name: Run vertical smoke journey
         shell: bash
+        env:
+          SPEC_INPUT: ${{ inputs.spec }}
         run: |
           set -o pipefail
+          spec="${SPEC_INPUT:-tests/e2e/smoke-ci.spec.ts}"
+          # A manual run may name one spec; refuse anything that is not one.
+          if [[ ! "$spec" =~ ^tests/e2e/[A-Za-z0-9._-]+\.spec\.ts$ ]] || [ ! -f "$spec" ]; then
+            echo "::error::Not a spec under tests/e2e/: $spec"; exit 1
+          fi
           mkdir -p .e2e-artifacts
-          bun run e2e -- --spec tests/e2e/smoke-ci.spec.ts 2>&1 | tee .e2e-artifacts/wdio.log
+          bun run e2e -- --spec "$spec" 2>&1 | tee .e2e-artifacts/wdio.log
+
+      # Manual runs exist to look at the plugin; keep their screenshots.
+      - name: Upload screenshots from a manual run
+        if: always() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: plugin-e2e-screenshots-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: test-screenshots/
 
       - name: Collect display logs on failure
         if: failure()

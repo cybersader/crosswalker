@@ -23,6 +23,12 @@ export interface MinimalVaultNode {
 	recipeId?: string;
 	/** Number of frontmatter wikilinks in this note. */
 	linkCount?: number;
+	/** The note's full `curie`, used only for example ids in the copied summary. */
+	curie?: string;
+	/** True when the note names a parent (`parent_curie` or `parent`). */
+	hasParent?: boolean;
+	/** Top-level frontmatter keys, for the copied schema summary. */
+	propertyKeys?: readonly string[];
 }
 
 export interface InstalledOntologySummary {
@@ -34,6 +40,16 @@ export interface InstalledOntologySummary {
 	linkCount: number;
 	/** One exact bundled recipe id, when the generated notes name one. */
 	recipeId?: string;
+	/** Notes that name a parent, so the framework has hierarchy to show. */
+	notesWithParent?: number;
+	/** Relationship notes (crosswalks) with this framework on either side. */
+	crosswalkCount?: number;
+	/** Top-level frontmatter keys and how many notes use each, most used first. */
+	propertyKeys?: { key: string; count: number }[];
+	/** Deepest folder that holds every note of this framework ('' for the vault root). */
+	folder?: string;
+	/** A few example ids, in vault order. */
+	sampleIds?: string[];
 }
 
 /**
@@ -106,6 +122,10 @@ function summarizeOntologyNotes(
 		noteCount: number;
 		linkCount: number;
 		recipeIds: Set<string>;
+		notesWithParent: number;
+		keys: Map<string, number>;
+		folder: string | null;
+		sampleIds: string[];
 	}
 	const groups = new Map<string, MutableSummary>();
 
@@ -118,12 +138,20 @@ function summarizeOntologyNotes(
 
 		let group = groups.get(id);
 		if (!group) {
-			group = { id, noteCount: 0, linkCount: 0, recipeIds: new Set<string>() };
+			group = {
+				id, noteCount: 0, linkCount: 0, recipeIds: new Set<string>(),
+				notesWithParent: 0, keys: new Map<string, number>(), folder: null, sampleIds: [],
+			};
 			groups.set(id, group);
 		}
 		group.noteCount += 1;
 		group.linkCount += node.linkCount ?? 0;
 		if (node.recipeId) group.recipeIds.add(node.recipeId);
+		if (node.hasParent) group.notesWithParent += 1;
+		for (const key of node.propertyKeys ?? []) group.keys.set(key, (group.keys.get(key) ?? 0) + 1);
+		const folder = node.path.includes('/') ? node.path.slice(0, node.path.lastIndexOf('/')) : '';
+		group.folder = group.folder === null ? folder : commonFolder(group.folder, folder);
+		if (node.curie && group.sampleIds.length < SAMPLE_ID_COUNT) group.sampleIds.push(node.curie);
 	}
 
 	return Array.from(groups.values())
@@ -137,9 +165,67 @@ function summarizeOntologyNotes(
 				noteCount: group.noteCount,
 				linkCount: group.linkCount,
 				...(recipeId ? { recipeId } : {}),
+				notesWithParent: group.notesWithParent,
+				propertyKeys: Array.from(group.keys, ([key, count]) => ({ key, count }))
+					.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)),
+				folder: group.folder ?? '',
+				sampleIds: group.sampleIds,
 			};
 		})
 		.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+const SAMPLE_ID_COUNT = 3;
+
+function commonFolder(a: string, b: string): string {
+	const as = a ? a.split('/') : [];
+	const bs = b ? b.split('/') : [];
+	let i = 0;
+	while (i < as.length && i < bs.length && as[i] === bs[i]) i += 1;
+	return as.slice(0, i).join('/');
+}
+
+/**
+ * Surface-level description of one framework for the clipboard: counts, where
+ * it lives, which properties its notes carry, and a few ids. Plain text so it
+ * pastes cleanly into a chat, an issue or a note. No note content is included.
+ */
+export function frameworkSummaryText(summary: InstalledOntologySummary): string {
+	const n = (value: number | undefined): string => (value ?? 0).toLocaleString('en-US');
+	const lines = [
+		`Framework: ${summary.name === summary.id ? summary.id : `${summary.name} (id prefix: ${summary.id})`}`,
+	];
+	if (summary.recipeId) lines.push(`Recipe: ${summary.recipeId}`);
+	lines.push(`Folder: ${summary.folder ? summary.folder : '(vault root)'}`);
+	lines.push(`Notes: ${n(summary.noteCount)}`);
+	lines.push(`Notes with a parent: ${n(summary.notesWithParent)}`);
+	lines.push(`Links in note properties: ${n(summary.linkCount)}`);
+	lines.push(`Crosswalks to or from this framework: ${n(summary.crosswalkCount)}`);
+	if (summary.propertyKeys?.length) {
+		lines.push('Properties (notes using each):');
+		for (const { key, count } of summary.propertyKeys) lines.push(`- ${key}: ${n(count)}`);
+	}
+	if (summary.sampleIds?.length) lines.push(`Example ids: ${summary.sampleIds.join(', ')}`);
+	return lines.join('\n') + '\n';
+}
+
+/**
+ * Every listed framework in one paste: totals first, then each framework's
+ * block from frameworkSummaryText, separated by a blank line.
+ */
+export function frameworksSummaryText(summaries: readonly InstalledOntologySummary[]): string {
+	const sum = (pick: (s: InstalledOntologySummary) => number | undefined): string =>
+		summaries.reduce((total, s) => total + (pick(s) ?? 0), 0).toLocaleString('en-US');
+	const flat = summaries.filter((s) => !s.notesWithParent && !s.linkCount).length;
+	const head = [
+		`Installed frameworks: ${summaries.length.toLocaleString('en-US')}`,
+		`Notes: ${sum((s) => s.noteCount)}`,
+		`Notes with a parent: ${sum((s) => s.notesWithParent)}`,
+		`Links in note properties: ${sum((s) => s.linkCount)}`,
+		`Crosswalk sides (a crosswalk between two listed frameworks counts once for each): ${sum((s) => s.crosswalkCount)}`,
+		`Frameworks with no parents and no links: ${flat.toLocaleString('en-US')}`,
+	].join('\n');
+	return [head + '\n', ...summaries.map(frameworkSummaryText)].join('\n');
 }
 
 /** Identity facts a note's frontmatter carries. Path never participates. */

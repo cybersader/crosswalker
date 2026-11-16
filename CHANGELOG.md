@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Changed: frameworks known only from a crosswalk get a root note (2026-11-16)
+
+- A framework built only from the ids another framework's crosswalk mentions used to be a flat pile of notes with nothing tying them together. Its import now also writes one root note: the folder note of the framework's folder, listing every id in its `children` property and in a Contents section. Graph views see each framework as one cluster. This uses the existing hierarchy hub option (`target.enrichment.level_hubs: notes`) in the referenced-framework recipe; no new recipe grammar. Existing sets pick it up on their next refresh.
+
+### Added: copy a framework summary from the installed list (2026-11-16)
+
+- Hovering a framework in the workspace view's "Installed frameworks" list shows a copy button. It copies a plain-text summary: notes, notes with a parent, links in note properties, crosswalks to or from the framework, the folder that holds it, each property with how many notes use it, and three example ids. No note content is copied.
+- Hovering the "Installed frameworks" heading shows a copy button with a down arrow. It copies one summary of every framework below: totals (frameworks, notes, notes with a parent, links, crosswalk sides, frameworks with no parents and no links), then each framework's block.
+- Each row's count now includes crosswalks, for example "802 notes · 0 links · 1,203 crosswalks". Before, frameworks that are connected only through crosswalks read as "0 links".
 ### Changed: one quality gate for every change, and attested draft releases (2026-11-16)
 
 - `bun run check` runs lint, unit tests, version consistency and the production build. CI runs the same command on every pull request and push to `main`, with no path filters; before, lint never ran in CI and unit tests skipped changes outside `src/` and `tests/`.

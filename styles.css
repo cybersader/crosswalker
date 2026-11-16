@@ -3057,11 +3057,47 @@
 }
 
 .crosswalker-workspace-installed-heading {
+	/* Fits its content, so only the words and the button count as hovering it. */
+	display: inline-flex;
+	align-items: center;
+	gap: var(--cw-s2);
 	font-size: var(--cw-fs-eyebrow);
 	letter-spacing: var(--cw-track-eyebrow);
 	text-transform: uppercase;
 	color: var(--text-muted);
 	margin-bottom: var(--cw-s3);
+}
+
+/* A defined term: a barely visible dotted underline with a tooltip. */
+.crosswalker-term-hint {
+	text-decoration: underline dotted;
+	text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
+	text-underline-offset: 3px;
+	cursor: help;
+}
+
+/* Copy everything below: shown on hover or keyboard focus of the heading. */
+.crosswalker-workspace-installed-copy {
+	display: inline-flex;
+	align-items: center;
+	gap: 0;
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+.crosswalker-workspace-installed-copy .svg-icon {
+	width: 14px;
+	height: 14px;
+}
+.crosswalker-workspace-installed-copy .crosswalker-workspace-installed-copy-arrow .svg-icon {
+	width: 10px;
+	height: 10px;
+}
+.crosswalker-workspace-installed-heading:hover .crosswalker-workspace-installed-copy,
+.crosswalker-workspace-installed-copy:focus-visible {
+	opacity: 1;
+}
+@media (hover: none) {
+	.crosswalker-workspace-installed-copy { opacity: 1; }
 }
 
 .crosswalker-workspace-empty {
@@ -3187,6 +3223,22 @@
 .crosswalker-workspace-ontology-actions {
 	margin-left: auto;
 	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	gap: var(--cw-s2);
+}
+
+/* Copy summary: appears on hover or keyboard focus so the list stays quiet. */
+.crosswalker-workspace-ontology-copy {
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+.crosswalker-workspace-ontology-item:hover .crosswalker-workspace-ontology-copy,
+.crosswalker-workspace-ontology-copy:focus-visible {
+	opacity: 1;
+}
+@media (hover: none) {
+	.crosswalker-workspace-ontology-copy { opacity: 1; }
 }
 
 .crosswalker-workspace-ontology-reimport {

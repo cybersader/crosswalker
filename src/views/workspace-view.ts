@@ -14,7 +14,7 @@
  * "actual interface, not mockup" surface (owner direction, 2026-07-11).
  */
 
-import { ItemView, WorkspaceLeaf, TFile, setIcon } from 'obsidian';
+import { ItemView, Notice, WorkspaceLeaf, TFile, setIcon } from 'obsidian';
 import CrosswalkerPlugin from '../main';
 import { ImportFlow, type ImportFlowHost, type PrefillBinding } from '../import/import-wizard';
 import { ConfigBrowserModal } from '../config/config-browser-modal';
@@ -24,6 +24,8 @@ import { StackSetupModal } from '../import/stack/stack-modal';
 import { openImportStack, renderInstalledStacks } from '../import/stack/installed-stacks';
 import {
 	findRecipeForOntologyIdentity,
+	frameworkSummaryText,
+	frameworksSummaryText,
 } from './workspace-view-helpers';
 import { discoverInstalledFrameworks } from '../discovery/installed-frameworks';
 import { settleVaultIndex } from '../generation/import-set';
@@ -176,7 +178,17 @@ export class CrosswalkerWorkspaceView extends ItemView {
 	 */
 	private async renderInstalledOntologies(root: HTMLElement, token: number): Promise<void> {
 		const section = root.createDiv({ cls: 'crosswalker-workspace-installed' });
-		section.createDiv({ cls: 'crosswalker-workspace-installed-heading', text: 'Installed frameworks' });
+		const heading = section.createDiv({ cls: 'crosswalker-workspace-installed-heading' });
+		const label = heading.createSpan();
+		label.appendText('Installed ');
+		// Frameworks is the everyday word; a faint underline offers the general one.
+		label.createSpan({
+			cls: 'crosswalker-term-hint',
+			text: 'frameworks',
+			attr: {
+				'aria-label': 'The general term is ontologies: any structured set of concepts, such as a control catalog or a taxonomy. Crosswalker says frameworks.',
+			},
+		});
 
 		// Whole-vault discovery by note identity, shared with the status bar and
 		// the graph color command. It does not depend on the output folder
@@ -208,6 +220,20 @@ export class CrosswalkerWorkspaceView extends ItemView {
 			return;
 		}
 
+		// Copy everything below: one summary of every listed framework.
+		const copyAll = heading.createEl('button', {
+			cls: 'crosswalker-workspace-installed-copy clickable-icon',
+			attr: { 'aria-label': 'Copy a summary of every framework below' },
+		});
+		setIcon(copyAll.createSpan(), 'copy');
+		setIcon(copyAll.createSpan({ cls: 'crosswalker-workspace-installed-copy-arrow' }), 'arrow-down');
+		copyAll.addEventListener('click', () => {
+			navigator.clipboard.writeText(frameworksSummaryText(summaries)).then(
+				() => new Notice(`Copied a summary of ${summaries.length} framework${summaries.length === 1 ? '' : 's'}.`),
+				() => new Notice('Could not copy to the clipboard. Click inside this tab so it has focus, then try again.'),
+			);
+		});
+
 		const list = section.createDiv({ cls: 'crosswalker-workspace-ontology-list' });
 		for (const summary of summaries) {
 			const item = list.createDiv({ cls: 'crosswalker-workspace-ontology-item' });
@@ -218,11 +244,25 @@ export class CrosswalkerWorkspaceView extends ItemView {
 			body.createDiv({ cls: 'crosswalker-workspace-ontology-name', text: summary.name });
 			body.createDiv({
 				cls: 'crosswalker-workspace-ontology-count',
-				text: `${summary.noteCount} note${summary.noteCount === 1 ? '' : 's'} · `
-					+ `${summary.linkCount} link${summary.linkCount === 1 ? '' : 's'}`,
+				text: [
+					countLabel(summary.noteCount, 'note'),
+					countLabel(summary.linkCount, 'link'),
+					countLabel(summary.crosswalkCount ?? 0, 'crosswalk'),
+				].join(' · '),
 			});
 
 			const actions = item.createDiv({ cls: 'crosswalker-workspace-ontology-actions' });
+			const copy = actions.createEl('button', {
+				cls: 'crosswalker-workspace-ontology-copy clickable-icon',
+				attr: { 'aria-label': `Copy a summary of ${summary.name}` },
+			});
+			setIcon(copy, 'copy');
+			copy.addEventListener('click', () => {
+				navigator.clipboard.writeText(frameworkSummaryText(summary)).then(
+					() => new Notice(`Copied a summary of ${summary.name}: counts, properties and example ids.`),
+					() => new Notice('Could not copy to the clipboard. Click inside this tab so it has focus, then try again.'),
+				);
+			});
 			const match = findRecipeForOntologyIdentity(summary.id, summary.recipeId);
 			if (match) {
 				const btn = actions.createEl('button', {
@@ -288,4 +328,8 @@ export class CrosswalkerWorkspaceView extends ItemView {
 	startImportWithFile(file: TFile, prefillBinding?: PrefillBinding): void {
 		this.startFlow({ prefillFile: file, prefillBinding });
 	}
+}
+
+function countLabel(count: number, noun: string): string {
+	return `${count.toLocaleString('en-US')} ${noun}${count === 1 ? '' : 's'}`;
 }

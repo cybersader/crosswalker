@@ -548,6 +548,95 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 		}, prevTheme);
 		await browser.pause(200);
 
+		// -- Stage H2: hovering an installed framework reveals the copy-summary
+		//    button, and the row counts crosswalks. Captured in both themes.
+		const firstItem = await browser.$('.crosswalker-workspace-ontology-item');
+		await firstItem.moveTo();
+		await browser.pause(300);
+		const hover = await browser.executeObsidian(() => {
+			const item = document.querySelector('.crosswalker-workspace-ontology-item');
+			const copy = item?.querySelector('.crosswalker-workspace-ontology-copy');
+			return {
+				hasCopy: !!copy,
+				copyOpacity: copy ? getComputedStyle(copy).opacity : '',
+				label: copy?.getAttribute('aria-label') ?? '',
+				count: item?.querySelector('.crosswalker-workspace-ontology-count')?.textContent ?? '',
+			};
+		});
+		console.log('[view] hover copy → ' + JSON.stringify(hover));
+		for (const theme of ['dark', 'light'] as const) {
+			await browser.executeObsidian((_a, t: unknown) => {
+				document.body.classList.toggle('theme-dark', t === 'dark');
+				document.body.classList.toggle('theme-light', t !== 'dark');
+			}, theme);
+			await firstItem.moveTo();
+			await browser.pause(300);
+			await browser.saveScreenshot(path.join(OUT, `view-09-hover-copy-${theme}.png`));
+		}
+		await browser.executeObsidian((_a, wasDark: unknown) => {
+			document.body.classList.toggle('theme-dark', wasDark === 'dark');
+			document.body.classList.toggle('theme-light', wasDark !== 'dark');
+		}, prevTheme);
+		const heading = await browser.$('.crosswalker-workspace-installed-heading');
+		await heading.moveTo();
+		await browser.pause(300);
+		const headingHover = await browser.executeObsidian(() => {
+			const btn = document.querySelector('.crosswalker-workspace-installed-copy');
+			return {
+				opacity: btn ? getComputedStyle(btn).opacity : '',
+				label: btn?.getAttribute('aria-label') ?? '',
+				icons: btn?.querySelectorAll('svg').length ?? 0,
+			};
+		});
+		console.log('[view] heading copy → ' + JSON.stringify(headingHover));
+		for (const theme of ['dark', 'light'] as const) {
+			await browser.executeObsidian((_a, t: unknown) => {
+				document.body.classList.toggle('theme-dark', t === 'dark');
+				document.body.classList.toggle('theme-light', t !== 'dark');
+			}, theme);
+			await heading.moveTo();
+			await browser.pause(300);
+			await browser.saveScreenshot(path.join(OUT, `view-09-heading-copy-${theme}.png`));
+		}
+		await browser.executeObsidian((_a, wasDark: unknown) => {
+			document.body.classList.toggle('theme-dark', wasDark === 'dark');
+			document.body.classList.toggle('theme-light', wasDark !== 'dark');
+		}, prevTheme);
+		// The hover area is the heading's words, not the whole row; the faint
+		// term hint names the general word, with a tooltip.
+		await browser.$('.crosswalker-workspace-ontology-list').moveTo();
+		await browser.pause(300);
+		const layout = await browser.executeObsidian(() => {
+			const h = document.querySelector('.crosswalker-workspace-installed-heading');
+			const sec = document.querySelector('.crosswalker-workspace-installed');
+			const btn = document.querySelector('.crosswalker-workspace-installed-copy');
+			const hint = document.querySelector('.crosswalker-term-hint');
+			return {
+				headingWidth: h?.getBoundingClientRect().width ?? 0,
+				sectionWidth: sec?.getBoundingClientRect().width ?? 0,
+				opacityAway: btn ? getComputedStyle(btn).opacity : '',
+				hintText: hint?.textContent ?? '',
+				hintLabel: hint?.getAttribute('aria-label') ?? '',
+				headingText: h?.textContent ?? '',
+			};
+		});
+		console.log('[view] heading layout → ' + JSON.stringify(layout));
+		await browser.$('.crosswalker-term-hint').moveTo();
+		await browser.pause(1200);
+		await browser.saveScreenshot(path.join(OUT, 'view-09-term-hint.png'));
+		expect(layout.headingWidth).toBeLessThan(layout.sectionWidth / 2);
+		expect(layout.opacityAway).toBe('0');
+		expect(layout.hintText).toBe('frameworks');
+		expect(layout.hintLabel).toMatch(/ontologies/);
+		expect(layout.headingText).toBe('Installed frameworks');
+		expect(headingHover.opacity).toBe('1');
+		expect(headingHover.label).toBe('Copy a summary of every framework below');
+		expect(headingHover.icons).toBe(2);
+		expect(hover.hasCopy).toBe(true);
+		expect(hover.copyOpacity).toBe('1');
+		expect(hover.label).toMatch(/^Copy a summary of /);
+		expect(hover.count).toMatch(/crosswalks?$/);
+
 		// -- Stage I: "Import again" re-mounts the flow in-view (not a modal),
 		//    pre-armed with the matched recipe (spec §7n item 3).
 		const reimport = await browser.executeObsidian(async () => {
