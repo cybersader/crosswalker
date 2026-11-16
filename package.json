@@ -82,7 +82,7 @@
 		"ts-jest": "^29.1.0",
 		"tslib": "2.6.0",
 		"typescript": "5.2.2",
-		"typescript-eslint": "^8.48.1",
+		"typescript-eslint": "^8.72.2",
 		"wdio-obsidian-reporter": "^3.0.2",
 		"wdio-obsidian-service": "^3.0.2"
 	},
