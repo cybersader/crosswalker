@@ -63,7 +63,7 @@ interface MinimalBasesEntry {
  * settings. Closure captures the plugin ref.
  */
 export type PivotPluginRef = {
-	queryCrosswalk?: (...args: unknown[]) => Promise<unknown[]>;
+	queryCrosswalk?: (subjectOntology: string, objectOntology: string, predicateId?: string) => Promise<unknown[]>;
 	debug?: { info?: (category: string, op: string, msg: string, data?: Record<string, unknown>) => void };
 };
 

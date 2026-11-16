@@ -18,23 +18,26 @@ jobs:
   live-checks:
     # Pinned: Playwright 1.60 cannot install Chromium on ubuntu-latest (26.04).
     # Return to ubuntu-latest once Playwright supports that image.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.RUNS_ON_LIGHT || '"ubuntu-24.04"') }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22'
+          node-version: "22.23.5"
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: latest
+          bun-version: "1.3.14"
 
       - name: Install dependencies
         working-directory: docs
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Install Playwright Chromium
         working-directory: docs

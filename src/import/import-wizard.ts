@@ -4233,7 +4233,6 @@ export class ImportFlow {
 			.setName('Framework identifier')
 			.setDesc('Optional ID for this framework (used in metadata for cross-framework features)')
 			.addText(text => text
-				// eslint-disable-next-line obsidianmd/ui/sentence-case
 				.setPlaceholder('e.g., nist-csf-2.0')
 				.setValue(this.frameworkId)
 				.onChange(value => {

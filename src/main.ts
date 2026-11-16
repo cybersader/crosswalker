@@ -145,9 +145,10 @@ const TIER2_RECOVERY_RETRY_BASE_MS = 30_000;
  * 5. Enable typed links with metadata (Phase 2)
  */
 export default class CrosswalkerPlugin extends Plugin {
-	settings: CrosswalkerSettings;
-	debug: DebugLog;
-	draftStore: DraftStore;
+	// Assigned in onload(), before anything reads them.
+	settings!: CrosswalkerSettings;
+	debug!: DebugLog;
+	draftStore!: DraftStore;
 	/**
 	 * Bundled import presets, exposed so the E2E harness can cross-check the
 	 * preset guide's rendered count against the registry it was built from.
@@ -1228,7 +1229,6 @@ export default class CrosswalkerPlugin extends Plugin {
 				this.debug?.warn('view', 'register-tsv-failed', 'Could not claim the .tsv extension for the mapping review', {
 					error: error instanceof Error ? error.message : String(error),
 				});
-				// eslint-disable-next-line obsidianmd/ui/sentence-case -- names the plugin, a command and a setting as the user sees them
 				new Notice('Crosswalker could not open .tsv files from the file explorer because another plugin already opens them. Use Review a mapping table from the command palette, or turn off Open mapping tables in Crosswalker under Advanced settings.', 12000);
 			}
 		}

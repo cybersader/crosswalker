@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Changed: one quality gate for every change, and attested draft releases (2026-11-16)
+
+- `bun run check` runs lint, unit tests, version consistency and the production build. CI runs the same command on every pull request and push to `main`, with no path filters; before, lint never ran in CI and unit tests skipped changes outside `src/` and `tests/`.
+- Lint uses the Obsidian plugin's full recommended rule set with type-aware checks. Existing violations are recorded in `eslint-suppressions.json` and can only shrink; new ones fail. TypeScript `strict` is on.
+- Releases are built from the tagged commit, the three release files get a GitHub build attestation, and the release is created as a draft for a maintainer to publish. Pushing a version tag also releases.
+- Every workflow job has a time limit and read-only default permissions; every action is pinned to a commit; Bun and Node versions are exact; Dependabot proposes action and package updates. `SECURITY.md` describes private vulnerability reporting.
+
 ### Fixed: large vaults finish indexing and Connections loads (2026-11-14)
 
 - On a vault with tens of thousands of notes, Crosswalker no longer builds its reporting database while Obsidian is still indexing. It waits for indexing to finish, however long that takes, then builds the database once. Before, it started after 12 seconds and logged one warning per note Obsidian had not reached yet. On a slow host those warnings slowed indexing almost to a stop, and the database was left nearly empty.

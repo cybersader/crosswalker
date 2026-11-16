@@ -134,7 +134,6 @@ export class RecipePickerModal extends Modal {
 			});
 		} else {
 			header.createEl('p', {
-				// eslint-disable-next-line obsidianmd/ui/sentence-case -- "Apply" quotes the literal button label
 				text: 'Pick a query template; adjust params; click Apply. The plugin writes frontmatter + generates a .base file + inserts a ![[...]] embed at your cursor.',
 				cls: 'setting-item-description',
 			});
