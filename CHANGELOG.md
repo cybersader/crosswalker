@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: `cw frameworks` summarizes installed frameworks from the command line (2026-11-16)
+
+- `bun run cw -- frameworks --vault <dir>` prints the same summary the Installed frameworks copy buttons put on the clipboard: notes, notes with a parent, links in note properties, crosswalks, properties and example ids. `--framework <id prefix>` narrows it to one framework; `--json` prints the data instead of text. Read only. Closes the command-line gap the copy buttons opened (parity entry `framework-summary`).
+
 ### Changed: frameworks known only from a crosswalk get a root note (2026-11-16)
 
 - A framework built only from the ids another framework's crosswalk mentions used to be a flat pile of notes with nothing tying them together. Its import now also writes one root note: the folder note of the framework's folder, listing every id in its `children` property and in a Contents section. Graph views see each framework as one cluster. This uses the existing hierarchy hub option (`target.enrichment.level_hubs: notes`) in the referenced-framework recipe; no new recipe grammar. Existing sets pick it up on their next refresh.

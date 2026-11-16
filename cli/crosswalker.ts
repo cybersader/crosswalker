@@ -7,6 +7,7 @@
  *                          [--deterministic]
  *   bun run cw -- validate --vault <dir> [--folder <folder>]
  *   bun run cw -- export   --vault <dir> --folder <folder> --format csv|sssom|strm --out <file>
+ *   bun run cw -- frameworks --vault <dir> [--framework <id prefix>] [--json]
  *   bun run cw -- replay   --vault <dir> --set <set id> --source <file>
  *                          [--sheet <name>] [--header-row <n>] [--digest sha256-<hex>]
  *                          [--deterministic]
@@ -52,6 +53,8 @@ import type { ParsedData } from '../src/types/config';
 import type { CrosswalkerImportRecipe } from '../src/types/generated/recipe';
 import { DebugLog } from '../src/utils/debug';
 import { configureGraphFromCli, connectionsFromCli } from './graph';
+import { discoverInstalledFrameworks } from '../src/discovery/installed-frameworks';
+import { frameworkSummaryText, frameworksSummaryText } from '../src/views/workspace-view-helpers';
 import { ConnectionsError } from '../src/graph/connections-query';
 
 /** Pinned clock and first set id under --deterministic, as tools/generate-fixtures.ts pins them. */
@@ -72,6 +75,9 @@ const USAGE = [
 	'            spreadsheet row number (1 = first row) that holds the column names.',
 	'  validate  --vault <dir> [--folder <folder>]',
 	'  export    --vault <dir> --folder <folder> --format csv|sssom|strm --out <file>',
+	'  frameworks --vault <dir> [--framework <id prefix>] [--json]',
+	'            Summarize the frameworks in the vault: notes, parents, links, crosswalks and',
+	'            properties. The same text as the copy buttons in the Crosswalker tab. Read only.',
 	'  replay    --vault <dir> --set <set id> --source <file> [--sheet <name>]',
 	'            [--header-row <n>] [--digest sha256-<hex>] [--deterministic]',
 	'            Runs a set again with the exact recipe revision it ran. Crosswalker keeps',
@@ -761,6 +767,24 @@ async function commandGraph(flags: Flags, io: Io, action?: string): Promise<numb
 	return result.status === 'stale' || result.status === 'partial' ? 1 : 0;
 }
 
+/** Read-only framework summary: the copy-button text, or its data as JSON. */
+async function commandFrameworks(flags: Flags, io: Io): Promise<number> {
+	allowOnly(flags, ['vault', 'framework', 'json'], 'frameworks');
+	if (flags.json !== undefined && flags.json !== true) throw new CliError('--json takes no value. Write it on its own.');
+	const app = openVault(flags);
+	const result = discoverInstalledFrameworks(app as never);
+	if (result.state === 'indexing') throw new CliError(`${result.pending} notes could not be read. Check that the vault folder is readable, then run it again.`);
+	const wanted = stringFlag(flags, 'framework');
+	const frameworks = wanted === undefined ? result.frameworks : result.frameworks.filter((f) => f.id === wanted);
+	if (wanted !== undefined && frameworks.length === 0) {
+		const known = result.frameworks.map((f) => f.id).join(', ') || 'none';
+		throw new CliError(`No framework with id prefix "${wanted}" in this vault. Known prefixes: ${known}.`);
+	}
+	if (flags.json) io.out(JSON.stringify(frameworks, null, 2));
+	else io.out(wanted === undefined ? frameworksSummaryText(frameworks) : frameworkSummaryText(frameworks[0]));
+	return 0;
+}
+
 // ----------------------------------------------------------------------- main
 
 /** Run one command. Returns the exit code; never calls process.exit. */
@@ -787,6 +811,8 @@ export async function runCli(argv: string[], io: Io = { out: (l) => console.log(
 				return await commandReplay(flags, io);
 			case 'graph':
 				return await commandGraph(flags, io, graphAction);
+			case 'frameworks':
+				return await commandFrameworks(flags, io);
 			case 'recipes':
 				for (const entry of RECIPE_REGISTRY) io.out(`${entry.id}  ${entry.label}`);
 				return 0;
