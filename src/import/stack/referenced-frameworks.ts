@@ -71,6 +71,9 @@ export function referencedFrameworkRecipe(ontology: string, sourceLabel: string)
 				frontmatter: { managed: { id: '{id}', title: '{id}', framework: '{framework}' }, user_preserve: ['reviewer', 'status', 'notes'] },
 				body: [{ position: 'append', template: `Only the identifier is known here. It comes from ${sourceLabel}'s crosswalk; import the full framework to see its text.` }],
 			},
+			// A flat id list still gets one root note: the import folder's folder
+			// note lists every id, so the framework holds together as one cluster.
+			enrichment: { level_hubs: 'notes' },
 		},
 	};
 }

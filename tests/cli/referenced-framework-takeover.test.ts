@@ -29,7 +29,14 @@ it('replaces an id-only note with the full framework in its explicitly selected 
 		};
 		const initial = await run(['import', '--source', sourceFile, '--recipe', recipeFile, '--destination', destination]);
 		const setId = /Set id: (iset-[a-z0-9]+)\./.exec(initial)![1];
-		const original = [...readTree(vault)].filter(([file]) => file.startsWith(`${destination}/`));
+		const rootNote = `${destination}/Invented references.md`;
+		const isConcept = ([file]: [string, Buffer]) => file.startsWith(`${destination}/`) && file !== rootNote;
+		// The flat id list still gets one root note (the folder note) listing every id.
+		const rootText = readTree(vault).get(rootNote)?.toString() ?? '';
+		expect(rootText).toContain('kind: hub');
+		const rootFm = yaml.load(/^---\n([\s\S]*?)\n---/.exec(rootText)![1]) as Record<string, any>;
+		expect(rootFm.children).toHaveLength(2);
+		const original = [...readTree(vault)].filter(isConcept);
 		expect(original).toHaveLength(2);
 		for (const [file, bytes] of original) {
 			expect(bytes.toString()).toContain("Only the identifier is known here.");
@@ -52,7 +59,8 @@ it('replaces an id-only note with the full framework in its explicitly selected 
 		const refreshed = await run(['import', '--source', sourceFile, '--recipe', recipeFile, '--destination', destination, '--set', setId]);
 		expect(refreshed).toContain('2 updated');
 		const tree = readTree(vault);
-		const after = [...tree].filter(([file]) => file.startsWith(`${destination}/`));
+		const after = [...tree].filter(isConcept);
+		expect(tree.has(rootNote)).toBe(true);
 		expect(after.map(([file]) => file).sort()).toEqual(original.map(([file]) => file).sort());
 		for (const [file, bytes] of after) {
 			const text = bytes.toString();
