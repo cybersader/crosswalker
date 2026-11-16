@@ -602,6 +602,33 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 			document.body.classList.toggle('theme-dark', wasDark === 'dark');
 			document.body.classList.toggle('theme-light', wasDark !== 'dark');
 		}, prevTheme);
+		// The hover area is the heading's words, not the whole row; the faint
+		// term hint names the general word, with a tooltip.
+		await browser.$('.crosswalker-workspace-ontology-list').moveTo();
+		await browser.pause(300);
+		const layout = await browser.executeObsidian(() => {
+			const h = document.querySelector('.crosswalker-workspace-installed-heading');
+			const sec = document.querySelector('.crosswalker-workspace-installed');
+			const btn = document.querySelector('.crosswalker-workspace-installed-copy');
+			const hint = document.querySelector('.crosswalker-term-hint');
+			return {
+				headingWidth: h?.getBoundingClientRect().width ?? 0,
+				sectionWidth: sec?.getBoundingClientRect().width ?? 0,
+				opacityAway: btn ? getComputedStyle(btn).opacity : '',
+				hintText: hint?.textContent ?? '',
+				hintLabel: hint?.getAttribute('aria-label') ?? '',
+				headingText: h?.textContent ?? '',
+			};
+		});
+		console.log('[view] heading layout → ' + JSON.stringify(layout));
+		await browser.$('.crosswalker-term-hint').moveTo();
+		await browser.pause(1200);
+		await browser.saveScreenshot(path.join(OUT, 'view-09-term-hint.png'));
+		expect(layout.headingWidth).toBeLessThan(layout.sectionWidth / 2);
+		expect(layout.opacityAway).toBe('0');
+		expect(layout.hintText).toBe('frameworks');
+		expect(layout.hintLabel).toMatch(/ontologies/);
+		expect(layout.headingText).toBe('Installed frameworks');
 		expect(headingHover.opacity).toBe('1');
 		expect(headingHover.label).toBe('Copy a summary of every framework below');
 		expect(headingHover.icons).toBe(2);

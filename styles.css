@@ -3057,7 +3057,8 @@
 }
 
 .crosswalker-workspace-installed-heading {
-	display: flex;
+	/* Fits its content, so only the words and the button count as hovering it. */
+	display: inline-flex;
 	align-items: center;
 	gap: var(--cw-s2);
 	font-size: var(--cw-fs-eyebrow);
@@ -3065,6 +3066,14 @@
 	text-transform: uppercase;
 	color: var(--text-muted);
 	margin-bottom: var(--cw-s3);
+}
+
+/* A defined term: a barely visible dotted underline with a tooltip. */
+.crosswalker-term-hint {
+	text-decoration: underline dotted;
+	text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
+	text-underline-offset: 3px;
+	cursor: help;
 }
 
 /* Copy everything below: shown on hover or keyboard focus of the heading. */

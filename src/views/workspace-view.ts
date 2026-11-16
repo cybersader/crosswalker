@@ -178,7 +178,16 @@ export class CrosswalkerWorkspaceView extends ItemView {
 	 */
 	private async renderInstalledOntologies(root: HTMLElement, token: number): Promise<void> {
 		const section = root.createDiv({ cls: 'crosswalker-workspace-installed' });
-		const heading = section.createDiv({ cls: 'crosswalker-workspace-installed-heading', text: 'Installed frameworks' });
+		const heading = section.createDiv({ cls: 'crosswalker-workspace-installed-heading' });
+		heading.appendText('Installed ');
+		// Frameworks is the everyday word; a faint underline offers the general one.
+		heading.createSpan({
+			cls: 'crosswalker-term-hint',
+			text: 'frameworks',
+			attr: {
+				'aria-label': 'The general term is ontologies: any structured set of concepts, such as a control catalog or a taxonomy. Crosswalker says frameworks.',
+			},
+		});
 
 		// Whole-vault discovery by note identity, shared with the status bar and
 		// the graph color command. It does not depend on the output folder
