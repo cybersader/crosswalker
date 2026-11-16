@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   check-version:
-    runs-on: ${{ fromJSON(vars.RUNS_ON_LIGHT || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       changed: ${{ steps.version-check.outputs.changed }}
@@ -76,7 +76,7 @@ jobs:
   release:
     needs: check-version
     if: needs.check-version.outputs.changed == 'true'
-    runs-on: ${{ fromJSON(vars.RUNS_ON_LIGHT || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: write
