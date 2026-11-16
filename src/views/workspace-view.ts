@@ -179,9 +179,10 @@ export class CrosswalkerWorkspaceView extends ItemView {
 	private async renderInstalledOntologies(root: HTMLElement, token: number): Promise<void> {
 		const section = root.createDiv({ cls: 'crosswalker-workspace-installed' });
 		const heading = section.createDiv({ cls: 'crosswalker-workspace-installed-heading' });
-		heading.appendText('Installed ');
+		const label = heading.createSpan();
+		label.appendText('Installed ');
 		// Frameworks is the everyday word; a faint underline offers the general one.
-		heading.createSpan({
+		label.createSpan({
 			cls: 'crosswalker-term-hint',
 			text: 'frameworks',
 			attr: {
