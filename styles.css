@@ -3057,11 +3057,38 @@
 }
 
 .crosswalker-workspace-installed-heading {
+	display: flex;
+	align-items: center;
+	gap: var(--cw-s2);
 	font-size: var(--cw-fs-eyebrow);
 	letter-spacing: var(--cw-track-eyebrow);
 	text-transform: uppercase;
 	color: var(--text-muted);
 	margin-bottom: var(--cw-s3);
+}
+
+/* Copy everything below: shown on hover or keyboard focus of the heading. */
+.crosswalker-workspace-installed-copy {
+	display: inline-flex;
+	align-items: center;
+	gap: 0;
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+.crosswalker-workspace-installed-copy .svg-icon {
+	width: 14px;
+	height: 14px;
+}
+.crosswalker-workspace-installed-copy .crosswalker-workspace-installed-copy-arrow .svg-icon {
+	width: 10px;
+	height: 10px;
+}
+.crosswalker-workspace-installed-heading:hover .crosswalker-workspace-installed-copy,
+.crosswalker-workspace-installed-copy:focus-visible {
+	opacity: 1;
+}
+@media (hover: none) {
+	.crosswalker-workspace-installed-copy { opacity: 1; }
 }
 
 .crosswalker-workspace-empty {

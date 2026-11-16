@@ -25,6 +25,7 @@ import { openImportStack, renderInstalledStacks } from '../import/stack/installe
 import {
 	findRecipeForOntologyIdentity,
 	frameworkSummaryText,
+	frameworksSummaryText,
 } from './workspace-view-helpers';
 import { discoverInstalledFrameworks } from '../discovery/installed-frameworks';
 import { settleVaultIndex } from '../generation/import-set';
@@ -177,7 +178,7 @@ export class CrosswalkerWorkspaceView extends ItemView {
 	 */
 	private async renderInstalledOntologies(root: HTMLElement, token: number): Promise<void> {
 		const section = root.createDiv({ cls: 'crosswalker-workspace-installed' });
-		section.createDiv({ cls: 'crosswalker-workspace-installed-heading', text: 'Installed frameworks' });
+		const heading = section.createDiv({ cls: 'crosswalker-workspace-installed-heading', text: 'Installed frameworks' });
 
 		// Whole-vault discovery by note identity, shared with the status bar and
 		// the graph color command. It does not depend on the output folder
@@ -208,6 +209,20 @@ export class CrosswalkerWorkspaceView extends ItemView {
 			});
 			return;
 		}
+
+		// Copy everything below: one summary of every listed framework.
+		const copyAll = heading.createEl('button', {
+			cls: 'crosswalker-workspace-installed-copy clickable-icon',
+			attr: { 'aria-label': 'Copy a summary of every framework below' },
+		});
+		setIcon(copyAll.createSpan(), 'copy');
+		setIcon(copyAll.createSpan({ cls: 'crosswalker-workspace-installed-copy-arrow' }), 'arrow-down');
+		copyAll.addEventListener('click', () => {
+			navigator.clipboard.writeText(frameworksSummaryText(summaries)).then(
+				() => new Notice(`Copied a summary of ${summaries.length} framework${summaries.length === 1 ? '' : 's'}.`),
+				() => new Notice('Could not copy to the clipboard. Click inside this tab so it has focus, then try again.'),
+			);
+		});
 
 		const list = section.createDiv({ cls: 'crosswalker-workspace-ontology-list' });
 		for (const summary of summaries) {

@@ -15,6 +15,7 @@ The 0.1 design phase concluded 2026-05-04 and implementation began the same day.
 ### Added: copy a framework summary from the installed list (2026-11-16)
 
 - Hovering a framework in the workspace view's "Installed frameworks" list shows a copy button. It copies a plain-text summary: notes, notes with a parent, links in note properties, crosswalks to or from the framework, the folder that holds it, each property with how many notes use it, and three example ids. No note content is copied.
+- Hovering the "Installed frameworks" heading shows a copy button with a down arrow. It copies one summary of every framework below: totals (frameworks, notes, notes with a parent, links, crosswalk sides, frameworks with no parents and no links), then each framework's block.
 - Each row's count now includes crosswalks, for example "802 notes · 0 links · 1,203 crosswalks". Before, frameworks that are connected only through crosswalks read as "0 links".
 ### Changed: one quality gate for every change, and attested draft releases (2026-11-16)
 

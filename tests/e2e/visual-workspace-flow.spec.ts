@@ -577,6 +577,34 @@ describe('Visual — Crosswalker workspace view hosts the full import flow (spec
 			document.body.classList.toggle('theme-dark', wasDark === 'dark');
 			document.body.classList.toggle('theme-light', wasDark !== 'dark');
 		}, prevTheme);
+		const heading = await browser.$('.crosswalker-workspace-installed-heading');
+		await heading.moveTo();
+		await browser.pause(300);
+		const headingHover = await browser.executeObsidian(() => {
+			const btn = document.querySelector('.crosswalker-workspace-installed-copy');
+			return {
+				opacity: btn ? getComputedStyle(btn).opacity : '',
+				label: btn?.getAttribute('aria-label') ?? '',
+				icons: btn?.querySelectorAll('svg').length ?? 0,
+			};
+		});
+		console.log('[view] heading copy → ' + JSON.stringify(headingHover));
+		for (const theme of ['dark', 'light'] as const) {
+			await browser.executeObsidian((_a, t: unknown) => {
+				document.body.classList.toggle('theme-dark', t === 'dark');
+				document.body.classList.toggle('theme-light', t !== 'dark');
+			}, theme);
+			await heading.moveTo();
+			await browser.pause(300);
+			await browser.saveScreenshot(path.join(OUT, `view-09-heading-copy-${theme}.png`));
+		}
+		await browser.executeObsidian((_a, wasDark: unknown) => {
+			document.body.classList.toggle('theme-dark', wasDark === 'dark');
+			document.body.classList.toggle('theme-light', wasDark !== 'dark');
+		}, prevTheme);
+		expect(headingHover.opacity).toBe('1');
+		expect(headingHover.label).toBe('Copy a summary of every framework below');
+		expect(headingHover.icons).toBe(2);
 		expect(hover.hasCopy).toBe(true);
 		expect(hover.copyOpacity).toBe('1');
 		expect(hover.label).toMatch(/^Copy a summary of /);

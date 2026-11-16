@@ -9,7 +9,7 @@
  */
 
 import { discoverFrameworksFromCache, type DiscoveryCacheEntry } from '../src/discovery/installed-frameworks';
-import { identityFactsFromFrontmatter, deriveInstalledOntologiesFromNotes, frameworkSummaryText } from '../src/views/workspace-view-helpers';
+import { identityFactsFromFrontmatter, deriveInstalledOntologiesFromNotes, frameworkSummaryText, frameworksSummaryText } from '../src/views/workspace-view-helpers';
 
 type File = { path: string; name: string };
 
@@ -129,5 +129,19 @@ describe('copy summary facts', () => {
 		expect(text).toContain('Crosswalks to or from this framework: 2\n');
 		expect(text).toContain('- parent_curie: 1\n');
 		expect(text).toContain('Folder: Frameworks/CSF\n');
+	});
+});
+
+describe('copy every framework below', () => {
+	it('totals the list, counts flat frameworks, then lists each framework', () => {
+		const a = { id: 'aa', name: 'Alpha', noteCount: 1200, linkCount: 3, notesWithParent: 2, crosswalkCount: 5 };
+		const b = { id: 'bb', name: 'bb', noteCount: 30, linkCount: 0, notesWithParent: 0, crosswalkCount: 7 };
+		const text = frameworksSummaryText([a, b]);
+		expect(text.startsWith('Installed frameworks: 2\n')).toBe(true);
+		expect(text).toContain('Notes: 1,230\n');
+		expect(text).toContain('Notes with a parent: 2\n');
+		expect(text).toContain('counts once for each): 12\n');
+		expect(text).toContain('Frameworks with no parents and no links: 1\n');
+		expect(text.indexOf('Framework: Alpha (id prefix: aa)')).toBeLessThan(text.indexOf('Framework: bb'));
 	});
 });

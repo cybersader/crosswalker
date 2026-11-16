@@ -209,6 +209,25 @@ export function frameworkSummaryText(summary: InstalledOntologySummary): string 
 	return lines.join('\n') + '\n';
 }
 
+/**
+ * Every listed framework in one paste: totals first, then each framework's
+ * block from frameworkSummaryText, separated by a blank line.
+ */
+export function frameworksSummaryText(summaries: readonly InstalledOntologySummary[]): string {
+	const sum = (pick: (s: InstalledOntologySummary) => number | undefined): string =>
+		summaries.reduce((total, s) => total + (pick(s) ?? 0), 0).toLocaleString('en-US');
+	const flat = summaries.filter((s) => !s.notesWithParent && !s.linkCount).length;
+	const head = [
+		`Installed frameworks: ${summaries.length.toLocaleString('en-US')}`,
+		`Notes: ${sum((s) => s.noteCount)}`,
+		`Notes with a parent: ${sum((s) => s.notesWithParent)}`,
+		`Links in note properties: ${sum((s) => s.linkCount)}`,
+		`Crosswalk sides (a crosswalk between two listed frameworks counts once for each): ${sum((s) => s.crosswalkCount)}`,
+		`Frameworks with no parents and no links: ${flat.toLocaleString('en-US')}`,
+	].join('\n');
+	return [head + '\n', ...summaries.map(frameworkSummaryText)].join('\n');
+}
+
 /** Identity facts a note's frontmatter carries. Path never participates. */
 export interface NoteIdentityFacts {
 	producerKind?: string;
