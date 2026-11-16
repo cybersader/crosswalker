@@ -4,12 +4,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
-  # npm covers Bun-managed package.json dependencies.
-  - package-ecosystem: npm
+  # Both roots are Bun-managed (bun.lock). Dependabot's npm updater refuses
+  # to touch bun.lock, so these must use the bun ecosystem.
+  - package-ecosystem: bun
     directory: /
     schedule:
       interval: weekly
-  - package-ecosystem: npm
+  - package-ecosystem: bun
     directory: /docs
     schedule:
       interval: weekly
