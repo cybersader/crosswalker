@@ -172,7 +172,7 @@ export function createFsApp(rootDir: string): FsApp {
 	};
 	const detach = (child: AnyFile): void => {
 		const parent = (child as any).parent as TFolder | null;
-		if (parent) parent.children = parent.children.filter((c: AnyFile) => c !== child);
+		if (parent) parent.children = parent.children.filter((c) => c !== child);
 	};
 
 	const makeFile = (path: string): TFile => {

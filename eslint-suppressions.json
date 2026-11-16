@@ -1,0 +1,705 @@
+{
+  "package.json": {
+    "depend/ban-dependencies": {
+      "count": 1
+    }
+  },
+  "src/config/config-browser-modal.ts": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "eslint-comments/no-restricted-disable": {
+      "count": 1
+    },
+    "eslint-comments/require-description": {
+      "count": 1
+    }
+  },
+  "src/config/config-manager.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 6
+    }
+  },
+  "src/export/csv-exporter.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 2
+    }
+  },
+  "src/export/csv-inverse.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 2
+    }
+  },
+  "src/generation/crosswalk-edge-pass.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    }
+  },
+  "src/generation/crosswalk-identity.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 2
+    }
+  },
+  "src/generation/edge-endpoints.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 3
+    }
+  },
+  "src/generation/enrich.ts": {
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "src/generation/generation-engine.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 19
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-template-expressions": {
+      "count": 1
+    },
+    "no-case-declarations": {
+      "count": 2
+    }
+  },
+  "src/generation/hash.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "no-misleading-character-class": {
+      "count": 1
+    }
+  },
+  "src/generation/identity-index.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/generation/import-set-block.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/generation/import-set.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-promise-reject-errors": {
+      "count": 2
+    }
+  },
+  "src/graph/connections-query.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "src/graph/graph-config-modal.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    }
+  },
+  "src/import/detection.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 5
+    },
+    "no-useless-escape": {
+      "count": 1
+    }
+  },
+  "src/import/import-wizard.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 6
+    },
+    "@typescript-eslint/no-floating-promises": {
+      "count": 3
+    },
+    "@typescript-eslint/no-misused-promises": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-template-expressions": {
+      "count": 2
+    },
+    "eslint-comments/no-restricted-disable": {
+      "count": 10
+    },
+    "eslint-comments/require-description": {
+      "count": 1
+    }
+  },
+  "src/import/mapping/facets.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    }
+  },
+  "src/import/mapping/plan.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    }
+  },
+  "src/import/mapping/serialize.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/import/parsers/csv-parser.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/import/parsers/json-parser.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 2
+    }
+  },
+  "src/import/parsers/json-source-core.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    }
+  },
+  "src/import/parsers/xlsx-parser.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 2
+    }
+  },
+  "src/import/recipe-registry.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/import/run-recognized-import.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/import/sssom-import-modal.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "eslint-comments/disable-enable-pair": {
+      "count": 1
+    },
+    "eslint-comments/no-restricted-disable": {
+      "count": 1
+    }
+  },
+  "src/import/sssom-importer.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 2
+    }
+  },
+  "src/import/sssom-parser.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 3
+    }
+  },
+  "src/import/stack/installed-stacks.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 1
+    }
+  },
+  "src/import/stack/licensed-workbook-readers.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "src/import/stack/mapping-readers.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 6
+    }
+  },
+  "src/import/stack/stack-modal.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 4
+    },
+    "eslint-comments/no-restricted-disable": {
+      "count": 1
+    },
+    "eslint-comments/require-description": {
+      "count": 1
+    }
+  },
+  "src/import/stack/stack-persistence.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/import/stack/stack-run.ts": {
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    }
+  },
+  "src/import/strm-importer.ts": {
+    "no-irregular-whitespace": {
+      "count": 1
+    }
+  },
+  "src/import/vault-source-scan-runner.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/import/workbench.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 4
+    },
+    "obsidianmd/no-static-styles-assignment": {
+      "count": 2
+    }
+  },
+  "src/main.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 2
+    },
+    "@typescript-eslint/no-misused-promises": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "eslint-comments/no-restricted-disable": {
+      "count": 5
+    },
+    "obsidianmd/no-static-styles-assignment": {
+      "count": 2
+    },
+    "obsidianmd/platform": {
+      "count": 1
+    }
+  },
+  "src/mappings/mapping-conversion.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 2
+    },
+    "@typescript-eslint/restrict-template-expressions": {
+      "count": 1
+    }
+  },
+  "src/mappings/mapping-set.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/render/index.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/render/template.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 5
+    },
+    "no-control-regex": {
+      "count": 2
+    },
+    "no-irregular-whitespace": {
+      "count": 2
+    },
+    "no-useless-escape": {
+      "count": 1
+    }
+  },
+  "src/settings/settings-tab.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "eslint-comments/no-restricted-disable": {
+      "count": 5
+    },
+    "eslint-comments/require-description": {
+      "count": 2
+    }
+  },
+  "src/source/expression.ts": {
+    "@typescript-eslint/no-redundant-type-constituents": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 2
+    }
+  },
+  "src/source/index.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 4
+    }
+  },
+  "src/source/joins.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 2
+    }
+  },
+  "src/source/nest.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/source/outline.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    }
+  },
+  "src/tier2/db.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/tier2/evidence-coverage.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 5
+    }
+  },
+  "src/tier2/projector.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 6
+    }
+  },
+  "src/tier2/queries.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 5
+    }
+  },
+  "src/tier2/sidecar.ts": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 3
+    },
+    "no-unsanitized/method": {
+      "count": 1
+    }
+  },
+  "src/tier2/worker-db.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-promise-reject-errors": {
+      "count": 1
+    }
+  },
+  "src/tier2/worker-source.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 9
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 10
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 13
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-template-expressions": {
+      "count": 1
+    },
+    "no-unsanitized/method": {
+      "count": 1
+    }
+  },
+  "src/types/generated/recipe.ts": {
+    "@typescript-eslint/no-redundant-type-constituents": {
+      "count": 1
+    }
+  },
+  "src/ui/vault-file-picker.ts": {
+    "eslint-comments/no-restricted-disable": {
+      "count": 1
+    }
+  },
+  "src/utils/debug.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    },
+    "obsidianmd/rule-custom-message": {
+      "count": 1
+    }
+  },
+  "src/validation/validator.ts": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 3
+    }
+  },
+  "src/views/apply-query-to-note.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/views/benchmark-primitives.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/restrict-template-expressions": {
+      "count": 4
+    }
+  },
+  "src/views/bind-primitive.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/views/browse-queries-modal.ts": {
+    "eslint-comments/no-restricted-disable": {
+      "count": 1
+    }
+  },
+  "src/views/crosswalker-pivot-view.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
+    },
+    "eslint-comments/no-restricted-disable": {
+      "count": 2
+    }
+  },
+  "src/views/diff-primitive.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 2
+    }
+  },
+  "src/views/embed-existing-query-modal.ts": {
+    "eslint-comments/no-restricted-disable": {
+      "count": 1
+    }
+  },
+  "src/views/evidence-link-modal.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 2
+    }
+  },
+  "src/views/evidence-link.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    }
+  },
+  "src/views/join-primitives.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-template-expressions": {
+      "count": 2
+    }
+  },
+  "src/views/mapping-review-view.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/views/mapping-table-picker.ts": {
+    "eslint-comments/no-restricted-disable": {
+      "count": 1
+    }
+  },
+  "src/views/materialize.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/views/migrate-query-layout.ts": {
+    "@typescript-eslint/no-redundant-type-constituents": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/views/pivot-grid.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    }
+  },
+  "src/views/query-composer.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 6
+    }
+  },
+  "src/views/query-frontmatter-io.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 1
+    }
+  },
+  "src/views/rebaseline-housekeeping.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/views/recipe-loader.ts": {
+    "@typescript-eslint/no-unnecessary-type-assertion": {
+      "count": 6
+    }
+  },
+  "src/views/recipe-parameter-editor.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 2
+    },
+    "eslint-comments/no-restricted-disable": {
+      "count": 1
+    }
+  },
+  "src/views/recipe-picker-modal.ts": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 1
+    },
+    "eslint-comments/no-restricted-disable": {
+      "count": 1
+    }
+  },
+  "src/views/recipe-templates.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/views/regenerate-query-views.ts": {
+    "@typescript-eslint/no-redundant-type-constituents": {
+      "count": 3
+    }
+  },
+  "src/views/reset-imports.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/views/set-op-primitive.ts": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/restrict-template-expressions": {
+      "count": 2
+    }
+  }
+}

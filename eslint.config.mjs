@@ -1,27 +1,43 @@
-import tsparser from "@typescript-eslint/parser";
+import { defineConfig, globalIgnores } from "eslint/config";
 import obsidianmd from "eslint-plugin-obsidianmd";
-import tseslint from "typescript-eslint";
 
-export default tseslint.config(
+// Scope: the plugin source that ships (src/) plus the root package.json and
+// manifest.json the Obsidian rules validate. Everything else is vault content,
+// docs, tests or tooling. Typed linting over the whole tree type-checked src/
+// once per folder tsconfig and ran out of memory on a shared machine.
+export default defineConfig([
+	globalIgnores([
+		"**/node_modules/",
+		".obsidian/",
+		"main.js",
+		"dist/",
+		".workspace/",
+		".obsidian-cache/",
+		"docs/",
+		"test-vault/",
+		"Frameworks/",
+		"recipes/",
+		"templates/",
+		"spec/",
+		"tests/",
+		"test/",
+		"test-screenshots/",
+		"coverage/",
+		"cli/",
+		"scripts/",
+		"tools/",
+		"*.mjs",
+		"*.mts",
+		"*.js",
+	]),
+	...obsidianmd.configs.recommended,
 	{
 		files: ["src/**/*.ts"],
 		languageOptions: {
-			parser: tsparser,
 			parserOptions: {
-				project: "./tsconfig.json",
+				projectService: true,
+				tsconfigRootDir: import.meta.dirname,
 			},
 		},
-		plugins: {
-			obsidianmd: obsidianmd,
-		},
-		rules: {
-			// Key rules for community plugin submission
-			"obsidianmd/ui/sentence-case": ["error", { enforceCamelCaseLower: true }],
-			"obsidianmd/settings-tab/no-manual-html-headings": "error",
-			"obsidianmd/settings-tab/no-problematic-settings-headings": "error",
-			"obsidianmd/no-forbidden-elements": "error",
-			"obsidianmd/sample-names": "error",
-			"obsidianmd/validate-manifest": "error",
-		},
-	}
-);
+	},
+]);

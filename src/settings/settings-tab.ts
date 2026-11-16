@@ -992,7 +992,6 @@ export class CrosswalkerSettingTab extends PluginSettingTab {
 		new Setting(details)
 			// eslint-disable-next-line obsidianmd/ui/sentence-case -- Crosswalker is the plugin's proper name
 			.setName('Open mapping tables in Crosswalker')
-			// eslint-disable-next-line obsidianmd/ui/sentence-case -- Crosswalker and Obsidian are proper names
 			.setDesc('Opens every .tsv file in the Crosswalker mapping review, including .tsv files that are not mapping tables, which show as plain text. Turn this off if another plugin opens your .tsv files. Takes effect after you reload Obsidian.')
 			.addToggle((toggle) => toggle
 				.setValue(this.plugin.settings.openMappingTablesInCrosswalker ?? true)

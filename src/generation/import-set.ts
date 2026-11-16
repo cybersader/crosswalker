@@ -372,6 +372,7 @@ export function countUnindexedMarkdownFiles(app: App): number {
 export async function settleVaultIndex(app: App, timeoutMs = 4000): Promise<number> {
 	const initial = countUnindexedMarkdownFiles(app);
 	if (initial === 0 || timeoutMs <= 0) return initial;
+	// Some hosts (tests, alternative runtimes) lack these, despite the types.
 	const on = app.metadataCache?.on?.bind(app.metadataCache);
 	const offref = app.metadataCache?.offref?.bind(app.metadataCache);
 	const deadline = Date.now() + timeoutMs;
@@ -398,7 +399,7 @@ export async function settleVaultIndex(app: App, timeoutMs = 4000): Promise<numb
 			if (timer !== undefined) clearTimeout(timer);
 			timer = setTimeout(check, Math.min(100, deadline - Date.now()));
 		};
-		try { if (on && offref) ref = on('resolved', check); }
+		try { if (on && typeof offref === 'function') ref = on('resolved', check); }
 		catch (error) { finish(0, error); return; }
 		check();
 	});
@@ -468,7 +469,7 @@ export function waitForVaultIndexed(app: App, options: VaultIndexWaitOptions = {
 			}
 		};
 		options.signal?.addEventListener('abort', onAbort);
-		try { if (on && offref) ref = on('resolved', () => check(false)); }
+		try { if (on && typeof offref === 'function') ref = on('resolved', () => check(false)); }
 		catch (error) { finish(null, error); return; }
 		check(true);
 	});

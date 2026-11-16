@@ -233,7 +233,6 @@ export class ConfigBrowserModal extends Modal {
 		// LEFT: Fingerprint (auto-detected, used for matching)
 		const fingerprintCol = twoCol.createEl('div', { cls: 'crosswalker-detail-col' });
 		fingerprintCol.createEl('div', {
-			// eslint-disable-next-line obsidianmd/ui/sentence-case
 			text: '🔍 Fingerprint (for matching)',
 			cls: 'crosswalker-col-header fingerprint'
 		});

@@ -125,11 +125,15 @@ These all work standalone if you prefer not to use the orchestrator:
 |---------|-------------|
 | **Plugin** | |
 | `bun run dev` | Plugin watch mode, outputs to `test-vault` |
+| `bun run check` | The quality gate: lint, unit tests, version consistency and the production build. CI runs this same command on every pull request and every push to `main` (source: `.github/workflows/quality-gate.yml`) |
+| `bun run typecheck` | Strict TypeScript check of the plugin and the command-line tool, no output files |
 | `bun run build` | Plugin production build (type-checks the plugin and the command-line tool, then bundles) to the repo root, also copied into `test-vault/.obsidian/plugins/crosswalker/` |
 | `bun run test` | Plugin Jest unit tests |
 | `bun run test:watch` | Plugin unit tests in watch mode |
-| `bun run lint` | ESLint with obsidian-plugin rules (required for community plugin submission) |
+| `bun run lint` | ESLint with the Obsidian plugin's recommended rules and type-aware checks, over `src/` and `package.json` (source: `eslint.config.mjs`). Existing violations are recorded per file and rule in `eslint-suppressions.json`; a new one fails. One pass takes about 15 seconds and 1.2 GB |
 | `bun run lint:fix` | Auto-fix lint issues |
+| `bun run lint:prune` | Shrink `eslint-suppressions.json` after fixing recorded violations. Lint fails until stale entries are pruned, so the recorded debt only goes down |
+| `bun run check:versions` | `manifest.json`, `package.json` and `versions.json` agree; with `VERSION_TAG` set, the tag matches too |
 | `bun run hygiene:branches` | Fetch/prune origin and report merged branches, stale unmerged branches and worktree state. Opt-in `bun run hygiene:branches -- --apply` removes only ancestry-merged local branches and clean, unlocked worktrees with known activity at least 24 hours old; recent or unknown activity is retained as `recent`. Repeat `--keep <path-or-branch>` or use the ignored, per-user `.branch-hygiene-keep` in the primary checkout (one entry per line; whole-line `#` comments only). Keep paths and `.workspace/` restore manifests resolve against that primary checkout, even when invoked from a linked worktree. Main, current, kept and locked work are protected; unmerged branches are report-only. Ignored scratch files, hidden index flags and in-progress Git operations count as dirty. Manifests record tip SHAs only; deleting a branch drops its reflog. Do not run cleanup concurrently with other branch/worktree maintenance |
 | `bun run e2e` | Plugin E2E tests (WebdriverIO, requires Obsidian) |
 | `bun run e2e:xvfb` | Same E2E suite on a private virtual display (Xvfb). Use for screenshot specs; it keeps working when the monitors sleep |
