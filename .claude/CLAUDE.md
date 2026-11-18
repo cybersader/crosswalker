@@ -116,7 +116,7 @@ The canonical project KB is the docs site. For an agent new to the project:
 | **Plugin ships only `main.js + manifest.json + styles.css`** — `tools/`, `spec/`, KB don't bloat releases | Confirmed 2026-05-04 |
 | **Manual testing entry point** — `tests/manual/TEST_HANDS_ON_TOUR.md` is the master surface-coverage checklist (supersedes per-phase TEST_*.md guides for full passes) | Added 2026-06-12 |
 | **Build UX that passes the principles; don't ask for direction** — load the `ux-principles` skill before any user-facing change. A design that passes its checklist is authorized: build, screenshot both themes, verify. Escalate only on a genuine principle conflict, an irreversible user-facing change, or a merge/release, and then as a decision card. Asking the owner to bless a direction the principles settle means the skill is missing something: add it there | Owner direction 2026-10-02; `.claude/skills/ux-principles/SKILL.md` |
-| **Screenshot Obsidian UI yourself — it IS automatable here** — real Obsidian runs via wdio + X11 (`bun run e2e:xvfb -- --spec tests/e2e/visual-*.spec.ts`; private Xvfb display since 2026-09-23 because `DISPLAY=:0` hangs on screenshots when the monitors sleep → PNGs in `test-screenshots/`, readable by agents; native Xwayland on Fedora since 2026-08-19, formerly WSLg). Visual-verify rendering with a screenshot before claiming "can't render headlessly" or asking the user to eyeball. Never conclude Obsidian can't be screenshotted. | Memory: `reference_obsidian_screenshots_via_wdio.md`; `testing-patterns` skill |
+| **Screenshot Obsidian UI yourself — it IS automatable here** — real Obsidian runs via wdio + X11 (`bun run e2e:xvfb -- --spec tests/e2e/visual-*.spec.ts` on a private Xvfb display → PNGs in `test-screenshots/`, readable by agents; or the Plugin E2E workflow's manual `spec` input on a GitHub-hosted runner, which uploads the screenshots). Visual-verify rendering with a screenshot before claiming "can't render headlessly" or asking the user to eyeball. Never conclude Obsidian can't be screenshotted. | Memory: `reference_obsidian_screenshots_via_wdio.md`; `testing-patterns` skill |
 
 ## Model tiering & delegation (how to spend the main session)
 
@@ -139,12 +139,11 @@ Rules:
 - If any session catches itself doing >~15 min of work below its tier, delegate it (or, for the architect, spec it for the next orchestrator session).
 - Worked example of the loop: 2026-07-05 variadic folder expansion (`.workspace/2026-07-05-variadic-split-and-folder-note-design.md` → Sonnet implementation → architect review + commit).
 
-## Resource discipline (HARD — this host is shared)
+## Resource discipline
 
-This workstation runs several Claude sessions plus other projects against a shared
-cgroup. Tools that size themselves to the machine are hostile here: each assumes it
-is alone. Three separate incidents on 2026-08-21 traced to exactly that, including a
-desktop lockup at load ~39 with 12 GiB spilled to swap.
+Tools that size themselves to the machine assume they are alone. On a shared
+workstation or a small CI runner that assumption causes lockups and timeouts that
+look like regressions.
 
 **Caps already in place — do not raise them, do not override them per-invocation:**
 
@@ -159,35 +158,19 @@ desktop lockup at load ~39 with 12 GiB spilled to swap.
 1. **Never run heavy commands concurrently.** One build, test wave, or lint at a time.
    A workflow's parallel verify agents each invoking the full suite is the classic way
    to violate this — prefer having them assert against one shared run where possible.
-2. **Exit code 143 is a SIGTERM, not a failure and not a hang.** A resource guard on
-   this machine terminates offending process groups. Treat that run as INTERRUPTED
-   WITH NO RESULT. Do not claim pass or fail from it, and do not immediately retry.
-3. **NEVER wrap a retry in `git stash` / `stash pop`.** Under pressure that risks the
-   working tree for no benefit. This was attempted once and was the wrong instinct.
-4. **Use `build-contained -- <cmd>`** for lint or docs builds when pressure is elevated.
-5. **Check before measuring:** `uptime` and `cat /proc/pressure/memory`. Instantaneous
-   `some avg10` near zero means a window is open even if the 5-minute average is high.
-6. **Measure, then cap — and record the number.** Every cap above cites a real
+2. **NEVER wrap a retry in `git stash` / `stash pop`.** It risks the working tree for
+   no benefit.
+3. **Measure, then cap — and record the number.** Every cap above cites a real
    before/after figure. An unmeasured "seems better" is how these regress.
-7. **Prefer the cheap gate.** `check:mdx` catches MDX errors far cheaper than a full
+4. **Prefer the cheap gate.** `check:mdx` catches MDX errors far cheaper than a full
    site build, and CI builds the site authoritatively on every push.
 
 **When adding any new tool invoked from an agent workflow, give it an explicit
-resource ceiling rather than accepting its default.** That is the whole lesson: three
-independent tools, three defaults, three incidents.
+resource ceiling rather than accepting its default.**
 
-## Environment (current dev machine)
-
-**Native Fedora Linux since 2026-08-19** — the repo moved off a Windows drive mounted into WSL and onto a native Linux home directory. Audited 2026-08-19:
-
-| Fact | Status |
-|---|---|
-| bun / node / git / gh (authed) / tailscale / zellij | ✅ all installed and working |
-| **WSL jest workaround is RETIRED** — `bun run test` and bare `jest` work natively; do not tell subagents to use `node node_modules/jest/bin/jest.js` anymore | Confirmed 2026-08-19 |
-| e2e screenshots run on a private Xvfb display via `bun run e2e:xvfb` (2026-09-23; native Xwayland `DISPLAY=:0` hangs when monitors are off); Obsidian + chromedriver already cached linux-x64 in `.obsidian-cache/` | Confirmed 2026-08-19 |
-| `docs/astro.config.mjs` polling watcher removed (was a WSL-inotify workaround; native ext4 inotify is reliable) | ✅ done 2026-08-19 |
-| `docs/node_modules` clean-reinstalled from the lockfile; win32 optional-dep leftovers gone | ✅ done 2026-08-19 |
-| `portagenty` IS installed — the binary is `pa` (built from source, symlinked in `~/.local/bin`), not `portagenty`. Workspace file: `crosswalker-obsidian-plugin.portagenty.toml` (sessions: shell, plugin-dev, docs-dev, docs-share, test-watch) | ✅ verified 2026-08-19 |
+Machine-specific rules (resource guards, wrappers, display setup, local tool paths)
+live in `CLAUDE.local.md` at the repo root. It is untracked; this file stays free of
+private machine details.
 
 ## Roadmap conventions
 
@@ -287,6 +270,6 @@ See `docs/src/content/docs/development/setup.mdx` for the full `bun run` referen
 
 ---
 
-**Last Updated**: 2026-11-02 (Branch/worktree hygiene rule added. Earlier: 2026-10-30: UI/CLI parity rule and living gate references added. Earlier: 2026-10-03: v0.1.7 row notes the full NIST replay proofs and mapping set release record slices 1 and 2. Earlier: 2026-10-02: v0.1.7 row notes recipe library slices 1 and 2. Earlier: 2026-09-30: Status table refreshed: v0.1.7 row now also notes mapping storage dual form, merged 2026-09-30 in PRs #21 to #25; header as-of date bumped. Earlier note preserved: Status table refreshed 2026-09-04: v0.1.7 row now notes the separate, unmerged `fix/d1-per-import-root` branch work and its 2026-09-04 scoped acceptance measurement; header date bumped. Earlier note preserved: § Documentation update reminders — freshness discipline: living-page `Status last verified` markers, sourced counts/enums, retired-commitment purge sweeps; operationalized as `pre-commit-reviewer` checks 12–16. v0.1.7 portability still in progress — canonical ImportRecipe fidelity uses `RecipeDocument`; body renders through pure `render()`; persistent recipe library/UI and full NIST proofs remain.)
+**Last Updated**: 2026-11-18 (Machine-specific resource and environment notes moved to the untracked `CLAUDE.local.md`. Earlier: 2026-11-02: Branch/worktree hygiene rule added. Earlier: 2026-10-30: UI/CLI parity rule and living gate references added. Earlier: 2026-10-03: v0.1.7 row notes the full NIST replay proofs and mapping set release record slices 1 and 2. Earlier: 2026-10-02: v0.1.7 row notes recipe library slices 1 and 2. Earlier: 2026-09-30: Status table refreshed: v0.1.7 row now also notes mapping storage dual form, merged 2026-09-30 in PRs #21 to #25; header as-of date bumped. Earlier note preserved: Status table refreshed 2026-09-04: v0.1.7 row now notes the separate, unmerged `fix/d1-per-import-root` branch work and its 2026-09-04 scoped acceptance measurement; header date bumped. Earlier note preserved: § Documentation update reminders — freshness discipline: living-page `Status last verified` markers, sourced counts/enums, retired-commitment purge sweeps; operationalized as `pre-commit-reviewer` checks 12–16. v0.1.7 portability still in progress — canonical ImportRecipe fidelity uses `RecipeDocument`; body renders through pure `render()`; persistent recipe library/UI and full NIST proofs remain.)
 **For**: Crosswalker Obsidian Plugin Development (v0.1 implementation phase)
 **Agent Role**: Architect & Delegation Orchestrator (specs, decisions, reviews — implementation delegated to subagents)
