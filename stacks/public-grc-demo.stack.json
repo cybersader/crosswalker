@@ -1,0 +1,398 @@
+{
+  "stack": "v0",
+  "id": "public-grc-demo",
+  "label": "Public GRC demo",
+  "description": "Build the public demo with NIST and MITRE frameworks, crosswalks, sample evidence, saved queries, and graph colors.",
+  "public": true,
+  "requires": [
+    "Frameworks/csf2.xlsx",
+    "Frameworks/NIST_SP-800-53_rev5_catalog_load.csv",
+    "Frameworks/enterprise-attack-v16.1.xlsx",
+    "recipes/import/crosswalks/nist-csf-2-to-nist-800-53.sssom.tsv",
+    "tools/fixtures/demo/nist-csf-2-to-mitre-attack.sssom.tsv",
+    "tools/fixtures/demo/evidence-links.csv",
+    "Frameworks/f3-excel-v1.2.xlsx",
+    "Frameworks/LICENSES/mitre-f3-LICENSE.txt",
+    "Frameworks/d3fend.csv",
+    "Frameworks/d3fend_to_nist80053.csv",
+    "Frameworks/att&ck_to_d3fend.csv",
+    "Frameworks/nist_800_53-rev5_attack-16.1-enterprise_json.json",
+    "Frameworks/Cybersecurity_Framework_v2-0_Concept_Crosswalk_800-53_final.xlsx"
+  ],
+  "steps": [
+    {
+      "kind": "import",
+      "id": "csf",
+      "label": "NIST CSF 2.0",
+      "source": "Frameworks/csf2.xlsx",
+      "recipe": "recipes/import/nist-csf-2-linked.json",
+      "sheet": "CSF 2.0",
+      "headerRow": 2,
+      "destination": "Frameworks/NIST-CSF-2.0",
+      "role": "framework",
+      "describe": "function and category folders with index notes, subcategory notes, parent and children links, and no hierarchy tags",
+      "graphKey": "csf"
+    },
+    {
+      "kind": "import",
+      "id": "sp80053",
+      "label": "NIST SP 800-53 Rev. 5",
+      "source": "Frameworks/NIST_SP-800-53_rev5_catalog_load.csv",
+      "recipe": "recipes/import/nist-800-53-linked.json",
+      "destination": "Frameworks/NIST-SP-800-53-r5",
+      "role": "framework",
+      "describe": "family and control folders with index notes, enhancements inside their control, parent and children links, and related-control links",
+      "graphKey": "sp80053"
+    },
+    {
+      "kind": "import",
+      "id": "attack",
+      "label": "MITRE ATT&CK Enterprise v16.1",
+      "source": "Frameworks/enterprise-attack-v16.1.xlsx",
+      "recipe": "recipes/import/mitre-attack-technique-linked.json",
+      "sheet": "techniques",
+      "destination": "Frameworks/MITRE-ATT&CK",
+      "role": "framework",
+      "describe": "one note per technique and sub-technique, dotted-ID parent and children links, one tag per tactic, and multi-member tactic hub notes",
+      "graphKey": "attack"
+    },
+    {
+      "kind": "import",
+      "id": "csfTo80053",
+      "label": "NIST CSF 2.0 to SP 800-53",
+      "source": "recipes/import/crosswalks/nist-csf-2-to-nist-800-53.sssom.tsv",
+      "destination": "_crosswalker/mappings/csf-to-800-53",
+      "role": "mapping"
+    },
+    {
+      "kind": "import",
+      "id": "csfToAttack",
+      "label": "NIST CSF 2.0 to MITRE ATT&CK",
+      "source": "tools/fixtures/demo/nist-csf-2-to-mitre-attack.sssom.tsv",
+      "destination": "_crosswalker/mappings/csf-to-mitre",
+      "role": "mapping"
+    },
+    {
+      "kind": "note",
+      "id": "accessControlPolicy",
+      "path": "Evidence/Documents/Access Control Policy.md",
+      "frontmatter": {
+        "title": "Access Control Policy",
+        "kind": "evidence-document"
+      },
+      "body": "Sample policy. States who approves access, how often access is reviewed, and who owns this policy."
+    },
+    {
+      "kind": "note",
+      "id": "quarterlyAccountReview",
+      "path": "Evidence/Documents/Quarterly Account Review.md",
+      "frontmatter": {
+        "title": "Quarterly Account Review",
+        "kind": "evidence-document"
+      },
+      "body": "Sample review record. Each quarter the system owner lists active production accounts and removes any that are no longer needed."
+    },
+    {
+      "kind": "note",
+      "id": "joinerMoverLeaverRunbook",
+      "path": "Evidence/Documents/Joiner Mover Leaver Runbook.md",
+      "frontmatter": {
+        "title": "Joiner Mover Leaver Runbook",
+        "kind": "evidence-document"
+      },
+      "body": "Sample runbook. Steps for creating an account when someone joins, changing it when they move teams, and removing it when they leave."
+    },
+    {
+      "kind": "note",
+      "id": "roleMatrix",
+      "path": "Evidence/Documents/Role Matrix.md",
+      "frontmatter": {
+        "title": "Role Matrix",
+        "kind": "evidence-document"
+      },
+      "body": "Sample matrix. Lists each application role and the permissions it grants."
+    },
+    {
+      "kind": "note",
+      "id": "adminAccessReview",
+      "path": "Evidence/Documents/Admin Access Review.md",
+      "frontmatter": {
+        "title": "Admin Access Review",
+        "kind": "evidence-document"
+      },
+      "body": "Sample review record. Administrator group membership is checked each month and every change is recorded."
+    },
+    {
+      "kind": "import",
+      "id": "evidence",
+      "label": "Evidence links",
+      "source": "tools/fixtures/demo/evidence-links.csv",
+      "recipe": "evidence-junction-notes",
+      "role": "evidence"
+    },
+    {
+      "kind": "set-fields",
+      "id": "reviewEvidence",
+      "folder": "Evidence/Junctions",
+      "files": [
+        "jn-ac-1-access-control-policy.md",
+        "jn-ac-2-quarterly-account-review.md",
+        "jn-ac-3-role-matrix.md"
+      ],
+      "fields": {
+        "status": "approved",
+        "reviewer": "Demo reviewer",
+        "review_date": "2026-05-04T00:00:00.000Z"
+      }
+    },
+    {
+      "kind": "import",
+      "id": "f3",
+      "label": "MITRE Fight Fraud Framework (F3)",
+      "source": "Frameworks/f3-excel-v1.2.xlsx",
+      "recipe": "recipes/import/mitre-f3-technique-linked.json",
+      "sheet": "Techniques",
+      "destination": "Frameworks/MITRE-F3",
+      "role": "framework",
+      "describe": "the full v1.2 technique catalog, parent links on sub-techniques, and a hub note per tactic listing its techniques",
+      "graphKey": "f3"
+    },
+    {
+      "kind": "license",
+      "id": "f3License",
+      "folder": "Frameworks/MITRE-F3",
+      "publisher": "MITRE",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0",
+      "file": "Frameworks/LICENSES/mitre-f3-LICENSE.txt",
+      "style": "wrapped-md",
+      "name": "MITRE Fight Fraud Framework (F3)",
+      "shortName": "F3",
+      "license": "Apache License 2.0"
+    },
+    {
+      "kind": "import",
+      "id": "attack-mitigations",
+      "label": "MITRE ATT&CK Enterprise v16.1 mitigations",
+      "source": "Frameworks/enterprise-attack-v16.1.xlsx",
+      "recipe": "recipes/import/mitre-attack-mitigation.json",
+      "sheet": "mitigations",
+      "destination": "Frameworks/MITRE-ATT&CK-Mitigations",
+      "role": "framework",
+      "describe": "one note per mitigation, separate from the technique set",
+      "graphKey": "attack-mitigations"
+    },
+    {
+      "kind": "import",
+      "id": "d3fend",
+      "label": "MITRE D3FEND",
+      "source": "Frameworks/d3fend.csv",
+      "recipe": "recipes/import/mitre-d3fend.json",
+      "destination": "Frameworks/MITRE-D3FEND",
+      "role": "framework",
+      "describe": "one note per defensive technique, tagged by tactic, with the sparse source depth fields preserved",
+      "graphKey": "d3fend"
+    },
+    {
+      "kind": "derived-mappings",
+      "id": "sp80053ToAttack",
+      "reader": "ctid-json",
+      "label": "CTID NIST SP 800-53 Rev. 5 to ATT&CK 16.1",
+      "destination": "_crosswalker/mappings/800-53-to-attack",
+      "provider": "CTID Mappings Explorer",
+      "from": "nist-800-53",
+      "to": "mitre-attack",
+      "release": "16.1",
+      "inputs": {
+        "bundle": "Frameworks/nist_800_53-rev5_attack-16.1-enterprise_json.json"
+      }
+    },
+    {
+      "kind": "derived-mappings",
+      "id": "sp80053ToD3fend",
+      "reader": "d3fend-controls",
+      "label": "NIST SP 800-53 to D3FEND (publisher semantic table)",
+      "destination": "_crosswalker/mappings/800-53-to-d3fend",
+      "provider": "MITRE D3FEND",
+      "from": "nist-800-53",
+      "to": "mitre-d3fend",
+      "release": "held-semantic-table",
+      "inputs": {
+        "catalog": "Frameworks/d3fend.csv",
+        "table": "Frameworks/d3fend_to_nist80053.csv"
+      }
+    },
+    {
+      "kind": "derived-mappings",
+      "id": "attackToD3fend",
+      "reader": "d3fend-attack-mitigations",
+      "label": "ATT&CK mitigations to D3FEND",
+      "destination": "_crosswalker/mappings/attack-mitigations-to-d3fend",
+      "provider": "MITRE D3FEND",
+      "from": "mitre-attack",
+      "to": "mitre-d3fend",
+      "release": "held-mitigation-table",
+      "inputs": {
+        "table": "Frameworks/att&ck_to_d3fend.csv"
+      }
+    },
+    {
+      "kind": "derived-mappings",
+      "id": "csfConceptTo80053",
+      "reader": "olir-workbook",
+      "label": "NIST CSF 2.0 concept crosswalk to SP 800-53",
+      "destination": "_crosswalker/mappings/csf-concept-to-800-53",
+      "provider": "NIST concept crosswalk",
+      "from": "nist-csf-2",
+      "to": "nist-800-53",
+      "release": "csf-2-concept-crosswalk",
+      "inputs": {
+        "workbook": "Frameworks/Cybersecurity_Framework_v2-0_Concept_Crosswalk_800-53_final.xlsx"
+      },
+      "when": "adds-pairs-over:csfTo80053"
+    },
+    {
+      "kind": "report",
+      "id": "sourceReport"
+    },
+    {
+      "kind": "license",
+      "id": "attackLicense",
+      "folder": "Frameworks/MITRE-ATT&CK",
+      "publisher": "MITRE",
+      "url": "https://attack.mitre.org/resources/legal-and-branding/terms-of-use/",
+      "file": "Frameworks/LICENSES/mitre-attack-LICENSE.txt",
+      "style": "terms"
+    },
+    {
+      "kind": "license",
+      "id": "attackMitigationsLicense",
+      "folder": "Frameworks/MITRE-ATT&CK-Mitigations",
+      "publisher": "MITRE",
+      "url": "https://attack.mitre.org/resources/legal-and-branding/terms-of-use/",
+      "file": "Frameworks/LICENSES/mitre-attack-LICENSE.txt",
+      "style": "terms"
+    },
+    {
+      "kind": "license",
+      "id": "d3fendLicense",
+      "folder": "Frameworks/MITRE-D3FEND",
+      "publisher": "MITRE",
+      "url": "https://d3fend.mitre.org/about/terms-of-use/",
+      "file": "Frameworks/LICENSES/mitre-d3fend-LICENSE.txt",
+      "style": "terms"
+    },
+    {
+      "kind": "license",
+      "id": "ctidLicense",
+      "folder": "_crosswalker/mappings/800-53-to-attack",
+      "publisher": "MITRE Center for Threat-Informed Defense",
+      "url": "https://github.com/center-for-threat-informed-defense/mappings-explorer/blob/main/LICENSE",
+      "file": "Frameworks/LICENSES/ctid-mappings-LICENSE.txt",
+      "style": "terms",
+      "when": "set:sp80053ToAttack"
+    },
+    {
+      "kind": "query",
+      "id": "csf80053Coverage",
+      "path": "Queries/CSF to 800-53 coverage.base",
+      "template": "nist-csf-coverage-matrix",
+      "params": {
+        "mapping_set": "{set:csfTo80053}",
+        "confidence_threshold": 0.7
+      }
+    },
+    {
+      "kind": "query",
+      "id": "csfAttackCoverage",
+      "path": "Queries/CSF to ATT&CK coverage.base",
+      "template": "nist-csf-to-mitre-coverage",
+      "params": {
+        "mapping_set": "{set:csfToAttack}",
+        "confidence_threshold": 0.7,
+        "tactic_filter": ""
+      }
+    },
+    {
+      "kind": "query",
+      "id": "mappingDensity",
+      "path": "Queries/Mappings by framework pair.base",
+      "template": "crosswalk-density-by-framework",
+      "params": {}
+    },
+    {
+      "kind": "query",
+      "id": "approvedEvidence",
+      "path": "Queries/Approved evidence by control.base",
+      "template": "evidence-junctions-by-control",
+      "params": {}
+    },
+    {
+      "kind": "query",
+      "id": "sp80053AttackCoverage",
+      "path": "Queries/800-53 to ATT&CK mappings.base",
+      "template": "nist-csf-coverage-matrix",
+      "params": {
+        "mapping_set": "{set:sp80053ToAttack}",
+        "confidence_threshold": 0
+      }
+    },
+    {
+      "kind": "query",
+      "id": "attackHierarchy",
+      "path": "Queries/ATT&CK hierarchy.base",
+      "template": "skos-hierarchy-narrower",
+      "params": {
+        "framework_set": "{set:attack}"
+      }
+    },
+    {
+      "kind": "start-here",
+      "id": "welcome",
+      "path": "Start here.md",
+      "lines": [
+        "# Start here",
+        "",
+        "This vault was built by Crosswalker from public data. It holds the full NIST CSF 2.0 and NIST SP 800-53 Rev. 5 catalogs, the full MITRE Fight Fraud Framework (F3), MITRE ATT&CK Enterprise v16.1 techniques and mitigations, MITRE D3FEND, the links between them, and evidence attached to controls.",
+        "",
+        "## What is in it",
+        "",
+        "{{frameworks}}",
+        "{{mappings}}",
+        "- **Evidence** in `Evidence`. Five sample documents and the links that say which control each one supports.",
+        "- **Saved queries** in `Queries`. Open one to see a table built from the notes above.",
+        "",
+        "## Try this",
+        "",
+        "1. Open the graph view. Each framework is a tree in its own color, and the link notes between them are the bridges. The colors are listed below.",
+        "2. Open `Frameworks/NIST-CSF-2.0/PR/PR.AA/PR.AA-01.md` and look at its backlinks. Each one is a link note to a SP 800-53 control or a MITRE technique, and both ends open a real note. Its `parent` property opens the PR.AA category.",
+        "3. Open `Frameworks/NIST-SP-800-53-r5/AC/AC-2/AC-2.md`. Its properties come straight from the NIST catalog spreadsheet, and its enhancements sit next to it in the same folder.",
+        "4. Open `Queries/Approved evidence by control.base`. Three evidence links are approved; two are still waiting for review.",
+        "5. Open `Frameworks/MITRE-F3/F1002.001.md`. Its `parent` opens `F1002`. Open a tactic hub, such as `Positioning`, to see its techniques.",
+        "6. Open an evidence link in `Evidence/Junctions` and set `status` to `approved`. The query picks it up. Importing the evidence spreadsheet again keeps your review fields.",
+        "",
+        "## Graph colors",
+        "",
+        "{{graph-colors}}",
+        "",
+        "Tags stay in the notes, but tag nodes and native file-link arrows start hidden for a quieter overview. Arrows do not describe mapping meaning. Turn tag nodes back on in the graph controls if you want to browse categories. Focused connections and readable mapping filenames are not included yet.",
+        "",
+        "## What is only partly here",
+        "",
+        "Only the CSF to ATT&CK links and evidence are synthetic examples, not coverage claims. ATT&CK is the full Enterprise v16.1 technique catalog; the CTID mappings target that release. The separate technique and mitigation sets share the publisher namespace without overlapping identifiers, so all mitigation links resolve. The D3FEND mitigation table retains exact M ids, never substitutes technique ids, and blank source cells assert no mapping. D3FEND semantic-table relation direction is unverified, so those links use an unspecified related mapping. Raw publisher relation words are passed to import as comments but are not yet projected into link notes. The wide d3fend-full-mappings.csv is not imported and awaits a reshaping decision. The held SP 800-53 catalog lacks IA-13, a control added in release 5.1.1, so 17 CTID subject links and two CSF object links stay unresolved. One CTID object is T1521.003, a Mobile ATT&CK identifier absent from this Enterprise catalog. These mapping rows are kept without inventing missing concepts.",
+        "",
+        "## How it was built",
+        "",
+        "Every framework, link and evidence note was written by the Crosswalker command line from public source files held with the project. Use --sources-dir to read Frameworks/ from another checkout. The same source bytes produce the same output files byte for byte.",
+        ""
+      ]
+    },
+    {
+      "kind": "graph",
+      "id": "graph",
+      "path": ".obsidian/graph.json"
+    }
+  ],
+  "guard": {
+    "emptyOrMarker": "Start here.md"
+  }
+}

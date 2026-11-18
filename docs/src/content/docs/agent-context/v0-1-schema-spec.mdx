@@ -31,6 +31,8 @@ This page is the **unified v0.1 schema reference**. It distinguishes governing [
 3. **Tier 1 record shapes** — `_crosswalker` metadata and the junction-note/crosswalk/concept discriminators are member representations within concrete [Knowledge Sets](/crosswalker/concepts/terminology/#knowledge-set). v0.1 does **not** claim a generalized `KnowledgeSet` aggregate schema.
 4. **Tier 2 sidecar SQL representation** — a qualified Tier 1 → Tier 2 projection into queryable SQLite. Tier 2 is deletable and recoverable from Tier 1.
 
+**Stack file contract (verified 2026-11-18):** [`spec/stack.schema.json`](https://github.com/cybersader/Crosswalker/blob/main/spec/stack.schema.json) defines `stack: "v0"`, an ordered Recipe-family artifact that assembles a vault from imports and hand-written artifacts. It does not modify either Tier 1 or ImportRecipe. See [stack file commands](/crosswalker/reference/commands/#build-a-vault-from-a-stack-file) for step kinds and path rules.
+
 [Artifact roles and authority](/crosswalker/concepts/artifact-roles-and-authority/) is the governing conceptual model: Schema Contracts govern; Knowledge Sets are extensional; Recipes are intensional; future Execution Records and Package Manifests are separate administrative envelopes.
 
 The earlier-written [config-schema-design](/crosswalker/agent-context/config-schema-design/) and [constraint-enforcement](/crosswalker/agent-context/constraint-enforcement/) pages stay as background design rationale; this page is the consolidated v0.1 build target.

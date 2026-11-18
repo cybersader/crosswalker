@@ -1,6 +1,6 @@
 ---
 title: Commands
-description: Obsidian commands registered by Crosswalker, grouped by the task they support.
+description: Obsidian commands and command line actions supported by Crosswalker.
 tags: [obsidian, getting-started]
 ---
 
@@ -71,3 +71,34 @@ These support testing and troubleshooting rather than the normal import workflow
 | **Crosswalker: Developer tools: copy troubleshooting log to clipboard** | Copies a redacted portion of the troubleshooting log. |
 | **Crosswalker: Developer tools: copy troubleshooting details to clipboard** | Copies a redacted diagnostic summary. |
 | **Crosswalker: Developer tools: clear troubleshooting log** | Clears the troubleshooting log. |
+
+
+## Build a vault from a stack file
+
+**Stack build last verified:** 2026-11-18 against `spec/stack.schema.json`, `tools/lib/stack-file.ts`, `tools/lib/stack-build.ts`, and the CLI stack and demo tests.
+
+A **stack file** lists the work needed to build a vault: which [import recipes](/crosswalker/concepts/etl-and-import/) to run, which relationships and example notes to include, and which saved queries to open. The [public demo stack](https://github.com/cybersader/Crosswalker/blob/main/stacks/public-grc-demo.stack.json) is a working example. Get its [pinned public sources](/crosswalker/reference/framework-data-sources/#public-demo-crosswalk-sources) first, then run:
+
+```sh
+bun run cw -- stack build --file stacks/public-grc-demo.stack.json --vault ../grc-demo
+```
+
+Input paths beginning with `Frameworks/` are relative to `--sources-dir` (the repository root by default). Other input paths inside the stack file, including recipe paths, are relative to the repository root, not to the stack file. Output paths inside the file are relative to the vault. `requires` and other required input files are checked before the destination is touched. The finished build runs `cw validate` and prints a manifest and the imported set IDs.
+
+Use a new or empty output folder outside both checkouts. `cw stack build` never changes or clears a folder that already has files in it, so it cannot overwrite a working vault. (The `bun run demo:build` script keeps its older behavior: it replaces a previous demo build, recognized by the `guard.emptyOrMarker` note.)
+
+The step kinds below come from [`spec/stack.schema.json`](https://github.com/cybersader/Crosswalker/blob/main/spec/stack.schema.json). Steps run in file order; query values such as `"{set:controls}"` refer to a set produced by an earlier step with that ID.
+
+| Step kind | What it does |
+|---|---|
+| `import` | Imports source data with an optional recipe, sheet, header row and destination. |
+| `derived-mappings` | Converts named inputs through a shipped reader, then imports the result. `olir-workbook` can skip a duplicate crosswalk with `when: "adds-pairs-over:<step id>"`. |
+| `note` | Writes a note with the listed properties and body. |
+| `set-fields` | Prepends ordered properties to the frontmatter of listed notes. |
+| `license` | Copies and wraps terms, or links to them when a `terms` file is unavailable. `wrapped-md` requires `name`, `shortName` and `license`; `when: "set:<step id>"` can gate either style on an earlier import. |
+| `query` | Renders a saved query from a shipped template and its parameters. |
+| `start-here` | Writes a welcome note. Use `{{frameworks}}`, `{{mappings}}` and `{{graph-colors}}` on separate lines to insert generated bullets. |
+| `graph` | Writes the initial graph view settings. |
+| `report` | Prints the source and link counts collected so far. |
+
+Submit a public stack by adding `stacks/<slug>.stack.json` in a pull request. Never commit licensed framework content. For a private stack (`public: false`), name the file in the stack and have each person supply their own licensed copy. `public: true` checks source paths and generated folder names for restricted content; it does not replace checking the source license yourself. Saving and loading stack files in the plugin is a [tracked gap](/crosswalker/reference/ui-cli-parity/).
