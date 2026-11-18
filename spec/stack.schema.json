@@ -1,0 +1,589 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crosswalker.dev/spec/stack/v0",
+  "title": "Crosswalker stack file",
+  "description": "An ordered set of steps that builds a Crosswalker workspace.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "stack",
+    "id",
+    "label",
+    "description",
+    "public",
+    "requires",
+    "steps"
+  ],
+  "properties": {
+    "stack": {
+      "const": "v0"
+    },
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "label": {
+      "$ref": "#/$defs/text"
+    },
+    "description": {
+      "$ref": "#/$defs/text"
+    },
+    "public": {
+      "type": "boolean"
+    },
+    "requires": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/path"
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/step"
+      },
+      "minItems": 1
+    },
+    "guard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "emptyOrMarker"
+      ],
+      "properties": {
+        "emptyOrMarker": {
+          "$ref": "#/$defs/path"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A slash-separated relative path. The loader also rejects traversal, drive names and control characters."
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "import",
+            "derived-mappings",
+            "note",
+            "set-fields",
+            "license",
+            "query",
+            "start-here",
+            "graph",
+            "report"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "import"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/import"
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "derived-mappings"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/derived-mappings"
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "note"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/note"
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "set-fields"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/set-fields"
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "license"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/license"
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "query"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/query"
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "start-here"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/start-here"
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "graph"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/graph"
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "report"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/report"
+          }
+        }
+      ]
+    },
+    "import": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "label",
+        "source",
+        "role"
+      ],
+      "properties": {
+        "kind": {
+          "const": "import"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "$ref": "#/$defs/text"
+        },
+        "source": {
+          "$ref": "#/$defs/path"
+        },
+        "recipe": {
+          "$ref": "#/$defs/text"
+        },
+        "sheet": {
+          "$ref": "#/$defs/text"
+        },
+        "headerRow": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "destination": {
+          "$ref": "#/$defs/path"
+        },
+        "role": {
+          "enum": [
+            "framework",
+            "mapping",
+            "evidence"
+          ]
+        },
+        "describe": {
+          "$ref": "#/$defs/text"
+        },
+        "graphKey": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "derived-mappings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "reader",
+        "label",
+        "destination",
+        "provider",
+        "from",
+        "to",
+        "release",
+        "inputs"
+      ],
+      "properties": {
+        "kind": {
+          "const": "derived-mappings"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "reader": {
+          "enum": [
+            "ctid-json",
+            "d3fend-controls",
+            "d3fend-attack-mitigations",
+            "olir-workbook"
+          ]
+        },
+        "label": {
+          "$ref": "#/$defs/text"
+        },
+        "destination": {
+          "$ref": "#/$defs/path"
+        },
+        "provider": {
+          "$ref": "#/$defs/text"
+        },
+        "from": {
+          "$ref": "#/$defs/text"
+        },
+        "to": {
+          "$ref": "#/$defs/text"
+        },
+        "release": {
+          "$ref": "#/$defs/text"
+        },
+        "inputs": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "when": {
+          "type": "string",
+          "pattern": "^adds-pairs-over:[A-Za-z][A-Za-z0-9_-]*$"
+        }
+      }
+    },
+    "note": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "path",
+        "frontmatter",
+        "body"
+      ],
+      "properties": {
+        "kind": {
+          "const": "note"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "frontmatter": {
+          "type": "object"
+        },
+        "body": {
+          "type": "string"
+        }
+      }
+    },
+    "set-fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "folder",
+        "files",
+        "fields"
+      ],
+      "properties": {
+        "kind": {
+          "const": "set-fields"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "folder": {
+          "$ref": "#/$defs/path"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          },
+          "minItems": 1
+        },
+        "fields": {
+          "type": "object",
+          "minProperties": 1
+        }
+      }
+    },
+    "license": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "folder",
+        "publisher",
+        "url",
+        "file",
+        "style"
+      ],
+      "properties": {
+        "kind": {
+          "const": "license"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "folder": {
+          "$ref": "#/$defs/path"
+        },
+        "publisher": {
+          "$ref": "#/$defs/text"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        },
+        "file": {
+          "$ref": "#/$defs/path"
+        },
+        "style": {
+          "enum": [
+            "wrapped-md",
+            "terms"
+          ]
+        },
+        "name": {
+          "$ref": "#/$defs/text"
+        },
+        "shortName": {
+          "$ref": "#/$defs/text"
+        },
+        "license": {
+          "$ref": "#/$defs/text"
+        },
+        "when": {
+          "type": "string",
+          "pattern": "^set:[A-Za-z][A-Za-z0-9_-]*$"
+        }
+      },
+      "if": {
+        "type": "object",
+        "properties": {
+          "style": {
+            "const": "wrapped-md"
+          }
+        },
+        "required": [
+          "style"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/$defs/text"
+          },
+          "shortName": {
+            "$ref": "#/$defs/text"
+          },
+          "license": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "required": [
+          "name",
+          "shortName",
+          "license"
+        ]
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "path",
+        "template",
+        "params"
+      ],
+      "properties": {
+        "kind": {
+          "const": "query"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "template": {
+          "$ref": "#/$defs/text"
+        },
+        "params": {
+          "type": "object"
+        }
+      }
+    },
+    "start-here": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "path",
+        "lines"
+      ],
+      "properties": {
+        "kind": {
+          "const": "start-here"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "const": "graph"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        }
+      }
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "report"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    }
+  }
+}

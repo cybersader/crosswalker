@@ -74,6 +74,8 @@ const USAGE = [
 	'            --sheet picks a workbook sheet or a JSON collection; --header-row is the',
 	'            spreadsheet row number (1 = first row) that holds the column names.',
 	'  validate  --vault <dir> [--folder <folder>]',
+	'  stack build --file <path> --vault <dir> [--sources-dir <dir>]',
+	'            Build a new vault from a stack file. Use a separate empty output folder.',
 	'  export    --vault <dir> --folder <folder> --format csv|sssom|strm --out <file>',
 	'  frameworks --vault <dir> [--framework <id prefix>] [--json]',
 	'            Summarize the frameworks in the vault: notes, parents, links, crosswalks and',
@@ -101,13 +103,16 @@ interface Io {
 
 type Flags = Record<string, string | true>;
 
-function parseFlags(argv: string[]): { command: string | undefined; flags: Flags; graphAction?: string } {
+function parseFlags(argv: string[]): { command: string | undefined; flags: Flags; action?: string } {
 	const args = argv[0] === '--' ? argv.slice(1) : argv;
 	const [command, ...rest] = args;
-	let graphAction: string | undefined;
+	let action: string | undefined;
 	if (command === 'graph') {
 		if (!['configure', 'connections'].includes(rest[0])) throw new CliError('Choose "cw graph configure" or "cw graph connections". Run help for their required options.');
-		graphAction = rest.shift();
+		action = rest.shift();
+	} else if (command === 'stack' && !['--help', ''].includes(rest[0] ?? '')) {
+		if (rest[0] !== 'build') throw new CliError('Choose "cw stack build". Run "bun run cw -- help" for the required options.');
+		action = rest.shift();
 	}
 	const flags: Flags = {};
 	for (let i = 0; i < rest.length; i++) {
@@ -129,7 +134,7 @@ function parseFlags(argv: string[]): { command: string | undefined; flags: Flags
 			i++;
 		}
 	}
-	return { command, flags, graphAction };
+	return { command, flags, action };
 }
 
 function stringFlag(flags: Flags, name: string, required: true, hint: string): string;
@@ -785,13 +790,32 @@ async function commandFrameworks(flags: Flags, io: Io): Promise<number> {
 	return 0;
 }
 
+async function commandStack(flags: Flags, io: Io, action?: string): Promise<number> {
+	if (action !== 'build') throw new CliError('Choose "cw stack build". Run "bun run cw -- help" for the required options.');
+	allowOnly(flags, ['file', 'vault', 'sources-dir'], 'stack build');
+	const file = stringFlag(flags, 'file', true, 'Pass a stack file, for example --file stacks/public-grc-demo.stack.json.');
+	const vault = stringFlag(flags, 'vault', true, 'Pass a separate empty output folder with --vault.');
+	const sourcesDir = stringFlag(flags, 'sources-dir', false, 'Pass the checkout containing Frameworks/.');
+	if (!file || !vault || sourcesDir === '') throw new CliError('A stack build needs a stack file and output folder. Supply a path for each option you pass.');
+	// Only the stack command loads the schema and mapping readers. Its imports
+	// invoke the same CLI entry point but must not pay that startup cost.
+	const { buildStack } = await import('../tools/lib/stack-build');
+	const { StackFileError } = await import('../tools/lib/stack-file');
+	try {
+		return buildStack({ file, vault, sourcesDir }, io);
+	} catch (error) {
+		if (error instanceof StackFileError) throw new CliError(error.message);
+		throw error;
+	}
+}
+
 // ----------------------------------------------------------------------- main
 
 /** Run one command. Returns the exit code; never calls process.exit. */
 export async function runCli(argv: string[], io: Io = { out: (l) => console.log(l), err: (l) => console.error(l) }): Promise<number> {
 	let restore: (() => void) | null = null;
 	try {
-		const { command, flags, graphAction } = parseFlags(argv);
+		const { command, flags, action } = parseFlags(argv);
 		if (!command || command === 'help' || command === '--help' || flags.help) {
 			io.out(USAGE);
 			return command ? 0 : 1;
@@ -809,8 +833,10 @@ export async function runCli(argv: string[], io: Io = { out: (l) => console.log(
 				return await commandExport(flags, io);
 			case 'replay':
 				return await commandReplay(flags, io);
+			case 'stack':
+				return await commandStack(flags, io, action);
 			case 'graph':
-				return await commandGraph(flags, io, graphAction);
+				return await commandGraph(flags, io, action);
 			case 'frameworks':
 				return await commandFrameworks(flags, io);
 			case 'recipes':

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
+### Added: Build a vault from a stack file (2026-11-18)
+
+- `cw stack build` runs a shared stack file to build and validate a vault with frameworks, crosswalks, example notes and saved queries. The public GRC demo now uses a stack file and writes the same vault as before. Saving and loading stack files in Obsidian is not available yet.
+
 ### Added: `cw frameworks` summarizes installed frameworks from the command line (2026-11-16)
 
 - `bun run cw -- frameworks --vault <dir>` prints the same summary the Installed frameworks copy buttons put on the clipboard: notes, notes with a parent, links in note properties, crosswalks, properties and example ids. `--framework <id prefix>` narrows it to one framework; `--json` prints the data instead of text. Read only. Closes the command-line gap the copy buttons opened (parity entry `framework-summary`).
