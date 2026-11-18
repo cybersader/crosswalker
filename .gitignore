@@ -74,6 +74,8 @@ npm-debug.log*
 
 # Claude Code local settings (contains user-specific paths)
 .claude/settings.local.json
+# Machine-specific agent notes (Claude Code loads it from the repo root)
+/CLAUDE.local.md
 .claude/plans/
 
 # Portagenty publishing tool — local state

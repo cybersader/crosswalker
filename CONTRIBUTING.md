@@ -17,8 +17,8 @@ The **authoritative current-state reference is the [docs site](https://cybersade
 
 ## Prerequisites
 
-- [Bun](https://bun.sh/) — primary package manager and runtime
-- [Node.js](https://nodejs.org/) 18+ (used by some sub-tools)
+- [Bun](https://bun.sh/) — primary package manager and runtime. Use the exact version in `.bun-version` (CI reads the same file).
+- [Node.js](https://nodejs.org/) — the version in `.nvmrc` (CI reads the same file; `nvm use` or `fnm use` picks it up). Jest runs under Node, and the database tests need Node 22.5 or newer for `node:sqlite`.
 - [Obsidian](https://obsidian.md/) — for plugin testing
 - [Git](https://git-scm.com/) — with the working tree on `main`
 
@@ -37,8 +37,10 @@ bun run serve            # Interactive menu (8 options)
 bun run serve:docs       # Docs dev server (Astro HMR) → http://localhost:14321
 bun run serve:plugin     # Plugin watch build → test-vault
 bun run serve:both       # Docs + plugin watch in parallel
-bun run serve:share      # Docs dev + Tailscale tunnel (tailnet only)
+bun run serve:share      # Optional, maintainer only: docs dev + Tailscale tunnel (tailnet only)
 ```
+
+`serve:share` and the Cloudflare sharing option need the maintainer's own Tailscale or Cloudflare setup. Contributors don't need them.
 
 The orchestrator auto-heals cross-OS `node_modules` contamination (e.g. rollup native binaries when bouncing between WSL and Windows) and auto-installs `docs/node_modules` on first run. Raw commands still work:
 
@@ -66,6 +68,12 @@ cd docs && bun run test:local
 # or via the orchestrator:
 bun run serve         # → option 8
 ```
+
+### What CI runs on your pull request
+
+Every pull request, including one from a fork, runs the quality gate (`bun run check`: lint, unit tests, version checks, build), the static checks, and only the **smoke** Obsidian end-to-end journey (`tests/e2e/smoke-ci.spec.ts`) when plugin files change.
+
+The full local Obsidian end-to-end suite (`bun run e2e`, `bun run e2e:xvfb`, and the `visual-*` screenshot specs) is **optional and maintainer only**. It downloads and drives a real Obsidian build and needs a display or Xvfb. You don't need to run it for a pull request; a maintainer runs a specific spec on GitHub when a change needs it.
 
 See [the testing page](https://cybersader.github.io/crosswalker/development/testing/) for the full breakdown.
 
