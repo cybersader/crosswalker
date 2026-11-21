@@ -466,6 +466,14 @@ export default class CrosswalkerPlugin extends Plugin {
 			callback: () => { new ConnectionsModal(this.app, this).open(); },
 		});
 		this.addCommand({
+			id: 'unmapped-framework-entries',
+			name: 'Unmapped framework entries',
+			callback: async () => {
+				const { UnmappedFrameworkModal } = await import('./views/unmapped-framework-modal');
+				new UnmappedFrameworkModal(this.app).open();
+			},
+		});
+		this.addCommand({
 			id: 'configure-framework-graph',
 			name: 'Configure framework graph',
 			callback: () => { new GraphConfigModal(this.app, this).open(); },

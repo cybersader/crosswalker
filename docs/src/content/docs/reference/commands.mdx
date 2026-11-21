@@ -47,6 +47,12 @@ Access these from Obsidian's command palette (`Ctrl/Cmd + P`). Obsidian adds the
 | **Crosswalker: Evidence: link evidence to a control** | Creates one evidence-to-control relationship through a guided form. |
 | **Crosswalker: Evidence: create coverage report** | Refreshes coverage data, writes a report note, and opens it. |
 
+## Unmapped framework entries
+
+Choose **Crosswalker: Unmapped framework entries** in the command palette, or open it from **Browse saved queries**. This built-in report does not create a note. Choose a framework to see which entries have no recorded direct crosswalk to another installed framework. Incoming and outgoing mappings both count; parent links, evidence and negated assertions do not. Hubs and facets are labeled. A missing counterpart is not counted as a match.
+
+The command line runs the same [anti-join query](/crosswalker/concepts/query-primitives/): `bun run cw -- frameworks --unmapped --vault <folder>`. Add `--framework <prefix>` to limit the output or `--json` for structured results. An incomplete read is not reported as zero coverage.
+
 ## Maintenance
 
 | Command | Description |
