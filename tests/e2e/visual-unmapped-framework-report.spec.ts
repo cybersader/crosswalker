@@ -17,6 +17,8 @@ describe('Built-in unmapped framework entries report', () => {
 			const select = browser.$('.modal select'); await select.waitForDisplayed({ timeout: 30000 });
 			await select.selectByAttribute('value', 'report-fixture');
 			const entry = browser.$('button=report-fixture:one'); await entry.waitForDisplayed();
+			const text = await browser.$('.modal').getText();
+			if (!text.includes('1 framework has no crosswalk') || !text.includes('of 1 unmapped entry.')) throw new Error(`Singular wording is wrong: ${text}`);
 			mkdirSync('test-screenshots', { recursive: true });
 			for (const theme of ['light', 'dark']) {
 				await browser.execute((value: string) => {

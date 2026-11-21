@@ -15,7 +15,7 @@ export class UnmappedFrameworkModal extends Modal {
 			if (!groups.length) { this.contentEl.setText('No installed framework entries found. Import a framework, then run this report again.'); return; }
 			const clear = groups.filter(g => !g.mapped).length;
 			const partial = groups.filter(g => g.mapped && g.unmapped.length).length;
-			this.contentEl.createEl('p', { text: `${clear} frameworks with no crosswalk to another installed framework. ${partial} partially mapped. ${groups.length - clear - partial} fully mapped.` });
+			this.contentEl.createEl('p', { text: `${clear} ${clear === 1 ? 'framework has' : 'frameworks have'} no crosswalk to another installed framework. ${partial} partially mapped. ${groups.length - clear - partial} fully mapped.` });
 			this.contentEl.createEl('p', { text: 'A crosswalk counts in either direction. Parent links and evidence do not count. Hubs and facets are labeled separately from concepts.' });
 			const details = this.contentEl.createDiv();
 			const picker = new Setting(this.contentEl).setName('Framework').addDropdown(select => {
@@ -34,7 +34,7 @@ export class UnmappedFrameworkModal extends Modal {
 		el.empty();
 		if (!group.unmapped.length) { el.createEl('p', { text: 'Every entry in this framework has a recorded crosswalk to another installed framework.' }); return; }
 		const end = Math.min(offset + PAGE, group.unmapped.length);
-		el.createEl('p', { text: `${group.framework}: showing ${offset + 1}–${end} of ${group.unmapped.length} unmapped entries.` });
+		el.createEl('p', { text: `${group.framework}: showing ${offset + 1}–${end} of ${group.unmapped.length} unmapped ${group.unmapped.length === 1 ? 'entry' : 'entries'}.` });
 		const list = el.createEl('ul');
 		for (const entry of group.unmapped.slice(offset, end)) {
 			const li = list.createEl('li');
