@@ -107,7 +107,7 @@ export function deriveInstalledOntologiesFromNotes(
 	return summarizeOntologyNotes(notes.filter((n) => !inUnderscoreFolder(n.path)), registry);
 }
 
-function inUnderscoreFolder(path: string): boolean {
+export function inUnderscoreFolder(path: string): boolean {
 	const segments = path.split('/');
 	segments.pop();
 	return segments.some((s) => s.startsWith('_'));

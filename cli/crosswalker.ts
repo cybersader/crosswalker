@@ -77,7 +77,8 @@ const USAGE = [
 	'  stack build --file <path> --vault <dir> [--sources-dir <dir>]',
 	'            Build a new vault from a stack file. Use a separate empty output folder.',
 	'  export    --vault <dir> --folder <folder> --format csv|sssom|strm --out <file>',
-	'  frameworks --vault <dir> [--framework <id prefix>] [--json]',
+	'  frameworks --vault <dir> [--framework <id prefix>] [--unmapped] [--json]',
+	'            Add --unmapped to report entries without a crosswalk to another installed framework.',
 	'            Summarize the frameworks in the vault: notes, parents, links, crosswalks and',
 	'            properties. The same text as the copy buttons in the Crosswalker tab. Read only.',
 	'  replay    --vault <dir> --set <set id> --source <file> [--sheet <name>]',
@@ -774,9 +775,24 @@ async function commandGraph(flags: Flags, io: Io, action?: string): Promise<numb
 
 /** Read-only framework summary: the copy-button text, or its data as JSON. */
 async function commandFrameworks(flags: Flags, io: Io): Promise<number> {
-	allowOnly(flags, ['vault', 'framework', 'json'], 'frameworks');
+	allowOnly(flags, ['vault', 'framework', 'json', 'unmapped'], 'frameworks');
+	if (flags.unmapped !== undefined && flags.unmapped !== true) throw new CliError('--unmapped takes no value. Write it on its own.');
 	if (flags.json !== undefined && flags.json !== true) throw new CliError('--json takes no value. Write it on its own.');
 	const app = openVault(flags);
+	if (flags.unmapped) {
+		const { loadUnmappedFrameworkReport } = await import('../src/views/unmapped-framework-report');
+		const all = await loadUnmappedFrameworkReport(app as never);
+		const prefix = stringFlag(flags, 'framework');
+		const groups = prefix === undefined ? all : all.filter(g => g.framework === prefix);
+		if (prefix !== undefined && !groups.length) throw new CliError(`No framework with id prefix "${prefix}". Run without --framework to list all frameworks.`);
+		if (flags.json) io.out(JSON.stringify(groups, null, 2));
+		else if (!groups.length) io.out('No installed framework entries found.');
+		else for (const g of groups) {
+			io.out(`${g.framework}: ${g.unmapped.length} of ${g.total} entries unmapped`);
+			for (const entry of g.unmapped) io.out(`  ${entry.id} (${entry.kind})${entry.missingCounterpart ? ' [missing counterpart]' : ''}: ${entry.path}`);
+		}
+		return 0;
+	}
 	const result = discoverInstalledFrameworks(app as never);
 	if (result.state === 'indexing') throw new CliError(`${result.pending} notes could not be read. Check that the vault folder is readable, then run it again.`);
 	const wanted = stringFlag(flags, 'framework');

@@ -48,9 +48,15 @@ export class BrowseQueriesModal extends Modal {
 		header.createEl('h2', { text: 'Browse queries', cls: 'crosswalker-browse-title' });
 		const countText =
 			this.entries.length === 0
-				? 'No queries in this vault'
+				? 'No saved queries in this vault'
 				: `${this.entries.length} quer${this.entries.length === 1 ? 'y' : 'ies'} · stored under _crosswalker/queries/`;
 		header.createEl('div', { text: countText, cls: 'crosswalker-browse-count' });
+
+		new ButtonComponent(contentEl).setButtonText('Unmapped framework entries').setTooltip('Run built-in report').onClick(async () => {
+			const { UnmappedFrameworkModal } = await import('./unmapped-framework-modal');
+			this.close();
+			new UnmappedFrameworkModal(this.app).open();
+		});
 
 		if (this.entries.length === 0) {
 			const empty = contentEl.createDiv({ cls: 'crosswalker-browse-empty' });

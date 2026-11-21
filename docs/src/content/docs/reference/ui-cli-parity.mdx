@@ -21,8 +21,8 @@ The UI stays primary. Wizard steps, previews, pickers and navigation need no com
 
 {/* parity:generated:start */}
 
-50 capabilities (source: tools/parity/capabilities.ts).
-Stages: import: 11; map: 6; query: 9; share: 6; maintain: 18. Gaps: CLI 36; UI 2 (source: tools/parity/capabilities.ts).
+51 capabilities (source: tools/parity/capabilities.ts).
+Stages: import: 11; map: 6; query: 10; share: 6; maintain: 18. Gaps: CLI 36; UI 2 (source: tools/parity/capabilities.ts).
 
 | Stage | Action | UI | cw | Gap and plan |
 | --- | --- | --- | --- | --- |
@@ -45,6 +45,7 @@ Stages: import: 11; map: 6; query: 9; share: 6; maintain: 18. Gaps: CLI 36; UI 2
 | map | Import a mapping set as one table instead of notes (mapping-new-table) | Mapping import &gt; Storage; Settings &gt; Default mapping storage | Missing | CLI: cw import does not expose the mapping storage choice and uses the default notes form. Plan: CLI and live demo near-term roadmap: extend cw after the ordered parity backlog (reference/roadmap). |
 | query | Create a saved query in a note (saved-query-create) | Query builder; Command: insert-query-into-note | Missing | CLI: No saved-query generation verb. Plan: UI/CLI parity backlog priority 2: saved queries and graph colors; stack builds can write standalone queries, not embed one in an existing note (reference/ui-cli-parity). |
 | query | Color the graph by framework (graph-colors) | Workspace &gt; Color graph; Command: color-graph-by-framework | cw graph configure --mode colors --apply | Covered |
+| query | Find entries without a crosswalk to another installed framework (unmapped-framework-entries) | Browse queries &gt; Unmapped framework entries; Command: unmapped-framework-entries | cw frameworks --unmapped --framework --json | Covered |
 | query | Summarize installed frameworks: notes, parents, links, crosswalks and properties (framework-summary) | Workspace &gt; Installed frameworks &gt; Copy summary | cw frameworks --framework --json | Covered |
 | query | Explore recorded connections between explicitly selected sets (framework-connections) | Workspace &gt; Explore framework connections; Command: explore-framework-connections | cw graph connections --source-set --target-set --focus-curie --focus-set --search --limit --offset | Covered |
 | query | Preview and apply a framework graph overview (graph-overview) | Configure framework graph &gt; Preview and apply; Command: configure-framework-graph | cw graph configure --mode overview --apply | Covered |

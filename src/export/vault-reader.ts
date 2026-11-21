@@ -186,7 +186,7 @@ export async function readNoteFrontmatterState(app: App, file: TFile): Promise<N
 		return { state: 'unreadable' };
 	}
 	const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
-	if (!match) return { state: 'none' };
+	if (!match) return { state: /^---\r?\n/.test(content) ? 'unreadable' : 'none' };
 	try {
 		const parsed = parseYaml(match[1]) as unknown;
 		if (parsed === null || parsed === undefined) return { state: 'none' };
@@ -248,7 +248,7 @@ function asStringArray(v: unknown): string[] {
  * whole export. Every bucket is sorted by path (matches the file-list sort),
  * so exporters built on top of this are deterministic without re-sorting.
  */
-export async function readVaultTree(app: App, rootPath: string): Promise<ReadVaultTreeResult> {
+export async function readVaultTree(app: App, rootPath: string, options: { ignoreUnmanagedNotes?: boolean } = {}): Promise<ReadVaultTreeResult> {
 	const result: ReadVaultTreeResult = {
 		concepts: [],
 		crosswalkEdges: [],
@@ -271,7 +271,9 @@ export async function readVaultTree(app: App, rootPath: string): Promise<ReadVau
 	}
 	const files = listMarkdownFilesUnder(app, rootPath);
 	for (const file of files) {
-		const fm = await readNoteFrontmatter(app, file);
+		const read = await readNoteFrontmatterState(app, file);
+		if (options.ignoreUnmanagedNotes && read.state === 'none') continue;
+		const fm = read.state === 'ok' ? read.frontmatter : null;
 		if (!fm) {
 			result.skipped.push({ path: file.path, reason: 'no parsable YAML frontmatter block' });
 			continue;
@@ -282,6 +284,7 @@ export async function readVaultTree(app: App, rootPath: string): Promise<ReadVau
 		if (fm.kind === 'mapping-set') continue;
 		const curie = asString(fm.curie);
 		if (!curie) {
+			if (options.ignoreUnmanagedNotes && !fm._crosswalker && fm.kind !== 'crosswalk-edge' && !fm.subject_id && !fm.object_id) continue;
 			result.skipped.push({ path: file.path, reason: 'missing required `curie` field (not a Tier 1 note)' });
 			continue;
 		}
