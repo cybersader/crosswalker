@@ -33,7 +33,7 @@
     "starlight-site-graph": "^0.5.0",
     "starlight-tags": "^0.4.0",
     "starlight-theme-nova": "^0.11.7",
-    "tailwindcss": "^4.2.2"
+    "tailwindcss": "^4.3.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1"
