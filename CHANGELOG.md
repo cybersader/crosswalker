@@ -8,7 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 The 0.1 design phase concluded 2026-05-04 and implementation began the same day. As of 2026-07-21, milestones v0.1.1 through v0.1.5 are ✅ shipped; v0.1.6 has delivered its Bases/query, SSSOM, primitives, ingestion, and shape-workbench phases; v0.1.7 is active with the exporter first slice and canonical ImportRecipe fidelity foundation delivered.
 
-### Added: Unmapped framework entries
+### Changed: the website Changelog is built from this file (2026-11-23)
+
+- The website's Changelog had one hand-written post, from 2026-04-02, while this file kept growing. It is now generated from this file every time the site builds: each dated entry under Unreleased becomes a post, and each prerelease section becomes a release post. The site also redeploys when only this file changes.
+- Every `### Added:`, `Changed:`, `Fixed:`, `Removed:`, `Deprecated:`, `Security:` or `Docs:` heading must end with its date, for example `(2026-11-23)`. A heading without one stops the docs build and names the line, so no entry can silently go unpublished.
+
+### Added: Unmapped framework entries (2026-11-21)
 
 - Run the built-in report from Browse saved queries or the command palette to find frameworks and individual entries without any recorded crosswalk to another installed framework. `cw frameworks --unmapped` runs the same read-only report.
 

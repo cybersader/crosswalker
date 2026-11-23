@@ -54,6 +54,16 @@ test.describe('Content pages', () => {
     await expect(page.locator('h1')).toContainText('v0.1.0');
   });
 
+  // The Changelog is generated from CHANGELOG.md at build time; pin the
+  // generator's output shape, not any one entry's wording.
+  test('changelog lists posts generated from CHANGELOG.md', async ({ page }) => {
+    await page.goto(`${BASE}/blog/changelog/2026-10-02-prerelease-0-1-6/`);
+    await expect(page.locator('h1')).toContainText('Prerelease 0.1.6');
+    await expect(page.locator('a[href$="CHANGELOG.md"]').first()).toBeVisible();
+    await page.goto(`${BASE}/blog/`);
+    await expect(page.locator('main a[href*="/blog/changelog/"]').first()).toBeVisible();
+  });
+
   test('design architecture page loads', async ({ page }) => {
     await page.goto(`${BASE}/design/architecture/`);
     await expect(page.locator('h1')).toContainText('Architecture');

@@ -97,6 +97,8 @@ test-results/
 docs/node_modules/
 docs/dist/
 docs/.astro/
+# Generated from CHANGELOG.md on every docs dev start and build (docs/changelog-posts.mjs)
+docs/src/content/docs/blog/changelog/
 docs/playwright-report/
 docs/blob-report/
 

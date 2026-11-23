@@ -7,6 +7,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "test:unit": "node --test tests/*.unit.mjs",
     "test:local": "playwright test",
     "test:deploy": "playwright test tests/deployment.spec.ts",
     "test:e2e": "playwright test --headed",

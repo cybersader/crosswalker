@@ -41,7 +41,7 @@ jobs:
           PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: >-
           bash .github/scripts/changed-paths.sh
-          '^(docs/|\.github/workflows/deploy-docs\.yml$|\.github/scripts/changed-paths\.sh$)'
+          '^(docs/|CHANGELOG\.md$|\.github/workflows/deploy-docs\.yml$|\.github/scripts/changed-paths\.sh$)'
 
   test:
     needs: changes
@@ -72,6 +72,11 @@ jobs:
       - name: Install Playwright Chromium
         working-directory: docs
         run: bun x playwright install --with-deps chromium
+
+      # URL normalization and the CHANGELOG.md -> site Changelog generator.
+      - name: Docs unit tests
+        working-directory: docs
+        run: bun run test:unit
 
       - name: Build docs
         working-directory: docs
