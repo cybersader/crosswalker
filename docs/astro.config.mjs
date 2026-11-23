@@ -19,6 +19,18 @@ import rehypeExternalLinks from 'rehype-external-links';
 
 import { BASE, SITE, sitePath } from './site-urls.mjs';
 import { canonicalWebsite, legacyWebsite } from './website-compat.mjs';
+import { CHANGELOG_PATH, generateChangelogPosts } from './changelog-posts.mjs';
+
+/** The site Changelog is built from CHANGELOG.md on every dev start and build; see changelog-posts.mjs. */
+const changelogPosts = {
+  name: 'crosswalker-changelog-posts',
+  hooks: {
+    'astro:config:setup': ({ addWatchFile, logger }) => {
+      logger.info(`${generateChangelogPosts()} changelog posts generated from CHANGELOG.md`);
+      addWatchFile(CHANGELOG_PATH);
+    },
+  },
+};
 
 export default defineConfig({
   site: SITE,
@@ -82,6 +94,7 @@ export default defineConfig({
     ],
   },
   integrations: [
+    changelogPosts,
     canonicalWebsite(),
     starlight({
       title: 'Crosswalker',
