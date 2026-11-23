@@ -1,79 +1,99 @@
 # Crosswalker Roadmap
 
-Plain-markdown mirror of the [docs roadmap](https://cybersader.github.io/crosswalker/reference/roadmap/); the two say the same things.
+Plain-markdown mirror of the [docs roadmap](https://crosswalker.io/reference/roadmap/); the two say the same things.
 
-Crosswalker is a **meta-system for [ontology lifecycle](https://cybersader.github.io/crosswalker/concepts/ontology-lifecycle/) management**: import an ontology into Obsidian, map it to others and to evidence, query it, and share it. This page shows current work first, then what comes after v0.1. Every significant decision is [logged with rationale](https://cybersader.github.io/crosswalker/agent-context/zz-log/); delivery detail lives only in [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present).
+Crosswalker is a **meta-system for [ontology lifecycle](https://crosswalker.io/concepts/ontology-lifecycle/) management**: import an ontology into Obsidian, map it to others and to evidence, query it, and share it. This page shows current work first, then what comes after v0.1. Every significant decision is [logged with rationale](https://crosswalker.io/agent-context/zz-log/); delivery detail lives only in [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present).
 
-**Status last verified:** 2026-10-03 — every line re-checked against the milestone pages, CHANGELOG [Unreleased] and the 2026-10-03 decision logs
+**Status last verified:** 2026-11-23 — every line re-checked against the milestone pages, `CHANGELOG.md` `[Unreleased]` (through PR #114, merged 2026-11-21), the decision logs and the merge history of `main`
 
-> **How this roadmap is maintained.** Only active and future work lives here. The [milestone hub](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/) is the live source for v0.1.x status; if the two disagree, the hub wins. When a phase completes, its checklist moves to an archive page with a "What carried forward" section, and this file mirrors the docs roadmap page.
+> **How this roadmap is maintained.** Only active and future work lives here. The [milestone hub](https://crosswalker.io/reference/roadmap/milestones/) is the live source for v0.1.x status; if the two disagree, the hub wins. When a phase completes, its checklist moves to an archive page with a "What carried forward" section, and this file mirrors the docs roadmap page.
 
 ---
 
-## Where we are (2026-10-03)
+## Where we are (2026-11-23)
 
 | Milestone | Status | Date | What it is |
 |---|---|---|---|
-| [v0.1.1](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-1-types-and-validation/) to [v0.1.5](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/) | ✅ Done | 2026-05-04 to 05-06 | Types and validation, `render()`, generation engine, junction notes and crosswalk edges, iterator boundary, [Tier 2](https://cybersader.github.io/crosswalker/concepts/system-architecture/) sqlite sidecar |
-| [v0.1.6](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-6-bases-query-layer/) | 🚧 Phases 1 to 7 ✅ | through 2026-07-11 | Bases pivot view, SSSOM import, query primitives, shape workbench. Bases query emission into generated notes is largely unbuilt |
-| [v0.1.7](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) | 🚧 Active | Tracks 1 to 3 ✅ 2026-10-02/03 | Portability: recipe library, Run again and replay proofs, mapping set release records. Remaining: exporter completion and the OSCAL target-shape decision |
-| [v0.1.8](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/) | 📋 Planning | not started | Execution records, audit, package manifests |
-| [v0.1-RC](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-rc-bundle-and-ship/) | 📋 Planning | not started | Artifact-chain acceptance, bundle, mobile check, community submission |
-| Run inside OpenClast (not a milestone) | 🚧 Verified loading | 2026-10-03 | Crosswalker in the owner's browser-hosted Obsidian; [see below](#run-inside-openclast-browser-hosted-obsidian) |
+| [v0.1.1](https://crosswalker.io/reference/roadmap/milestones/v0-1-1-types-and-validation/) to [v0.1.5](https://crosswalker.io/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/) | ✅ Done | 2026-05-04 to 05-06 | Types and validation, `render()`, generation engine, junction notes and crosswalk edges, iterator boundary, [Tier 2](https://crosswalker.io/concepts/system-architecture/) sqlite sidecar |
+| [v0.1.6](https://crosswalker.io/reference/roadmap/milestones/v0-1-6-bases-query-layer/) | 🚧 Phases 1 to 7 ✅ | through 2026-07-11 | Bases pivot view, SSSOM import, query primitives, shape workbench. Bases query emission into generated notes is largely unbuilt |
+| [v0.1.7](https://crosswalker.io/reference/roadmap/milestones/v0-1-7-exporters/) | 🚧 Active | Tracks 1 to 3 ✅ 2026-10-02/03; more shipped through 2026-11-21 | Portability: recipe library, Run again and replay proofs, mapping set release records. Remaining: exporter completion and the OSCAL target-shape decision. [Shipped since 2026-10-03](#shipped-since-2026-10-03) |
+| [v0.1.8](https://crosswalker.io/reference/roadmap/milestones/v0-1-8-audit-trail/) | 📋 Planning | not started | Execution records, audit, package manifests |
+| [v0.1-RC](https://crosswalker.io/reference/roadmap/milestones/v0-1-rc-bundle-and-ship/) | 📋 Planning | not started | Artifact-chain acceptance, bundle, mobile check, community submission |
+| Command line and live demo (not a milestone) | 🚧 Mostly done | 2026-10-27 to 11-18 | `cw` imports, validates, exports, replays, builds stacks and reports; the demo vault is built by one command. [See below](#deterministic-avenues-command-line-and-live-demo) |
+| Run inside OpenClast (not a milestone) | 🚧 In use | 2026-11-21 | Crosswalker runs in a private browser-hosted Obsidian demo room; [see below](#run-inside-openclast-browser-hosted-obsidian) |
 
-Public prereleases `0.1.0` to `0.1.6` were published as GitHub pre-releases between 2026-09-13 and 2026-10-02 (source: git tags). User-facing notes for each are at the end of `CHANGELOG.md`.
+Public prereleases `0.1.0` to `0.1.6` were published as GitHub pre-releases between 2026-09-13 and 2026-10-02 (source: git tags). User-facing notes for each are at the end of `CHANGELOG.md`. No prerelease has been cut since; everything after 2026-10-02 sits in `CHANGELOG.md` `[Unreleased]`. Since 2026-11-16 a version tag builds an attested draft release for a maintainer to publish.
 
-**Delivery posture** (2026-09-05): a correct, usable, explicitly supported workflow comes before optimizing every ingestion path; silent data loss, crashes on supported inputs and false completion are blockers. See [ingestion safety and staged performance](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-09-05-ingestion-safety-and-staged-performance/).
+**Delivery posture** (2026-09-05): a correct, usable, explicitly supported workflow comes before optimizing every ingestion path; silent data loss, crashes on supported inputs and false completion are blockers. See [ingestion safety and staged performance](https://crosswalker.io/agent-context/zz-log/2026-09-05-ingestion-safety-and-staged-performance/).
 
 ---
 
 ## Active: v0.1.7 portability
 
-Make recipes, source bindings and mapping sets portable without merging their identities ([artifact roles and authority](https://cybersader.github.io/crosswalker/concepts/artifact-roles-and-authority/)). Status by track, from the [milestone page](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/):
+Make recipes, source bindings and mapping sets portable without merging their identities ([artifact roles and authority](https://crosswalker.io/concepts/artifact-roles-and-authority/)). Status by track, from the [milestone page](https://crosswalker.io/reference/roadmap/milestones/v0-1-7-exporters/):
 
 | Track | Status | Decision record |
 |---|---|---|
-| Exporters (SSSOM, typed mapping table, OSCAL) | 🚧 First slice ✅ 2026-07-12; typed-table command wiring done. Open: OSCAL target shape, remaining export commands and the SSSOM settings toggle, schema validation, large-vault exporter performance | [primitives register](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-07-25-primitives-reconciliation-decision-register/) (2026-07-25) |
-| Track 1: recipe library | ✅ Fidelity foundation 2026-07-21; library 2026-10-02 | [Gate 2 record](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-02-recipe-library-gate-2-ratification/) |
-| Track 2: source/run binding and replay | ✅ Run again 2026-10-02; full NIST CSF 2.0 and SP 800-53 replay proofs 2026-10-03 | [Run again synthesis](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-02-recipe-run-again-synthesis/) · [Gate 1](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/) |
-| Track 3: mapping set envelope | ✅ Release records, SSSOM and typed-table round trips, recipe crosswalks 2026-10-03 | [slice 1](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-03-mapping-set-release-record-synthesis/) · [slice 2](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-03-mapping-set-typed-table-and-recipe-synthesis/) |
+| Exporters (SSSOM, typed mapping table, OSCAL) | 🚧 First slice ✅ 2026-07-12; typed-table command wiring done. Open: OSCAL target shape, remaining export commands and the SSSOM settings toggle, schema validation, large-vault exporter performance | [primitives register](https://crosswalker.io/agent-context/zz-log/2026-07-25-primitives-reconciliation-decision-register/) (2026-07-25) |
+| Track 1: recipe library | ✅ Fidelity foundation 2026-07-21; library 2026-10-02 | [Gate 2 record](https://crosswalker.io/agent-context/zz-log/2026-10-02-recipe-library-gate-2-ratification/) |
+| Track 2: source/run binding and replay | ✅ Run again 2026-10-02; full NIST CSF 2.0 and SP 800-53 replay proofs 2026-10-03 | [Run again synthesis](https://crosswalker.io/agent-context/zz-log/2026-10-02-recipe-run-again-synthesis/) · [Gate 1](https://crosswalker.io/agent-context/zz-log/2026-09-06-save-and-exact-replay-gate-1-ratification/) |
+| Track 3: mapping set envelope | ✅ Release records, SSSOM and typed-table round trips, recipe crosswalks 2026-10-03 | [slice 1](https://crosswalker.io/agent-context/zz-log/2026-10-03-mapping-set-release-record-synthesis/) · [slice 2](https://crosswalker.io/agent-context/zz-log/2026-10-03-mapping-set-typed-table-and-recipe-synthesis/) |
 
-Also inside this milestone's window: nested source records and [body projection](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-09-23-body-projection-sections-inside-the-note/) (merged 2026-09-23) and [mapping storage as notes or one table](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/) (merged 2026-09-30).
+Also inside this milestone's window: nested source records and [body projection](https://crosswalker.io/agent-context/zz-log/2026-09-23-body-projection-sections-inside-the-note/) (merged 2026-09-23) and [mapping storage as notes or one table](https://crosswalker.io/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/) (merged 2026-09-30).
+
+### Shipped since 2026-10-03
+
+Headlines only; delivery detail lives in `CHANGELOG.md` `[Unreleased]`. None of these closes the open exporter or OSCAL items, so v0.1.7 stays 🚧.
+
+- **Recommended framework defaults** (2026-11-02/03): linked recipes for NIST CSF 2.0, SP 800-53, ATT&CK, MITRE F3 and D3FEND build each framework as a connected graph (parent links, children lists, hub notes); earlier recipes stay as "previous default"
+- **Import**: sparse-depth outline sources (2026-11-02), source-first import navigation (2026-11-13), readable mapping filenames from recipe templates (2026-10-31), recipe-aware CSV export (2026-10-27), and identity rules for publishers sharing a namespace ([decision](https://crosswalker.io/agent-context/zz-log/2026-10-30-shared-prefix-identity-synthesis/))
+- **Explore and query**: the read-only framework Connections browser (2026-10-30), color the graph by framework (2026-10-29), installed-framework summaries (2026-11-16), and the built-in "Unmapped framework entries" report for entries with no crosswalk to another framework (2026-11-21)
+- **Large vaults**: indexing finishes and Connections loads on vaults with tens of thousands of notes (2026-11-14)
+- **Project health**: one quality gate (`bun run check`) on every change, attested draft releases (2026-11-16), and an enforced UI and command line capability inventory ([decision](https://crosswalker.io/agent-context/zz-log/2026-10-30-ui-cli-parity-rule/))
+
+## Deterministic avenues: command line and live demo
+
+Every lifecycle stage should be reachable both from the UI and from a deterministic script, with the same output either way. The UI stays primary and the command line is the escape hatch ([decision](https://crosswalker.io/agent-context/zz-log/2026-10-27-cli-and-live-demo-near-term/)). Coverage in both directions is tracked on the [UI and command line parity](https://crosswalker.io/reference/ui-cli-parity/) page.
+
+- [x] **Command line first slice** (2026-10-27/28): `cw` runs import, validate, export and replay over the same engine as the plugin, against a plain folder of Markdown, without the monorepo restructure. It has since gained `graph`, `recipes`, `frameworks` (including `--unmapped`) and `stack build` (2026-11-18). See [producing vaults outside Obsidian](https://crosswalker.io/concepts/producing-vaults-outside-obsidian/) and the [outside-the-plugin decision](https://crosswalker.io/agent-context/zz-log/2026-10-29-outside-the-plugin-invariant/)
+- [x] **Demo vault built by one command**: a multi-framework vault (full NIST catalogs, ATT&CK Enterprise, D3FEND, MITRE F3, crosswalks, evidence notes, saved queries) built from redistributable content; since 2026-11-18 it is defined by a stack file. A separate private add-on enriches it with locally held licensed frameworks
+- [ ] **Public live demo**: the demo runs in a private OpenClast room today; a room anyone can open is not set up yet
+- [ ] **Stack files in Obsidian**: saving and loading stack files from the plugin UI (command line only today)
 
 ## Next: v0.1.8 audit trail and v0.1-RC
 
-- **[v0.1.8](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/)**: one terminal Execution Record per run, provenance and log events linked to it, git + Ed25519 + FRE 902(13) consuming it, and a separate Package Manifest per release. Nothing is built yet: no `src/audit/` exists and `spec/README.md` defines neither contract. Gate 3 of the [save-and-replay register](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) lands here.
-- **[v0.1-RC](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-rc-bundle-and-ship/)**: the full chain **source bytes → recipe → mapping set → Execution Record → Package Manifest** must hold end to end, then bundle, mobile and community-submission checks. The 2026-05 bundle target of ~1.2 MB needs revisiting: the production `main.js` was 5,114,861 bytes on 2026-10-03 (source: [Tier 2 worker synthesis](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/) ruling W2).
+- **[v0.1.8](https://crosswalker.io/reference/roadmap/milestones/v0-1-8-audit-trail/)**: one terminal Execution Record per run, provenance and log events linked to it, git + Ed25519 + FRE 902(13) consuming it, and a separate Package Manifest per release. Nothing is built yet: no `src/audit/` exists and `spec/README.md` defines neither contract. Gate 3 of the [save-and-replay register](https://crosswalker.io/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) lands here.
+- **[v0.1-RC](https://crosswalker.io/reference/roadmap/milestones/v0-1-rc-bundle-and-ship/)**: the full chain **source bytes → recipe → mapping set → Execution Record → Package Manifest** must hold end to end, then bundle, mobile and community-submission checks. The 2026-05 bundle target of ~1.2 MB needs revisiting: the production `main.js` was 5,114,861 bytes on 2026-10-03 (source: [Tier 2 worker synthesis](https://crosswalker.io/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/) ruling W2).
 
 ## Run inside OpenClast (browser-hosted Obsidian)
 
-Owner goal set 2026-10-03: Crosswalker runs inside OpenClast, Obsidian hosted in a browser tab, within about a month. What holds on 2026-10-03 ([synthesis §4](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/#4-what-the-openclast-collaboration-established)):
+Owner goal set 2026-10-03: Crosswalker runs inside OpenClast, Obsidian hosted in a browser tab, within about a month. That goal is met: as of 2026-11-21 the current build is installed in a private multi-framework demo room after passing the OpenClast plugin harness check. What was established on 2026-10-03 ([synthesis §4](https://crosswalker.io/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/#4-what-the-openclast-collaboration-established)):
 
 - Crosswalker loads unmodified: 33 commands and 2 views register, the import wizard renders, sqlite loads (source: synthesis §4)
-- The [Tier 2](https://cybersader.github.io/crosswalker/concepts/system-architecture/) search index now persists there and on desktop (it never had, on any host), by hosting sqlite in a worker. This narrowed the 2026-05-04 [Ch 23](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/) "main thread, no Web Workers" commitment to the import engine only ([§3](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/#3-narrowing-the-ch-23-commitment)). Measured numbers are in `CHANGELOG.md` `[Unreleased]`
-- A repeatable host check exists: `bun run e2e:openclast` ([setup](https://cybersader.github.io/crosswalker/development/setup/))
+- The [Tier 2](https://crosswalker.io/concepts/system-architecture/) search index now persists there and on desktop (it never had, on any host), by hosting sqlite in a worker. This narrowed the 2026-05-04 [Ch 23](https://crosswalker.io/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/) "main thread, no Web Workers" commitment to the import engine only ([§3](https://crosswalker.io/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/#3-narrowing-the-ch-23-commitment)). Measured numbers are in `CHANGELOG.md` `[Unreleased]`
+- A repeatable host check exists: `bun run e2e:openclast` ([setup](https://crosswalker.io/development/setup/))
 - Shared rule: Crosswalker runs unmodified, or removes its own native assumption; host gaps go to OpenClast as reproductions, never as Crosswalker-side shims
 
 Open items from the same log (§5, §6):
 
 - [ ] OpenClast's compatibility entry for Crosswalker moves from "Worker not yet exercised" to exercised once the host rerun is green
 - [ ] Reopen the search index automatically if its worker crashes mid-session (today a reset or reload is needed)
-- [ ] Stay within OpenClast's plugin store cap of 10 MiB unpacked; the production bundle was about 4.9 MiB on 2026-10-03 (source: ruling W2)
+- [ ] Stay within OpenClast's plugin store cap of 10 MiB unpacked; the production bundle was about 4.9 MiB on 2026-10-03 (source: ruling W2) and 5,390,519 bytes (about 5.1 MiB) on 2026-11-21 (source: production build of PR #114)
 
 ---
 
-## Where the built system stands (2026-10-03)
+## Where the built system stands (2026-11-23)
 
 One or two honest sentences per area; detail on the linked pages.
 
 | Area | State |
 |---|---|
-| Import | Shipped and tested on full frameworks (CSV, XLSX, JSON, nested records, framework stacks). [Import wizard](https://cybersader.github.io/crosswalker/features/import-wizard/) |
-| Crosswalking and mapping | Shipped and tested on full frameworks: SSSOM and typed-table import/export, recipe crosswalk columns, mapping review, release records. [v0.1.7](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) |
-| Evidence mapping | Engine shipped (junction notes, coverage with change detection), surfaced only as a snapshot report; `findCoverageGaps` stays deferred ([v0.1.5 page](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/)) |
-| Query layer | Tier 2 query helpers and the Bases pivot view shipped. Bases query emission into generated notes is largely unbuilt ([v0.1.6 tasks](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-6-bases-query-layer/)); closure-cache invalidation policy is an open question ([v0.1.5 page](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/)); `review_status` is stored in the index but not filterable through the query helpers (`src/tier2/queries.ts`); `sqlite-vec` waits for the 2026-11-06 revisit ([WASM-A pivot](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-05-06-wasm-a-pivot-synthesis/)) |
-| Analytics | Read-time views only. No computed analytics layer and no Crosswalker graph view; recipe `graph_edges` stay schema-reserved for v0.2 |
-| Audit trail | Not started; that is [v0.1.8](https://cybersader.github.io/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/) |
+| Import | Shipped and tested on full frameworks (CSV, XLSX, JSON, nested records, sparse-depth outlines, framework stacks), from the wizard or `cw`. Linked recommended defaults build connected framework graphs. [Import wizard](https://crosswalker.io/features/import-wizard/) |
+| Crosswalking and mapping | Shipped and tested on full frameworks: SSSOM and typed-table import/export, recipe crosswalk columns, mapping review, release records, readable mapping filenames, a read-only Connections browser and the Unmapped framework entries report. [v0.1.7](https://crosswalker.io/reference/roadmap/milestones/v0-1-7-exporters/) |
+| Evidence mapping | Engine shipped (junction notes, coverage with change detection), surfaced only as a snapshot report; `findCoverageGaps` stays deferred ([v0.1.5 page](https://crosswalker.io/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/)) |
+| Query layer | Tier 2 query helpers and the Bases pivot view shipped. Bases query emission into generated notes is largely unbuilt ([v0.1.6 tasks](https://crosswalker.io/reference/roadmap/milestones/v0-1-6-bases-query-layer/)); closure-cache invalidation policy is an open question ([v0.1.5 page](https://crosswalker.io/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/)); `review_status` is stored in the index but not filterable through the query helpers (`src/tier2/queries.ts`); `sqlite-vec` was due for a 2026-11-06 revisit ([WASM-A pivot](https://crosswalker.io/agent-context/zz-log/2026-05-06-wasm-a-pivot-synthesis/)); no revisit decision is logged yet, so it stays deferred |
+| Analytics | Read-time views and reports only (framework summaries, Connections, unmapped entries). No computed analytics layer and no Crosswalker graph view; the core graph can be colored by framework. Recipe `graph_edges` stay schema-reserved for v0.2 |
+| Audit trail | Not started; that is [v0.1.8](https://crosswalker.io/reference/roadmap/milestones/v0-1-8-audit-trail/) |
 
 ---
 
@@ -84,86 +104,92 @@ XLSX and JSON parsers shipped 2026-06-12; nested JSON and framework stacks follo
 - [ ] **JSONL parser**: not supported yet
 - [ ] **Source fetch automation**: needs a per-framework rights model (fetching a restricted workbook for a user differs from pointing at it) and a pinning story so automation never silently replaces the source a recipe or replay expects
 - [ ] **Remote acquisition**, kept separate from recipe transformation and layout policy
-- [ ] **Content-hash pinning, verified source cache and offline replay**. Run again (2026-10-02) already detects a changed file by content; retained source copies are ratified but unimplemented ([Run again synthesis](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-02-recipe-run-again-synthesis/))
+- [ ] **Content-hash pinning, verified source cache and offline replay**. Run again (2026-10-02) already detects a changed file by content; retained source copies are ratified but unimplemented ([Run again synthesis](https://crosswalker.io/agent-context/zz-log/2026-10-02-recipe-run-again-synthesis/))
 - [ ] **`mechanism: tag` and `mechanism: wikilink` layout levels, and `graph_edges`**: schema-reserved at v0.1
-- [ ] **[Transform system](https://cybersader.github.io/crosswalker/design/transformation/) breadth** ([research](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-04-03-transform-engine-research/))
+- [ ] **[Transform system](https://crosswalker.io/design/transformation/) breadth** ([research](https://crosswalker.io/agent-context/zz-log/2026-04-03-transform-engine-research/))
 
 ### Recipe authoring with AI assistance
 
-A [recipe](https://cybersader.github.io/crosswalker/concepts/terminology/) is plain JSON, and since 2026-10-02 the recipe library imports and exports recipe files. What is missing is a native round trip with an assistant, preserving the full canonical `RecipeDocument` ([recipe fidelity synthesis](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/)) and sending nothing without an explicit preview and opt-in.
+A [recipe](https://crosswalker.io/concepts/terminology/) is plain JSON, and since 2026-10-02 the recipe library imports and exports recipe files. What is missing is a native round trip with an assistant, preserving the full canonical `RecipeDocument` ([recipe fidelity synthesis](https://crosswalker.io/agent-context/zz-log/2026-07-21-portable-import-recipe-fidelity-synthesis/)) and sending nothing without an explicit preview and opt-in.
 
 - [ ] **Paste-JSON entry** beside the existing file import
-- [ ] **Context-pack command**: copy [`spec/recipe.schema.json`](https://cybersader.github.io/crosswalker/agent-context/v0-1-schema-spec/), the recipe and the source's column headers in one action
+- [ ] **Context-pack command**: copy [`spec/recipe.schema.json`](https://crosswalker.io/agent-context/v0-1-schema-spec/), the recipe and the source's column headers in one action
 - [ ] **Validate-on-paste**: name the offending field and the action at paste time
 
 ## Crosswalks: remaining items
 
 Cross-framework linking, evidence linking and re-import with identity and release lineage shipped inside v0.1.x (detail in `CHANGELOG.md`). What remains:
 
-- [ ] **CLI**: headless import, crosswalk generation and batch operations; depends on the monorepo restructure, which has not started ([distribution research](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-04-03-distribution-architecture-research/))
+- [ ] **Command line crosswalk generation and batch operations**, built on the shipped `cw` command line ([above](#deterministic-avenues-command-line-and-live-demo)); no longer waits for the monorepo restructure ([decision](https://crosswalker.io/agent-context/zz-log/2026-10-27-cli-and-live-demo-near-term/))
 - [ ] **Community-contributed recipes** beyond the bundled framework stacks
 
 ## Pass-2 link minimizer (v0.3)
 
-- [ ] Pass 2 of `render()` downgrades unambiguous full-path wikilinks to basenames when `linkStyle: shortest` (schema-reserved; [Ch 22 synthesis](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-05-04-target-structure-synthesis/))
+- [ ] Pass 2 of `render()` downgrades unambiguous full-path wikilinks to basenames when `linkStyle: shortest` (schema-reserved; [Ch 22 synthesis](https://crosswalker.io/agent-context/zz-log/2026-05-04-target-structure-synthesis/))
 
 ## Optional external Python producer (v0.5)
 
-- [ ] Opt-in, desktop-only producer over a JSON-lines protocol; the `producer` recipe field is schema-reserved ([Ch 23 synthesis §9](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/))
+- [ ] Opt-in, desktop-only producer over a JSON-lines protocol; the `producer` recipe field is schema-reserved ([Ch 23 synthesis §9](https://crosswalker.io/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/))
 
 ## Performance: v1.0+ companion plugins
 
-Researched 2026-05-02 and reframed by the [v0.1 stack pivot](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-05-02-v0-1-initial-stack-pivot/) as opt-in companion plugins for users who outgrow the Tier 2 default.
+Researched 2026-05-02 and reframed by the [v0.1 stack pivot](https://crosswalker.io/agent-context/zz-log/2026-05-02-v0-1-initial-stack-pivot/) as opt-in companion plugins for users who outgrow the Tier 2 default.
 
 - [ ] **Incremental Tier 2 projection**: the index persists since 2026-10-03, but every launch still runs a full startup refresh; skip unchanged notes
-- [ ] **"Crosswalker Power Query"**: DuckDB-WASM + Oxigraph + Nemo, for vaults past the ~100K mapping ceiling ([Ch 18 triggers](https://cybersader.github.io/crosswalker/agent-context/zz-research/2026-05-02-challenge-18-tier-2-lite-rule-subset/#3-migration-trigger-spec), [Ch 14](https://cybersader.github.io/crosswalker/agent-context/zz-research/2026-05-02-challenge-14-missed-engines/))
-- [ ] **Comunica federation** (conditional on an honest assessment; [third-wave §7.2](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-05-02-direction-third-wave-architectural-shifts/#72-confirmed-defaults--user-sign-off-received-2026-05-02))
-- [ ] **Compliance-export mode**: T2/T3 audit profiles ([Ch 15 §E](https://cybersader.github.io/crosswalker/agent-context/zz-research/2026-05-02-challenge-15-non-git-audit-trail/)); needs v0.1.8 first
+- [ ] **"Crosswalker Power Query"**: DuckDB-WASM + Oxigraph + Nemo, for vaults past the ~100K mapping ceiling ([Ch 18 triggers](https://crosswalker.io/agent-context/zz-research/2026-05-02-challenge-18-tier-2-lite-rule-subset/#3-migration-trigger-spec), [Ch 14](https://crosswalker.io/agent-context/zz-research/2026-05-02-challenge-14-missed-engines/))
+- [ ] **Comunica federation** (conditional on an honest assessment; [third-wave §7.2](https://crosswalker.io/agent-context/zz-log/2026-05-02-direction-third-wave-architectural-shifts/#72-confirmed-defaults--user-sign-off-received-2026-05-02))
+- [ ] **Compliance-export mode**: T2/T3 audit profiles ([Ch 15 §E](https://crosswalker.io/agent-context/zz-research/2026-05-02-challenge-15-non-git-audit-trail/)); needs v0.1.8 first
 - [ ] **Migration trigger UX** and a "this will be heavy" confirm gate for large views
 - [ ] **PQC dual-sign** (Ed25519 → ML-DSA-44) from 2027
 
 ## Deployment: v2.0+ Tier 3 server guide
 
-A deployment guide, not plugin code ([Ch 16](https://cybersader.github.io/crosswalker/agent-context/zz-research/2026-05-02-challenge-16-tier-3-reconsideration/)): Postgres + JSONB + recursive CTE by default; Fuseki or oxigraph-server for SPARQL; layered Fuseki + DuckDB; TerminusDB as an opt-in mirror; Apache AGE as a Postgres fallback. Because files are canonical, moving engines means re-running the projector.
+A deployment guide, not plugin code ([Ch 16](https://crosswalker.io/agent-context/zz-research/2026-05-02-challenge-16-tier-3-reconsideration/)): Postgres + JSONB + recursive CTE by default; Fuseki or oxigraph-server for SPARQL; layered Fuseki + DuckDB; TerminusDB as an opt-in mirror; Apache AGE as a Postgres fallback. Because files are canonical, moving engines means re-running the projector.
 
 ## Evolution: "The meta-system"
 
-[Ontology evolution](https://cybersader.github.io/crosswalker/concepts/ontology-evolution/) support, the contribution [no existing tool makes](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-04-03-deep-research-synthesis/#research-1-ontology-lifecycle-management--does-anything-solve-this). Release change is re-attestation first (decided 2026-08-27; replaced-control lineage shipped 2026-08-28, see `CHANGELOG.md`).
+[Ontology evolution](https://crosswalker.io/concepts/ontology-evolution/) support, the contribution [no existing tool makes](https://crosswalker.io/agent-context/zz-log/2026-04-03-deep-research-synthesis/#research-1-ontology-lifecycle-management--does-anything-solve-this). Release change is re-attestation first (decided 2026-08-27; replaced-control lineage shipped 2026-08-28, see `CHANGELOG.md`).
 
 - [ ] **Version-transition loop**: pin old and new versions, detect change, review mappings, apply, validate, record for replay and audit
-- [ ] **Generalized Knowledge Set governance** beyond the v0.1 mapping set envelope (kept deferred by the 2026-10-03 [slice 2](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-03-mapping-set-typed-table-and-recipe-synthesis/) decision)
-- [ ] **[Ontology diff primitives](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-04-09-atomic-operations-research/)** and a migration strategy engine on top of them
-- [ ] **[Entity-aligned migration UX](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-04-09-user-first-ontology-maintenance/)**, [version registry](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/#thread-1-detection-is-pluggable-not-primitive), [per-framework decisioning](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/#thread-4-decisioning-as-per-framework-taxonomy-taxonomy-over-taxonomies), [progressive classification](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-04-03-vision-alignment-decisions/#1-meta-layer-ux-progressive-classification)
-- [ ] **Stale [crosswalk](https://cybersader.github.io/crosswalker/agent-context/framework-crosswalks/) detection** when a newer framework version exists
+- [ ] **Generalized Knowledge Set governance** beyond the v0.1 mapping set envelope (kept deferred by the 2026-10-03 [slice 2](https://crosswalker.io/agent-context/zz-log/2026-10-03-mapping-set-typed-table-and-recipe-synthesis/) decision)
+- [ ] **[Ontology diff primitives](https://crosswalker.io/agent-context/zz-log/2026-04-09-atomic-operations-research/)** and a migration strategy engine on top of them
+- [ ] **[Entity-aligned migration UX](https://crosswalker.io/agent-context/zz-log/2026-04-09-user-first-ontology-maintenance/)**, [version registry](https://crosswalker.io/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/#thread-1-detection-is-pluggable-not-primitive), [per-framework decisioning](https://crosswalker.io/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/#thread-4-decisioning-as-per-framework-taxonomy-taxonomy-over-taxonomies), [progressive classification](https://crosswalker.io/agent-context/zz-log/2026-04-03-vision-alignment-decisions/#1-meta-layer-ux-progressive-classification)
+- [ ] **Stale [crosswalk](https://crosswalker.io/agent-context/framework-crosswalks/) detection** when a newer framework version exists
 
 ## Community: "Share and scale"
 
 - [ ] **Community recipe registry** and **package lifecycle** (verify Package Manifest hashes, signatures and licenses on install; needs v0.1.8)
-- [ ] **Expanded [OSCAL](https://cybersader.github.io/crosswalker/concepts/framework-standards/) support**, only after the v0.1.7 target-shape decision
-- [ ] **Compliance dashboards and auditor reports** on [Bases](https://cybersader.github.io/crosswalker/concepts/metadata-ecosystem/); needs Bases query emission first
-- [ ] **[Custom](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/#thread-5-custom-transfer-logic) and AI-assisted transforms**
-- [ ] **Extended graph support** (DAGs, [hypergraphs](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/#thread-2-beyond-hierarchical-taxonomies))
-- [ ] **Mobile Obsidian preview (exploratory, raised 2026-09-23)**: desktop is primary; mobile is a Capacitor app, so desktop emulation approximates layout only. Supports the mobile-portability constraint behind the [TypeScript engine commitment](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/)
+- [ ] **Expanded [OSCAL](https://crosswalker.io/concepts/framework-standards/) support**, only after the v0.1.7 target-shape decision
+- [ ] **Compliance dashboards and auditor reports** on [Bases](https://crosswalker.io/concepts/metadata-ecosystem/); needs Bases query emission first
+- [ ] **[Custom](https://crosswalker.io/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/#thread-5-custom-transfer-logic) and AI-assisted transforms**
+- [ ] **Extended graph support** (DAGs, [hypergraphs](https://crosswalker.io/agent-context/zz-log/2026-04-09-primitives-depth-and-pluggable-layers/#thread-2-beyond-hierarchical-taxonomies))
+- [ ] **Mobile Obsidian preview (exploratory, raised 2026-09-23)**: desktop is primary; mobile is a Capacitor app, so desktop emulation approximates layout only. Supports the mobile-portability constraint behind the [TypeScript engine commitment](https://crosswalker.io/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/)
 - [ ] **Community plugin submission** (at v0.1-RC) and **spec publication** of the StewardshipProfile taxonomy and diff engine
 
-Long-horizon watch register for substrates not adopted: [embedded-vs-server-substrates](https://cybersader.github.io/crosswalker/concepts/embedded-vs-server-substrates/#long-horizon-watch-register).
+Long-horizon watch register for substrates not adopted: [embedded-vs-server-substrates](https://crosswalker.io/concepts/embedded-vs-server-substrates/#long-horizon-watch-register).
 
 ---
 
 ## Recent decisions
 
-- [Tier 2 worker persistence](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/) (2026-10-03)
-- [Mapping set release record, slice 2](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-03-mapping-set-typed-table-and-recipe-synthesis/) (2026-10-03)
-- [Mapping set release record](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-03-mapping-set-release-record-synthesis/) (2026-10-03)
-- [Recipe Run again](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-02-recipe-run-again-synthesis/) (2026-10-02)
-- [Recipe library Gate 2](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-10-02-recipe-library-gate-2-ratification/) (2026-10-02)
-- [Mapping storage dual form](https://cybersader.github.io/crosswalker/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/) (2026-09-30)
+- [UI and command line parity becomes an enforced rule](https://crosswalker.io/agent-context/zz-log/2026-10-30-ui-cli-parity-rule/) (2026-10-30)
+- [Shared publisher namespaces: qualify actual collisions](https://crosswalker.io/agent-context/zz-log/2026-10-30-shared-prefix-identity-synthesis/) (2026-10-30)
+- [Vaults built outside the plugin: no extra tool, one invariant](https://crosswalker.io/agent-context/zz-log/2026-10-29-outside-the-plugin-invariant/) (2026-10-29)
+- [The demo carries the full MITRE F3 catalog](https://crosswalker.io/agent-context/zz-log/2026-10-29-f3-real-data-in-demo/) (2026-10-29)
+- [MITRE F3 added as a recognized source](https://crosswalker.io/agent-context/zz-log/2026-10-27-mitre-f3-added/) (2026-10-27)
+- [Command line and live demo move to the near term](https://crosswalker.io/agent-context/zz-log/2026-10-27-cli-and-live-demo-near-term/) (2026-10-27)
+- [Tier 2 worker persistence](https://crosswalker.io/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/) (2026-10-03)
+- [Mapping set release record, slice 2](https://crosswalker.io/agent-context/zz-log/2026-10-03-mapping-set-typed-table-and-recipe-synthesis/) (2026-10-03)
+- [Mapping set release record](https://crosswalker.io/agent-context/zz-log/2026-10-03-mapping-set-release-record-synthesis/) (2026-10-03)
+- [Recipe Run again](https://crosswalker.io/agent-context/zz-log/2026-10-02-recipe-run-again-synthesis/) (2026-10-02)
+- [Recipe library Gate 2](https://crosswalker.io/agent-context/zz-log/2026-10-02-recipe-library-gate-2-ratification/) (2026-10-02)
+- [Mapping storage dual form](https://crosswalker.io/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/) (2026-09-30)
 
-Full list: [decision log](https://cybersader.github.io/crosswalker/agent-context/zz-log/). Also: [research deliverables](https://cybersader.github.io/crosswalker/agent-context/zz-research/), [research challenges](https://cybersader.github.io/crosswalker/agent-context/zz-challenges/), [docs roadmap page](https://cybersader.github.io/crosswalker/reference/roadmap/).
+Full list: [decision log](https://crosswalker.io/agent-context/zz-log/). Also: [research deliverables](https://crosswalker.io/agent-context/zz-research/), [research challenges](https://crosswalker.io/agent-context/zz-challenges/), [docs roadmap page](https://crosswalker.io/reference/roadmap/).
 
 ---
 
 ## Archive
 
-- [v0.1 design phase and Foundation](https://cybersader.github.io/crosswalker/reference/roadmap/v0-1-design-phase/): the April to May 2026 design phase, its build target with where each item landed, resolved Foundation decisions, the decision-log index of that period, and what carried forward (archived 2026-10-03)
-- [v0.1 MVP roadmap](https://cybersader.github.io/crosswalker/reference/roadmap/v0-1-mvp/): the original 0.1.0 MVP scope (2026-04-02, complete)
+- [v0.1 design phase and Foundation](https://crosswalker.io/reference/roadmap/v0-1-design-phase/): the April to May 2026 design phase, its build target with where each item landed, resolved Foundation decisions, the decision-log index of that period, and what carried forward (archived 2026-10-03)
+- [v0.1 MVP roadmap](https://crosswalker.io/reference/roadmap/v0-1-mvp/): the original 0.1.0 MVP scope (2026-04-02, complete)

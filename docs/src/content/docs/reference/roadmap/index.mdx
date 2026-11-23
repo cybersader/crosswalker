@@ -1,12 +1,12 @@
 ---
 title: Roadmap
-description: Where Crosswalker is now (October 2026), what is active, and the phases after v0.1, each linked to its milestone page or decision log.
+description: Where Crosswalker is now (November 2026), what is active, and the phases after v0.1, each linked to its milestone page or decision log.
 tags: [development, architecture]
 ---
 
 Crosswalker is a **meta-system for [ontology lifecycle](/crosswalker/concepts/ontology-lifecycle/) management**: import an ontology into Obsidian, map it to others and to evidence, query it, and share it. This page shows current work first, then what comes after v0.1. Every significant decision is [logged with rationale](/crosswalker/agent-context/zz-log/); delivery detail lives only in [`CHANGELOG.md` `[Unreleased]`](https://github.com/cybersader/crosswalker/blob/main/CHANGELOG.md#unreleased--v01-implementation-in-progress-2026-05-04--present).
 
-**Status last verified:** 2026-10-03 — every line re-checked against the milestone pages, CHANGELOG [Unreleased] and the 2026-10-03 decision logs
+**Status last verified:** 2026-11-23 — every line re-checked against the milestone pages, `CHANGELOG.md` `[Unreleased]` (through PR #114, merged 2026-11-21), the decision logs and the merge history of `main`
 
 :::note[How this roadmap is maintained]
 Only active and future work lives here. The [milestone hub](/crosswalker/reference/roadmap/milestones/) is the live source for v0.1.x status; if the two disagree, the hub wins. When a phase completes, its checklist moves to an archive page with a "What carried forward" section, and `ROADMAP.md` at the repo root is updated to match.
@@ -14,18 +14,19 @@ Only active and future work lives here. The [milestone hub](/crosswalker/referen
 
 ---
 
-## Where we are (2026-10-03)
+## Where we are (2026-11-23)
 
 | Milestone | Status | Date | What it is |
 |---|---|---|---|
 | [v0.1.1](/crosswalker/reference/roadmap/milestones/v0-1-1-types-and-validation/) to [v0.1.5](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/) | ✅ Done | 2026-05-04 to 05-06 | Types and validation, `render()`, generation engine, junction notes and crosswalk edges, iterator boundary, [Tier 2](/crosswalker/concepts/system-architecture/) sqlite sidecar |
 | [v0.1.6](/crosswalker/reference/roadmap/milestones/v0-1-6-bases-query-layer/) | 🚧 Phases 1 to 7 ✅ | through 2026-07-11 | Bases pivot view, SSSOM import, query primitives, shape workbench. Bases query emission into generated notes is largely unbuilt |
-| [v0.1.7](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) | 🚧 Active | Tracks 1 to 3 ✅ 2026-10-02/03 | Portability: recipe library, Run again and replay proofs, mapping set release records. Remaining: exporter completion and the OSCAL target-shape decision |
+| [v0.1.7](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) | 🚧 Active | Tracks 1 to 3 ✅ 2026-10-02/03; more shipped through 2026-11-21 | Portability: recipe library, Run again and replay proofs, mapping set release records. Remaining: exporter completion and the OSCAL target-shape decision. [Shipped since 2026-10-03](#shipped-since-2026-10-03) |
 | [v0.1.8](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/) | 📋 Planning | not started | Execution records, audit, package manifests |
 | [v0.1-RC](/crosswalker/reference/roadmap/milestones/v0-1-rc-bundle-and-ship/) | 📋 Planning | not started | Artifact-chain acceptance, bundle, mobile check, community submission |
-| Run inside OpenClast (not a milestone) | 🚧 Verified loading | 2026-10-03 | Crosswalker in the owner's browser-hosted Obsidian; [see below](#run-inside-openclast-browser-hosted-obsidian) |
+| Command line and live demo (not a milestone) | 🚧 Mostly done | 2026-10-27 to 11-18 | `cw` imports, validates, exports, replays, builds stacks and reports; the demo vault is built by one command. [See below](#deterministic-avenues-command-line-and-live-demo) |
+| Run inside OpenClast (not a milestone) | 🚧 In use | 2026-11-21 | Crosswalker runs in a private browser-hosted Obsidian demo room; [see below](#run-inside-openclast-browser-hosted-obsidian) |
 
-Public prereleases `0.1.0` to `0.1.6` were published as GitHub pre-releases between 2026-09-13 and 2026-10-02 (source: git tags). User-facing notes for each are at the end of `CHANGELOG.md`.
+Public prereleases `0.1.0` to `0.1.6` were published as GitHub pre-releases between 2026-09-13 and 2026-10-02 (source: git tags). User-facing notes for each are at the end of `CHANGELOG.md`. No prerelease has been cut since; everything after 2026-10-02 sits in `CHANGELOG.md` `[Unreleased]`. Since 2026-11-16 a version tag builds an attested draft release for a maintainer to publish.
 
 **Delivery posture** (2026-09-05): a correct, usable, explicitly supported workflow comes before optimizing every ingestion path; silent data loss, crashes on supported inputs and false completion are blockers. See [ingestion safety and staged performance](/crosswalker/agent-context/zz-log/2026-09-05-ingestion-safety-and-staged-performance/).
 
@@ -44,6 +45,25 @@ Make recipes, source bindings and mapping sets portable without merging their id
 
 Also inside this milestone's window: nested source records and [body projection](/crosswalker/agent-context/zz-log/2026-09-23-body-projection-sections-inside-the-note/) (merged 2026-09-23) and [mapping storage as notes or one table](/crosswalker/agent-context/zz-log/2026-09-30-mapping-storage-dual-form-synthesis/) (merged 2026-09-30).
 
+### Shipped since 2026-10-03
+
+Headlines only; delivery detail lives in `CHANGELOG.md` `[Unreleased]`. None of these closes the open exporter or OSCAL items, so v0.1.7 stays 🚧.
+
+- **Recommended framework defaults** (2026-11-02/03): linked recipes for NIST CSF 2.0, SP 800-53, ATT&CK, MITRE F3 and D3FEND build each framework as a connected graph (parent links, children lists, hub notes); earlier recipes stay as "previous default"
+- **Import**: sparse-depth outline sources (2026-11-02), source-first import navigation (2026-11-13), readable mapping filenames from recipe templates (2026-10-31), recipe-aware CSV export (2026-10-27), and identity rules for publishers sharing a namespace ([decision](/crosswalker/agent-context/zz-log/2026-10-30-shared-prefix-identity-synthesis/))
+- **Explore and query**: the read-only framework Connections browser (2026-10-30), color the graph by framework (2026-10-29), installed-framework summaries (2026-11-16), and the built-in "Unmapped framework entries" report for entries with no crosswalk to another framework (2026-11-21)
+- **Large vaults**: indexing finishes and Connections loads on vaults with tens of thousands of notes (2026-11-14)
+- **Project health**: one quality gate (`bun run check`) on every change, attested draft releases (2026-11-16), and an enforced UI and command line capability inventory ([decision](/crosswalker/agent-context/zz-log/2026-10-30-ui-cli-parity-rule/))
+
+## Deterministic avenues: command line and live demo
+
+Every lifecycle stage should be reachable both from the UI and from a deterministic script, with the same output either way. The UI stays primary and the command line is the escape hatch ([decision](/crosswalker/agent-context/zz-log/2026-10-27-cli-and-live-demo-near-term/)). Coverage in both directions is tracked on the [UI and command line parity](/crosswalker/reference/ui-cli-parity/) page.
+
+- [x] **Command line first slice** (2026-10-27/28): `cw` runs import, validate, export and replay over the same engine as the plugin, against a plain folder of Markdown, without the monorepo restructure. It has since gained `graph`, `recipes`, `frameworks` (including `--unmapped`) and `stack build` (2026-11-18). See [producing vaults outside Obsidian](/crosswalker/concepts/producing-vaults-outside-obsidian/) and the [outside-the-plugin decision](/crosswalker/agent-context/zz-log/2026-10-29-outside-the-plugin-invariant/)
+- [x] **Demo vault built by one command**: a multi-framework vault (full NIST catalogs, ATT&CK Enterprise, D3FEND, MITRE F3, crosswalks, evidence notes, saved queries) built from redistributable content; since 2026-11-18 it is defined by a stack file. A separate private add-on enriches it with locally held licensed frameworks
+- [ ] **Public live demo**: the demo runs in a private OpenClast room today; a room anyone can open is not set up yet
+- [ ] **Stack files in Obsidian**: saving and loading stack files from the plugin UI (command line only today)
+
 ## Next: v0.1.8 audit trail and v0.1-RC
 
 - **[v0.1.8](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/)**: one terminal Execution Record per run, provenance and log events linked to it, git + Ed25519 + FRE 902(13) consuming it, and a separate Package Manifest per release. Nothing is built yet: no `src/audit/` exists and `spec/README.md` defines neither contract. Gate 3 of the [save-and-replay register](/crosswalker/agent-context/zz-log/2026-07-25-save-and-exact-replay-decision-register/) lands here.
@@ -51,7 +71,7 @@ Also inside this milestone's window: nested source records and [body projection]
 
 ## Run inside OpenClast (browser-hosted Obsidian)
 
-Owner goal set 2026-10-03: Crosswalker runs inside OpenClast, Obsidian hosted in a browser tab, within about a month. What holds on 2026-10-03 ([synthesis §4](/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/#4-what-the-openclast-collaboration-established)):
+Owner goal set 2026-10-03: Crosswalker runs inside OpenClast, Obsidian hosted in a browser tab, within about a month. That goal is met: as of 2026-11-21 the current build is installed in a private multi-framework demo room after passing the OpenClast plugin harness check. What was established on 2026-10-03 ([synthesis §4](/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/#4-what-the-openclast-collaboration-established)):
 
 - Crosswalker loads unmodified: 33 commands and 2 views register, the import wizard renders, sqlite loads (source: synthesis §4)
 - The [Tier 2](/crosswalker/concepts/system-architecture/) search index now persists there and on desktop (it never had, on any host), by hosting sqlite in a worker. This narrowed the 2026-05-04 [Ch 23](/crosswalker/agent-context/zz-log/2026-05-04-bundle-engine-language-synthesis/) "main thread, no Web Workers" commitment to the import engine only ([§3](/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/#3-narrowing-the-ch-23-commitment)). Measured numbers are in `CHANGELOG.md` `[Unreleased]`
@@ -62,21 +82,21 @@ Open items from the same log (§5, §6):
 
 - [ ] OpenClast's compatibility entry for Crosswalker moves from "Worker not yet exercised" to exercised once the host rerun is green
 - [ ] Reopen the search index automatically if its worker crashes mid-session (today a reset or reload is needed)
-- [ ] Stay within OpenClast's plugin store cap of 10 MiB unpacked; the production bundle was about 4.9 MiB on 2026-10-03 (source: ruling W2)
+- [ ] Stay within OpenClast's plugin store cap of 10 MiB unpacked; the production bundle was about 4.9 MiB on 2026-10-03 (source: ruling W2) and 5,390,519 bytes (about 5.1 MiB) on 2026-11-21 (source: production build of PR #114)
 
 ---
 
-## Where the built system stands (2026-10-03)
+## Where the built system stands (2026-11-23)
 
 One or two honest sentences per area; detail on the linked pages.
 
 | Area | State |
 |---|---|
-| Import | Shipped and tested on full frameworks (CSV, XLSX, JSON, nested records, framework stacks). [Import wizard](/crosswalker/features/import-wizard/) |
-| Crosswalking and mapping | Shipped and tested on full frameworks: SSSOM and typed-table import/export, recipe crosswalk columns, mapping review, release records. [v0.1.7](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) |
+| Import | Shipped and tested on full frameworks (CSV, XLSX, JSON, nested records, sparse-depth outlines, framework stacks), from the wizard or `cw`. Linked recommended defaults build connected framework graphs. [Import wizard](/crosswalker/features/import-wizard/) |
+| Crosswalking and mapping | Shipped and tested on full frameworks: SSSOM and typed-table import/export, recipe crosswalk columns, mapping review, release records, readable mapping filenames, a read-only Connections browser and the Unmapped framework entries report. [v0.1.7](/crosswalker/reference/roadmap/milestones/v0-1-7-exporters/) |
 | Evidence mapping | Engine shipped (junction notes, coverage with change detection), surfaced only as a snapshot report; `findCoverageGaps` stays deferred ([v0.1.5 page](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/)) |
-| Query layer | Tier 2 query helpers and the Bases pivot view shipped. Bases query emission into generated notes is largely unbuilt ([v0.1.6 tasks](/crosswalker/reference/roadmap/milestones/v0-1-6-bases-query-layer/)); closure-cache invalidation policy is an open question ([v0.1.5 page](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/)); `review_status` is stored in the index but not filterable through the query helpers (`src/tier2/queries.ts`); `sqlite-vec` waits for the 2026-11-06 revisit ([WASM-A pivot](/crosswalker/agent-context/zz-log/2026-05-06-wasm-a-pivot-synthesis/)) |
-| Analytics | Read-time views only. No computed analytics layer and no Crosswalker graph view; recipe `graph_edges` stay schema-reserved for v0.2 |
+| Query layer | Tier 2 query helpers and the Bases pivot view shipped. Bases query emission into generated notes is largely unbuilt ([v0.1.6 tasks](/crosswalker/reference/roadmap/milestones/v0-1-6-bases-query-layer/)); closure-cache invalidation policy is an open question ([v0.1.5 page](/crosswalker/reference/roadmap/milestones/v0-1-5-tier-2-sidecar/)); `review_status` is stored in the index but not filterable through the query helpers (`src/tier2/queries.ts`); `sqlite-vec` was due for a 2026-11-06 revisit ([WASM-A pivot](/crosswalker/agent-context/zz-log/2026-05-06-wasm-a-pivot-synthesis/)); no revisit decision is logged yet, so it stays deferred |
+| Analytics | Read-time views and reports only (framework summaries, Connections, unmapped entries). No computed analytics layer and no Crosswalker graph view; the core graph can be colored by framework. Recipe `graph_edges` stay schema-reserved for v0.2 |
 | Audit trail | Not started; that is [v0.1.8](/crosswalker/reference/roadmap/milestones/v0-1-8-audit-trail/) |
 
 ---
@@ -106,7 +126,7 @@ A [recipe](/crosswalker/concepts/terminology/) is plain JSON, and since 2026-10-
 
 Cross-framework linking, evidence linking and re-import with identity and release lineage shipped inside v0.1.x (detail in `CHANGELOG.md`). What remains:
 
-- [ ] **CLI**: headless import, crosswalk generation and batch operations; depends on the monorepo restructure, which has not started ([distribution research](/crosswalker/agent-context/zz-log/2026-04-03-distribution-architecture-research/))
+- [ ] **Command line crosswalk generation and batch operations**, built on the shipped `cw` command line ([above](#deterministic-avenues-command-line-and-live-demo)); no longer waits for the monorepo restructure ([decision](/crosswalker/agent-context/zz-log/2026-10-27-cli-and-live-demo-near-term/))
 - [ ] **Community-contributed recipes** beyond the bundled framework stacks
 
 ## Pass-2 link minimizer (v0.3)
@@ -162,6 +182,12 @@ Long-horizon watch register for substrates not adopted: [embedded-vs-server-subs
 
 ## Recent decisions
 
+- [UI and command line parity becomes an enforced rule](/crosswalker/agent-context/zz-log/2026-10-30-ui-cli-parity-rule/) (2026-10-30)
+- [Shared publisher namespaces: qualify actual collisions](/crosswalker/agent-context/zz-log/2026-10-30-shared-prefix-identity-synthesis/) (2026-10-30)
+- [Vaults built outside the plugin: no extra tool, one invariant](/crosswalker/agent-context/zz-log/2026-10-29-outside-the-plugin-invariant/) (2026-10-29)
+- [The demo carries the full MITRE F3 catalog](/crosswalker/agent-context/zz-log/2026-10-29-f3-real-data-in-demo/) (2026-10-29)
+- [MITRE F3 added as a recognized source](/crosswalker/agent-context/zz-log/2026-10-27-mitre-f3-added/) (2026-10-27)
+- [Command line and live demo move to the near term](/crosswalker/agent-context/zz-log/2026-10-27-cli-and-live-demo-near-term/) (2026-10-27)
 - [Tier 2 worker persistence](/crosswalker/agent-context/zz-log/2026-10-03-tier2-worker-persistence-synthesis/) (2026-10-03)
 - [Mapping set release record, slice 2](/crosswalker/agent-context/zz-log/2026-10-03-mapping-set-typed-table-and-recipe-synthesis/) (2026-10-03)
 - [Mapping set release record](/crosswalker/agent-context/zz-log/2026-10-03-mapping-set-release-record-synthesis/) (2026-10-03)
